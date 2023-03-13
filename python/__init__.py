@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-# we need to import _C here to avoid confusing error message generated from failure in this python script ended up with complaining on `_C` not defined for `_C._FusionDefinition`
+# we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
+# complaining on `_C` not defined for `_C._FusionDefinition`
 from . import _C
-from ._C import *
+from ._C import *  # noqa: F401,F403
 
 class FusionDefinition(_C._FusionDefinition):
     def __enter__(self):
@@ -52,7 +53,7 @@ class FusionDefinition(_C._FusionDefinition):
     def from_pytorch(self, tensor) :
         """
         Defines an nvfuser input tensor from a pytorch tensor
-        
+
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
 
@@ -68,7 +69,7 @@ class FusionDefinition(_C._FusionDefinition):
             raise ValueError("Tensor should be on a cuda device!")
 
         return self.define_tensor(sizes=tensor.size(), strides=tensor.stride(),
-            dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype))
+                                  dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype))
 
 from .nvfuser_version import __version__
 

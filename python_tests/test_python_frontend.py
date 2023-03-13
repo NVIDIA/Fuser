@@ -961,7 +961,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # Is there a better way to test distribution?!
-        self.assertTrue(nvf_out[0].mean().cpu().float().isclose(torch.tensor((hi-lo)/2.0), rtol=1e-2, atol=1e-2).item())
+        self.assertTrue(nvf_out[0].mean().cpu().float().isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2).item())
         self.assertTrue(nvf_out[0].min().cpu().float().isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2).item())
         self.assertTrue(nvf_out[0].max().cpu().float().isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2).item())
 
@@ -1141,10 +1141,11 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(at_rfloat, rfloat)
         self.assertEqual(at_rdouble, rdouble)
-        
+
     def test_reduction_complex_number(self) :
         def test_dtype(torch_dtype):
             inputs = [torch.randn(2, 32, device='cuda', dtype=torch_dtype)]
+
             def fusion_func(fd: FusionDefinition) :
                 t0 = fd.from_pytorch(inputs[0])
                 t1 = fd.ops.sum(t0, [-1], False, torch_dtype_to_nvfuser_dtype(torch_dtype))
@@ -1452,8 +1453,7 @@ class TestNvFuserFrontend(TestCase):
     def test_real_imag(self):
         for dtype in [
                 torch.complex128,
-                torch.complex64,
-            ]:
+                torch.complex64]:
             inputs = [
                 torch.randn(5, dtype=dtype, device='cuda'),
             ]
