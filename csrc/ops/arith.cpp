@@ -552,12 +552,10 @@ TensorView* eye(Val* size, DataType dtype) {
 
 // UNARY OPERATIONS
 
-#define NVFUSER_DEFINE_UNARY_OP(op_name, op_type) \
-  Val* op_name(Val* v) {                          \
-    return unaryOp(UnaryOpType::op_type, v);      \
-  }                                               \
-  TensorView* op_name(TensorView* tv) {           \
-    return unaryOp(UnaryOpType::op_type, tv);     \
+#define NVFUSER_DEFINE_UNARY_OP(op_name, op_type)                   \
+  Val* op_name(Val* v) { return unaryOp(UnaryOpType::op_type, v); } \
+  TensorView* op_name(TensorView* tv) {                             \
+    return unaryOp(UnaryOpType::op_type, tv);                       \
   }
 
 NVFUSER_DEFINE_UNARY_OP(set, Set)
@@ -688,12 +686,10 @@ NVFUSER_DEFINE_UNARY_FLOAT_OP(tan, Tan)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(tanh, Tanh)
 #undef NVFUSER_DEFINE_UNARY_FLOAT_OP
 
-#define NVFUSER_DEFINE_UNARY_IS_OP(op_name, op_type) \
-  Val* op_name(Val* v) {                             \
-    return unaryIsOp(UnaryOpType::op_type, v);       \
-  }                                                  \
-  TensorView* op_name(TensorView* tv) {              \
-    return unaryIsOp(UnaryOpType::op_type, tv);      \
+#define NVFUSER_DEFINE_UNARY_IS_OP(op_name, op_type)                  \
+  Val* op_name(Val* v) { return unaryIsOp(UnaryOpType::op_type, v); } \
+  TensorView* op_name(TensorView* tv) {                               \
+    return unaryIsOp(UnaryOpType::op_type, tv);                       \
   }
 
 NVFUSER_DEFINE_UNARY_IS_OP(isfinite, IsFinite)

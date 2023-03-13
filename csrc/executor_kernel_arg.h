@@ -135,15 +135,9 @@ struct ArgAbstract {
   bool isType(ArgType type) const override {                      \
     return ArgType::TARGET_TYPE == type;                          \
   }                                                               \
-  ArgType type() const override {                                 \
-    return ArgType::TARGET_TYPE;                                  \
-  }                                                               \
-  const void* arg() const override {                              \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  void* arg() override {                                          \
-    return &ARG_NAME;                                             \
-  }                                                               \
+  ArgType type() const override { return ArgType::TARGET_TYPE; }  \
+  const void* arg() const override { return &ARG_NAME; }          \
+  void* arg() override { return &ARG_NAME; }                      \
   std::unique_ptr<ArgAbstract> copy_unique_ptr() const override { \
     return std::make_unique<TARGET_TYPE##Arg>(*this);             \
   }
