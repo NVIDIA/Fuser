@@ -7,7 +7,7 @@ from typing import Type, Union
 from ._C import DataType
 
 NumberTypeType = Union[Type[bool], Type[int], Type[float], Type[complex]]
-    
+
 _torch_dtype_to_nvfuser_dtype_map = {
     torch.cdouble: DataType.ComplexDouble,
     torch.cfloat: DataType.ComplexFloat,
@@ -31,5 +31,3 @@ def torch_dtype_to_nvfuser_dtype(dtype: Union[torch.dtype, NumberTypeType]):
     Translates from torch.dtype to nvFuser's DataType enum
     """
     return _torch_dtype_to_nvfuser_dtype_map[dtype]
-
-

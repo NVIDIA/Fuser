@@ -1,8 +1,10 @@
+// clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #pragma once
 
 #include <ATen/ATen.h>
@@ -265,9 +267,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
