@@ -1499,7 +1499,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = ctx_fusion.from_pytorch(inputs[0])
             t1 = ctx_fusion.ops.tanh(t0)
             ctx_fusion.add_output(t1)
-        
+
         # Context Based Definition with a segmented fusion
         ctx_seg_fusion = FusionDefinition()
         with ctx_seg_fusion:
@@ -1508,7 +1508,6 @@ class TestNvFuserFrontend(TestCase):
             t2 = ctx_seg_fusion.ops.sum(t0, axis=-1)
             ctx_seg_fusion.add_output(t1)
             ctx_seg_fusion.add_output(t2)
-        
 
         test_defs = [DefFuncFusion(), UserSchedFusion(), ctx_fusion, ctx_seg_fusion]
 
@@ -1523,9 +1522,9 @@ class TestNvFuserFrontend(TestCase):
             if hasattr(super(type(self), self), "definition"):
                 with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
                     _ = fd.fusion_ir()
-         
+
             _ = fd.execute(inputs)
-    
+
             code_len = len(fd.last_cuda_code())
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.last_cuda_code(intrinsic_code=True))
@@ -1536,7 +1535,7 @@ class TestNvFuserFrontend(TestCase):
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
             sched_ir_len = len(fd.fusion_ir())
             self.assertTrue(code_len > 0, "Unscheduled Fusion IR was not produced!")
-     
+
             code_len = len(fd.cuda_code_for(inputs))
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.cuda_code_for(inputs, intrinsic_code=True))
@@ -1545,7 +1544,7 @@ class TestNvFuserFrontend(TestCase):
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
             sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs, tensor_transforms=True))
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
-         
+
             # Attemp to get strings for inputs that do not heuristically match 
             # and a new fusion has not been compiled
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
