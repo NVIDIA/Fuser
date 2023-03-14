@@ -162,12 +162,6 @@ class PredicateAnalyzer : public OptOutDispatch {
     handle(merge->outer());
   }
 
-  void handle(Resize* resize) override {
-    // resize outputs are guaranteed to match by the check above in
-    // handle(IterDomain*).
-    handle(resize->in());
-  }
-
  private:
   //! BestEffort map from consumer IDs to producer IDs
   const DisjointSets<IterDomain*>& disjoint_c2p_ids_;

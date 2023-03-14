@@ -75,7 +75,6 @@ class IndexCompute : public BackwardVisitor {
   void handle(Merge*) override;
   void handle(Expr*) override;
   void handle(Swizzle2D*) override;
-  void handle(Resize*) override;
 
   // return extent_map_[id] if exists, else return id->extent()
   Val* getExtent(IterDomain* id) const;
@@ -328,19 +327,11 @@ class Index {
   // get the strides of a tensor used for the index lowering
   static std::vector<Val*> getStrides(const TensorView* tv);
 
-  // get the root indices of a consumer tensor
-  static std::vector<Val*> getConsumerRootIndices(
+  // get the root indices of a tensor used for the index lowering
+  static std::vector<Val*> getRootIndices(
       const TensorView* tv,
       const std::vector<kir::ForLoop*>& loops,
       const IndexFromIdGraph& index_from_id_graph);
-
-  // get the root indices of a producer tensor
-  static std::vector<Val*> getProducerRootIndices(
-      TensorView* producer,
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
  public:
   // Producer if it's in global memory
@@ -421,19 +412,10 @@ class Index {
   //! root domain of a consumer tensor. The returned index is intended
   //! to be used for the computation of some tensor factories, such as:
   //! eye
-  static std::vector<Val*> getConsumerPerDimLogicalIndex(
+  static std::vector<Val*> getPerDimLogicalIndex(
       TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
-
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a producer tensor.
-  static std::vector<Val*> getProducerPerDimLogicalIndex(
-      TensorView* producer_tv,
-      const TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   //! Take a consumer tensorview and loop nest and generates predicates
   //! associated with the concrete roots of the loop nest. Returns a list of

@@ -62,8 +62,6 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Swizzle2D* swizzle) override;
 
-  void handle(Resize* resize) override;
-
   // Track which root ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       id_to_root_ids_;
@@ -257,8 +255,6 @@ class ContigIDs : public OptInDispatch {
   // cases, depending on specific swizzle type and axes.
   void handle(Swizzle2D* swizzle) override {}
 
-  void handle(Resize* resize) override {}
-
   IterDomain* getCAIndexConcreteId(IterDomain* id) const;
 
   //! True if an ID is indexable.
@@ -311,9 +307,6 @@ class ContigIDs : public OptInDispatch {
   std::unique_ptr<const OrderedIdInformation> consistent_transform_info_;
 
   NonDivisibleSplitDependencies non_divisible_id_info_;
-
-  //! IDs that depend on resize output IDs
-  std::unordered_set<IterDomain*> resize_deps_;
 };
 
 } // namespace nvfuser

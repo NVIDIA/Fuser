@@ -12,7 +12,7 @@ namespace nvfuser {
 namespace pointwise_utils {
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
-  tvs_with_rfactor_ = scheduler_utils::getTVsWithNonReductionRFactor(fusion);
+  view_tvs_ = scheduler_utils::getViewTVs(fusion);
   for (auto select : ir_utils::getSelectOps(fusion)) {
     select_ids_.emplace(select->getSelectAxis());
   }
@@ -49,10 +49,9 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   // Ignore unresolved broadcast dimensions
   for (auto id : tv->getMaybeRFactorDomain()) {
     if (!eraseIfMapped(in_concrete_ids, id)) {
-      eraseIfInputMappedThroughRFactorDomain(in_concrete_ids, id);
+      eraseIfInputMappedThroughViewTo(in_concrete_ids, id);
     }
   }
-
   return in_concrete_ids.empty();
 }
 
@@ -70,14 +69,14 @@ bool DomainMap::eraseIfMapped(
   return found_match;
 }
 
-// Check if in_id is mapped to out_id through any rfactor domain.
+// Check if in_id is mapped to out_id through any view rfactor domain.
 // Currently this function only allow having one view on the path from input to
 // output. If there are multiple views, then likely the pointwise scheduler will
 // reject the fusion because we can not correctly find a reference tensor.
-void DomainMap::eraseIfInputMappedThroughRFactorDomain(
+void DomainMap::eraseIfInputMappedThroughViewTo(
     std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* id) const {
-  for (auto view : tvs_with_rfactor_) {
+  for (auto view : view_tvs_) {
     // Find any ID in view rfactor domain that is mapped to output ID
     auto view_rfactor_id = anyMapped(view->getRFactorDomain(), id);
     if (view_rfactor_id == nullptr) {

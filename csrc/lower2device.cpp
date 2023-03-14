@@ -358,9 +358,6 @@ void GpuLower::lower(Fusion* fusion) {
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
 
-  validateResize(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
-
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");

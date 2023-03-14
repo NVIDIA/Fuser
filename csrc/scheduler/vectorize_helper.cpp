@@ -579,12 +579,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
       ids.insert(ids.begin() + out_pos + 1, merge->inner());
 
       propagateExtentMergeBackward(merge);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      // Cannot vectorize through resize
-      auto find_out_it = std::find(ids.begin(), ids.end(), resize->out());
-      if (find_out_it != ids.end()) {
-        ids.erase(ids.begin(), find_out_it + 1);
-      }
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -737,12 +731,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
       }
 
       propagateExtentSplitForward(split);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      // Cannot vectorize through resize
-      auto find_in_it = std::find(ids.begin(), ids.end(), resize->in());
-      if (find_in_it != ids.end()) {
-        ids.erase(ids.begin(), find_in_it + 1);
-      }
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.

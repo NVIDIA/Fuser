@@ -4351,10 +4351,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
   const int by = 2049;
-  at::Tensor t0 =
-      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
-  at::Tensor t1 =
-      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
+  at::Tensor t0 = at::randn({bx, by}, options).index({"...", Slice(3)});
+  at::Tensor t1 = at::randn({bx, by}, options).index({"...", Slice(3)});
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;
@@ -4404,11 +4402,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
   const int by = 2049;
-
-  at::Tensor t0 =
-      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
-  at::Tensor t1 =
-      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
+  at::Tensor t0 = at::randn({bx, by}, options).index({"...", Slice(3)});
+  at::Tensor t1 = at::randn({bx, by}, options).index({"...", Slice(3)});
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;
@@ -4553,13 +4548,13 @@ TEST_F(NVFuserTest, FusionVectorization3_CUDA) {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
 
-  aten_inputs[0] = t0.index({"...", at::indexing::Slice(1)});
-  aten_inputs[1] = t1.index({"...", at::indexing::Slice(1)});
+  aten_inputs[0] = t0.index({"...", Slice(1)});
+  aten_inputs[1] = t1.index({"...", Slice(1)});
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
 
-  t0 = at::randn({bx, 2048}, options).index({"...", at::indexing::Slice(4)});
-  t1 = at::randn({bx, 2048}, options).index({"...", at::indexing::Slice(4)});
+  t0 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  t1 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
   aten_inputs = {t0, t1};
   auto cg_outputs = fe.runFusion(aten_inputs);
 

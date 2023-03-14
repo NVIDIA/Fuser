@@ -260,9 +260,6 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
 
   const auto& pred_map = GpuLower::current()->threadPredMap();
 
-  std::unordered_set<Expr*> all_exprs_inside_loop_nest;
-  std::unordered_set<Expr*> resize_exprs;
-
   while (loops.size() > 0) {
     auto loop = loops.back();
     loops.pop_back();
@@ -272,16 +269,6 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
     for (auto expr : loop->body().exprs()) {
       if (lower_utils::hasBlockSync(expr, pred_map)) {
         return false;
-      }
-      // Keep track of all expressions for additional check for
-      // resizing expressions
-      all_exprs_inside_loop_nest.insert(expr);
-      if (std::any_of(
-              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                return output->isA<TensorView>() &&
-                    ir_utils::hasResizedRfactor(output->as<TensorView>());
-              })) {
-        resize_exprs.insert(expr);
       }
     }
     // If the number of visits of the loop body per thread is one, the
@@ -315,35 +302,6 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
     for (auto nested_loop :
          ir_utils::filterByType<kir::ForLoop>(loop->body().exprs())) {
       loops.push_back(nested_loop);
-    }
-  }
-
-  // If an expression generates a resized tensor and any of its
-  // dependencies appears in the loop nest, the else clause cannot be
-  // omitted. The tensors appearing before the resizing expression has
-  // a different shape than the output of the resizing expression and
-  // its subsequent consumers, so the unswitch predicates would
-  // include the predicates for both sizes, which means the larger
-  // tensors would still need the else clause.
-  if (!resize_exprs.empty()) {
-    std::unordered_set<Val*> resize_expr_inputs;
-    std::transform(
-        resize_exprs.begin(),
-        resize_exprs.end(),
-        std::inserter(resize_expr_inputs, resize_expr_inputs.begin()),
-        [](Expr* resize_expr) { return resize_expr->input(0); });
-    if (std::any_of(
-            all_exprs_inside_loop_nest.begin(),
-            all_exprs_inside_loop_nest.end(),
-            [&](Expr* loop_expr) {
-              return std::any_of(
-                  loop_expr->outputs().begin(),
-                  loop_expr->outputs().end(),
-                  [&](Val* expr_output) {
-                    return resize_expr_inputs.count(expr_output);
-                  });
-            })) {
-      return false;
     }
   }
 

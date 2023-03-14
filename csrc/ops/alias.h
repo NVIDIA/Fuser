@@ -73,23 +73,4 @@ TORCH_CUDA_CU_API TensorView* transpose(
 //! Transpose a 2D tensor.
 TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
 
-//! Pad a tensor by given widths of zero. Similar to torch.pad, the
-//! pad_widths vector specifies the padding widths of the innermost N
-//! dimensions, where N is half the size of the width vector. Padding
-//! is always done just by zero. TODO: Support other padding types
-TORCH_CUDA_CU_API TensorView* pad(
-    TensorView* x,
-    const std::vector<Val*>& pad_widths);
-
-//! Concatenate tensors in the given dimension
-TORCH_CUDA_CU_API TensorView* cat(
-    const std::vector<TensorView*>& inputs,
-    int dim);
-
-//! Return a tensor where each dimension is sliced as specified by the
-//! ranges parameter. Stepping must be one at this moment.
-TORCH_CUDA_CU_API TensorView* slice(
-    TensorView* inp,
-    const std::vector<Slice>& ranges);
-
 } // namespace nvfuser

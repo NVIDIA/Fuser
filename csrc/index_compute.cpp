@@ -589,38 +589,8 @@ void IndexCompute::handle(Swizzle2D* swizzle_2d) {
   }
 }
 
-void IndexCompute::handle(Resize* resize) {
-  auto out_id = maybeGetExactMapConcreteID(resize->out());
-  auto in_id = maybeGetExactMapConcreteID(resize->in());
-
-  auto out_it = index_map_.find(out_id);
-
-  if (out_it == index_map_.end()) {
-    return;
-  }
-
-  const auto out_ind = out_it->second;
-
-  if (isZero(out_id) || hasZeroMerged(out_id)) {
-    // When the out ID is (partially) zero, the in ID is not indexable. Don't
-    // add any new mapping to the index and extent maps. This is fine since when
-    // a resize shows up as part of rfactor transformations, the input to the
-    // resize is not indexed as the indexing is done using the rfactor root
-    // domain. This could be an issue when a resize is shows up outside of
-    // rfactor transfomations, but currently that only can happen when a
-    // producer tensor is transformed to look like a consumer. Since inlining is
-    // not allowed with resize, the out ID should never be a zero domain in that
-    // case.
-    return;
-  } else {
-    index_map_[in_id] = sub(out_ind, resize->leftExpand());
-    extent_map_[in_id] = sub(
-        sub(getExtent(out_id), resize->leftExpand()), resize->rightExpand());
-  }
-}
-
 void IndexCompute::handle(Expr* e) {
-  auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D>();
   TORCH_INTERNAL_ASSERT(
       is_expected_type, "Invalid expr type found in transform traversal.");
   BackwardVisitor::handle(e);
@@ -1399,10 +1369,97 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getGlobalProducerIndex");
 
-  auto root_indices = getProducerRootIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  // Replay producer to look like consumer so we can index on producer since
+  // our loop nests look like consumer
+  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv, false);
 
-  const auto& root_dom = producer_tv->getMaybeRFactorDomain();
+  TensorDomain* producerAsC =
+      TransformReplay::replayPasC(producer_tv, consumer_tv, -1, pairwise_map)
+          .first;
+
+  // Make the producer_tv look like consumer while performing indexing math
+  ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
+
+  // Map sent to best effort replay needs to match the exact incantation for
+  // compute_at_mode.cpp with MappingMode::Index
+  auto c2p_root_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv, true)
+          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+
+  // This replay has to be consistent with compute at index map.
+  BestEffortReplay replay_producer_as_consumer(
+      producer_tv->domain()->domain(),
+      consumer_tv->domain()->domain(),
+      c2p_root_map);
+
+  auto c2p_map = replay_producer_as_consumer.getReplay();
+
+  // Make sure at least root domains are mapped even when extents may
+  // be different. This mapping is important for the indexing lookup
+  // tensors of PyTorch gather as a producer. The IDs of a lookup
+  // tensor may have larger extents than those of the corresponding
+  // output tensor, but the index expressions to those output IDs can
+  // still be used for the producer. Note that we always do not map
+  // the indirectly accessed ID and its corresponding output ID. The
+  // above relaxed mapping is only for the rest of the IDs.
+  //
+  // Note that when the consumer has swizzle, the swizzle are skipped. For
+  // example, if we have:
+  //   consumer:
+  //     root: I0, I1, I2
+  //     leaf: I0, I3, I4
+  //   producer:
+  //     root I5, I6, I7
+  // where I3, I4 = swizzle(I1, I2) , then the c2p map will be I3->I6, I4->I7,
+  // I1 and I2 are not mapped. For this case, we should allow the root unmapped,
+  // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
+  // is not what we want.
+  const auto p2c_map_ = invertOneToOneMap(c2p_map);
+  for (const auto& kv :
+       PairwiseRootDomainMap(producer_tv, consumer_tv, true, false)
+           .mapConsumerToProducer(
+               consumer_tv->domain(), producer_tv->domain())) {
+    auto consumer_root_id = kv.first;
+    auto producer_root_id = kv.second;
+    if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
+        p2c_map_.find(producer_root_id) == p2c_map_.end()) {
+      c2p_map.emplace(consumer_root_id, producer_root_id);
+    }
+  }
+
+  const auto p2c_map = invertOneToOneMap(c2p_map);
+
+  // Forward vectorized IDs to index into producer correctly
+  // We want p_id to be vectorized like consumer just for the indexing, then we
+  // need to switch it back later. Store previous state here when changing. We
+  // need to do this as replaying producer as consumer can use replay best
+  // effort which means some domains may be producer's original domains.
+  std::vector<std::pair<IterDomain*, ParallelType>> p_id_backup;
+  for (auto entry : c2p_map) {
+    auto ref_id = GpuLower::current()->caMap()->getConcreteMappedID(
+        entry.first, IdMappingMode::EXACT);
+    auto p_id = entry.second;
+    if (ref_id->getParallelType() == ParallelType::Vectorize) {
+      p_id_backup.emplace_back(std::make_pair(p_id, p_id->getParallelType()));
+      p_id->parallelize(ParallelType::Vectorize);
+    } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
+      p_id->parallelize(ParallelType::MisalignedVectorize);
+    }
+  }
+
+  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+      loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
+
+  auto producer_indexing = producer_indexing_from_idgraph.index;
+
+  // Revert p_ids
+  for (auto entry : p_id_backup) {
+    entry.first->parallelize(entry.second);
+  }
+
+  // Indices should now be mapped onto IterDomains in producer, so just grab
+  // and use them.
+  auto root_dom = producer_tv->getMaybeRFactorDomain();
 
   // TODO: Abstract stride logic to reuse with consumer indexing
   std::vector<Val*> strides(root_dom.size(), nullptr);
@@ -1458,7 +1515,44 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   std::vector<Val*> strided_inds(
       root_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(root_dom.size())) {
-    Val* root_ind = root_indices.at(i);
+    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast()) {
+      continue;
+    }
+
+    Val* root_ind = nullptr;
+    auto override_it = override_index.find(root_dom[i]);
+    const bool is_overriden = override_it != override_index.end();
+    if (is_overriden) {
+      root_ind = override_it->second;
+    } else if (
+        producer_indexing.indexMap().find(root_dom[i]) !=
+        producer_indexing.indexMap().end()) {
+      root_ind = producer_indexing.indexMap().at(root_dom[i]);
+    } else if (root_dom[i]->isBroadcast()) {
+      root_ind = GpuLower::current()->kernel()->zeroVal();
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        root_ind != nullptr,
+        "Couldn't find root mapping for ",
+        producer_tv->toString(),
+        " dim: ",
+        i,
+        " id: ",
+        root_dom[i]->toString());
+
+    root_ind = getProducerIndexWithHalo(
+        producer_tv, i, root_ind, consumer_tv, is_overriden);
+
+    root_ind = getProducerIndexWithGather(
+        root_ind,
+        i,
+        producer_tv,
+        consumer_tv,
+        producer_indexing_from_idgraph.concrete_index.indexMap());
+
+    root_ind = getProducerIndexWithPartialSplit(
+        root_ind, root_dom[i], producer_tv, consumer_tv);
 
     if (root_ind->isZeroInt()) {
       continue;
@@ -1530,13 +1624,12 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   const auto gpu_lower = GpuLower::current();
+
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
   auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
-  // Resize ops can be and should be replayed.
   auto producer_replayed_as_consumer =
-      TransformReplay::replayPasC(
-          producer_tv, consumer_tv, -1, pairwise_map, false, true)
+      TransformReplay::replayPasC(producer_tv, consumer_tv, -1, pairwise_map)
           .first;
 
   ir_utils::TVDomainGuard domain_guard(
@@ -1763,25 +1856,14 @@ Val* Index::getLinearLogicalIndex(
       getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
 }
 
-std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
+std::vector<Val*> Index::getPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   auto guard = ir_utils::overrideContiguityGuard(consumer_tv, false);
   IndexFromIdGraph index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
-  return getConsumerRootIndices(consumer_tv, loops, index_from_id_graph);
-}
-
-std::vector<Val*> Index::getProducerPerDimLogicalIndex(
-    TensorView* producer_tv,
-    const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::overrideContiguityGuard(producer_tv, false);
-  return getProducerRootIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  return getRootIndices(consumer_tv, loops, index_from_id_graph);
 }
 
 std::vector<Val*> Index::getStrides(const TensorView* tv) {
@@ -1835,7 +1917,7 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
   return strides;
 }
 
-std::vector<Val*> Index::getConsumerRootIndices(
+std::vector<Val*> Index::getRootIndices(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops,
     const IndexFromIdGraph& index_from_id_graph) {
@@ -1869,153 +1951,6 @@ std::vector<Val*> Index::getConsumerRootIndices(
   return root_inds;
 }
 
-std::vector<Val*> Index::getProducerRootIndices(
-    TensorView* producer_tv,
-    const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    const std::unordered_map<IterDomain*, Val*>& override_index) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::getProducerRootIndices");
-  // Replay producer to look like consumer so we can index on producer since
-  // our loop nests look like consumer
-  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv, false);
-
-  TensorDomain* producerAsC =
-      TransformReplay::replayPasC(
-          producer_tv, consumer_tv, -1, pairwise_map, false, true)
-          .first;
-
-  // Make the producer_tv look like consumer while performing indexing math
-  ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
-
-  // Map sent to best effort replay needs to match the exact incantation for
-  // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv, true)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
-
-  // This replay has to be consistent with compute at index map.
-  BestEffortReplay replay_producer_as_consumer(
-      producer_tv->domain()->domain(),
-      consumer_tv->domain()->domain(),
-      c2p_root_map);
-
-  auto c2p_map = replay_producer_as_consumer.getReplay();
-
-  // Make sure at least root domains are mapped even when extents may
-  // be different. This mapping is important for the indexing lookup
-  // tensors of PyTorch gather as a producer. The IDs of a lookup
-  // tensor may have larger extents than those of the corresponding
-  // output tensor, but the index expressions to those output IDs can
-  // still be used for the producer. Note that we always do not map
-  // the indirectly accessed ID and its corresponding output ID. The
-  // above relaxed mapping is only for the rest of the IDs.
-  //
-  // Note that when the consumer has swizzle, the swizzle are skipped. For
-  // example, if we have:
-  //   consumer:
-  //     root: I0, I1, I2
-  //     leaf: I0, I3, I4
-  //   producer:
-  //     root I5, I6, I7
-  // where I3, I4 = swizzle(I1, I2) , then the c2p map will be I3->I6, I4->I7,
-  // I1 and I2 are not mapped. For this case, we should allow the root unmapped,
-  // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
-  // is not what we want.
-  const auto p2c_map_ = invertOneToOneMap(c2p_map);
-  for (const auto& kv :
-       PairwiseRootDomainMap(producer_tv, consumer_tv, true, false)
-           .mapConsumerToProducer(
-               consumer_tv->domain(), producer_tv->domain())) {
-    auto consumer_root_id = kv.first;
-    auto producer_root_id = kv.second;
-    if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
-        p2c_map_.find(producer_root_id) == p2c_map_.end()) {
-      c2p_map.emplace(consumer_root_id, producer_root_id);
-    }
-  }
-
-  const auto p2c_map = invertOneToOneMap(c2p_map);
-
-  // Forward vectorized IDs to index into producer correctly
-  // We want p_id to be vectorized like consumer just for the indexing, then we
-  // need to switch it back later. Store previous state here when changing. We
-  // need to do this as replaying producer as consumer can use replay best
-  // effort which means some domains may be producer's original domains.
-  std::vector<std::pair<IterDomain*, ParallelType>> p_id_backup;
-  for (auto entry : c2p_map) {
-    auto ref_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        entry.first, IdMappingMode::EXACT);
-    auto p_id = entry.second;
-    if (ref_id->getParallelType() == ParallelType::Vectorize) {
-      p_id_backup.emplace_back(std::make_pair(p_id, p_id->getParallelType()));
-      p_id->parallelize(ParallelType::Vectorize);
-    } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      p_id->parallelize(ParallelType::MisalignedVectorize);
-    }
-  }
-
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-      loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
-
-  auto producer_indexing = producer_indexing_from_idgraph.index;
-
-  // Revert p_ids
-  for (auto entry : p_id_backup) {
-    entry.first->parallelize(entry.second);
-  }
-
-  // Indices should now be mapped onto IterDomains in producer, so just grab
-  // and use them.
-  auto root_dom = producer_tv->getMaybeRFactorDomain();
-
-  std::vector<Val*> root_inds(
-      root_dom.size(), GpuLower::current()->kernel()->zeroVal());
-
-  for (const auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast()) {
-      continue;
-    }
-
-    Val* root_ind = nullptr;
-    auto override_it = override_index.find(root_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
-    if (is_overriden) {
-      root_ind = override_it->second;
-    } else if (
-        producer_indexing.indexMap().find(root_dom[i]) !=
-        producer_indexing.indexMap().end()) {
-      root_ind = producer_indexing.indexMap().at(root_dom[i]);
-    }
-
-    TORCH_INTERNAL_ASSERT(
-        root_ind != nullptr,
-        "Couldn't find root mapping for ",
-        producer_tv->toString(),
-        " dim: ",
-        i,
-        " id: ",
-        root_dom[i]->toString());
-
-    root_ind = getProducerIndexWithHalo(
-        producer_tv, i, root_ind, consumer_tv, is_overriden);
-
-    root_ind = getProducerIndexWithGather(
-        root_ind,
-        i,
-        producer_tv,
-        consumer_tv,
-        producer_indexing_from_idgraph.concrete_index.indexMap());
-
-    root_ind = getProducerIndexWithPartialSplit(
-        root_ind, root_dom[i], producer_tv, consumer_tv);
-
-    root_inds.at(i) = root_ind;
-  }
-
-  return root_inds;
-}
-
 std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
@@ -2029,8 +1964,8 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   auto strides = getStrides(consumer_tv);
   // if we need to override index, we need to generate the index from each
   // root axis firstly.
-  auto root_inds =
-      getConsumerRootIndices(consumer_tv, loops, index_from_id_graph);
+  auto root_inds = getRootIndices(consumer_tv, loops, index_from_id_graph);
+  auto root_dom = consumer_tv->getMaybeRFactorDomain();
 
   // Global striding
   auto vectorize_shift =
@@ -2223,6 +2158,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       strided_inds.push_back(db_strided_index);
     }
   }
+
   return strided_inds;
 }
 
@@ -2348,9 +2284,8 @@ struct PredicateDomainInfo {
   // set is used to remove redundant predicates when gathering
   // unswitch predicates.
   std::unordered_set<IterDomain*> covered_ids;
-  // True if this predicate is for an intermediate domain. Examples
-  // include domains with non-divisible split and resized domains.
-  bool is_intermediate_domain = false;
+  // True if this predicate is for a non-divisible split
+  bool is_non_divisible_split = false;
 };
 
 // Find iteration domains in the history of a consumer to predicate comprised
@@ -2367,14 +2302,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
 
-  // When there's a resize expr between the root and the rfactor
-  // domains, predicate the rfactor domain. Otherwise, predicate the
-  // root domain. The actual size of an IterDomain after resize
-  // changes, and the output IterDomain needs to be used to generate
-  // its predicate.
-  const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
-      ? consumer_tv->getMaybeRFactorDomain()
-      : consumer_tv->getRootDomain();
+  const auto& consumer_root_domain = consumer_tv->getRootDomain();
 
   if (consumer_root_domain.empty()) {
     return std::vector<PredicateDomainInfo>();
@@ -2670,7 +2598,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
 std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     IterDomain* consumer_id,
     bool padding_predicate,
-    bool intemediate_domain_pred) {
+    bool non_divisible_pred) {
   const auto gpu_lower = GpuLower::current();
 
   TORCH_INTERNAL_ASSERT(consumer_id != nullptr);
@@ -2678,7 +2606,7 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
   Val* start_limit = consumer_id->start();
   Val* stop_limit = SimplifyingIrBuilder::negExpr(consumer_id->stopOffset());
 
-  if (!intemediate_domain_pred) {
+  if (!non_divisible_pred) {
     AxisHaloInfo halo_info =
         gpu_lower->haloInfo()->getRootAxisInfo(consumer_id);
 
@@ -2722,11 +2650,11 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
     const std::unordered_map<IterDomain*, Val*>& consumer_stop_index_map,
     bool padding_predicate,
     bool unswitch,
-    bool intermediate_domain_pred) {
+    bool non_divisible_pred) {
   // By default, the offsets for the start and stop predicates are
   // just zero. All halo-related adjustments are done at root domains,
   // so consumer_id is not a root domain, no adjustment is required.
-  if (consumer_id->definition() != nullptr && !intermediate_domain_pred) {
+  if (consumer_id->definition() != nullptr && !non_divisible_pred) {
     return {
         GpuLower::current()->kernel()->zeroVal(),
         GpuLower::current()->kernel()->zeroVal()};
@@ -2738,7 +2666,7 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
   Val* stop_offset = GpuLower::current()->kernel()->zeroVal();
 
   // These adjustments are not required when predicating non-divisible splits
-  if (!intermediate_domain_pred) {
+  if (!non_divisible_pred) {
     if (consumer_def->isA<ShiftOp>()) {
       std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
           consumer_tv, consumer_id, padding_predicate);
@@ -2774,7 +2702,7 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
 
   // Get the boundaries of two ends
   auto limits = getStartAndStopLimitOffsets(
-      consumer_id, padding_predicate, intermediate_domain_pred);
+      consumer_id, padding_predicate, non_divisible_pred);
 
   // At this point, we have everything to create both start and stop
   // predicates as:
@@ -2792,6 +2720,26 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
   stop_offset = SimplifyingIrBuilder::subExpr(stop_offset, limits.second);
 
   return {start_offset, stop_offset};
+}
+
+// A partial value of a start offset is returned if determined to be
+// safe. Nullptr is returned if it can be omitted completely.
+Val* simplifyStartOffset(Val* start_offset) {
+  // Start predicate can be omitted when start_offset >= 0.
+  auto offset_val = start_offset->as<Int>()->value();
+  if (offset_val.has_value() && offset_val.value() >= 0) {
+    return nullptr;
+  }
+
+  // start_offset may look like min(0, window_index - pad). Then, can
+  // remove min and leave the rhs only.
+  auto def = dynamic_cast<BinaryOp*>(start_offset->definition());
+  if (def != nullptr && def->getBinaryOpType() == BinaryOpType::Min &&
+      def->lhs()->isZeroInt()) {
+    return def->rhs();
+  }
+
+  return start_offset;
 }
 
 bool canOmitStopPredicate(
@@ -3001,7 +2949,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
         consumer_stop_index_map,
         shift_padding,
         unswitch_or_vec_loop != nullptr,
-        contig_id_entry.is_intermediate_domain);
+        contig_id_entry.is_non_divisible_split);
 
     auto stop_index = consumer_stop_indexing_it->second;
     auto start_index = consumer_start_index_map.at(contig_id);
@@ -3027,13 +2975,18 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
     // Build predicates for start positions as:
     //   start_index + start_offset >= 0
-    auto offsetted_start_index =
-        SimplifyingIrBuilder::addExpr(start_index, info.start_offset_);
-    auto start_pred =
-        SimplifyingIrBuilder::geExpr(
-            offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
-            ->as<Bool>();
-    info.start_predicate_ = start_pred;
+    auto start_offset = simplifyStartOffset(info.start_offset_);
+    if (start_offset == nullptr) {
+      info.start_predicate_ = GpuLower::current()->kernel()->trueVal();
+    } else {
+      auto offsetted_start_index =
+          SimplifyingIrBuilder::addExpr(start_index, start_offset);
+      auto start_pred =
+          SimplifyingIrBuilder::geExpr(
+              offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
+              ->as<Bool>();
+      info.start_predicate_ = start_pred;
+    }
 
     // Build predicates for stop positions as:
     //   stop_index + stop_offset < IterDomain::extent
@@ -3086,7 +3039,7 @@ Val* Index::eye(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     DataType dtype) {
   auto indices =
-      Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
+      Index::getPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
   TORCH_INTERNAL_ASSERT(indices.size() == 2);
   auto result = castOp(dtype, eq(indices[0], indices[1]));
   GpuLower::current()->commonScalarMap().hoistScalar(result, loops);

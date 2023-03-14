@@ -99,8 +99,8 @@ bool IterDomainGraph::exprsMap(
   }
 
   TORCH_INTERNAL_ASSERT(
-      first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through rfactor operations in compute at map, but found:\n",
+      first->isA<Merge>() || first->isA<Split>(),
+      "Merge and split are the only expressions supported through rfactor operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -176,15 +176,6 @@ bool IterDomainGraph::exprsMap(
     }
   }
 
-  if (first->isA<Resize>()) {
-    auto first_resize = first->as<Resize>();
-    auto second_resize = second->as<Resize>();
-    if (!first_resize->leftExpand()->sameAs(second_resize->leftExpand()) ||
-        !first_resize->rightExpand()->sameAs(second_resize->rightExpand())) {
-      return false;
-    }
-  }
-
   return true;
 }
 
@@ -220,7 +211,6 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   for (auto out_i : c10::irange(first_ids.size())) {
     exact_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
-    permissive_resize_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
   }
 }
 
@@ -417,7 +407,6 @@ void IterDomainGraph::build(Fusion* fusion) {
           auto id0 = *disjoint_set->begin();
           for (auto id1 : disjoint_set->vector()) {
             permissive_nodes_.mapEntries(id0, id1);
-            permissive_resize_nodes_.mapEntries(id0, id1);
             exact_nodes_.mapEntries(id0, id1);
             sibling_sets_.mapEntries(id0, id1);
           }
@@ -441,22 +430,8 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
         // that both broadcast and squeeze are handled correctly.
-        //
-        // Note on the boolean flags: swizzles are skipped in both
-        // producer and consumer but resizes are not.
         const auto permissive_disjoint_sets =
-            BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, false)
-                .getIterDomainEquivalence();
-
-        // Permissive-Resize map allows mappings of resize inputs and
-        // outputs
-        //
-        // Note on the boolean flags: swizzles and resizes are skipped
-        // in the permissive-resize map
-        const auto permissive_resize_disjoint_sets =
-            BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, true)
+            BestEffortReplay::replayPasC(p_tv, c_tv, -1, pairwise_map)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
@@ -508,41 +483,20 @@ void IterDomainGraph::build(Fusion* fusion) {
             for (auto j : c10::irange(i + 1, vec.size())) {
               auto id2 = vec[j];
               if (p_ids.count(id1) && c_ids.count(id2)) {
+                consumers_.at(id1).pushBack(id2);
+                producers_.at(id2).pushBack(id1);
                 if (idIsAComputeAtLeafDomain(id1, p_tv, c_tv) &&
                     idIsALeafDomain(id2, c_tv)) {
                   loop_nodes_.mapEntries(id1, id2);
                 }
               }
               if (c_ids.count(id1) && p_ids.count(id2)) {
+                producers_.at(id1).pushBack(id2);
+                consumers_.at(id2).pushBack(id1);
                 if (idIsAComputeAtLeafDomain(id2, p_tv, c_tv) &&
                     idIsALeafDomain(id1, c_tv)) {
                   loop_nodes_.mapEntries(id1, id2);
                 }
-              }
-            }
-          }
-        }
-
-        // Mostly the same as the above for the permissive map but
-        // nothing to do for the loop map.
-        // The producer and consumer maps are based on the most
-        // permissive mappings, so they are set using the
-        // permissive-resize mappings.
-        for (auto& dset : permissive_resize_disjoint_sets.disjointSets()) {
-          auto& vec = dset->vector();
-          for (auto i : c10::irange(vec.size())) {
-            auto id1 = vec[i];
-            permissive_resize_nodes_.mapEntries(id1, vec[0]);
-            mapMaybeSwizzleOp(permissive_resize_nodes_, id1);
-            for (auto j : c10::irange(i + 1, vec.size())) {
-              auto id2 = vec[j];
-              if (p_ids.count(id1) && c_ids.count(id2)) {
-                consumers_.at(id1).pushBack(id2);
-                producers_.at(id2).pushBack(id1);
-              }
-              if (c_ids.count(id1) && p_ids.count(id2)) {
-                producers_.at(id1).pushBack(id2);
-                consumers_.at(id2).pushBack(id1);
               }
             }
           }
@@ -607,7 +561,7 @@ void IterDomainGraph::build(Fusion* fusion) {
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       TORCH_INTERNAL_ASSERT(
-          expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>(),
+          expr->isA<Split>() || expr->isA<Merge>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
           "\nto be an expression defined in an rfactor transformation.");
@@ -734,7 +688,6 @@ void IterDomainGraph::initializeId(
     bool is_rfactor_id,
     bool is_leaf_id) {
   permissive_nodes_.initializeSet(id);
-  permissive_resize_nodes_.initializeSet(id);
   exact_nodes_.initializeSet(id);
   if (is_leaf_id) {
     loop_nodes_.initializeSet(id);
@@ -1174,17 +1127,6 @@ void ComputeAtMap::buildConcreteIds() {
     auto concrete_id = computeConcreteId(first_id, IdMappingMode::LOOP);
     concrete_id_cache_[disjoint_set_shared_ptr] = concrete_id;
   }
-
-  for (const auto& disjoint_set_shared_ptr :
-       id_graph_.permissiveResizeNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
-        "Cannot compute concrete id of empty set.");
-    auto first_id = disjoint_set_shared_ptr->vector().front();
-    auto concrete_id =
-        computeConcreteId(first_id, IdMappingMode::PERMISSIVE_RESIZE);
-    concrete_id_cache_[disjoint_set_shared_ptr] = concrete_id;
-  }
 }
 
 bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
@@ -1407,8 +1349,6 @@ std::string ComputeAtMap::toString() const {
   ss << "Loop map:\n" << idGraphNodesToString(*this, IdMappingMode::LOOP);
   ss << "Permissive map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
-  ss << "Permissive-Resize map:\n"
-     << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
@@ -1468,8 +1408,6 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.loopNodes();
     case IdMappingMode::PERMISSIVE:
       return id_graph_.permissiveNodes();
-    case IdMappingMode::PERMISSIVE_RESIZE:
-      return id_graph_.permissiveResizeNodes();
   }
   TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");
 }

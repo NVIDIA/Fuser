@@ -61,11 +61,6 @@ class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
     return *this;
   }
 
-  ReplayTransformations& setReplayResize(bool replay_resize) {
-    replay_resize_ = replay_resize;
-    return *this;
-  }
-
   // Replays outputs that were generated from ids.first on ids.second
   void runReplay();
 
@@ -112,8 +107,6 @@ class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
   //  if replaying swizzle is enabled.
   void handle(Swizzle2D* m) override;
 
-  void handle(Resize* resize) override;
-
   size_t newCounter() {
     return counter_++;
   }
@@ -138,10 +131,6 @@ class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
   //  later we may have cases in scheduling large fusions where
   //  this functionality could be useful.
   bool replay_swizzle_ = false;
-
-  // Indicates if we want to replay resize ops on the replayed
-  // tensor.
-  bool replay_resize_ = false;
 
   size_t counter_ = 0;
 
@@ -305,11 +294,7 @@ class TORCH_CUDA_CU_API BestEffortReplay {
       const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
       const std::unordered_map<IterDomain*, Expr*>& replay_id2expr);
 
-  // Skip resize in both target and replay domains
-  void skipResizes();
-
  public:
-  // When skip_resize is true, resize is ignored or in other words forwarded
   BestEffortReplay(
       const std::vector<IterDomain*>& replay_domain,
       const std::vector<IterDomain*>& target_domain,
@@ -317,8 +302,7 @@ class TORCH_CUDA_CU_API BestEffortReplay {
       std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map = {},
       std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map = {},
       bool skip_replay_swizzle = true,
-      bool skip_target_swizzle = true,
-      bool skip_resize = false);
+      bool skip_target_swizzle = true);
 
   // Return iter domain map from target_domain IDs to their "replayed"
   // replay_domain IDs. If not in map, was not replayed.
@@ -362,29 +346,23 @@ class TORCH_CUDA_CU_API BestEffortReplay {
 
   // Runs a best effort replay that ignores broadcast axes that appear in
   // consumer that are not mapped to producer in root_map.
-  //
-  // When skip_resize is true, resize is ignored or in other words forwarded
   static BestEffortReplay replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int producer_compute_at_axis,
       const RootDomainMap& root_map,
       bool skip_consumer_swizzle = true,
-      bool skip_producer_swizzle = true,
-      bool skip_resize = true);
+      bool skip_producer_swizzle = true);
 
   // Runs a best effort replay that ignores broadcast axes that appear in
   // consumer that are not mapped to producer in root_map.
-  //
-  // When skip_resize is true, resize is ignored or in other words forwarded
   static BestEffortReplay replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int consumer_compute_at_axis,
       const RootDomainMap& root_map,
       bool skip_producer_swizzle = true,
-      bool skip_consumer_swizzle = true,
-      bool skip_resize = true);
+      bool skip_consumer_swizzle = true);
 
   // Find the first position i where td1[i] is not the same as td2[i]. "Same"
   // means the DAG and input IDs to generate td1[i] and td2[i] are the same.

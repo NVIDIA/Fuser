@@ -9,7 +9,6 @@
 #include <ir_builder.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <iter_visitor.h>
 #include <lower_utils.h>
 #include <ops/arith.h>
 
@@ -805,20 +804,6 @@ std::string varName(const Val* val) {
   }
   name << val->name();
   return name.str();
-}
-
-bool hasResizedRfactor(const TensorView* tv) {
-  if (!tv->hasRFactor()) {
-    return false;
-  }
-  auto root_to_rf_exprs = StmtSort::getExprsBetween(
-      tv->fusion(),
-      {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
-  return std::any_of(
-      root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
-        return expr->isA<Resize>();
-      });
 }
 
 } // namespace ir_utils

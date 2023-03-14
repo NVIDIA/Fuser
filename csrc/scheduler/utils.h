@@ -210,9 +210,6 @@ TORCH_CUDA_CU_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
 
-// Returns a list of non-reduction TensorViews that have a rfactor domain
-std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
-
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
@@ -286,13 +283,12 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     bool vectorize_pass);
 
 // Holder return struct for the below function.
-struct DisjointRFactorSetInfo {
-  // const* to the disjoint set in disjoint_rfactor_set passed in to
-  // getDisjointRFactorSetsOf each iterdomain in the rfactor of ref is mapped
-  // to.
+struct DisjointViewSetInfo {
+  // const* to the disjoint set in disjoint_view_set passed in to
+  // getDisjointViewSetsOf each iterdomain in the rfactor of ref is mapped to.
   //
-  // WARNING: these pointers are relative to the disjoint_rfactor_set reference
-  // passed into getDisjointRFactorSetsOf it's the user's responsibility to
+  // WARNING: these pointers are relative to the disjoint_view_set reference
+  // passed into getDisjointViewSetsOf it's the user's responsibility to
   // maintain the lifetime of that reference to match this vector.
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_sets_of_ref;
 
@@ -305,21 +301,21 @@ struct DisjointRFactorSetInfo {
   TensorView* ref;
 };
 
-// Returns disjoint rfactor sets mapped onto the given reference. Returns a pair
+// Returns disjoint view sets mapped onto the given reference. Returns a pair
 // of vectors of size rfactorDomain of reference. Vector of
 // VectorOfUniqueEntries returns a const* to the disjoint set in
-// disjoint_rfactor_set the iterdomain is mapped to. Integer vector represents
-// which disjoint rfactor group the rfactor id belongs to. It's straightforward
+// disjoint_view_set the iterdomain is mapped to. Integer vector represents
+// which disjoint view group the rfactor id belongs to. It's straight forward
 // to map from the former to the latter, but not the latter to former.
 //
-// Since we return a const* to entries in disjoint_rfactor_set, it must be
-// passed in as a reference. Algorithm is N^2 based on number of dims in
-// reference, but generating the disjoint rfactor set is likely the limiter on
-// perf of this function.
-DisjointRFactorSetInfo getDisjointRFactorSetsOf(
+// Since we return a const* to entries in disjoint_view_set, it must be passed
+// in as a reference. Algorithm is N^2 based on number of dims in reference,
+// but generating the disjoint view set is likely the limiter on perf of this
+// function.
+DisjointViewSetInfo getDisjointViewSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set);
+    DisjointSets<IterDomain*>& disjoint_view_set);
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -536,7 +532,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-TORCH_CUDA_CU_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
+TORCH_CUDA_CU_API DisjointSets<IterDomain*> disjointViewSets(Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.
@@ -567,20 +563,6 @@ inline void rotateLoop(
     std::unordered_set<Statement*> selection) {
   loop_tv->fusion()->rotateLoop(loop_tv, axis, std::move(selection));
 }
-
-//! Certain tensors may need to be placed on shared or global memory
-//! due to data dependencies caused by resize operations. Create
-//! caches of those tensors so that original operations producing
-//! them should keep using the same memory. This avoids, for example,
-//! reductions to global memory.
-TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
-
-//! If a resized tensor induces a data dependency between threads,
-//! move its producer to a shared memory that is sufficient to satisfy
-//! the dependency. A proper RAW sync will be automatically inserted
-//! when the fusion is lowered.
-TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
-    Fusion* fusion);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

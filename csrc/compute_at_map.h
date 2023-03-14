@@ -53,10 +53,6 @@ namespace nvfuser {
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
-// IdMappingMode::PERMISSIVE_RESIZE
-//   Include everything in PERMISSIVE. Map also domains that are
-//   inputs and outputs of resize ops. Used for, e.g., propagating
-//   parallel types across those domains.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -82,9 +78,6 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   }
   const DisjointSets<IterDomain*>& loopNodes() const {
     return loop_nodes_;
-  }
-  const DisjointSets<IterDomain*>& permissiveResizeNodes() const {
-    return permissive_resize_nodes_;
   }
 
   // Consumers and producers is not symmetric like the other sets
@@ -139,11 +132,8 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> exact_nodes_;
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
-  DisjointSets<IterDomain*> permissive_resize_nodes_;
 
-  // Consumers and producers is not symmetric like the other sets.
-  // Mapping is based on the most permissive map, i.e., the
-  // permissive-resize map.
+  // Consumers and producers is not symmetric like the other sets
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       consumers_;
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
