@@ -20,11 +20,33 @@ class FusionInterface;
 class FusionState;
 struct RecordFunctor;
 struct UserSchedule;
+struct TrieNode;
 
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
+
+//! The State and the StateType enum are used to define state objects to
+//! encapsulate the recording of state in the FusionDefinition.
+
+enum class StateType {
+  Tensor,
+  Scalar,
+  None,
+};
+
+struct TORCH_CUDA_CU_API State {
+  State(size_t _index, StateType _stype) : index(_index), stype(_stype) {}
+
+  bool operator==(const State& other) const;
+  bool operator!=(const State& other) const;
+
+  //! A unique index to identifiy each recorded state item.
+  size_t index;
+  //! StateType is either: Tensor or Scalar
+  StateType stype;
+};
 
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream& os,
@@ -144,6 +166,8 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   c10::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
+  //! Current pointer to node in FusionCache.
+  TrieNode* trie_node_;
 
   //! A vector of state recorded in the FusionDefinition
   std::vector<State> recording_state_;

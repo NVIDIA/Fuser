@@ -89,7 +89,18 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("max_fusions") = int(8192),
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
-      .def("print_stats", [](FusionCache& self) { self.print(std::cout); });
+      .def(
+          "__repr__",
+          [](FusionCache& self) {
+            std::stringstream ss;
+            self.print(ss);
+            return ss.str();
+          })
+      .def("stats", [](FusionCache& self) {
+        std::stringstream ss;
+        self.stats(ss);
+        return ss.str();
+      });
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
@@ -142,8 +153,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_setup_definition",
           [](FusionDefinition& self) -> FusionDefinition* {
             // Instrumentation to mark the beginning of a FusionDefinition
-            inst::Trace::instance()->beginEvent(
-                "FusionDefinition setupDefinition");
+            inst::Trace::instance()->beginEvent("FusionDefinition Definition");
             return self.setupDefinition();
           })
       .def(
@@ -157,7 +167,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_setup_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of a schedule
-            inst::Trace::instance()->beginEvent("FusionDefinition schedule");
+            inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
