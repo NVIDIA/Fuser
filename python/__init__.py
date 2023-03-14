@@ -95,7 +95,7 @@ class FusionDefinition(_C._FusionDefinition):
         """
         override_user_schedule = kwargs.pop('override_user_schedule', False)
         return self._last_cuda_code(intrinsic_code, override_user_schedule)
-    
+
     def cuda_code_for(self, inputs, intrinsic_code=False, **kwargs):
         """
         Returns the Cuda Code for the given inputs
@@ -112,7 +112,7 @@ class FusionDefinition(_C._FusionDefinition):
         """
         override_user_schedule = kwargs.pop('override_user_schedule', False)
         return self._cuda_code_for(inputs, intrinsic_code, override_user_schedule)
-    
+
     def last_scheduled_fusion_ir(self, tensor_transforms=False, **kwargs):
         """
         Returns the Scheduled Fusion IR for the last executed set of inputs
@@ -128,7 +128,7 @@ class FusionDefinition(_C._FusionDefinition):
         """
         override_user_schedule = kwargs.pop('override_user_schedule', False)
         return self._last_scheduled_fusion_ir(tensor_transforms, override_user_schedule)
-    
+
     def scheduled_fusion_ir_for(self, inputs, tensor_transforms=False, **kwargs):
         """
         Returns the Scheduled Fusion IR for the last executed set of inputs
