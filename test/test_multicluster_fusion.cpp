@@ -22,7 +22,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-TEST_F(NVFuserTest, MultiClusterFusion) {
+TEST_F(NVFuserTest, MultiClusterFusion_CUDA) {
   MultiClusterFusion fusion;
   FusionGuard fg(&fusion);
 
@@ -135,7 +135,6 @@ TEST_F(NVFuserTest, MultiClusterFusion) {
       "AggregateDag's outputs:{\n"
       " AggregateVal representing Val T6_g[ iS14{i3} ] on cluster 3\n"
       "}"};
-
   TORCH_INTERNAL_ASSERT(
       obtained_string_aDag == ref_string_aDag,
       "the obtained AggregateDag is not the one expected");
