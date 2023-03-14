@@ -185,7 +185,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-//------------------------------------------------------------------------------    
+//------------------------------------------------------------------------------
 NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_LayerNorm_fp16,
     setupLayerNorm,
