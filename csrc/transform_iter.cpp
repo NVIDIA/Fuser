@@ -16,7 +16,7 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::handle(Expr* e) {
-  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D>();
+  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::handle(e);
@@ -39,7 +39,7 @@ void ReplayTransformations::handle(Split* s) {
     }
   }
 
-  auto mapped = (*it).second;
+  auto mapped = it->second;
   // Make sure this ID is a leaf ID (meaning it has no uses we generated)
   TORCH_INTERNAL_ASSERT(
       leaf_ids_.find(mapped) != leaf_ids_.end(),
@@ -150,8 +150,8 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
     }
   }
 
-  auto mapped_x = (*it_x).second;
-  auto mapped_y = (*it_y).second;
+  auto mapped_x = it_x->second;
+  auto mapped_y = it_y->second;
 
   // Make sure this ID is a leaf ID (meaning it has no uses we generated)
   TORCH_INTERNAL_ASSERT(
@@ -177,6 +177,38 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
   // Update our ID map to include these outputs
   id_map_[swizzle_2d->outX()] = outs.first;
   id_map_[swizzle_2d->outY()] = outs.second;
+}
+
+void ReplayTransformations::handle(Resize* exp) {
+  auto id_in = exp->in();
+
+  auto it = id_map_.find(id_in);
+  if (it == id_map_.end()) {
+    if (error_on_failure_) {
+      TORCH_INTERNAL_ASSERT(
+          false, "Transform traversal failed, dependencies not met.");
+    } else {
+      return;
+    }
+  }
+
+  auto mapped = it->second;
+  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  TORCH_INTERNAL_ASSERT(
+      leaf_ids_.find(mapped) != leaf_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a leaf node.");
+
+  auto out = mapped;
+
+  if (replay_resize_) {
+    out = IterDomain::resize(mapped, exp->leftExpand(), exp->rightExpand());
+  }
+
+  leaf_ids_.erase(mapped);
+
+  leaf_ids_[out] = newCounter();
+
+  id_map_[exp->out()] = out;
 }
 
 ReplayTransformations::ReplayTransformations(
@@ -243,7 +275,7 @@ void ReplayTransformations::runReplay() {
       continue;
     }
 
-    auto id_replayed = (*it_replayed).second;
+    auto id_replayed = it_replayed->second;
     auto it_leaf = leaf_ids_.find(id_replayed);
     TORCH_INTERNAL_ASSERT(
         it_leaf != leaf_ids_.end(),
@@ -274,7 +306,8 @@ BestEffortReplay::BestEffortReplay(
     std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map,
     std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map,
     bool skip_replay_swizzle,
-    bool skip_target_swizzle)
+    bool skip_target_swizzle,
+    bool skip_resize)
     : target2replay_id_map_(std::move(target2replay_map)),
       replay_forward_id_map_(std::move(replay_forward_id_map)),
       target_forward_id_map_(std::move(target_forward_id_map)),
@@ -346,6 +379,10 @@ BestEffortReplay::BestEffortReplay(
     // Progress through all swizzle ops if we are skipping
     //  swizzles on the mapping.
     skipSwizzles(target_id2expr_map, replay_id2expr_map);
+  }
+
+  if (skip_resize) {
+    skipResizes();
   }
 
   std::string err_str(
@@ -495,7 +532,13 @@ BestEffortReplay::BestEffortReplay(
     // If there isn't an rfactor id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's outputs, continue
     if (target_expr->outputs().size() != replay_expr->outputs().size()) {
-      TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+      TORCH_INTERNAL_ASSERT(
+          !replay_has_rfactor_inp,
+          err_str,
+          ". Target: ",
+          target_expr->toString(),
+          ", repaly: ",
+          replay_expr->toString());
       continue;
     }
 
@@ -528,6 +571,16 @@ BestEffortReplay::BestEffortReplay(
       auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
       auto t_swizzle_2d = target_expr->as<Swizzle2D>();
       if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
+        TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+        continue;
+      }
+    }
+
+    if (replay_expr->isA<Resize>()) {
+      auto r_resize = replay_expr->as<Resize>();
+      auto t_resize = target_expr->as<Resize>();
+      if (!r_resize->leftExpand()->sameAs(t_resize->leftExpand()) ||
+          !r_resize->rightExpand()->sameAs(t_resize->rightExpand())) {
         TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
         continue;
       }
@@ -566,6 +619,10 @@ BestEffortReplay::BestEffortReplay(
       // Progress through all swizzle ops if we are skipping
       //  swizzles on the mapping.
       skipSwizzles(target_id2expr_map, replay_id2expr_map);
+    }
+
+    if (skip_resize) {
+      skipResizes();
     }
   }
 }
@@ -678,11 +735,10 @@ struct ForwardingInfo {
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(active_root_dom.size() == active_dim_flags->size());
-
     // Collect which root ids are only in active_tv but not in the inactive
     // tensor.
     std::unordered_set<IterDomain*> forwarded_ids;
+    TORCH_INTERNAL_ASSERT(active_root_dom.size() == active_dim_flags->size());
     for (auto i : c10::irange(active_dim_flags->size())) {
       if (active_dim_flags->at(i)) {
         forwarded_ids.emplace(active_root_dom.at(i));
@@ -835,7 +891,8 @@ void BestEffortReplay::addComplimentLeafIDs(
     auto compliment_map_it = compliment_map.find(forwarded_id);
     TORCH_INTERNAL_ASSERT(
         compliment_map_it != compliment_map.end(),
-        "Issue tracking forwarded broadcast merges in best effort replay.");
+        "Issue tracking forwarded broadcast merges in best effort replay. ",
+        forwarded_id->toString());
     compliments.insert(
         compliments.end(),
         compliment_map_it->second.begin(),
@@ -872,7 +929,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
     int producer_compute_at_axis,
     const RootDomainMap& root_map,
     bool skip_consumer_swizzle,
-    bool skip_producer_swizzle) {
+    bool skip_producer_swizzle,
+    bool skip_resize) {
   if (producer_compute_at_axis < 0)
     producer_compute_at_axis += (int)producer->nDims() + 1;
 
@@ -919,7 +977,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
       forwarding_info.consumer_forwarding_map,
       forwarding_info.producer_forwarding_map,
       skip_consumer_swizzle,
-      skip_producer_swizzle);
+      skip_producer_swizzle,
+      skip_resize);
 
   consumer_replay.addComplimentLeafIDs(
       forwarding_info.consumer_forwarding_map,
@@ -936,7 +995,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
     int consumer_compute_at_axis,
     const RootDomainMap& root_map,
     bool skip_producer_swizzle,
-    bool skip_consumer_swizzle) {
+    bool skip_consumer_swizzle,
+    bool skip_resize) {
   if (consumer_compute_at_axis < 0)
     consumer_compute_at_axis += (int)consumer->nDims() + 1;
   TORCH_INTERNAL_ASSERT(
@@ -975,7 +1035,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
       forwarding_info.producer_forwarding_map,
       forwarding_info.consumer_forwarding_map,
       skip_producer_swizzle,
-      skip_consumer_swizzle);
+      skip_consumer_swizzle,
+      skip_resize);
 
   producer_replay.addComplimentLeafIDs(
       forwarding_info.producer_forwarding_map,
@@ -1020,6 +1081,50 @@ void BestEffortReplay::skipSwizzles(
         }
         break;
       }
+    }
+  }
+}
+
+// Same logic as skipSwizzles
+void BestEffortReplay::skipResizes() {
+  auto isResizeInput = [](IterDomain* id) -> bool {
+    return id->uses().size() == 1 && id->uses().front()->isA<Resize>();
+  };
+
+  bool updated = true;
+
+  while (updated) {
+    updated = false;
+    for (auto it : target2replay_id_map_) {
+      auto target_id = it.first;
+      auto new_target_id = target_id;
+      auto replay_id = it.second;
+      auto new_replay_id = replay_id;
+      if (isResizeInput(target_id)) {
+        new_target_id = target_id->uses().front()->as<Resize>()->out();
+      }
+      if (isResizeInput(replay_id)) {
+        new_replay_id = replay_id->uses().front()->as<Resize>()->out();
+      }
+
+      if (new_target_id == target_id && new_replay_id == replay_id) {
+        continue;
+      }
+
+      target2replay_id_map_.erase(target_id);
+      TORCH_INTERNAL_ASSERT(
+          target2replay_id_map_
+              .insert(std::make_pair(new_target_id, new_replay_id))
+              .second,
+          "Unexpected replay leaf");
+      // Progress the leaf ids if the replay is updated
+      if (replay_id != new_replay_id &&
+          leaf_ids_.find(replay_id) != leaf_ids_.end()) {
+        leaf_ids_.erase(replay_id);
+        leaf_ids_[new_replay_id] = counter++;
+      }
+      updated = true;
+      break;
     }
   }
 }
