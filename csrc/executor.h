@@ -191,6 +191,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return kernel_code_;
   }
 
+  // Add preamble and wrap in namespace
+  std::string getStructuredCode(
+      const std::string& kernel,
+      PrimDataType index_type) const;
+
   //! Returns the latest compile log
   std::string compilerLog() const {
     return last_compiler_log_;
@@ -248,6 +253,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs);
 
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
  private:
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   struct GlobalBuffers {
@@ -259,11 +268,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   static std::string kernelNamespace() {
     return "CudaCodeGen";
   }
-
-  // Add preamble and wrap in namespace
-  std::string getStructuredCode(
-      const std::string& kernel,
-      PrimDataType index_type);
 
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,

@@ -19,7 +19,10 @@ UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
 }
 
 FusionSchedules::FusionSchedules()
-    : auto_gen_schedules(nullptr), user_def_schedules() {
+    : auto_gen_schedules(nullptr),
+      user_def_schedules(),
+      last_user_def_scheduled_ir(nullptr),
+      last_user_def_executor(nullptr) {
   auto_gen_schedules =
       std::make_unique<FusionExecutorCache>(std::make_unique<Fusion>());
 }

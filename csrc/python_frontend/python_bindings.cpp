@@ -182,9 +182,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.print(ss);
             return ss.str();
           })
-      .def("print", [](FusionDefinition& self) { self.print(std::cout); })
-      .def("print_math_ir", [](FusionDefinition& self) { self.printMathIr(); })
-      .def("print_ir", [](FusionDefinition& self) { self.printIr(); })
       .def(
           "_execute",
           [](FusionDefinition& self,
@@ -197,6 +194,65 @@ void initNvFuserPythonBindings(PyObject* module) {
             return self.execute(inputs, override_user_schedule);
           },
           py::arg("inputs"),
+          py::arg("override_user_schedule") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_fusion_ir",
+          [](FusionDefinition& self) { return self.fusionIr(); },
+          py::return_value_policy::reference)
+      .def(
+          "_last_cuda_code",
+          [](FusionDefinition& self,
+             bool intrinsic_code,
+             bool override_user_schedule) {
+            return self.lastCudaCode(intrinsic_code, override_user_schedule);
+          },
+          py::arg("intrinsic_code") = false,
+          py::arg("override_user_schedule") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_cuda_code_for",
+          [](FusionDefinition& self,
+             const py::iterable& iter,
+             bool intrinsic_code,
+             bool override_user_schedule) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            return self.cudaCodeFor(
+                inputs, intrinsic_code, override_user_schedule);
+          },
+          py::arg("inputs"),
+          py::arg("intrinsic_code") = false,
+          py::arg("override_user_schedule") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_last_scheduled_fusion_ir",
+          [](FusionDefinition& self,
+             bool tensor_transforms,
+             bool override_user_schedule) {
+            return self.lastScheduledFusionIr(
+                tensor_transforms, override_user_schedule);
+          },
+          py::arg("tensor_transforms") = false,
+          py::arg("override_user_schedule") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_scheduled_fusion_ir_for",
+          [](FusionDefinition& self,
+             const py::iterable& iter,
+             bool tensor_transforms,
+             bool override_user_schedule) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            return self.scheduledFusionIrFor(
+                inputs, tensor_transforms, override_user_schedule);
+          },
+          py::arg("inputs"),
+          py::arg("tensor_transforms") = false,
           py::arg("override_user_schedule") = false,
           py::return_value_policy::reference)
       .def(

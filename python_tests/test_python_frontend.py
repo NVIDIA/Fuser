@@ -1468,5 +1468,90 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(torch.real(inputs[0]), nvf_out[0])
             self.assertEqual(torch.imag(inputs[0]), nvf_out[1])
 
+    def test_cuda_code_and_scheduled_fusion_ir_strings(self):
+        inputs = [
+            torch.randn(2, 2, 2, 2, device='cuda'),
+        ]
+        big_inputs = [
+            torch.randn(64, 64, 64, 64, device='cuda'),
+        ]
+
+        # Function only based definition
+        class DefFuncFusion(FusionDefinition):
+            def definition(self):
+                t0 = self.from_pytorch(inputs[0])
+                t1 = self.ops.relu(t0)
+                self.add_output(t1)
+
+        # Function based definition plus a user schedule
+        class UserSchedFusion(FusionDefinition):
+            def definition(self):
+                t0 = self.from_pytorch(inputs[0])
+                t1 = self.ops.sinh(t0)
+                self.add_output(t1)
+
+            def schedule(self):
+                pass
+
+        # Context Based Definition
+        ctx_fusion = FusionDefinition()
+        with ctx_fusion:
+            t0 = ctx_fusion.from_pytorch(inputs[0])
+            t1 = ctx_fusion.ops.tanh(t0)
+            ctx_fusion.add_output(t1)
+        
+        # Context Based Definition with a segmented fusion
+        ctx_seg_fusion = FusionDefinition()
+        with ctx_seg_fusion:
+            t0 = ctx_seg_fusion.from_pytorch(inputs[0])
+            t1 = ctx_seg_fusion.ops.sum(t0, axis=0)
+            t2 = ctx_seg_fusion.ops.sum(t0, axis=-1)
+            ctx_seg_fusion.add_output(t1)
+            ctx_seg_fusion.add_output(t2)
+        
+
+        test_defs = [DefFuncFusion(), UserSchedFusion(), ctx_fusion, ctx_seg_fusion]
+
+        for fd in test_defs:
+            # Attempting to get the cuda code for an un-executed FusionDefinition
+            # should trigger a RuntimeError and not a segfault
+            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+                _ = fd.last_cuda_code()
+            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+                _ = fd.last_scheduled_fusion_ir()
+            # Only make this check for function based definitions
+            if hasattr(super(type(self), self), "definition"):
+                with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+                    _ = fd.fusion_ir()
+         
+            _ = fd.execute(inputs)
+    
+            code_len = len(fd.last_cuda_code())
+            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            code_len = len(fd.last_cuda_code(intrinsic_code=True))
+            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            sched_ir_len = len(fd.last_scheduled_fusion_ir())
+            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            sched_ir_len = len(fd.last_scheduled_fusion_ir(tensor_transforms=True))
+            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            sched_ir_len = len(fd.fusion_ir())
+            self.assertTrue(code_len > 0, "Unscheduled Fusion IR was not produced!")
+     
+            code_len = len(fd.cuda_code_for(inputs))
+            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            code_len = len(fd.cuda_code_for(inputs, intrinsic_code=True))
+            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs))
+            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs, tensor_transforms=True))
+            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+         
+            # Attemp to get strings for inputs that do not heuristically match 
+            # and a new fusion has not been compiled
+            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+                _ = fd.cuda_code_for(big_inputs)
+            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+                _ = fd.scheduled_fusion_ir_for(big_inputs)
+
 if __name__ == '__main__':
     run_tests()

@@ -43,6 +43,10 @@ struct FusionSchedules {
   //!        InputsIdLookup struct found inside of the FusionCache.
   //! Value: A vector based on device_id of User Defined Fusion Schedules.
   std::unordered_map<size_t, std::vector<UserSchedule>> user_def_schedules;
+  //! Keeps a pointer to the last scheduled Fusion IR for printing
+  Fusion* last_user_def_scheduled_ir;
+  //! Keeps a pointer to the last executed executor for printing its cuda kernel
+  FusionExecutor* last_user_def_executor;
 };
 
 //! \struct TrieNode

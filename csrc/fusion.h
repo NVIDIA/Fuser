@@ -128,6 +128,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Assert that all leaves found from outputs are registered as an input
   void validateInputs();
 
+  //! Print this fusion to an output stream
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms);
   //! Print this fusion to the console
   void print();
 
