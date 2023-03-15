@@ -963,7 +963,13 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
       ir_utils::filterByType<TensorView>(fusion_vals).end(),
       std::back_inserter(tvs_with_rfactor),
       [](TensorView* tv) {
-        return tv->hasRFactor() && !ir_utils::isReductionOp(tv->definition());
+        return tv->hasRFactor() &&
+            std::none_of(
+                   tv->getMaybeRFactorDomain().begin(),
+                   tv->getMaybeRFactorDomain().end(),
+                   [](auto id) {
+                     return id->isReduction() && id->isRFactorProduct();
+                   });
       });
   return tvs_with_rfactor;
 }
