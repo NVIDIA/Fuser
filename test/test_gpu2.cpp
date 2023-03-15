@@ -9718,8 +9718,8 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
   // of projected buffers, even though it is also included in the
   // projectable buffer inputs. Thus, the buffer size would be
   // calculated as the sum of tv1, tv0 and tv1.
-  auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
-  auto expected_size = shape[1] * 2 * dataTypeSize(DataType::Half);
+  int projected_size = persistent_buffer_size.projected_persistent_buffer_size;
+  int expected_size = shape[1] * 2 * dataTypeSize(DataType::Half);
   TORCH_CHECK(
       projected_size == expected_size,
       "Buffer projection failure. Expected size: ",
