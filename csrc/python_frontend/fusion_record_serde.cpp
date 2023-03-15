@@ -198,8 +198,11 @@ RecordFunctor* deserializeOutputValRecord(const serde::RecordFunctor* buffer) {
 }
 
 RecordFunctor* deserializeOutputTvRecord(const serde::RecordFunctor* buffer) {
+  auto data = buffer->data_as_Output();
   return new OutputRecord<TensorView>(
-      parseStateArgs(buffer->args()), serde::RecordType_OutputTv);
+      parseStateArgs(buffer->args()),
+      serde::RecordType_OutputTv,
+      parseVector(data->stride_order()));
 }
 
 RecordFunctor* deserializeReductionRecord(
@@ -250,11 +253,6 @@ RecordFunctor* deserializeIndexSelectRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->data_as_Dimension()->dim());
-}
-
-template <class OutputType>
-RecordFunctor* deserializeOutputRecord(const serde::RecordFunctor* buffer) {
-  return new OutputRecord<OutputType>(parseStateArgs(buffer->outputs()));
 }
 
 RecordFunctor* deserializePermuteRecord(const serde::RecordFunctor* buffer) {
