@@ -247,7 +247,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             TORCH_CHECK(
                 stride_order.empty() || output.dims == stride_order.size(),
                 "stride_order needs to be either empty or the same length of Tensor `output`");
-            int duplicate_check = 0;
+            int64_t duplicate_check = 0;
             for (const auto& v : stride_order) {
               TORCH_CHECK(
                   v >= 0 && v < (int64_t)stride_order.size(),
