@@ -928,7 +928,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
-
   auto target_indexing = indexing.updateIndexCompute(
       target_tv->domain(), index_update_map, contig_finder);
 
@@ -1390,7 +1389,6 @@ IterDomain* getRfactorIDToTraverse(
   const auto& rfactor_ids =
       GpuLower::current()->caMap()->getRfactorDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
-
   if (rfactor_ids.empty()) {
     return nullptr;
   }
