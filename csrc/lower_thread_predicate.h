@@ -50,6 +50,9 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     ParallelTypeBitmap limited_types;
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
+    // Map stores parallel types where a fraction of thread/block is enough
+    std::unordered_map<ParallelType, Val*> write_stride_mod;
+    std::unordered_map<ParallelType, Val*> write_stride_div;
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]
     //  a parallel type is a `redundant_consumer_type` only
@@ -118,7 +121,7 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
  private:
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
-
+  void removeRedundantWrite(const TensorView* out_tv);
   const_iterator find(const TensorView* tv) const;
   const_iterator end() const;
 
