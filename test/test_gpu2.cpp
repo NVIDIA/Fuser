@@ -9721,7 +9721,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
   auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
   auto expected_size = shape[1] * 2 * dataTypeSize(DataType::Half);
   TORCH_CHECK(
-      projected_size == expected_size,
+      (int64_t)projected_size == expected_size,
       "Buffer projection failure. Expected size: ",
       expected_size,
       ". Actual: ",
