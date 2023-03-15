@@ -681,9 +681,9 @@ bool reductionInterferingView(
 
   // Make sure groups are disjoint based on view
 
-  auto disjoint_view_sets = scheduler_utils::disjointViewSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointViewSetsOf(
-      fusion, reduction_reference, disjoint_view_sets);
+  auto disjoint_rfactor_sets = scheduler_utils::disjointRFactorSets(fusion);
+  auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
+      fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
   std::vector<std::vector<int>> disjoint_groups;

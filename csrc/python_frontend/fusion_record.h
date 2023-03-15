@@ -1189,8 +1189,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
 //! The accompanying Fusion Cache Entry holds a Fusion Object.
 
 struct EndRecord : RecordFunctor {
-  EndRecord()
-      : RecordFunctor({}, {}, "end", serde::RecordType_End) {}
+  EndRecord() : RecordFunctor({}, {}, "end", serde::RecordType_End) {}
   virtual ~EndRecord() = default;
   virtual RecordFunctor* clone() final {
     return new EndRecord(*this);
@@ -1372,10 +1371,11 @@ struct TensorRecord : RecordFunctor {
       }
     };
     std::vector<int> contiguity_enum;
-    std::transform(contiguous_info_.cbegin(),
-                   contiguous_info_.cend(),
-                   std::back_inserter(contiguity_enum),
-                   mapOptionalToEnum);
+    std::transform(
+        contiguous_info_.cbegin(),
+        contiguous_info_.cend(),
+        std::back_inserter(contiguity_enum),
+        mapOptionalToEnum);
     auto fb_contiguity_enum = builder.CreateVector(contiguity_enum);
 
     serde::TensorBuilder tensor_builder(builder);
@@ -1412,8 +1412,8 @@ struct OutputRecord : RecordFunctor {
       : RecordFunctor(std::move(_args), {}, "add_output", record_type) {
     if (!stride_order.empty()) {
       bool requires_permutation = false;
-      for (const int64_t i : c10::irange(stride_order.size())) {
-        if (stride_order[i] != i) {
+      for (const auto i : c10::irange(stride_order.size())) {
+        if (stride_order[i] != (int64_t)i) {
           requires_permutation = true;
           break;
         }
@@ -1863,8 +1863,7 @@ struct ScalarRecord : RecordFunctor {
 //! Fusion Cache.
 
 struct StartRecord : RecordFunctor {
-  StartRecord()
-      : RecordFunctor({}, {}, "start", serde::RecordType_Start) {}
+  StartRecord() : RecordFunctor({}, {}, "start", serde::RecordType_Start) {}
   virtual ~StartRecord() = default;
   virtual RecordFunctor* clone() final {
     return new StartRecord(*this);
@@ -2238,7 +2237,8 @@ struct FullOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_TensorCreation,
-        serde::CreateTensorCreationDirect(builder, &shape_, mapToSerdeDtype(dtype_))
+        serde::CreateTensorCreationDirect(
+            builder, &shape_, mapToSerdeDtype(dtype_))
             .Union()};
   }
 
