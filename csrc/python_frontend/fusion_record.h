@@ -12,7 +12,9 @@
 #include <ops/arith.h>
 #include <ops/normalization.h>
 #include <python_frontend/fusion_definition.h>
+#include <python_frontend/fusion_record_serde.h>
 #include <python_frontend/fusion_state.h>
+#include <serde/python_fusion_cache_generated.h>
 #include <utils.h>
 
 #include <algorithm>
@@ -2363,8 +2365,8 @@ struct RandomOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto arg2 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<Val>();
+    auto arg2 = fd.getFusionState(args_.at(1).index)->template as<Val>();
 
     std::vector<Val*> output_shape(output_shape_.size(), nullptr);
     std::transform(

@@ -13,15 +13,6 @@ namespace nvfuser::python_frontend {
 
 struct RecordFunctor;
 
-//! The State and the StateType enum are used to define state objects to
-//! encapsulate the recording of state in the FusionDefinition.
-
-enum class StateType {
-  Tensor,
-  Scalar,
-  None,
-};
-
 struct TORCH_CUDA_CU_API State {
   State(size_t _index, serde::StateType _stype)
       : index(_index), stype(_stype) {}

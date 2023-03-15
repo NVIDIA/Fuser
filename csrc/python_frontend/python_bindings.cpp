@@ -91,7 +91,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def("num_fusions", &FusionCache::numFusions)
       .def("print_stats", [](FusionCache& self) { self.print(std::cout); })
       .def_static(
-          "reset", &FusionCache::reset, py::return_value_policy::reference);
+          "reset", &FusionCache::reset, py::return_value_policy::reference)
+      .def(
+          "serialize",
+          [](FusionCache& self, std::string filename) {
+            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            self.serialize(filename);
+          },
+          py::arg("filename"))
+      .def(
+          "deserialize",
+          [](FusionCache& self, std::string filename) {
+            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            self.deserialize(filename);
+          },
+          py::arg("filename"));
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
