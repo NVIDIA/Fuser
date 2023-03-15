@@ -2337,6 +2337,29 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("is_broadcast_dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "cat",
+      [](FusionDefinition::Operators& self,
+         std::vector<Tensor> tensors,
+         int64_t dim) -> Tensor {
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TORCH_CHECK(
+            tensors.size() > 0,
+            "Attempting to concatenate empty list of tensors")
+        Tensor output = fd->defineTensor(tensors[0].dims);
+        std::vector<State> tensor_states;
+        for (auto& t : tensors) {
+          tensor_states.push_back(fd->recordingState(t()));
+        }
+        self.fusion_definition->defineRecord(new CatOpRecord(
+            tensor_states, {fd->recordingState(output())}, dim));
+        return output;
+      },
+      py::arg("tensors"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "index_select",
       [](FusionDefinition::Operators& self,
          Tensor arg,

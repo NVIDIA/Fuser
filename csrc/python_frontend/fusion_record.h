@@ -31,6 +31,7 @@ enum class RecordType {
   BroadcastOp,
   BroadcastInDimOp,
   CastOp,
+  CatOp,
   Constant,
   End,
   FullOp,
@@ -930,6 +931,87 @@ struct CastOpRecord : RecordFunctor {
   std::function<OutType(DataType, ArgType)> fusion_op_;
   //! Type to cast to.
   PrimDataType dtype_;
+};
+
+struct CatOpRecord : RecordFunctor {
+  CatOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.cat",
+            RecordType::CatOp),
+        dim_(dim) {}
+  virtual ~CatOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new CatOpRecord(*this);
+  }
+
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dim_) & 0xffff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const CatOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    std::vector<TensorView*> input_tvs;
+    input_tvs.reserve(args_.size());
+    for (auto& a : args_) {
+      input_tvs.push_back(
+          fd.getFusionState(a.index)->template as<TensorView>());
+    }
+    auto output = cat(input_tvs, dim_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    // Similar to RecordFunctor::print(os, false), but don't print args
+    bool first_output = true;
+    for (auto& output : outputs_) {
+      if (first_output) {
+        first_output = false;
+      } else {
+        os << ", ";
+      }
+      os << output;
+    }
+    if (always_returns_tuple_) {
+      os << ",";
+    }
+    if (outputs_.size() > 0) {
+      os << " = "
+         << "fd." << name_ << "(";
+    } else {
+      os << "fd." << name_ << "(";
+    }
+    os << "[";
+    bool first_arg = true;
+    for (auto& arg : args_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << arg;
+    }
+    os << "], dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  //! The dimension along which we will concatenate
+  int64_t dim_;
 };
 
 //! Specialized Record Functor for recording FusionDefinition constant state.
