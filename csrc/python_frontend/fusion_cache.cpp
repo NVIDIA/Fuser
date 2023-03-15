@@ -34,7 +34,7 @@ TrieNode::TrieNode(RecordFunctor* rec, size_t _fusion_id)
     : record(rec), children(), fusion_id(_fusion_id), visits(0) {}
 
 bool TrieNode::isTerminal() const {
-  return (record.get()->recordType() == RecordType::End);
+  return (record.get()->recordType() == serde::RecordType_End);
 }
 
 FusionCache* FusionCache::get(size_t max_fusions) {
@@ -155,7 +155,7 @@ c10::optional<size_t> FusionCache::createChild(RecordFunctor* rec) {
   TORCH_CHECK(rec, "Record is null!");
 
   size_t fusion_id = 0;
-  if (rec->recordType() == RecordType::End) {
+  if (rec->recordType() == serde::RecordType_End) {
     TORCH_CHECK(
         (fusions_.size() + 1) <= max_fusions_,
         "The number of fusions in nvfuser has exceeded ",
@@ -173,7 +173,7 @@ c10::optional<size_t> FusionCache::createChild(RecordFunctor* rec) {
   // FusionDefinition that creates a trie node but not cache lookups
   RecordFunctor* new_rec = rec->clone();
   triePtr()->children[new_rec] = std::make_unique<TrieNode>(new_rec, fusion_id);
-  if (rec->recordType() == RecordType::End) {
+  if (rec->recordType() == serde::RecordType_End) {
     terminal_nodes_.push_back(triePtr()->children[new_rec].get());
   }
   if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
@@ -203,7 +203,7 @@ UserSchedule* FusionCache::createUserSchedule(
 
 void FusionCache::resetTriePtr() {
   trie_ptr_ = root_.get();
-  TORCH_CHECK(triePtr()->record->recordType() == RecordType::Start);
+  TORCH_CHECK(triePtr()->record->recordType() == serde::RecordType_Start);
   ++(triePtr()->visits);
 }
 

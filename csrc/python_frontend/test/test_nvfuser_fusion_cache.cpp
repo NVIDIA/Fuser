@@ -70,7 +70,7 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
   // record to an empty cache.
   {
     std::unique_ptr<RecordFunctor> test_record(new TensorRecord(
-        {State(0, StateType::Tensor)}, {3}, {true}, DataType::Float));
+        {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
 
     // Check Methods prior to adding an entry to the cache
 
@@ -162,9 +162,9 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
   // record to a cache with 1 fusion.
   {
     std::unique_ptr<RecordFunctor> cached_record(new TensorRecord(
-        {State(0, StateType::Tensor)}, {3}, {true}, DataType::Float));
+        {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
     std::unique_ptr<RecordFunctor> new_record(
-        new ScalarRecord({State(1, StateType::Scalar)}, DataType::Float));
+        new ScalarRecord({State(1, serde::StateType_Scalar)}, DataType::Float));
 
     try {
       auto hit_cache_entry = fc->queryChildren(cached_record.get());
@@ -225,9 +225,9 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
   // This tends to flush out pointer problems in the cache.
   {
     std::unique_ptr<RecordFunctor> test_record(new TensorRecord(
-        {State(0, StateType::Tensor)}, {3}, {true}, DataType::Float));
+        {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
     std::unique_ptr<RecordFunctor> dummy_record(new TensorRecord(
-        {State(0, StateType::Tensor)}, {3}, {true}, DataType::Float));
+        {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
 
     try {
       auto cache_entry_ptr = fc->queryChildren(test_record.get());

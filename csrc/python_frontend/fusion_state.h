@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <ir_interface_nodes.h>
+#include <serde/python_fusion_cache_generated.h>
 
 namespace nvfuser::python_frontend {
 
@@ -22,7 +23,8 @@ enum class StateType {
 };
 
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, StateType _stype) : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype)
+      : index(_index), stype(_stype) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -30,7 +32,7 @@ struct TORCH_CUDA_CU_API State {
   //! A unique index to identifiy each recorded state item.
   size_t index;
   //! StateType is either: Tensor or Scalar
-  StateType stype;
+  serde::StateType stype;
 };
 
 //! FusionState contains the information used to build a new cpp Fusion object.
