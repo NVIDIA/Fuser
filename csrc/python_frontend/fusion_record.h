@@ -447,7 +447,8 @@ struct PadOpRecord : RecordFunctor {
   }
 
  private:
-  //! Represents the mapping from the original shape to the new shape
+  //! Pairs of non-negative integers indicating the amount to pad the front and
+  //! back of each dimension.
   std::vector<State> pad_widths_;
 };
 
