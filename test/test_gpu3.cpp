@@ -1759,16 +1759,16 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
   i39 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b75;
-  b75 = i39 < i7;
+  bool b86;
+  b86 = i39 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b75) {
+  if (b86) {
     T1[0]
        = sinf(T0[i39]);
   }
-  if (b75) {
+  if (b86) {
     T2[i39]
       = T1[0]
       + f8;
@@ -2188,8 +2188,10 @@ TEST_F(NVFuserTest, FusionVectorizeInputToOutput_CUDA) {
   const int n = 12;
   auto t0 = at::randn({n}, options);
   // Shift by one to make it non-aligned
-  auto t0_misaligned = at::randn({n + 1}, options).index({Slice(1)});
-  auto t1_misaligned = at::empty({n + 1}, options).index({Slice(1)});
+  auto t0_misaligned =
+      at::randn({n + 1}, options).index({at::indexing::Slice(1)});
+  auto t1_misaligned =
+      at::empty({n + 1}, options).index({at::indexing::Slice(1)});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});

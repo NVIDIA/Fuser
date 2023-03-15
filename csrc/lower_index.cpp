@@ -1408,4 +1408,95 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
+void IndexLowering::handle(const PadOp* pad) {
+  // Convert to a where op as:
+  // consumer[consumer_idx] = (produer_idx >= 0 && produer_idx <
+  //                           producer_extent) ?
+  //     producer[producer_idx] :
+  //     0;
+
+  auto producer_tv = pad->in()->as<TensorView>();
+  auto consumer_tv = pad->out()->as<TensorView>();
+  auto producer_doms =
+      TensorDomain::noReductions(producer_tv->getMaybeRFactorDomain());
+
+  const auto in = lowerSrcIndex(pad->in(), pad->out());
+  const auto out = lowerDstIndex(pad->out());
+
+  DataType dt = producer_tv->getDataType().value();
+  // Currently it's always padded by zero
+  const auto pad_val = isFloatingPointType(dt)
+      ? static_cast<Val*>(IrBuilder::create<Double>(0, dt))
+      : static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+
+  const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
+      producer_tv, consumer_tv, for_loops_, getRotatedLoop());
+
+  // Build a predicate for where
+  Val* pred = IrBuilder::create<Bool>(true);
+  for (auto padded_axis : pad->getPaddedAxes()) {
+    auto producer_idx = producer_root_indices.at(padded_axis);
+    auto producer_root_id = producer_doms.at(padded_axis);
+    TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
+    pred = SimplifyingIrBuilder::andExpr(
+        pred,
+        // idx >= 0 && idx < extent
+        SimplifyingIrBuilder::andExpr(
+            SimplifyingIrBuilder::geExpr(
+                producer_idx, GpuLower::current()->kernel()->zeroVal()),
+            SimplifyingIrBuilder::ltExpr(
+                producer_idx, producer_root_id->extent())));
+  }
+
+  pushBack(IrBuilder::create<TernaryOp>(
+      TernaryOpType::Where, out, pred, in, pad_val));
+  GpuLower::current()->propagateExprInfo(pad, back());
+}
+
+void IndexLowering::handle(const SliceOp* slice) {
+  // TODO: Consider converting SliceOp to Set at the beginning of
+  // lowering
+  const auto in = lowerSrcIndex(slice->in(), slice->out());
+  const auto out = lowerDstIndex(slice->out());
+
+  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, in));
+  GpuLower::current()->propagateExprInfo(slice, back());
+}
+
+void IndexLowering::handle(const CatOp* cat) {
+  // It's possible to lower CatOp to a series of IfThenElse or Where,
+  // but that would going to look really ugly. For now, rely on
+  // CudaKernelGenerator to produce code based on the predicates
+  // genereated here.
+
+  const auto out = lowerDstIndex(cat->output(0));
+  auto out_indices = Index::getConsumerPerDimLogicalIndex(
+      cat->output(0)->as<TensorView>(), for_loops_, getRotatedLoop());
+  auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
+
+  std::vector<Val*> inputs(cat->inputs().size());
+  std::vector<Bool*> preds(cat->inputs().size());
+  Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
+
+  for (const auto i : c10::irange(cat->inputs().size())) {
+    const auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
+    inputs.at(i) = inp;
+
+    // Note the original extent is the extent of the root domain not
+    // rfactor domain
+    auto inp_concat_id = TensorDomain::noReductions(
+                             cat->input(i)->as<TensorView>()->getRootDomain())
+                             .at(cat->concatenatedDim());
+    cur_extent = add(cur_extent, inp_concat_id->extent());
+    preds.at(i) =
+        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent)->as<Bool>();
+  }
+
+  auto lowered = IrBuilder::create<CatOp>(
+      out, inputs, cat->concatenatedDim(), concatenated_dim_idx, preds);
+
+  pushBack(lowered);
+  GpuLower::current()->propagateExprInfo(cat, lowered);
+}
+
 } // namespace nvfuser
