@@ -52,13 +52,13 @@ at::Tensor generateScatter2DIndex(
       torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
   if (select_id == 0) {
     auto idx = at::randint(0, extent_2d, {extent_1d, extent_2d}, options_i);
-    for (int64_t i = 0; i < extent_1d; ++i) {
+    for (size_t i = 0; i < extent_1d; ++i) {
       idx[i] = at::randperm(extent_2d, options_i) + min;
     }
     return idx.transpose(0, 1).contiguous();
   } else {
     auto idx = at::randint(0, extent_1d, {extent_2d, extent_1d}, options_i);
-    for (int64_t i = 0; i < extent_2d; ++i) {
+    for (size_t i = 0; i < extent_2d; ++i) {
       idx[i] = at::randperm(extent_1d, options_i) + min;
     }
     return idx;

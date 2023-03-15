@@ -1383,7 +1383,7 @@ bool shouldBePersistent(
   const int64_t max_gdimy =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   const int64_t pb_factor = ceilDiv(ceilDiv(N * HW * HW, max_bdimy), max_gdimy);
-  const int64_t req_reg_count = pb_factor * vec_factor * dataTypeSize(dtype) /
+  const auto req_reg_count = pb_factor * vec_factor * dataTypeSize(dtype) /
       sizeof(int) *
       (is_bwd ? 2 : 1); // Two tensors are cached in the backward batchnorm
 
