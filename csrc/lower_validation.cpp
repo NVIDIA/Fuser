@@ -1337,4 +1337,25 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
+void validateResize(Fusion* fusion) {
+  auto fusion_vals = fusion->usedMathVals();
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
+    // Make sure resize is only used as part of rfactor transformations
+    auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
+        fusion,
+        {tv->getMaybeRFactorDomain().begin(),
+         tv->getMaybeRFactorDomain().end()},
+        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+
+    TORCH_INTERNAL_ASSERT(
+        std::none_of(
+            rf_to_leaf_exprs.begin(),
+            rf_to_leaf_exprs.end(),
+            [](Expr* expr) { return expr->isA<Resize>(); }),
+        "Invalid use of resize detected with ",
+        tv->toString(),
+        ". Resize may only be used as part of rfactor transformations.");
+  }
+}
+
 } // namespace nvfuser

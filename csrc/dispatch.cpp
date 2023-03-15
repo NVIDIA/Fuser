@@ -187,6 +187,18 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<SqueezeOp>());
     return;
   }
+  if (expr->isStrictlyA<CatOp>()) {
+    ptr(handler)->handle(expr->as<CatOp>());
+    return;
+  }
+  if (expr->isStrictlyA<PadOp>()) {
+    ptr(handler)->handle(expr->as<PadOp>());
+    return;
+  }
+  if (expr->isStrictlyA<SliceOp>()) {
+    ptr(handler)->handle(expr->as<SliceOp>());
+    return;
+  }
   if (expr->isStrictlyA<Split>()) {
     ptr(handler)->handle(expr->as<Split>());
     return;
@@ -197,6 +209,10 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
+    return;
+  }
+  if (expr->isStrictlyA<Resize>()) {
+    ptr(handler)->handle(expr->as<Resize>());
     return;
   }
   if (expr->isStrictlyA<TransposeOp>()) {
@@ -459,6 +475,18 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<SqueezeOp>());
     return;
   }
+  if (expr->isStrictlyA<CatOp>()) {
+    ptr(handler)->handle(expr->as<CatOp>());
+    return;
+  }
+  if (expr->isStrictlyA<PadOp>()) {
+    ptr(handler)->handle(expr->as<PadOp>());
+    return;
+  }
+  if (expr->isStrictlyA<SliceOp>()) {
+    ptr(handler)->handle(expr->as<SliceOp>());
+    return;
+  }
   if (expr->isStrictlyA<Split>()) {
     ptr(handler)->handle(expr->as<Split>());
     return;
@@ -469,6 +497,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
+    return;
+  }
+  if (expr->isStrictlyA<Resize>()) {
+    ptr(handler)->handle(expr->as<Resize>());
     return;
   }
   if (expr->isStrictlyA<TransposeOp>()) {
@@ -859,6 +891,15 @@ void OptOutConstDispatch::handle(const BroadcastOp* stmt) {
 void OptOutConstDispatch::handle(const SqueezeOp* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const CatOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const PadOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const SliceOp* stmt) {
+  unhandled(stmt);
+}
 
 void OptOutConstDispatch::handle(const Split* stmt) {
   unhandled(stmt);
@@ -867,6 +908,9 @@ void OptOutConstDispatch::handle(const Merge* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const Swizzle2D* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const Resize* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const TransposeOp* stmt) {
@@ -1044,6 +1088,15 @@ void OptOutDispatch::handle(BroadcastOp* stmt) {
 void OptOutDispatch::handle(SqueezeOp* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(CatOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(PadOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(SliceOp* stmt) {
+  unhandled(stmt);
+}
 
 void OptOutDispatch::handle(Split* stmt) {
   unhandled(stmt);
@@ -1052,6 +1105,9 @@ void OptOutDispatch::handle(Merge* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(Swizzle2D* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(Resize* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(TransposeOp* stmt) {

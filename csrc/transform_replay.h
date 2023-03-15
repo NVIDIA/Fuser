@@ -132,20 +132,28 @@ class RootDomainMap;
 class TORCH_CUDA_CU_API TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
+  //
+  // replay_resize indicates whether resize should be replayed or
+  // ignored. It is only replayed when replaying a producer for
+  // indexing.
   static std::pair<TensorDomain*, unsigned int> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int consumer_compute_at_axis,
-      bool replay_swizzle = false);
+      bool replay_swizzle = false,
+      bool replay_resize = false);
   static std::pair<TensorDomain*, unsigned int> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int consumer_compute_at_axis,
       const RootDomainMap& root_map,
-      bool replay_swizzle = false);
+      bool replay_swizzle = false,
+      bool replay_resize = false);
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
   // consumer_compute_at_axis}.
+  //
+  // Unlike replayPasC, it always ignores resize.
   static std::pair<TensorDomain*, unsigned int> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
@@ -171,18 +179,32 @@ class TORCH_CUDA_CU_API TransformReplay {
   // position as `replayPasC`. However, this function is more tolerant than
   // fully matching `replayPasC`: if in the consumer, there are unmappable
   // dimensions, these dimensions are just ignored.
+  //
+  // When skip_resize is true, mapping is done more permissively by
+  // skipping resize ops. For example, that is done when this is used
+  // by TransformPropagator, whereas it isn't when used for
+  // determining the inlining position by MaxPosCalculator as inlining
+  // isn't allowed with different extents.
   static int getMatchedLeafPosWithoutReplayPasC(
       const TensorView* producer,
       const TensorView* consumer,
-      int consumer_pos);
+      int consumer_pos,
+      bool skip_resize = false);
 
   // Returns the leaf position in consumer that matches with `producer_pos` in
   // producer. Behavior similar to getMatchedLeafPosWithoutReplayPasC, except
   // that we are also ignoring reductions in the producer.
+  //
+  // When skip_resize is true, mapping is done more permissively by
+  // skipping resize ops. For example, that is done when this is used
+  // by TransformPropagator, whereas it isn't when used for
+  // determining the inlining position by MaxPosCalculator as inlining
+  // isn't allowed with different extents.
   static int getMatchedLeafPosWithoutReplayCasP(
       const TensorView* consumer,
       const TensorView* producer,
-      int producer_pos);
+      int producer_pos,
+      bool skip_resize = false);
 
   // tests if two tensors has fully matching transformations
   static bool fullSelfMatching(
