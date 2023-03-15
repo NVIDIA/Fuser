@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
 from copy import deepcopy
@@ -1467,6 +1464,36 @@ class TestNvFuserFrontend(TestCase):
 
             self.assertEqual(torch.real(inputs[0]), nvf_out[0])
             self.assertEqual(torch.imag(inputs[0]), nvf_out[1])
+
+
+    def test_pad(self):
+        inputs = [
+            torch.testing.make_tensor((2, 1), dtype=torch.float32, device='cuda'),
+            2,  # used as symbolic pad width input
+        ]
+
+        def fusion_func(fd: FusionDefinition) :
+            t0 = fd.from_pytorch(inputs[0])
+
+            t1 = fd.ops.pad(t0, [1, 1, 1, 1])
+            t2 = t0.pad([1, 1, 1, 1])
+
+            # no padding in some dims
+            t3 = fd.ops.pad(t0, [0, 0, 2, 3])
+
+            # no padding in all dims
+            t4 = fd.ops.pad(t0, [0, 0, 0, 0])
+
+            # passing symbolic pad widths
+            s0 = fd.define_scalar(DataType.Int)
+            t5 = t0.pad([s0, s0, s0, s0])
+
+            for to in [t1, t2, t3, t4]:
+                fd.add_output(to)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(inputs[0].pad([1, 1, 1, 1]), nvf_out[0])
 
 if __name__ == '__main__':
     run_tests()

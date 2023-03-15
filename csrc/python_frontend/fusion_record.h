@@ -1,10 +1,3 @@
-// clang-format off
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- */
-// clang-format on
 #pragma once
 #include <c10/util/complex.h>
 #include <ir_interface_nodes.h>
@@ -39,6 +32,7 @@ enum class RecordType {
   TorchGatherOp,
   Op,
   Output,
+  PadOp,
   PermuteOp,
   ReductionOp,
   Scalar,
@@ -377,6 +371,77 @@ struct ReshapeOpRecord : RecordFunctor {
   std::vector<int64_t> original_shape_;
   //! Represents the tensor dimensions of the output tensor.
   std::vector<int64_t> new_shape_;
+};
+
+struct PadOpRecord : RecordFunctor {
+  PadOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::vector<State>& pad_widths)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.pad",
+            RecordType::PadOp),
+        pad_widths_(std::move(pad_widths)) {}
+  virtual ~PadOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new PadOpRecord(*this);
+  }
+
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t widths_hash = 0;
+    // for (auto w : pad_widths_) {
+    // TODO: How to hash vector<Scalar*> pad_widths here?
+    // widths_hash ^= w.hash();
+    //}
+    return result | (widths_hash & 0xffff);
+  }
+
+  /*
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+  */
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    std::vector<Val*> eval_widths;
+    eval_widths.reserve(pad_widths_.size());
+    for (auto p : pad_widths_) {
+      auto pscalar = fd.getFusionState(p.index);
+      eval_widths.push_back(pscalar);
+    }
+    auto output = pad(arg, eval_widths);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", pad_widths=[";
+    bool first_arg = true;
+    for (auto w : pad_widths_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << w;
+    }
+    os << "]";
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  //! Represents the mapping from the original shape to the new shape
+  std::vector<State> pad_widths_;
 };
 
 struct PermuteOpRecord : RecordFunctor {
