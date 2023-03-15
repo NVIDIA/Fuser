@@ -436,7 +436,7 @@ void FusionCache::deserialize(std::string filename) {
           rec,
           std::make_unique<TrieNode>(rec, fb_child_trie_node->fusion_id()));
       TORCH_CHECK(
-          status.second, "Failed to add child to the current TrieNode.");
+          status.second, "Fusion-Cache Deserialization: Failed to add child to the current TrieNode.");
 
       // Add child TrieNode to BFS queue
       queue.emplace_back(
