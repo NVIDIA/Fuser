@@ -2423,9 +2423,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       "pad",
       [](Tensor arg, std::vector<Scalar>& pad_widths) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims);
         std::vector<State> pad_width_states;
         pad_width_states.reserve(pad_widths.size());
@@ -2438,7 +2438,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             pad_width_states));
         return output;
       },
-      py::arg("arg"),
       py::arg("pad_widths"),
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -2497,6 +2496,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& dims) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims - 1);
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
