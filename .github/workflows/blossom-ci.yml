@@ -1,6 +1,6 @@
-# Copyright (c) 2023- NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# See LICENSE for license information.
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 
 # A workflow to trigger ci on hybrid infra (github + self hosted runner)
 name: Blossom-CI
