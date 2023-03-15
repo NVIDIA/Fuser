@@ -1198,7 +1198,7 @@ struct OutputRecord : RecordFunctor {
       : RecordFunctor(std::move(_args), {}, "add_output", RecordType::Output) {
     if (!stride_order.empty()) {
       bool requires_permutation = false;
-      for (const auto i : c10::irange(stride_order.size())) {
+      for (const int i : c10::irange(stride_order.size())) {
         if (stride_order[i] != i) {
           requires_permutation = true;
           break;
@@ -1268,7 +1268,7 @@ struct OutputRecord : RecordFunctor {
 
         if (!stride_order_.empty()) {
           std::vector<int64_t> reverse_perm(stride_order_.size());
-          size_t duplicate_check = 0;
+          int duplicate_check = 0;
           for (const auto i : c10::irange(stride_order_.size())) {
             TORCH_CHECK(
                 stride_order_[i] >= 0 &&
