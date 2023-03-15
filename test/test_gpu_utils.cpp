@@ -108,7 +108,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
   auto tv3 = add(tv2, tv1);
   fusion->addOutput(tv3);
 
-  auto disjoint_exact = scheduler_utils::disjointViewSets(fusion.get());
+  auto disjoint_exact = scheduler_utils::disjointRFactorSets(fusion.get());
 
   TORCH_INTERNAL_ASSERT(
       disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));

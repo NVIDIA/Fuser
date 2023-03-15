@@ -1,8 +1,10 @@
+// clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 // aligned register array for vectorized load/store
 template <typename scalar_t, int size, int align_size>
 struct alignas(sizeof(scalar_t) * align_size) Array {

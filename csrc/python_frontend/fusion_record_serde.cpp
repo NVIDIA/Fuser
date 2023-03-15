@@ -300,24 +300,24 @@ RecordFunctor* deserializeTensorRecord(const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Tensor();
 
   auto mapEnumToOptional = [](int v) -> c10::optional<bool> {
-    switch(v) {
-        case serde::Contiguity_Strided:
-            return c10::optional<bool>(false);
-        case serde::Contiguity_Contiguous:
-            return c10::optional<bool>(true);
-        case serde::Contiguity_None:
-            return c10::nullopt;
+    switch (v) {
+      case serde::Contiguity_Strided:
+        return c10::optional<bool>(false);
+      case serde::Contiguity_Contiguous:
+        return c10::optional<bool>(true);
+      case serde::Contiguity_None:
+        return c10::nullopt;
     }
     TORCH_INTERNAL_ASSERT(false, "Invalid contiguity type.");
     return c10::nullopt;
   };
 
-std::vector<c10::optional<bool>> contiguous_info;
-std::transform(
-    data->contiguity()->cbegin(),
-    data->contiguity()->cend(),
-    std::back_inserter(contiguous_info),
-    mapEnumToOptional);
+  std::vector<c10::optional<bool>> contiguous_info;
+  std::transform(
+      data->contiguity()->cbegin(),
+      data->contiguity()->cend(),
+      std::back_inserter(contiguous_info),
+      mapEnumToOptional);
 
   return new TensorRecord(
       parseStateArgs(buffer->outputs()),
