@@ -1,8 +1,10 @@
+// clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 // [Z,Y,X]_THREADS is the number of participating threads in the z, y, x
 // dimension of the block. If set to false the dimension doesn't
 // participate in the reduction. We could start with warp reductions, then
