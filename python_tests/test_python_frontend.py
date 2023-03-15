@@ -8,6 +8,7 @@ import unittest
 from itertools import permutations
 
 import torch
+import torch.nn.functional as F
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
@@ -1468,32 +1469,46 @@ class TestNvFuserFrontend(TestCase):
 
     def test_pad(self):
         inputs = [
-            torch.testing.make_tensor((2, 1), dtype=torch.float32, device='cuda'),
+            torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
             2,  # used as symbolic pad width input
         ]
 
-        def fusion_func(fd: FusionDefinition) :
+        def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
 
-            t1 = fd.ops.pad(t0, [1, 1, 1, 1])
-            t2 = t0.pad([1, 1, 1, 1])
+            # Need to do stuff like this until we merge
+            # https://github.com/csarofeen/pytorch/pull/2449
+            one = fd.define_constant(1)
 
-            # no padding in some dims
-            t3 = fd.ops.pad(t0, [0, 0, 2, 3])
+            t1 = fd.ops.pad(t0, [one, one, one, one])
+            fd.add_output(t1)
+
+            t2 = t0.pad([one, one, one, one])
+            fd.add_output(t2)
+
+            # no padding in some dims (see note above)
+            zero = fd.define_constant(0)
+            two = fd.define_constant(2)
+            three = fd.define_constant(3)
+            t3 = fd.ops.pad(t0, [zero, zero, two, three])
+            fd.add_output(t3)
 
             # no padding in all dims
-            t4 = fd.ops.pad(t0, [0, 0, 0, 0])
+            t4 = fd.ops.pad(t0, [zero, zero, zero, zero])
+            fd.add_output(t4)
 
             # passing symbolic pad widths
             s0 = fd.define_scalar(DataType.Int)
             t5 = t0.pad([s0, s0, s0, s0])
-
-            for to in [t1, t2, t3, t4]:
-                fd.add_output(to)
+            fd.add_output(t5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(inputs[0].pad([1, 1, 1, 1]), nvf_out[0])
+        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
+        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[1])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
+        self.assertEqual(F.pad(inputs[0], [2, 2, 2, 2]), nvf_out[4])
 
 if __name__ == '__main__':
     run_tests()
