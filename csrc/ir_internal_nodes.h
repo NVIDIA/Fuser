@@ -1832,6 +1832,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   bool hasVectorize() const;
 
+  bool hasSymbolicAxis() const;
+
   c10::optional<unsigned int> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {

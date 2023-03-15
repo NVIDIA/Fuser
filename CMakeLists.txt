@@ -41,6 +41,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/codegen.cpp
     ${NVFUSER_SRCS_DIR}/contiguity.cpp
     ${NVFUSER_SRCS_DIR}/dispatch.cpp
+    ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
     ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
     ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
     ${NVFUSER_SRCS_DIR}/executor.cpp
@@ -350,6 +351,7 @@ if(BUILD_TEST)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_gpu2.cpp)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_gpu3.cpp)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp)
+  list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp)
   list(APPEND JIT_TEST_SRCS ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp)

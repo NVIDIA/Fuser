@@ -174,24 +174,30 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 
   // At this point, type1 and type2 must be either Iteration or
-  // Broadcast
+  // Broadcast. Note Symbolic is either Iteration or Broadcast
   TORCH_INTERNAL_ASSERT(
-      type1 == IterType::Iteration || type1 == IterType::Broadcast,
+      type1 == IterType::Iteration || type1 == IterType::Broadcast ||
+          type1 == IterType::Symbolic,
       "Unexpected IterType: ",
       type1);
   TORCH_INTERNAL_ASSERT(
-      type2 == IterType::Iteration || type2 == IterType::Broadcast,
+      type2 == IterType::Iteration || type2 == IterType::Broadcast ||
+          type2 == IterType::Symbolic,
       "Unexpected IterType: ",
       type2);
 
-  if (type1 == IterType::Broadcast) {
-    return type2;
+  if (type1 == IterType::Iteration || type2 == IterType::Iteration) {
+    return IterType::Iteration;
+  } else if (type1 == IterType::Symbolic || type2 == IterType::Symbolic) {
+    return IterType::Symbolic;
   } else {
-    return type1;
+    return IterType::Broadcast;
   }
 }
 
-TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    DataType dtype) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (val->getValType() == ValType::TensorView) {
@@ -279,6 +285,11 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
     }
   }
 
+  return out_domain;
+}
+
+TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
+  auto out_domain = newOutputDomain(vals, dtype);
   return IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),

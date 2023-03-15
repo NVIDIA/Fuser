@@ -227,7 +227,7 @@ class SplitTransform final : public ViewTransform {
 
   virtual std::string toString() const override {
     std::stringstream ss;
-    ss << "Split Index at: " << index_ << " by: " << split_factor_ << std::endl;
+    ss << "Split Index at: " << index_ << " by: " << split_factor_;
     return ss.str();
   }
 
@@ -714,6 +714,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
   const int64_t kNumElements = std::accumulate(
       original_view.begin(), original_view.end(), 1, std::multiplies<>());
   if (dynamic_index != -1) {
+    TORCH_INTERNAL_ASSERT(
+        kNumElements % new_size_num_elements == 0,
+        "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
+        "Number of input elements: ",
+        kNumElements,
+        ". Number of output elements: ",
+        new_size_num_elements);
     new_view.at(dynamic_index) = kNumElements / new_size_num_elements;
   }
 
@@ -745,6 +752,8 @@ AnalyzeViewResult analyzeView(
   // other values
   auto sizes = inferViewShapes(original_sizes, new_sizes);
 
+  std::cerr << "New size: " << sizes.second << std::endl;
+
   // Analysize the transformations required to go from original_sizes to
   // new_sizes
   AnalyzeViewTransformation analyzer(
@@ -771,6 +780,23 @@ TensorDomain* transformView(
     const AnalyzeViewResult& view_analysis) {
   FUSER_PERF_SCOPE("transformView");
   return createViewDomain(original_domain, view_analysis);
+}
+
+std::string AnalyzeViewResult::toString() const {
+  std::stringstream ss;
+  ss << "{ "
+     << "broadcast: " << broadcast_axes << ", squeeze: " << squeeze_axes
+     << ", transforms: ";
+  bool first_transform = true;
+  for (const auto& transform : transforms) {
+    if (!first_transform) {
+      ss << ", ";
+    }
+    ss << transform->toString();
+    first_transform = false;
+  }
+  ss << " }";
+  return ss.str();
 }
 
 } // namespace nvfuser

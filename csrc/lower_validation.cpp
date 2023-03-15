@@ -185,6 +185,12 @@ void validateIr(Fusion* fusion) {
   ValidateSiblings::validate(fusion);
 
   validateIterDomainUsage(fusion);
+
+  auto dynamic_tvs = ir_utils::getTVsWithDynamicTransform(fusion);
+  TORCH_INTERNAL_ASSERT(
+      dynamic_tvs.empty(),
+      "Tensor with dynamic transform must be concretized before lowering: ",
+      toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 }
 
 namespace {

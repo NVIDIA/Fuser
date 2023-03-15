@@ -524,6 +524,8 @@ class TORCH_CUDA_CU_API ExactRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
+  const DisjointSets<const IterDomain*>& getMappedSets() const;
+
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,

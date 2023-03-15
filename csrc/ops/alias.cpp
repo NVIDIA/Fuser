@@ -113,6 +113,46 @@ TensorView* reshape(
   return bcasted;
 }
 
+TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
+  // TODO: Special case if inp_tv has a static shape and new_sizes
+  // is also static
+
+  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+
+  // Create placeholder rfactor domain. Note it's not connected with the root
+  // domain.
+  std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
+  for (const auto i : c10::irange(new_sizes.size())) {
+    auto rf_id = IterDomainBuilder(
+                     FusionGuard::getCurFusion()->zeroVal(), new_sizes.at(i))
+                     .iter_type(IterType::Symbolic)
+                     .is_rfactor_domain(true)
+                     .build();
+    rfactor_domain.at(i) = rf_id;
+  }
+
+#if 1
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          rfactor_domain,
+          rfactor_domain,
+          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
+      inp_tv->dtype());
+#else
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          rfactor_domain,
+          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
+      inp_tv->dtype());
+#endif
+
+  auto expr = IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  std::cerr << "View: " << expr->toString();
+
+  return out_tv;
+}
+
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());

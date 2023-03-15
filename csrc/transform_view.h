@@ -41,6 +41,8 @@ struct AnalyzeViewResult {
   std::vector<bool> broadcast_axes;
   std::vector<bool> squeeze_axes;
   std::vector<std::shared_ptr<ViewTransform>> transforms;
+
+  std::string toString() const;
 };
 
 struct TORCH_CUDA_CU_API AnalyzeViewConstraint {

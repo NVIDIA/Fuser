@@ -346,6 +346,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return managed_named_data_.find(key) != managed_named_data_.end();
   }
 
+  bool hasDynamicTransform();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;

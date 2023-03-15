@@ -821,5 +821,16 @@ bool hasResizedRfactor(const TensorView* tv) {
       });
 }
 
+std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
+  const auto all_tvs = ir_utils::allTvs(fusion);
+  std::vector<TensorView*> dynamic_tvs;
+  std::copy_if(
+      all_tvs.begin(),
+      all_tvs.end(),
+      std::back_inserter(dynamic_tvs),
+      [](auto tv) { return tv->domain()->hasSymbolicAxis(); });
+  return dynamic_tvs;
+}
+
 } // namespace ir_utils
 } // namespace nvfuser

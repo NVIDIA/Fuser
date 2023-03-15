@@ -27,6 +27,11 @@ TORCH_CUDA_CU_API TensorView* reshape(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
+// TODO
+TORCH_CUDA_CU_API TensorView* reshape(
+    TensorView* x,
+    const std::vector<Val*>& new_sizes);
+
 TORCH_CUDA_CU_API TensorView* flatten(
     TensorView* x,
     int64_t start_dim = 0,

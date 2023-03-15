@@ -404,6 +404,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
 
 enum class MemoryType { Local, Shared, Global };
 
+// Is this comment deprecated?
 // sometimes broadcasted tensors may be inputed in the kernel with an explicit 1
 // size. If that size is there, we need to account that there's also a stride
 // there, even if the stride = 0. If we don't account for that stride when
@@ -412,6 +413,8 @@ enum class MemoryType { Local, Shared, Global };
 // i1*stride[2]]. Broadcasts that translate to a physical memory dim we consider
 // "with stride", Broadcasts only through our broadcast op we consider "without
 // stride"
+//
+// Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
   Iteration,
   Reduction,
@@ -419,7 +422,8 @@ enum class IterType {
   Gather,
   Stride,
   GatherScatter,
-  VectorComponent
+  VectorComponent,
+  Symbolic
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
