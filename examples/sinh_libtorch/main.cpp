@@ -1,9 +1,9 @@
-#include <arith.h>
+#include <ops/arith.h>
 #include <executor.h>
 #include <scheduler/all_schedulers.h>
 #include <memory>
 
-using namespace torch::jit::fuser::cuda;
+using namespace nvfuser;
 
 at::Tensor sinh_nvfuser(const at::Tensor& input) {
   Fusion fusion;
