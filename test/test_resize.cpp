@@ -1591,4 +1591,66 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
       __FILE__);
 }
 
+// Same as Pad1 but pad by specified value
+TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Int>(2));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2);
+
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Same as above but try to pad an int tensor with a double value
+TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Double>(2.5));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::ones(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
+
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
