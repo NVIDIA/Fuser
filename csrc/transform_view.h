@@ -124,4 +124,8 @@ TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);
 
+TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
+
+TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
+
 } // namespace nvfuser

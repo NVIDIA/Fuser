@@ -37,6 +37,17 @@ class TORCH_CUDA_CU_API DynamicTransformInfo {
       Fusion* fusion,
       ExpressionEvaluator* expr_eval);
 
+  DynamicTransformInfo(Fusion* fusion) : fusion_(fusion) {}
+
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
+  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>
+  getReshapeTransforms() const {
+    return reshape_transforms_;
+  }
+
   // TODO: Make it private
  public:
   Fusion* fusion_ = nullptr;
@@ -48,9 +59,30 @@ class TORCH_CUDA_CU_API DynamicTransformInfo {
 };
 
 //! Concretize dynamic transforms in
-void concretizeFusion(
+void concretizeDynamicTransform(
     Fusion* fusion,
-    const DynamicTransformInfo& transform_info);
+    const DynamicTransformInfo& info);
+
+class TORCH_CUDA_CU_API DynamicTransformConcretizer {
+ public:
+  static void concretizeFusion(
+      Fusion* fusion,
+      const DynamicTransformInfo& info);
+
+ private:
+  DynamicTransformConcretizer(Fusion* fusion, const DynamicTransformInfo& info)
+      : info_(info) {
+    TORCH_INTERNAL_ASSERT(
+        fusion == info.fusion(),
+        "Invalid DynamicTransformInfo. The associated Fusion is different from the given Fusion");
+  }
+
+  void concretize();
+  void concretizeReshape();
+
+ private:
+  const DynamicTransformInfo& info_;
+};
 
 } // namespace nvfuser
 

@@ -62,6 +62,8 @@ class SegmentCandidateFinder;
 class SegmentedFusion;
 class KernelArgumentHolder;
 
+class DynamicTransformInfo;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_CU_API FusionGuard {
@@ -347,6 +349,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   }
 
   bool hasDynamicTransform();
+
+  void concretizeDynamicTransform(const DynamicTransformInfo& info);
 
  protected:
   friend SegmentCandidateFinder;

@@ -139,4 +139,92 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto reshape_shape0 = IrBuilder::create<Int>();
+  fusion.addInput(reshape_shape0);
+  auto reshape_shape1 = IrBuilder::create<Int>();
+  fusion.addInput(reshape_shape1);
+
+  auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
+  auto tv3 = add(tv1, tv2);
+
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  ExpressionEvaluator expr_eval;
+
+  // input: 4, 3
+  // output: 3, 4
+  expr_eval.bind(tv0->axis(0)->extent(), 4);
+  expr_eval.bind(tv0->axis(1)->extent(), 3);
+  expr_eval.bind(reshape_shape0, 3);
+  expr_eval.bind(reshape_shape1, 4);
+
+  auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+
+  std::cerr << info.toString() << std::endl;
+
+  DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+
+  TORCH_CHECK(
+      !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+
+  fusion.printMath();
+}
+
+TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto reshape_shape0 = IrBuilder::create<Int>();
+  fusion.addInput(reshape_shape0);
+  auto reshape_shape1 = IrBuilder::create<Int>();
+  fusion.addInput(reshape_shape1);
+
+  auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
+  // tv3 will also have symbolic axes
+  auto tv3 = set(tv2);
+  auto tv4 = add(tv1, tv3);
+
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  ExpressionEvaluator expr_eval;
+
+  // input: 4, 3
+  // output: 3, 4
+  expr_eval.bind(tv0->axis(0)->extent(), 4);
+  expr_eval.bind(tv0->axis(1)->extent(), 3);
+  // Bind only tv2 extents. It should be enough as tv1 has the same
+  // shape
+  expr_eval.bind(tv2->axis(0)->extent(), 3);
+  expr_eval.bind(tv2->axis(1)->extent(), 4);
+
+  auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+
+  std::cerr << info.toString() << std::endl;
+
+  DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+
+  TORCH_CHECK(
+      !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+
+  fusion.printMath();
+}
+
 } // namespace nvfuser

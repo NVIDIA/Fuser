@@ -7,6 +7,7 @@
 // clang-format on
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
+#include <ir_utils.h>
 #include <lower_utils.h>
 #include <root_domain_map.h>
 #include <transform_view.h>
@@ -15,12 +16,8 @@ namespace nvfuser {
 
 class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
  public:
-  static DynamicTransformInfo get(
-      Fusion* fusion,
-      ExpressionEvaluator* expr_eval);
-
   DynamicTransformInfoBuilder(Fusion* fusion, ExpressionEvaluator* expr_eval)
-      : fusion_(fusion), expr_eval_(expr_eval) {
+      : expr_eval_(expr_eval), info_(fusion) {
     TORCH_INTERNAL_ASSERT(
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
@@ -42,7 +39,6 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
   void augmentExprEvaluator();
 
  private:
-  Fusion* fusion_ = nullptr;
   ExpressionEvaluator* expr_eval_ = nullptr;
 
   DynamicTransformInfo info_;
@@ -74,7 +70,7 @@ DynamicTransformInfo DynamicTransformInfo::get(
 }
 
 void DynamicTransformInfoBuilder::augmentExprEvaluator() {
-  const auto mapped_sets = ExactRootDomainMap(fusion_).getMappedSets();
+  const auto mapped_sets = ExactRootDomainMap(info_.fusion()).getMappedSets();
 
   // std::cerr << "Augmenting ExprEval\n";
 
@@ -200,6 +196,52 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
 
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
+}
+
+void DynamicTransformConcretizer::concretizeFusion(
+    Fusion* fusion,
+    const DynamicTransformInfo& info) {
+  DEBUG_PRINT_SCOPE();
+
+  DynamicTransformConcretizer concretizer(fusion, info);
+
+  concretizer.concretize();
+}
+
+void DynamicTransformConcretizer::concretize() {
+  DEBUG_PRINT_SCOPE();
+
+  concretizeReshape();
+
+  // Concretize remaining Symbolic IterDomains
+}
+
+void DynamicTransformConcretizer::concretizeReshape() {
+  DEBUG_PRINT_SCOPE();
+
+  // Concretize each reshape op
+  for (const auto& kv : info_.getReshapeTransforms()) {
+    auto incomplete_out_tv = kv.first;
+    const auto view_analysis = kv.second;
+
+    std::cerr << "view: " << view_analysis.toString() << std::endl;
+
+    auto inp_tv = ir_utils::producerTvsOf(incomplete_out_tv).at(0);
+
+    auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+
+    std::cerr << "concrete view out: " << concrete_reshape_out_tv->toString()
+              << ", expr: " << concrete_reshape_out_tv->definition()->toString()
+              << std::endl;
+
+    // Replace the old tensor with the new concretized tensor
+    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
+      std::cerr << "Before replacement: " << use_of_old_tv->toString();
+      auto new_use = ir_utils::replaceValInExpr(
+          use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
+      std::cerr << "After replacement: " << new_use->toString();
+    }
+  }
 }
 
 } // namespace nvfuser

@@ -2528,18 +2528,12 @@ bool TensorDomain::hasSymbolicAxis() const {
   return std::any_of(
              getRootDomain().begin(),
              getRootDomain().end(),
-             [](auto id) {
-               return id->isRFactorProduct() &&
-                   id->getIterType() == IterType::Symbolic;
-             }) ||
+             [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
       (hasRFactor() &&
        std::any_of(
            getMaybeRFactorDomain().begin(),
            getMaybeRFactorDomain().end(),
-           [](auto id) {
-             return id->isRFactorProduct() &&
-                 id->getIterType() == IterType::Symbolic;
-           }));
+           [](auto id) { return id->getIterType() == IterType::Symbolic; }));
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {

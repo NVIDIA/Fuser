@@ -13,7 +13,7 @@
 #include <ir_internal_nodes.h>
 #include <ir_iostream.h>
 #include <iter_visitor.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <transform_iter.h>
 
 namespace nvfuser {
@@ -797,6 +797,81 @@ std::string AnalyzeViewResult::toString() const {
   }
   ss << " }";
   return ss.str();
+}
+
+namespace {
+
+//! Transform TensorView according to keep, merge, and split transformations.
+//! Squeeze and broadcast transformations are handled separately.
+//! It is recommend to use the composite ops view function, which will call
+//! the analyzeView function to generate the appropriate transformations.
+//!
+//! For example:
+//! original sizes = [2, 10, 40]
+//! new_size = [2, 10, 2, 20]
+//! auto analysis = analyzeView(TV0, original_sizes, new_sizes)
+//! auto TV1 = TV0->view(analysis.transforms);
+//!
+//! Transforms = [(Keep I0), (Keep I1), (Split I2 by 2)]
+//! Before: TV0[I0, I1, I2]
+//! After: TV0[I0, I1, 2, ceilDiv(I2, 2)]
+//!
+//! orig_tv is the tensor view originally coming in from user for the view
+//! operation. This is the tensor view all of the view analysis is relative to.
+//! View might be doing squeezes before sending into the view operation, so we
+//! want the actual input to the view operation to be potentially after the
+//! original view operation.
+TensorView* applyViewTransforms(
+    TensorView* orig_tv,
+    TensorView* post_reduce_tv,
+    const AnalyzeViewResult& view_analysis) {
+  TORCH_INTERNAL_ASSERT(orig_tv != nullptr, "Input is invalid.");
+  TORCH_INTERNAL_ASSERT(post_reduce_tv != nullptr, "Input is invalid.");
+  TORCH_INTERNAL_ASSERT(
+      !post_reduce_tv->hasComputeAt(),
+      "Cannot modify rfactor domain after compute at has been set.");
+
+  TORCH_INTERNAL_ASSERT(
+      post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
+
+  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
+
+  TensorView* consumer = IrBuilder::create<TensorView>(
+      orig_tv->container(),
+      orig_tv->domain()->view(view_analysis),
+      orig_tv->getDataType().value());
+
+  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
+
+  return consumer;
+}
+
+} // namespace
+
+TensorView* reshape(
+    TensorView* inp_tv,
+    const AnalyzeViewResult& view_analysis) {
+  TORCH_INTERNAL_ASSERT(inp_tv != nullptr, "Input is invalid.");
+
+  auto squeezed = std::any_of(
+                      view_analysis.squeeze_axes.begin(),
+                      view_analysis.squeeze_axes.end(),
+                      [](bool s) { return s; })
+      ? squeeze(inp_tv, view_analysis.squeeze_axes)
+      : inp_tv;
+
+  auto view = view_analysis.transforms.empty()
+      ? squeezed
+      : applyViewTransforms(inp_tv, squeezed, view_analysis);
+
+  auto bcasted = std::any_of(
+                     view_analysis.broadcast_axes.begin(),
+                     view_analysis.broadcast_axes.end(),
+                     [](bool b) { return b; })
+      ? broadcast(view, view_analysis.broadcast_axes)
+      : view;
+
+  return bcasted;
 }
 
 } // namespace nvfuser
