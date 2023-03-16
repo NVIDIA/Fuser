@@ -1468,5 +1468,25 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(torch.real(inputs[0]), nvf_out[0])
             self.assertEqual(torch.imag(inputs[0]), nvf_out[1])
 
+    def test_slice(self) :
+        inputs = [
+            torch.randn(1, 1, 1024, 1204, device='cuda'),
+            torch.randn(32, 16, 128, 128, device='cuda'),
+        ]
+
+        def nvfuser_fusion_id(fd : FusionDefinition) -> None :
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t1_sizes = fd.ops.tensor_sizes(t1)
+            t2 = fd.ops.slice(t0, [0, 0, 0, 0], [1, 1, 128, 128], [1, 1, 1, 1])
+            t3 = fd.ops.broadcast_in_dim(t2, output_shape=t1_sizes, broadcast_dims=[0, 1, 2, 3])
+            t4 = fd.ops.add(t0, t1)
+            fd.add_output(t4)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id(fd)
+
+        out = fd.execute(inputs)
+
 if __name__ == '__main__':
     run_tests()

@@ -2430,6 +2430,54 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dims"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "slice",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& start_indices,
+         std::vector<int64_t>& end_indices,
+         std::vector<int64_t>& strides) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.slice");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SliceOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            start_indices,
+            end_indices,
+            strides));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides"),
+      py::return_value_policy::reference);
+  tensor_class.def(
+      "slice",
+      [](Tensor arg,
+         std::vector<int64_t>& start_indices,
+         std::vector<int64_t>& end_indices,
+         std::vector<int64_t>& strides) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.slice");
+        FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            fd->ops.validUse(), "Attempting to add to a completed definition!");
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SliceOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            start_indices,
+            end_indices,
+            strides));
+        return output;
+      },
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "squeeze",
       [](FusionDefinition::Operators& self,
          Tensor arg,
