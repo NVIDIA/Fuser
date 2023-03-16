@@ -27,6 +27,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "kernel_cache.h"
 
 namespace nvfuser {
 
@@ -475,11 +476,34 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     int K,
     MatmulLayout layout);
 
+// Labels to describe tensor position in matmul:
+// A, B - input
+// C - input if beta is provided, shape must be the same as output (D)
+// D - output
+enum class TensorMatmulPos { A, B, C, D };
+
+// Utility to generate buffers based on given problem, layout and tensor
+// position in matmul
+at::Tensor matmulAtInput(
+    const int M,
+    const int N,
+    const int K,
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dType = at::kHalf,
+    const int device = 0);
+
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
   if (at::cuda::getDeviceProperties(device_idx)->sharedMemPerBlockOptin <   \
       required_size) {                                                      \
     GTEST_SKIP() << "not enough shared memory space on device to run test"; \
   }
+
+// Utility to check if for given kernel the expected scheduler has
+// been used
+bool isSchedulerInUse(
+    nvfuser::FusionKernelRuntime* kernel_rt,
+    const ScheduleHeuristic& scheduler);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

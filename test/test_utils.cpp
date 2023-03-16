@@ -107,7 +107,7 @@ bool starts_with(std::string_view self, std::string_view __s) noexcept {
 std::string Instruction::predicate() {
   if (str[0] == '@') {
     std::stringstream ss(str);
-    char ignore_at;
+    char ignore_at = '\0';
     std::string result;
     ss >> ignore_at >> result;
     return result;
@@ -157,7 +157,7 @@ std::vector<std::string> Instruction::args() {
     auto comma_pos = args_view.find_first_of(',');
     auto token = args_view.substr(0, comma_pos);
     token = trim(token);
-    result.push_back(std::string(token));
+    result.emplace_back(token);
 
     args_view = (comma_pos != std::string_view::npos)
         ? args_view.substr(comma_pos + 1)
@@ -221,21 +221,21 @@ Container parse(const std::string& nvdisasm_output) {
       if (line[0] == '.') {
         std::stringstream ss(line);
         Label l;
-        char ignore_dot;
+        char ignore_dot = '\0';
         ss >> ignore_dot >> l.name;
         l.name.resize(l.name.size() - 1); // remove trailing :
-        result.code.push_back(l);
+        result.code.emplace_back(l);
       } else {
         Instruction i;
         std::stringstream ss(line);
-        char ignore;
+        char ignore = '\0';
         // parse /*address*/
         ss >> ignore >> ignore >> std::hex >> i.address >> ignore >> ignore;
         std::getline(ss, i.str);
         i.str = trim(i.str);
         i.str.resize(i.str.size() - 1); // remove trailing ;
         i.str = trim(i.str);
-        result.code.push_back(i);
+        result.code.emplace_back(i);
       }
     } else {
       if (line == header) {
@@ -243,7 +243,7 @@ Container parse(const std::string& nvdisasm_output) {
       } else if (line[0] == '.') {
         std::stringstream ss(line);
         std::string key, value;
-        char ignore;
+        char ignore = '\0';
         ss >> ignore >> key >> value;
         result.attributes[key] = value;
         if (key == "global") {
@@ -318,6 +318,84 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return std::make_pair(at::Tensor(), at::Tensor());
+}
+
+at::Tensor matmulAtInput(
+    const int M,
+    const int N,
+    const int K,
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dType,
+    const int device) {
+  const auto options =
+      at::TensorOptions().dtype(dType).device(at::kCUDA, device);
+
+  // handle C and D tensors, layout does not impact shape
+  switch (tensor) {
+    case TensorMatmulPos::C:
+    case TensorMatmulPos::D:
+      return at::randn({M, N}, options);
+    default:
+      break;
+  }
+
+  switch (layout) {
+    case MatmulLayout::TT:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({M, K}, options);
+        case TensorMatmulPos::B:
+          return at::randn({K, N}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::TN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({M, K}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::NT:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({K, N}, options);
+        default:
+          break;
+      }
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  TORCH_CHECK(false, "unsupported tensor position.");
+}
+
+bool isSchedulerInUse(
+    nvfuser::FusionKernelRuntime* kernel_rt,
+    const ScheduleHeuristic& scheduler) {
+  if (nullptr == kernel_rt) {
+    return false;
+  }
+  const auto scheduler_heurs = kernel_rt->schedulerHeuristics();
+  if (nullptr == scheduler_heurs) {
+    return false;
+  }
+  const auto& heurs = scheduler_heurs->heuristicsList();
+
+  for (const auto& heur_entry : heurs) {
+    if (heur_entry && (scheduler == heur_entry->heuristic())) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 } // namespace nvfuser

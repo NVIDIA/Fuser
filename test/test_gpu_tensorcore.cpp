@@ -44,6 +44,10 @@
 
 #include <algorithm>
 #include <iostream>
+#include "dispatch.h"
+#include "ir_builder.h"
+#include "ops/arith.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -307,13 +311,11 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Volta_16_16_4;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -357,14 +359,12 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Volta_16_16_4;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
     params.double_buffer_options.double_buffer_smem_read = true;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -641,16 +641,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -697,17 +695,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
+      MatmulParams params;
+      params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
+      params.layout = layout;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -735,13 +731,13 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
   int dim = 8192;
   int M = dim, N = dim, K = dim;
   const auto all_orders = {
-      MatmulParam::TileRasterizationOrder::RowMajor,
-      MatmulParam::TileRasterizationOrder::ColumnMajor};
+      MatmulParams::TileRasterizationOrder::RowMajor,
+      MatmulParams::TileRasterizationOrder::ColumnMajor};
 
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
 
   auto test = [&](MatmulLayout layout,
-                  MatmulParam::TileRasterizationOrder order,
+                  MatmulParams::TileRasterizationOrder order,
                   int swizzle,
                   float& runtime) {
     Fusion fusion;
@@ -761,21 +757,19 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
 
-    params.rasterization_order = order;
+    params.cta_order = order;
     params.grid_swizzle_factor = swizzle;
 
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -874,18 +868,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
-      params.tile_sizes = gemm_tile;
+      MatmulParams params;
+      params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
+      params.layout = layout;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
       params.double_buffer_options.double_buffer_smem_read = true;
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -1822,13 +1813,11 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Turing_16_8_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2860,17 +2849,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2914,13 +2901,11 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Turing_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Turing_16_16_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2969,15 +2954,13 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.warp_tile = GemmTile(mn_size / 2, mn_size / 2, k_size);
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-        auto mma_builder =
-            MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-                .layout(layout);
-
-        MatmulParam params(mma_builder);
+        MatmulParams params;
+        params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+        params.layout = layout;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
-        scheduleMatmul(tv2, tv0, tv1, params);
+        scheduleMatmul(&fusion, params);
 
         at::manual_seed(0);
         auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3033,18 +3016,16 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.warp_tile = GemmTile(m_size / 4, n_size / 2, k_size);
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-          auto mma_builder =
-              MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-                  .layout(layout);
-
-          MatmulParam params(mma_builder);
+          MatmulParams params;
+          params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+          params.layout = layout;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
 
-          scheduleMatmul(tv2, tv0, tv1, params);
+          scheduleMatmul(&fusion, params);
 
           at::manual_seed(0);
           auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3094,18 +3075,16 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, k_size);
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
+      MatmulParams params;
+      params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+      params.layout = layout;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
 
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3149,17 +3128,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+    params.layout = layout;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3177,6 +3154,96 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+  }
+}
+
+// Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
+//   with strict ref check hence single layout check
+TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  const int M = 128, N = 256, K = 512;
+  const auto layout = MatmulLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = matmul(tv0, tv1, layout);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::manual_seed(0);
+
+  at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+  at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+  at::Tensor tref = atMatmul(t0, t1, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  TORCH_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  TORCH_CHECK(
+      isSchedulerInUse(
+          executor_cache.getMostRecentKernelRuntime(),
+          ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
+// Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
+//   with relaxed result verification
+TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  const int M = 504, N = 136, K = 2048;
+  for (auto layout : kAllSupportedMatmulLayout) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv2 = matmul(tv0, tv1, layout);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addOutput(tv2);
+
+    at::manual_seed(0);
+
+    at::Tensor t0 =
+        matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+    at::Tensor t1 =
+        matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+    at::Tensor tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+    TORCH_CHECK(
+        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+        "fusion got segmented, expected to match whole fusion with single segment");
+
+    TORCH_CHECK(
+        isSchedulerInUse(
+            executor_cache.getMostRecentKernelRuntime(),
+            ScheduleHeuristic::Matmul),
+        "matmul scheduler was not used to handle prepared fusion");
+
+    // NOTE: checking with lower expectations for relative/absolute error
+#if 1
+    TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+#else
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+#endif
   }
 }
 
