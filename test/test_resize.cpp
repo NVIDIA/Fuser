@@ -1599,8 +1599,8 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
   std::vector<int64_t> input_shape0{1, 1, 1024, 1024};
   std::vector<int64_t> input_shape1{32, 16, 128, 128};
 
-  auto tv0 = makeSymbolicTensor(input_shape0.size());
-  auto tv1 = makeSymbolicTensor(input_shape1.size());
+  auto tv0 = makeConcreteTensor({1, 1, -1, -1});
+  auto tv1 = makeConcreteTensor({-1, -1, -1, -1});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
