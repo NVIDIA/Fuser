@@ -1477,7 +1477,6 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-
             # Need to do stuff like this until we merge
             # https://github.com/csarofeen/pytorch/pull/2449
             one = fd.define_constant(1)
@@ -1511,6 +1510,40 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
         self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 2, 2, 2]), nvf_out[4])
+
+    def test_cat(self):
+        inputs = [
+            torch.randn(2, 4, device="cuda"),
+            torch.randn(2, 3, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(0, 4, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.from_pytorch(inputs[3])
+
+            t3 = fd.ops.cat([t0, t1], 1)
+            fd.add_output(t3)
+
+            t4 = fd.ops.cat([t0, t2], 0)
+            fd.add_output(t4)
+
+            # torch.cat accepts empty tensors (size 0 in the concat dimension),
+            # which do not affect the output.
+            # The below fails with RuntimeError: mapped_id_resize != nullptr
+            # INTERNAL ASSERT FAILED at 
+            # "/opt/pytorch/nvfuser/csrc/lower_index_compute.cpp":1306
+            # t5 = fd.ops.cat([t0, t3], 0)
+            # fd.add_output(t5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
+        self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
+        # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
 if __name__ == '__main__':
     run_tests()
