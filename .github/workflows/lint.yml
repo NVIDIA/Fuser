@@ -35,10 +35,12 @@ jobs:
         with:
           python-version: '3.10' 
       - name: Install clang-format
-        run: pip install clang-format
+        run: pip install clang-format==12.0.1.2
       - name: Run clang-format
         working-directory: ${{ env.working_directory }}
         run: |
           find ./csrc -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
           find ./test -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./benchmark -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./runtime -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
           git --no-pager diff --exit-code
