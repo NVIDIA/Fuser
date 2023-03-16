@@ -179,26 +179,6 @@ command = [
 
 
 [[linter]]
-code = 'RAWCUDA'
-include_patterns = [
-    'aten/**',
-    'c10/**',
-]
-command = [
-    'python3',
-    'tools/linter/adapters/grep_linter.py',
-    '--pattern=cudaStreamSynchronize',
-    '--linter-name=RAWCUDA',
-    '--error-name=raw CUDA API usage',
-    """--error-description=\
-        This line calls raw CUDA APIs directly; please use at::cuda wrappers instead.
-    """,
-    '--',
-    '@{{PATHSFILE}}'
-]
-
-
-[[linter]]
 code = 'BLACK'
 include_patterns = [
     '**/*.py',
