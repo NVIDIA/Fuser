@@ -156,6 +156,21 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       digits = std::numeric_limits<float>::max_digits10;
     } else if (dtype == DataType::Double) {
       digits = std::numeric_limits<double>::max_digits10;
+    } else if (dtype == DataType::Half) {
+      // [max_digits10 calculation]
+      // As of C++17 there is no max_digits10 for __half, so we use the general
+      // formula (see [1] p31 Section 5.2.4.2.2 part 11):
+      //   ceil(1 + p log10(2))
+      // where p is the precision of the type (aka significand):
+      //    Type      Precision   max_digits10
+      //   bfloat16       8           4
+      //   float16       11           5
+      //   float32       24           9
+      //   float64       53          17
+      // [1] http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
+      digits = 5;
+    } else if (dtype == DataType::BFloat16) {
+      digits = 4;
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unexpected floating point type: ", dtype);
     }

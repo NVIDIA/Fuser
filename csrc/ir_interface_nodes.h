@@ -107,6 +107,10 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       } else if (getDataType() == DataType::Float) {
         ss << std::setprecision(std::numeric_limits<float>::max_digits10)
            << *(value()) << ")";
+      } else if (getDataType() == DataType::Half) {
+        ss << 5 << *(value()) << ")";
+      } else if (getDataType() == DataType::BFloat16) {
+        ss << 4 << *(value()) << ")";
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "Invalid data type: ", getDataType().value());
