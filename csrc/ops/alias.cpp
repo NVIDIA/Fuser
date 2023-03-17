@@ -385,13 +385,23 @@ TensorView* pad(
     TensorView* inp,
     const std::vector<Val*>& pad_widths,
     Val* value) {
+  DataType dt = inp->getDataType().value();
   if (!value) {
-    DataType dt = inp->getDataType().value();
     // Create a zero of the appropriate type
-    value = isFloatingPointType(dt)
-        ? static_cast<Val*>(IrBuilder::create<Double>(0, dt))
-        : static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+    if (isComplexType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<ComplexDouble>(0, dt));
+    } else if (isFloatingPointType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<Double>(0, dt));
+    } else if (isBooleanType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<Bool>(false, dt));
+    } else {
+      value = static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+    }
   }
+
+  TORCH_CHECK(
+      !isComplexType(value->dtype()) || isComplexType(dt),
+      "Only TensorViews with complex dtypes may be padded with complex values");
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
