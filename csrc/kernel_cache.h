@@ -75,8 +75,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
+  //! Unified interface to run the managed kernels with given input
+  std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
+
   //! starts compilation async
-  void startAsyncCompile(KernelArgumentHolder& inputs);
+  void startAsyncCompile(KernelArgumentHolder& );
 
   //! maps entries in `args` to fusion inputs.
   //! Note that this function also pushes extra bits like dimension extent into
@@ -85,9 +88,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   void mapFusionInputsToArgs(
       std::unordered_map<Val*, const ArgAbstract*>& tensor_map,
       KernelArgumentHolder& args);
-
-  //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -342,6 +342,19 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs);
 
+  //! Compile a kernel executor for given inputs. Note: The compilation is
+  //! async, there's some restriction on the user side. e.g. Do not overlap
+  //! compilation and execution for the same FusionExecutor entry. This is
+  //! experimental at this moment, please use with extra caution.
+  void compileFusionAsync(const at::ArrayRef<c10::IValue>& inputs);
+
+  //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
+  //! lookup
+  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
+
+  //! query if there's a kernel ready to go for given inputs
+  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
+
   Fusion* fusion() {
     return fusion_.get();
   }
@@ -392,19 +405,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       }
     }
   }
-
-  //! converts inputs from IValue to KernelArgumentHolder, also handles cache
-  //! lookup
-  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
-
-  //! query if there's a kernel ready to go for given inputs
-  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
-
-  //! compile a kernel executor for given inputs. Note: the compilation is
-  //! async, there's some restriction on the user side. e.g. don't overlap
-  //! compilation and execution for the same FusionExecutor entry. This is
-  //! experimental at this moment, please use with extra caution.
-  void compileFusionAsync(const at::ArrayRef<c10::IValue>& inputs);
 
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached

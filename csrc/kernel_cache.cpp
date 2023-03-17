@@ -668,23 +668,24 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
     // Insert graph segment output to tensor map
     TORCH_INTERNAL_ASSERT(
         group_outputs.size() == group_runtime_outputs.size(),
-        "output size does not match");
-    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      // trivial forwarding outputs empty tensor to save bandwidth, skip
-      // tensor_map update on those, since we want all future use of inputs on
-      // the original tensor input. See note [trivial forwarding]
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        output_holder[group_outputs[group_out_i]] =
-            group_runtime_outputs[group_out_i];
+        "Output size does not match.");
 
-        args.push(group_runtime_outputs[group_out_i]);
-        tensor_map.emplace(group_outputs[group_out_i], args.back());
+    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
+    // updating the tensor_map because we want all future use of inputs on
+    // the original tensor input. See note [Trivial Forwarding]
+    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+      if (!group_outputs[group_out_i]->isFusionInput()) {
+        auto nvfuser_output = group_outputs[group_out_i];
+        auto output_tensor = group_runtime_outputs[group_out_i];
+        output_holder[nvfuser_output] = output_tensor;
+        args.push(output_tensor);
+        tensor_map.emplace(nvfuser_output, args.back());
       }
     }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "=============FINISHED RUNNING FUSION SEGMENTS============"
+    std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
               << std::endl;
   }
 
