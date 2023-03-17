@@ -11,17 +11,9 @@
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
 
-#include <memory>
-
-#if defined(__cplusplus) && (__cplusplus >= 201703L)
 #include <filesystem>
+#include <memory>
 namespace fs = std::filesystem;
-#elif defined(__cplusplus) && (__cplusplus >= 201402L)
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
-#else
-#error "C++14 or Higher is required for filesystem library!"
-#endif
 
 namespace nvfuser::python_frontend {
 

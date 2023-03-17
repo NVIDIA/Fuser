@@ -1,10 +1,3 @@
-<!---
-SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
-All rights reserved.
-SPDX-License-Identifier: BSD-3-Clause
-Owner(s): ["module: nvfuser"]
---->
-
 # NvFuser Serialization
 
 Serde is an acronym of serialization and deserialization.
