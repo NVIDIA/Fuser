@@ -385,7 +385,7 @@ struct PadOpRecord : RecordFunctor {
   PadOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<State>& pad_widths)
+      std::vector<int64_t>& pad_widths)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
@@ -419,13 +419,13 @@ struct PadOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    std::vector<Val*> eval_widths;
-    eval_widths.reserve(pad_widths_.size());
+    std::vector<Val*> val_widths;
+    val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
-      auto pscalar = fd.getFusionState(p.index);
-      eval_widths.push_back(pscalar);
+      auto pval = IrBuilder::create<Int>(p);
+      val_widths.push_back(pval);
     }
-    auto output = pad(arg, eval_widths);
+    auto output = pad(arg, val_widths);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -450,7 +450,7 @@ struct PadOpRecord : RecordFunctor {
  private:
   //! Pairs of non-negative integers indicating the amount to pad the front and
   //! back of each dimension.
-  std::vector<State> pad_widths_;
+  std::vector<int64_t> pad_widths_;
 };
 
 struct PermuteOpRecord : RecordFunctor {

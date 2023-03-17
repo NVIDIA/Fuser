@@ -2429,7 +2429,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "pad",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<Scalar>& pad_widths) -> Tensor {
+         std::vector<int64_t>& pad_widths) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2438,15 +2438,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
-        std::vector<State> pad_width_states;
-        pad_width_states.reserve(pad_widths.size());
-        for (auto p : pad_widths) {
-          pad_width_states.push_back(fd->recordingState(p()));
-        }
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            pad_width_states));
+            pad_widths));
         return output;
       },
       py::arg("arg"),
@@ -2454,21 +2449,16 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   tensor_class.def(
       "pad",
-      [](Tensor arg, std::vector<Scalar>& pad_widths) -> Tensor {
+      [](Tensor arg, std::vector<int64_t>& pad_widths) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
             !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims);
-        std::vector<State> pad_width_states;
-        pad_width_states.reserve(pad_widths.size());
-        for (auto p : pad_widths) {
-          pad_width_states.push_back(fd->recordingState(p()));
-        }
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            pad_width_states));
+            pad_widths));
         return output;
       },
       py::arg("pad_widths"),
