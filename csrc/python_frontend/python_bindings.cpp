@@ -2433,6 +2433,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            pad_widths.size() <= 2 * arg.dims,
+            "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         std::vector<State> pad_width_states;
