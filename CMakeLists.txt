@@ -253,6 +253,46 @@ list(APPEND BENCHMARK_SRCS
 
 if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "uh-oh")
+  set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
+
+  add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
+
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+  # NB: This must be target_compile_definitions, not target_compile_options,
+  # as the latter is not respected by nvcc
+  target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+
+  # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
+
+  message(STATUS "nvrtc_lib: ${CUDA_NVRTC_LIB}")
+  message(STATUS "cuda_include: ${CUDA_INCLUDE_DIRS}")
+
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
+  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+  if(NOT MSVC)
+    target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+  endif()
+
+  target_include_directories(${NVFUSER_CODEGEN} PUBLIC
+                            "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+                            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+                            )
+  set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+  message(STATUS "install_lib_dir: ${TORCH_INSTALL_LIB_DIR}")
+  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
+
+  ## installing nvfuser headers
+  #install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+  #        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+  #        FILES_MATCHING PATTERN "*.h" )
+  ## installing nvfuser python tests
+  #install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
+  #	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
+  #        FILES_MATCHING PATTERN "*.py" )
 
 else() # PROJECT_IS_TOP_LEVEL
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
