@@ -11,10 +11,18 @@ if (CMAKE_VERSION VERSION_LESS 3.21)
     endif ()
 endif ()
 
-# if we are included by other project and `BUILD_NVFUSER` is not set, we skip
-if (NOT PROJECT_IS_TOP_LEVEL and NOT BUILD_NVFUSER)
-  return()
-endif()
+set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
+set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+if (PROJECT_IS_TOP_LEVEL)
+  message(STATUS "top-level build")
+  set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
+  set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
+else() # PROJECT_IS_TOP_LEVEL
+  # TODO: have TORCH_ROOT setup as a variable instead
+  # currently we are expecting nvfuser to be added from the pytorch root cmake file.
+  set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
+  set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
+endif() # PROJECT_IS_TOP_LEVEL
 
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
@@ -246,6 +254,11 @@ if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "uh-oh")
 
 else() # PROJECT_IS_TOP_LEVEL
+  # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
+  if (BUILD_NVFUSER)
+    return()
+  endif()
+
   if(NOT USE_ROCM)
     set(TORCHLIB_FLAVOR torch_cuda)
   else()
@@ -256,13 +269,6 @@ else() # PROJECT_IS_TOP_LEVEL
   
   set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
-  
-  set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
-  set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
-  # TODO: have TORCH_ROOT setup as a variable instead
-  # currently we are expecting nvfuser to be added from the pytorch root cmake file.
-  set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
-  set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
   
   # --- build nvfuser_codegen library
   
