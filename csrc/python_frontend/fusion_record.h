@@ -1622,7 +1622,7 @@ struct SliceOpRecord : RecordFunctor {
             "ops.slice",
             RecordType::SliceOp),
         start_indices_(start_indices),
-        end_indices_(start_indices),
+        end_indices_(end_indices),
         strides_(strides) {}
   virtual ~SliceOpRecord() = default;
   virtual RecordFunctor* clone() final {
