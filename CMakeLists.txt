@@ -15,12 +15,13 @@ set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "top-level build")
-  set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
-  set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
+  find_package(Torch REQUIRED)
+  set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: have TORCH_ROOT setup as a variable instead
   # currently we are expecting nvfuser to be added from the pytorch root cmake file.
   set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
+  set(ATEN_CUDA_ROOT "${TORCH_ROOT}/ATen")
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 endif() # PROJECT_IS_TOP_LEVEL
 
@@ -178,8 +179,8 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
   ${NVFUSER_ROOT}/runtime/welford.cu
-  ${TORCH_ROOT}/aten/src/ATen/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${TORCH_ROOT}/aten/src/ATen/cuda/detail/UnpackRaw.cuh
+  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
+  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
 )
 
 # nvfuser test sources
