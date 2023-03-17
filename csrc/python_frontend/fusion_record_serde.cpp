@@ -28,7 +28,9 @@ std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
   return result;
 }
 
-std::vector<bool> parseVector(const flatbuffers::Vector<uint8_t>* fb_vector) {
+// Flatbuffer stores bool values as uint8_t.
+std::vector<bool> parseBoolVector(
+    const flatbuffers::Vector<uint8_t>* fb_vector) {
   std::vector<bool> result(fb_vector->begin(), fb_vector->end());
   return result;
 }
@@ -99,7 +101,7 @@ RecordFunctor* deserializeBroadcastRecord(const serde::RecordFunctor* buffer) {
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
-      parseVector(buffer->data_as_Broadcast()->broadcast_dims()));
+      parseBoolVector(buffer->data_as_Broadcast()->broadcast_dims()));
 }
 
 RecordFunctor* deserializeBroadcastInDimRecord(
