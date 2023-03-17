@@ -363,253 +363,258 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_End, deserializeEndRecord);
 
   // Unary Ops
-  Factory::SerdeParser unary_tv_parser = std::bind(
-      deserializeOpRecord<unary_tv_fn, TensorView*, TensorView*>,
-      unary_tv,
-      serde::RecordType_Unary_TV,
-      std::placeholders::_1);
+  auto unary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<unary_tv_fn, TensorView*, TensorView*>(
+        unary_tv, serde::RecordType_Unary_TV, buffer);
+  };
   registerParser(serde::RecordType_Unary_TV, unary_tv_parser);
 
-  Factory::SerdeParser unary_val_parser = std::bind(
-      deserializeOpRecord<unary_val_fn, Val*, Val*>,
-      unary_val,
-      serde::RecordType_Unary_VAL,
-      std::placeholders::_1);
+  auto unary_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<unary_val_fn, Val*, Val*>(
+        unary_val, serde::RecordType_Unary_VAL, buffer);
+  };
   registerParser(serde::RecordType_Unary_VAL, unary_val_parser);
 
   // Binary Ops
-  Factory::SerdeParser binary_tv_parser = std::bind(
-      deserializeOpRecord<binary_tv_fn, TensorView*, TensorView*, TensorView*>,
-      binary_tv,
-      serde::RecordType_Binary_TV,
-      std::placeholders::_1);
+  auto binary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        binary_tv_fn,
+        TensorView*,
+        TensorView*,
+        TensorView*>(binary_tv, serde::RecordType_Binary_TV, buffer);
+  };
   registerParser(serde::RecordType_Binary_TV, binary_tv_parser);
 
-  Factory::SerdeParser binary_tv_val_parser = std::bind(
-      deserializeOpRecord<binary_tv_val_fn, TensorView*, TensorView*, Val*>,
-      binary_tv_val,
-      serde::RecordType_Binary_TV_VAL,
-      std::placeholders::_1);
+  auto binary_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        binary_tv_val_fn,
+        TensorView*,
+        TensorView*,
+        Val*>(binary_tv_val, serde::RecordType_Binary_TV_VAL, buffer);
+  };
   registerParser(serde::RecordType_Binary_TV_VAL, binary_tv_val_parser);
 
-  Factory::SerdeParser binary_val_tv_parser = std::bind(
-      deserializeOpRecord<binary_val_tv_fn, TensorView*, Val*, TensorView*>,
-      binary_val_tv,
-      serde::RecordType_Binary_VAL_TV,
-      std::placeholders::_1);
+  auto binary_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        binary_val_tv_fn,
+        TensorView*,
+        Val*,
+        TensorView*>(binary_val_tv, serde::RecordType_Binary_VAL_TV, buffer);
+  };
   registerParser(serde::RecordType_Binary_VAL_TV, binary_val_tv_parser);
 
-  Factory::SerdeParser binary_val_parser = std::bind(
-      deserializeOpRecord<binary_val_fn, Val*, Val*, Val*>,
-      binary_val,
-      serde::RecordType_Binary_VAL,
-      std::placeholders::_1);
+  auto binary_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<binary_val_fn, Val*, Val*, Val*>(
+        binary_val, serde::RecordType_Binary_VAL, buffer);
+  };
   registerParser(serde::RecordType_Binary_VAL, binary_val_parser);
 
   // Ternary Ops
-  Factory::SerdeParser ternary_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_tv_fn,
-          TensorView*,
-          TensorView*,
-          TensorView*,
-          TensorView*>,
-      ternary_tv,
-      serde::RecordType_Ternary_TV,
-      std::placeholders::_1);
+  auto ternary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_tv_fn,
+        TensorView*,
+        TensorView*,
+        TensorView*,
+        TensorView*>(ternary_tv, serde::RecordType_Ternary_TV, buffer);
+  };
   registerParser(serde::RecordType_Ternary_TV, ternary_tv_parser);
 
-  Factory::SerdeParser ternary_tv_tv_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_tv_tv_val_fn,
-          TensorView*,
-          TensorView*,
-          TensorView*,
-          Val*>,
-      ternary_tv_tv_val,
-      serde::RecordType_Ternary_TV_TV_VAL,
-      std::placeholders::_1);
+  auto ternary_tv_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_tv_tv_val_fn,
+        TensorView*,
+        TensorView*,
+        TensorView*,
+        Val*>(ternary_tv_tv_val, serde::RecordType_Ternary_TV_TV_VAL, buffer);
+  };
   registerParser(serde::RecordType_Ternary_TV_TV_VAL, ternary_tv_tv_val_parser);
 
-  Factory::SerdeParser ternary_tv_val_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_tv_val_tv_fn,
-          TensorView*,
-          TensorView*,
-          Val*,
-          TensorView*>,
-      ternary_tv_val_tv,
-      serde::RecordType_Ternary_TV_VAL_TV,
-      std::placeholders::_1);
+  auto ternary_tv_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_tv_val_tv_fn,
+        TensorView*,
+        TensorView*,
+        Val*,
+        TensorView*>(
+        ternary_tv_val_tv, serde::RecordType_Ternary_TV_VAL_TV, buffer);
+  };
   registerParser(serde::RecordType_Ternary_TV_VAL_TV, ternary_tv_val_tv_parser);
 
-  Factory::SerdeParser ternary_val_tv_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_val_tv_tv_fn,
-          TensorView*,
-          Val*,
-          TensorView*,
-          TensorView*>,
-      ternary_val_tv_tv,
-      serde::RecordType_Ternary_VAL_TV_TV,
-      std::placeholders::_1);
+  auto ternary_val_tv_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_val_tv_tv_fn,
+        TensorView*,
+        Val*,
+        TensorView*,
+        TensorView*>(
+        ternary_val_tv_tv, serde::RecordType_Ternary_VAL_TV_TV, buffer);
+  };
   registerParser(serde::RecordType_Ternary_VAL_TV_TV, ternary_val_tv_tv_parser);
 
-  Factory::SerdeParser ternary_val_val_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_val_val_tv_fn,
-          TensorView*,
-          Val*,
-          Val*,
-          TensorView*>,
-      ternary_val_val_tv,
-      serde::RecordType_Ternary_VAL_VAL_TV,
-      std::placeholders::_1);
+  auto ternary_val_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_val_val_tv_fn,
+        TensorView*,
+        Val*,
+        Val*,
+        TensorView*>(
+        ternary_val_val_tv, serde::RecordType_Ternary_VAL_VAL_TV, buffer);
+  };
   registerParser(
       serde::RecordType_Ternary_VAL_VAL_TV, ternary_val_val_tv_parser);
 
-  Factory::SerdeParser ternary_tv_val_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_tv_val_val_fn,
-          TensorView*,
-          TensorView*,
-          Val*,
-          Val*>,
-      ternary_tv_val_val,
-      serde::RecordType_Ternary_TV_VAL_VAL,
-      std::placeholders::_1);
+  auto ternary_tv_val_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_tv_val_val_fn,
+        TensorView*,
+        TensorView*,
+        Val*,
+        Val*>(ternary_tv_val_val, serde::RecordType_Ternary_TV_VAL_VAL, buffer);
+  };
   registerParser(
       serde::RecordType_Ternary_TV_VAL_VAL, ternary_tv_val_val_parser);
 
-  Factory::SerdeParser ternary_val_tv_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_val_tv_val_fn,
-          TensorView*,
-          Val*,
-          TensorView*,
-          Val*>,
-      ternary_val_tv_val,
-      serde::RecordType_Ternary_VAL_TV_VAL,
-      std::placeholders::_1);
+  auto ternary_val_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_val_tv_val_fn,
+        TensorView*,
+        Val*,
+        TensorView*,
+        Val*>(ternary_val_tv_val, serde::RecordType_Ternary_VAL_TV_VAL, buffer);
+  };
   registerParser(
       serde::RecordType_Ternary_VAL_TV_VAL, ternary_val_tv_val_parser);
 
-  Factory::SerdeParser ternary_val_parser = std::bind(
-      deserializeOpRecord<ternary_val_fn, Val*, Val*, Val*, Val*>,
-      ternary_val,
-      serde::RecordType_Ternary_VAL,
-      std::placeholders::_1);
+  auto ternary_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<ternary_val_fn, Val*, Val*, Val*, Val*>(
+        ternary_val, serde::RecordType_Ternary_VAL, buffer);
+  };
   registerParser(serde::RecordType_Ternary_VAL, ternary_val_parser);
 
   // Ternary-Alpha Ops
-  Factory::SerdeParser ternary_alpha_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_tv_fn,
-          TensorView*,
-          TensorView*,
-          TensorView*,
-          TensorView*,
-          Val*>,
-      ternary_alpha_tv,
-      serde::RecordType_Ternary_Alpha_TV,
-      std::placeholders::_1);
+  auto ternary_alpha_tv_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_tv_fn,
+        TensorView*,
+        TensorView*,
+        TensorView*,
+        TensorView*,
+        Val*>(ternary_alpha_tv, serde::RecordType_Ternary_Alpha_TV, buffer);
+  };
   registerParser(serde::RecordType_Ternary_Alpha_TV, ternary_alpha_tv_parser);
 
-  Factory::SerdeParser ternary_alpha_tv_tv_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_tv_tv_val_fn,
-          TensorView*,
-          TensorView*,
-          TensorView*,
-          Val*,
-          Val*>,
-      ternary_alpha_tv_tv_val,
-      serde::RecordType_Ternary_Alpha_TV_TV_VAL,
-      std::placeholders::_1);
+  auto ternary_alpha_tv_tv_val_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_tv_tv_val_fn,
+            TensorView*,
+            TensorView*,
+            TensorView*,
+            Val*,
+            Val*>(
+            ternary_alpha_tv_tv_val,
+            serde::RecordType_Ternary_Alpha_TV_TV_VAL,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_TV_TV_VAL,
       ternary_alpha_tv_tv_val_parser);
 
-  Factory::SerdeParser ternary_alpha_tv_val_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_tv_val_tv_fn,
-          TensorView*,
-          TensorView*,
-          Val*,
-          TensorView*,
-          Val*>,
-      ternary_alpha_tv_val_tv,
-      serde::RecordType_Ternary_Alpha_TV_VAL_TV,
-      std::placeholders::_1);
+  auto ternary_alpha_tv_val_tv_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_tv_val_tv_fn,
+            TensorView*,
+            TensorView*,
+            Val*,
+            TensorView*,
+            Val*>(
+            ternary_alpha_tv_val_tv,
+            serde::RecordType_Ternary_Alpha_TV_VAL_TV,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_TV_VAL_TV,
       ternary_alpha_tv_val_tv_parser);
 
-  Factory::SerdeParser ternary_alpha_val_tv_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_val_tv_tv_fn,
-          TensorView*,
-          Val*,
-          TensorView*,
-          TensorView*,
-          Val*>,
-      ternary_alpha_val_tv_tv,
-      serde::RecordType_Ternary_Alpha_VAL_TV_TV,
-      std::placeholders::_1);
+  auto ternary_alpha_val_tv_tv_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_val_tv_tv_fn,
+            TensorView*,
+            Val*,
+            TensorView*,
+            TensorView*,
+            Val*>(
+            ternary_alpha_val_tv_tv,
+            serde::RecordType_Ternary_Alpha_VAL_TV_TV,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_VAL_TV_TV,
       ternary_alpha_val_tv_tv_parser);
 
-  Factory::SerdeParser ternary_alpha_val_val_tv_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_val_val_tv_fn,
-          TensorView*,
-          Val*,
-          Val*,
-          TensorView*,
-          Val*>,
-      ternary_alpha_val_val_tv,
-      serde::RecordType_Ternary_Alpha_VAL_VAL_TV,
-      std::placeholders::_1);
+  auto ternary_alpha_val_val_tv_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_val_val_tv_fn,
+            TensorView*,
+            Val*,
+            Val*,
+            TensorView*,
+            Val*>(
+            ternary_alpha_val_val_tv,
+            serde::RecordType_Ternary_Alpha_VAL_VAL_TV,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_VAL_VAL_TV,
       ternary_alpha_val_val_tv_parser);
 
-  Factory::SerdeParser ternary_alpha_tv_val_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_tv_val_val_fn,
-          TensorView*,
-          TensorView*,
-          Val*,
-          Val*,
-          Val*>,
-      ternary_alpha_tv_val_val,
-      serde::RecordType_Ternary_Alpha_TV_VAL_VAL,
-      std::placeholders::_1);
+  auto ternary_alpha_tv_val_val_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_tv_val_val_fn,
+            TensorView*,
+            TensorView*,
+            Val*,
+            Val*,
+            Val*>(
+            ternary_alpha_tv_val_val,
+            serde::RecordType_Ternary_Alpha_TV_VAL_VAL,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_TV_VAL_VAL,
       ternary_alpha_tv_val_val_parser);
 
-  Factory::SerdeParser ternary_alpha_val_tv_val_parser = std::bind(
-      deserializeOpRecord<
-          ternary_alpha_val_tv_val_fn,
-          TensorView*,
-          Val*,
-          TensorView*,
-          Val*,
-          Val*>,
-      ternary_alpha_val_tv_val,
-      serde::RecordType_Ternary_Alpha_VAL_TV_VAL,
-      std::placeholders::_1);
+  auto ternary_alpha_val_tv_val_parser =
+      [&](const serde::RecordFunctor* buffer) {
+        return deserializeOpRecord<
+            ternary_alpha_val_tv_val_fn,
+            TensorView*,
+            Val*,
+            TensorView*,
+            Val*,
+            Val*>(
+            ternary_alpha_val_tv_val,
+            serde::RecordType_Ternary_Alpha_VAL_TV_VAL,
+            buffer);
+      };
   registerParser(
       serde::RecordType_Ternary_Alpha_VAL_TV_VAL,
       ternary_alpha_val_tv_val_parser);
 
-  Factory::SerdeParser ternary_alpha_val_parser = std::bind(
-      deserializeOpRecord<ternary_alpha_val_fn, Val*, Val*, Val*, Val*, Val*>,
-      ternary_alpha_val,
-      serde::RecordType_Ternary_Alpha_VAL,
-      std::placeholders::_1);
+  auto ternary_alpha_val_parser = [&](const serde::RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_val_fn,
+        Val*,
+        Val*,
+        Val*,
+        Val*,
+        Val*>(ternary_alpha_val, serde::RecordType_Ternary_Alpha_VAL, buffer);
+  };
   registerParser(serde::RecordType_Ternary_Alpha_VAL, ternary_alpha_val_parser);
 
   registerParser(serde::RecordType_BatchNormOp, deserializeBatchNormRecord);
@@ -654,32 +659,28 @@ void RecordFunctorFactory::registerAllParsers() {
 
   registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
 
-  Factory::SerdeParser reduction_max_parser = std::bind(
-      deserializeReductionRecord,
-      max,
-      serde::RecordType_ReductionMax,
-      std::placeholders::_1);
+  auto reduction_max_parser = [](const serde::RecordFunctor* buffer) {
+    return deserializeReductionRecord(
+        max, serde::RecordType_ReductionMax, buffer);
+  };
   registerParser(serde::RecordType_ReductionMax, reduction_max_parser);
 
-  Factory::SerdeParser reduction_min_parser = std::bind(
-      deserializeReductionRecord,
-      min,
-      serde::RecordType_ReductionMin,
-      std::placeholders::_1);
+  auto reduction_min_parser = [](const serde::RecordFunctor* buffer) {
+    return deserializeReductionRecord(
+        min, serde::RecordType_ReductionMin, buffer);
+  };
   registerParser(serde::RecordType_ReductionMin, reduction_min_parser);
 
-  Factory::SerdeParser reduction_prod_parser = std::bind(
-      deserializeReductionRecord,
-      prod,
-      serde::RecordType_ReductionProd,
-      std::placeholders::_1);
+  auto reduction_prod_parser = [](const serde::RecordFunctor* buffer) {
+    return deserializeReductionRecord(
+        prod, serde::RecordType_ReductionProd, buffer);
+  };
   registerParser(serde::RecordType_ReductionProd, reduction_prod_parser);
 
-  Factory::SerdeParser reduction_sum_parser = std::bind(
-      deserializeReductionRecord,
-      sum,
-      serde::RecordType_ReductionSum,
-      std::placeholders::_1);
+  auto reduction_sum_parser = [](const serde::RecordFunctor* buffer) {
+    return deserializeReductionRecord(
+        sum, serde::RecordType_ReductionSum, buffer);
+  };
   registerParser(serde::RecordType_ReductionSum, reduction_sum_parser);
 
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
