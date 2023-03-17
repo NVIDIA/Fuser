@@ -1653,4 +1653,36 @@ TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Test that padding Half tensor by Double does not promote output
+TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Double>(2.5));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::ones(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
+
+  TORCH_CHECK(ref.dtype() == cg_outputs[0].dtype());
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
