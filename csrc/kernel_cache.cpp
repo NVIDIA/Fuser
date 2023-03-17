@@ -633,10 +633,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
   std::unordered_map<Val*, const ArgAbstract*> tensor_map;
   mapFusionInputsToArgs(tensor_map, args);
 
-  // TODO: we don't need this any more, since TensorArgAbstract already holds a
-  // reference to tensor
-  std::unordered_map<Val*, at::Tensor> output_holder;
-
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "=================RUNNING FUSION SEGMENTS================="
               << std::endl;
@@ -675,11 +671,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
     // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
-        auto nvfuser_output = group_outputs[group_out_i];
-        auto output_tensor = group_runtime_outputs[group_out_i];
-        output_holder[nvfuser_output] = output_tensor;
-        args.push(output_tensor);
-        tensor_map.emplace(nvfuser_output, args.back());
+        args.push(group_runtime_outputs[group_out_i]);
+        tensor_map.emplace(group_outputs[group_out_i], args.back());
       }
     }
   }
@@ -692,15 +685,13 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
   // Produce final global output
   std::vector<at::Tensor> fusion_outputs;
   for (auto output : segmented_fusion_->outputs()) {
-    const auto iter = output_holder.find(output);
-    if (iter != output_holder.end()) {
-      fusion_outputs.push_back(iter->second);
-    } else if (output->isFusionInput()) {
+    const auto iter = tensor_map.find(output);
+    if (iter != tensor_map.end()) {
       // Note [ trivial forwarding ]
       //
       // Background:
-      // nvfuser codegen doesn't handle aliases at all. When we have a fusion
-      // that forwards an input to output without any operations on it, this is
+      // NvFuser codegen does not handle aliases. When we have a fusion that
+      // forwards an input to output without any operations on it, this is
       // a no-op for codegen and the output tensor is never written to. However,
       // the codegen cannot "forward" an input to output, since all outputs are
       // allocated in integration. If we do not special case it, we'll ended up
@@ -708,25 +699,21 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
       //
       // Approach:
       // There are two aspects of the support:
-      // step 1. Codegen handles forwarding implicitly. Forwarded inputs doesn't
-      // have any producer in the IR, hence the output argument is not used in
-      // the code. But it does require to have an argument in the kernel as a
-      // place-holder so we'll map each arguments correctly.
-      // step 2. Integration handles the trivial forwarding of inputs. When we
-      // put together `fusion_outputs` for a given fusion, when outputs are just
+      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
+      // have any producer in the IR, so the output argument is not used in
+      // the code. However, it is required to be a kernel argument, which acts
+      // as a place-holder, so we can map the arguments correctly.
+      //
+      // 2) Integration handles the trivial forwarding of inputs. When we put
+      // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      const auto iter = tensor_map.find(output);
-      TORCH_INTERNAL_ASSERT(
-          iter != tensor_map.end(), "Can not find output as aliased intput");
       auto arg = dynamic_cast<const TensorArgAbstract*>(iter->second);
-      // See step 2 - note [ trivial forwarding ]
       fusion_outputs.push_back(arg->getTensor());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;
 
-      // Only support two cases of empty tensor here, since
-      //   this is hot path.
+      // Only support two cases of empty tensor here, since this is hot path.
       auto out_tv = output->as<TensorView>();
 
       // TODO: should be only one of the two once the "empty"
