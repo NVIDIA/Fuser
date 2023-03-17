@@ -573,14 +573,17 @@ inline void rotateLoop(
 //! caches of those tensors so that original operations producing
 //! them should keep using the same memory. This avoids, for example,
 //! reductions to global memory.
-TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
+TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches = {});
 
 //! If a resized tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
 //! the dependency. A proper RAW sync will be automatically inserted
 //! when the fusion is lowered.
 TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
-    Fusion* fusion);
+    Fusion* fusion,
+    const std::vector<TensorView*>& maybe_reverted_input_caches = {});
 
 } // namespace scheduler_utils
 } // namespace nvfuser

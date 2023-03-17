@@ -448,9 +448,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  // Create a cache for a tensor if it may need to be placed on a
-  // farther but shared memory space
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+  scheduler_utils::prepareForMemoryTypePromotion(fusion, cached_inputs);
 
   std::vector<TensorView*> input_tvs;
   {
@@ -805,7 +803,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   inlineMost(inner_most_tensors);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
+      fusion, cached_inputs);
 }
 
 } // namespace nvfuser
