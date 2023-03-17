@@ -2203,7 +2203,7 @@ struct FullOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->template as<Val>();
+    auto arg = fd.getFusionState(args_.at(0).index);
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
