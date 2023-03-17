@@ -2369,14 +2369,25 @@ std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
   return resized_tensors;
 }
 
+void revertInputCache(TensorView* cache, Expr* use_of_cache) {
+  auto cache_expr = cache->definition()->as<UnaryOp>();
+  auto fusion_input_tv = cache_expr->in()->as<TensorView>();
+  ir_utils::replaceValInExpr(use_of_cache, cache, fusion_input_tv);
+}
+
 } // namespace
 
-void prepareForMemoryTypePromotion(Fusion* fusion) {
+void prepareForMemoryTypePromotion(
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches) {
   auto resized_tensors = getResizedTensors(fusion);
   std::unordered_set<TensorView*> cached;
   for (auto resized_tensor : resized_tensors) {
     for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      if (cached.count(producer) != 0) {
+      if (producer->getMemoryType() != MemoryType::Local ||
+          cached.count(producer) != 0 ||
+          std::find(input_caches.begin(), input_caches.end(), producer) !=
+              input_caches.end()) {
         continue;
       }
       producer->cacheAfter();
@@ -2385,7 +2396,9 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
   }
 }
 
-void promoteProducerMemoryTypesOfResizedTensors(Fusion* fusion) {
+void promoteProducerMemoryTypesOfResizedTensors(
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches) {
   auto resized_tensors = getResizedTensors(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
@@ -2466,6 +2479,20 @@ void promoteProducerMemoryTypesOfResizedTensors(Fusion* fusion) {
           it->second == producer->getMemoryType()) {
         continue;
       }
+      // If the producer is an input cache, instead of saving the
+      // cache in shared or global memories, just cancel the
+      // caching, although it may still make sense to keep the cache
+      // if it's just promoted to shared memory.
+      auto cache_it =
+          std::find(input_caches.begin(), input_caches.end(), producer);
+      if (cache_it != input_caches.end()) {
+        std::cerr << "Don't promote but revert caching of "
+                  << (*cache_it)->toString() << std::endl;
+        revertInputCache(*cache_it, resized_tensor->definition());
+        continue;
+      }
+
+      // Promote the memory type of the producer
       auto new_mem_type = it->second;
       producer->setMemoryType(new_mem_type);
     }
