@@ -431,3 +431,4 @@ endif()
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
+file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)

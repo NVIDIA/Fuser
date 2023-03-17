@@ -69,7 +69,7 @@ command = [
     'python3',
     'tools/linter/adapters/clangtidy_linter.py',
     '--binary=.lintbin/clang-tidy',
-    '--build_dir=./pytorch/build',
+    '--build_dir=./build',
     '--',
     '@{{PATHSFILE}}'
 ]
