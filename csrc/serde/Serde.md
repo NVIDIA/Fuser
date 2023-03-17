@@ -237,7 +237,7 @@ typedef std::function<BaseType*(const SerdeBuffer*)> SerdeParser;
 // where the BaseType is nvfuser::RecordFunctor and SerdeBuffer is serde::RecordFunctor.
 ```
 
-**Implementation Note:** Use `std::bind` if you need additional arguments in your parser function.
+**Implementation Note:** Use a lambda if you need additional arguments in your parser function.
 
 
 ## How to add a new OpRecord parser function?
@@ -306,11 +306,13 @@ Here is the registered parser for the `OpRecord<TensorView*, TensorView*, Tensor
 
 ```cpp
 // Binary Ops
-Factory::SerdeParser binary_tv_parser = std::bind(
-    deserializeOpRecord<binary_tv_fn, TensorView*, TensorView*, TensorView*>,
-    binary_tv,
-    serde::RecordType_Binary_TV,
-    std::placeholders::_1);
+auto binary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  return deserializeOpRecord<
+    binary_tv_fn,
+    TensorView*,
+    TensorView*,
+    TensorView*>(binary_tv, serde::RecordType_Binary_TV, buffer);
+};
 registerParser(serde::RecordType_Binary_TV, binary_tv_parser);
 ```
 
@@ -318,7 +320,7 @@ Here is the parser function, which is the same for all `OpRecord` objects.
 
 **Implementation Notes:** 
 1. Use `std::string` name to map to NvFuser operations.
-2. Since all functions in the factory have the same signature, we support additional arguments using `std::bind`.
+2. Since all functions in the factory have the same signature, we support additional arguments using lambdas.
 
 ```cpp
 template <class fn_type, class... Signature>
