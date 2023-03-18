@@ -251,34 +251,6 @@ list(APPEND BENCHMARK_SRCS
   ${NVFUSER_ROOT}/benchmark/main.cpp
 )
 
-# --- generate runtime files
-
-file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
-
-# "stringify" NVFUSER runtime sources
-# (generate C++ header files embedding the original input as a string literal)
-set(NVFUSER_STRINGIFY_TOOL "${NVFUSER_ROOT}/tools/stringify_file.py")
-foreach(src ${NVFUSER_RUNTIME_FILES})
-  get_filename_component(filename ${src} NAME_WE)
-  set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
-  add_custom_command(
-    COMMENT "Stringify NVFUSER runtime source file"
-    OUTPUT ${dst}
-    DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
-    COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
-  )
-  add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
-  add_dependencies(${NVFUSER_CODEGEN} nvfuser_rt_${filename})
-
-  # also generate the resource headers during the configuration step
-  # (so tools like clang-tidy can run w/o requiring a real build)
-  execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
-endforeach()
-
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
-
-
 if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "uh-oh")
   set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
@@ -503,3 +475,31 @@ else() # PROJECT_IS_TOP_LEVEL
   install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 endif() # PROJECT_IS_TOP_LEVEL
+
+
+# --- generate runtime files
+
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
+
+# "stringify" NVFUSER runtime sources
+# (generate C++ header files embedding the original input as a string literal)
+set(NVFUSER_STRINGIFY_TOOL "${NVFUSER_ROOT}/tools/stringify_file.py")
+foreach(src ${NVFUSER_RUNTIME_FILES})
+  get_filename_component(filename ${src} NAME_WE)
+  set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
+  add_custom_command(
+    COMMENT "Stringify NVFUSER runtime source file"
+    OUTPUT ${dst}
+    DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
+    COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
+  )
+  add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
+  add_dependencies(${NVFUSER_CODEGEN} nvfuser_rt_${filename})
+
+  # also generate the resource headers during the configuration step
+  # (so tools like clang-tidy can run w/o requiring a real build)
+  execute_process(COMMAND
+    ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+endforeach()
+
+target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
