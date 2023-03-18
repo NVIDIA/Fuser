@@ -7,8 +7,10 @@
 // clang-format on
 
 #include <utils.h>
+#include <macro.h>
 
 #include <c10/util/string_view.h>
+#include <nvrtc.h>
 
 #include <cstdlib>
 #include <iostream>
