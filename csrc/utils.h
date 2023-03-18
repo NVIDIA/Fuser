@@ -28,6 +28,13 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
+// query codegen output arch and target
+TORCH_CUDA_CU_API void codegenOutputQuery(
+    const cudaDeviceProp* const prop,
+    int& major,
+    int& minor,
+    bool& compile_to_sass);
+
 // TODO: merge these two
 // check if input is compatible with 32b index mode
 int getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);

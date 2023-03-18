@@ -1046,7 +1046,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 
   int major = 0, minor = 0;
   bool compile_to_sass = false;
-  torch::jit::fuser::cuda::codegenOutputQuery(
+  codegenOutputQuery(
       prop, major, minor, compile_to_sass);
 
 #if CUDA_VERSION < 11010
