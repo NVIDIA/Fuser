@@ -22,7 +22,6 @@
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
@@ -368,10 +367,10 @@ void FusionExecutor::compileFusion(
 
   // The driver API call requires an int argument.
   int max_dynamic_smem = 0;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncGetAttribute(
+  cuFuncGetAttribute(
       &max_dynamic_smem,
       CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-      compiled_kernel_.function));
+      compiled_kernel_.function);
   maybe_available_dynamic_smem_ = max_dynamic_smem;
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
@@ -1181,7 +1180,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (kernel()->summary().has_cooperative_grid_reduction) {
       int num_blocks_per_SM = -1;
-      at::globalContext().getNVRTC().cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &num_blocks_per_SM,
           compiled_kernel_.function,
           (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
@@ -1348,14 +1347,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (maybe_available_dynamic_smem_.has_value() &&
         size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
       // Increase limit of dynamic shared memory if needed.
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncSetAttribute(
+      cuFuncSetAttribute(
           compiled_kernel_.function,
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-          launch_params_.smem()));
+          launch_params_.smem());
     }
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+      cuLaunchKernel(
           compiled_kernel_.function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
@@ -1366,11 +1365,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.smem(),
           stream,
           args.getBuffer(),
-          nullptr));
+          nullptr);
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       AT_CUDA_DRIVER_CHECK(
-          at::globalContext().getNVRTC().cuLaunchCooperativeKernel(
+          cuLaunchCooperativeKernel(
               compiled_kernel_.function,
               launch_params_.gdimx(),
               launch_params_.gdimy(),
@@ -1467,7 +1466,7 @@ float FusionExecutor::runRtc(
 
   cudaEventRecord(start_event, stream);
 
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+  cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
       launch_params.gdimy(),
@@ -1478,7 +1477,7 @@ float FusionExecutor::runRtc(
       launch_params.smem(),
       stream,
       kernel_arguments.getBuffer(),
-      nullptr));
+      nullptr);
 
   cudaEventRecord(finish_event, stream);
   cudaEventSynchronize(start_event);
