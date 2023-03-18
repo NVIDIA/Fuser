@@ -16,6 +16,9 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "top-level build")
   find_package(Torch REQUIRED)
+  find_package(Python REQUIRED)
+  # need this since the pytorch execution uses a different name
+  set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: have TORCH_ROOT setup as a variable instead

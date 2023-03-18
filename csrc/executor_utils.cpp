@@ -19,6 +19,7 @@
 #include <ir_utils.h>
 #include <kernel_db/kernel_db.h>
 #include <torch/csrc/jit/resource_guard.h>
+#include <macro.h>
 
 #include <cuda_occupancy.h>
 #include <nvfuser_resources/PhiloxCudaStateRaw.h>
@@ -51,6 +52,8 @@
 #include <nvfuser_resources/welford.h>
 #include <cstdlib>
 #include <fstream>
+
+#include <nvrtc.h>
 
 namespace nvfuser {
 namespace executor_utils {
@@ -935,9 +938,9 @@ std::vector<char> dumpCompiledCode(
   const auto getCode = dump_cubin ? nvrtcGetCUBIN
                                   : nvrtcGetPTX;
   size_t size = 0;
-  AT_CUDA_NVRTC_CHECK(getSize(program, &size));
+  NVRTC_SAFE_CALL(getSize(program, &size));
   std::vector<char> code(size);
-  AT_CUDA_NVRTC_CHECK(getCode(program, code.data()));
+  NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -1199,7 +1202,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
     torch::jit::ResourceGuard holdProgram([&] {
       FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-      AT_CUDA_NVRTC_CHECK(
+      NVRTC_SAFE_CALL(
           nvrtcDestroyProgram(&program));
     });
 
@@ -1210,7 +1213,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         ss << "__tmp_kernel" << id << ".cu";
         std::string name = ss.str();
         FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-        AT_CUDA_NVRTC_CHECK(nvrtcCreateProgram(
+        NVRTC_SAFE_CALL(nvrtcCreateProgram(
             &program, code.c_str(), name.c_str(), 0, nullptr, nullptr));
       }
 
@@ -1238,7 +1241,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         }
         std::cout << log.data() << std::endl;
       }
-      AT_CUDA_NVRTC_CHECK(result);
+      NVRTC_SAFE_CALL(result);
 
       if (isWarnRegisterSpill) {
         auto getRegisterSpillInfo = [&log](const char* subStr) {
@@ -1300,9 +1303,9 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
       const auto getSize = nvrtcGetPTXSize;
       const auto getFunc = nvrtcGetPTX;
 #endif
-      AT_CUDA_NVRTC_CHECK(getSize(program, &ptx_size));
+      NVRTC_SAFE_CALL(getSize(program, &ptx_size));
       ptx.resize(ptx_size);
-      AT_CUDA_NVRTC_CHECK(getFunc(program, ptx.data()));
+      NVRTC_SAFE_CALL(getFunc(program, ptx.data()));
     }
 
     if (kernel_db.enabled() && kernel_code.has_value()) {
