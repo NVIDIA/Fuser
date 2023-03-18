@@ -18,6 +18,8 @@
 #include <typeinfo>
 #include <vector>
 
+#include <cuda_runtime.h>
+
 namespace nvfuser {
 
 void debugPrint(const c10::TensorTypePtr& type);
