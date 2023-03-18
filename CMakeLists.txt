@@ -276,6 +276,8 @@ if (PROJECT_IS_TOP_LEVEL)
 
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
   target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+  # TODO: we should guard the include of gloo
+  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
   if(NOT MSVC)
     target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
   endif()
