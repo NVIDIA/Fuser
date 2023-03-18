@@ -1368,7 +1368,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           nullptr);
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      AT_CUDA_DRIVER_CHECK(
           cuLaunchCooperativeKernel(
               compiled_kernel_.function,
               launch_params_.gdimx(),
@@ -1379,7 +1378,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               launch_params_.bdimz(),
               launch_params_.smem(),
               stream,
-              args.getBuffer()));
+              args.getBuffer());
     }
   }
 

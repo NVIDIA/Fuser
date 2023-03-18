@@ -1,3 +1,23 @@
 bin
 python/version.py
 __pycache__
+
+# Editor temporaries
+*.swa
+*.swb
+*.swc
+*.swd
+*.swe
+*.swf
+*.swg
+*.swh
+*.swi
+*.swj
+*.swk
+*.swl
+*.swm
+*.swn
+*.swo
+*.swp
+*~
+.~lock.*
