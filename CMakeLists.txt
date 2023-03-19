@@ -21,12 +21,137 @@ if (PROJECT_IS_TOP_LEVEL)
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 else() # PROJECT_IS_TOP_LEVEL
+  # TODO: move this to the top~
+  # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
+  if (BUILD_NVFUSER)
+    return()
+  endif()
+
+  if(NOT USE_ROCM)
+    set(TORCHLIB_FLAVOR torch_cuda)
+  else()
+    set(TORCHLIB_FLAVOR torch_hip)
+  endif()
+
   # TODO: have TORCH_ROOT setup as a variable instead
   # currently we are expecting nvfuser to be added from the pytorch root cmake file.
   set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
   set(ATEN_CUDA_ROOT "${TORCH_ROOT}/ATen")
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 endif() # PROJECT_IS_TOP_LEVEL
+
+# python API sources
+set(NVFUSER_PYTHON_SRCS)
+list(APPEND NVFUSER_PYTHON_SRCS
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
+)
+
+# nvfuser runtime files
+set(NVFUSER_RUNTIME_FILES)
+list(APPEND NVFUSER_RUNTIME_FILES
+  ${NVFUSER_ROOT}/runtime/array.cu
+  ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
+  ${NVFUSER_ROOT}/runtime/bf16_support.cu
+  ${NVFUSER_ROOT}/runtime/block_reduction.cu
+  ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
+  ${NVFUSER_ROOT}/runtime/block_sync_default.cu
+  ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
+  ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/complex_number.cu
+  ${NVFUSER_ROOT}/runtime/fp16_support.cu
+  ${NVFUSER_ROOT}/runtime/fused_reduction.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
+  ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
+  ${NVFUSER_ROOT}/runtime/grid_reduction.cu
+  ${NVFUSER_ROOT}/runtime/grid_sync.cu
+  ${NVFUSER_ROOT}/runtime/helpers.cu
+  ${NVFUSER_ROOT}/runtime/index_utils.cu
+  ${NVFUSER_ROOT}/runtime/memory.cu
+  ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/tensor.cu
+  ${NVFUSER_ROOT}/runtime/tensorcore.cu
+  ${NVFUSER_ROOT}/runtime/tuple.cu
+  ${NVFUSER_ROOT}/runtime/type_traits.cu
+  ${NVFUSER_ROOT}/runtime/warp.cu
+  ${NVFUSER_ROOT}/runtime/welford.cu
+  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
+  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
+)
+
+# nvfuser test sources
+set(JIT_TEST_SRCS)
+set(JIT_TEST_CU_SRCS)
+list(APPEND JIT_TEST_SRCS
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
+  ${NVFUSER_ROOT}/test/test_utils.cpp
+  ${NVFUSER_ROOT}/test/test_gpu1.cpp
+  ${NVFUSER_ROOT}/test/test_gpu2.cpp
+  ${NVFUSER_ROOT}/test/test_gpu3.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
+  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
+  ${NVFUSER_ROOT}/test/test_resize.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_view.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
+  ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
+)
+list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
+
+# nvfuser benchmark sources
+set(BENCHMARK_SRCS)
+list(APPEND BENCHMARK_SRCS
+  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first.cpp
+  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last.cpp
+  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/bert.cpp
+  ${NVFUSER_ROOT}/benchmark/broadcast.cpp
+  ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
+  ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
+  ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+  ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
+  ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
+  ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
+  ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
+  ${NVFUSER_ROOT}/benchmark/reduction.cpp
+  ${NVFUSER_ROOT}/benchmark/softmax.cpp
+  ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
+  ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
+  ${NVFUSER_ROOT}/benchmark/transpose.cpp
+  ${NVFUSER_ROOT}/benchmark/matmul.cpp
+  ${NVFUSER_ROOT}/benchmark/timm.cpp
+  ${NVFUSER_ROOT}/benchmark/indexselect.cpp
+  ${NVFUSER_ROOT}/benchmark/utils.cpp
+  ${NVFUSER_ROOT}/benchmark/main.cpp
+)
+
+#------------------------------
+# build nvfuser_codegen library
+#------------------------------
 
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
@@ -145,217 +270,37 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
 )
 
-# python API sources
-set(NVFUSER_PYTHON_SRCS)
-list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
-)
+set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
+add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
+target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
+target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+# NB: This must be target_compile_definitions, not target_compile_options,
+# as the latter is not respected by nvcc
+target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
-# nvfuser runtime files
-set(NVFUSER_RUNTIME_FILES)
-list(APPEND NVFUSER_RUNTIME_FILES
-  ${NVFUSER_ROOT}/runtime/array.cu
-  ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
-  ${NVFUSER_ROOT}/runtime/bf16_support.cu
-  ${NVFUSER_ROOT}/runtime/block_reduction.cu
-  ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
-  ${NVFUSER_ROOT}/runtime/block_sync_default.cu
-  ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
-  ${NVFUSER_ROOT}/runtime/broadcast.cu
-  ${NVFUSER_ROOT}/runtime/complex_number.cu
-  ${NVFUSER_ROOT}/runtime/fp16_support.cu
-  ${NVFUSER_ROOT}/runtime/fused_reduction.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
-  ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
-  ${NVFUSER_ROOT}/runtime/grid_reduction.cu
-  ${NVFUSER_ROOT}/runtime/grid_sync.cu
-  ${NVFUSER_ROOT}/runtime/helpers.cu
-  ${NVFUSER_ROOT}/runtime/index_utils.cu
-  ${NVFUSER_ROOT}/runtime/memory.cu
-  ${NVFUSER_ROOT}/runtime/random_numbers.cu
-  ${NVFUSER_ROOT}/runtime/tensor.cu
-  ${NVFUSER_ROOT}/runtime/tensorcore.cu
-  ${NVFUSER_ROOT}/runtime/tuple.cu
-  ${NVFUSER_ROOT}/runtime/type_traits.cu
-  ${NVFUSER_ROOT}/runtime/warp.cu
-  ${NVFUSER_ROOT}/runtime/welford.cu
-  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
-)
-
-# nvfuser test sources
-set(JIT_TEST_SRCS)
-set(JIT_TEST_CU_SRCS)
-list(APPEND JIT_TEST_SRCS
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
-  ${NVFUSER_ROOT}/test/test_utils.cpp
-  ${NVFUSER_ROOT}/test/test_gpu1.cpp
-  ${NVFUSER_ROOT}/test/test_gpu2.cpp
-  ${NVFUSER_ROOT}/test/test_gpu3.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
-  ${NVFUSER_ROOT}/test/test_resize.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_view.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
-  ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
-)
-list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
-
-# nvfuser benchmark sources
-set(BENCHMARK_SRCS)
-list(APPEND BENCHMARK_SRCS
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/bert.cpp
-  ${NVFUSER_ROOT}/benchmark/broadcast.cpp
-  ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
-  ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
-  ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
-  ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
-  ${NVFUSER_ROOT}/benchmark/reduction.cpp
-  ${NVFUSER_ROOT}/benchmark/softmax.cpp
-  ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
-  ${NVFUSER_ROOT}/benchmark/transpose.cpp
-  ${NVFUSER_ROOT}/benchmark/matmul.cpp
-  ${NVFUSER_ROOT}/benchmark/timm.cpp
-  ${NVFUSER_ROOT}/benchmark/indexselect.cpp
-  ${NVFUSER_ROOT}/benchmark/utils.cpp
-  ${NVFUSER_ROOT}/benchmark/main.cpp
-)
-
+# For kernel_db, linking STL Filesystem Library for backward compatability with C++14
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
+target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+# TODO: we should guard the include of gloo
+target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
+if(NOT MSVC)
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+endif()
+target_include_directories(${NVFUSER_CODEGEN} PUBLIC
+                          "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+                          "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+                          )
+set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if (PROJECT_IS_TOP_LEVEL)
-  message(STATUS "uh-oh")
-  set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
-
-  add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
-
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-  # NB: This must be target_compile_definitions, not target_compile_options,
-  # as the latter is not respected by nvcc
-  target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
-  # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-
-  message(STATUS "nvrtc_lib: ${CUDA_NVRTC_LIB}")
-  message(STATUS "cuda_include: ${CUDA_INCLUDE_DIRS}")
-
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
-  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
-  # TODO: we should guard the include of gloo
-  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
-  if(NOT MSVC)
-    target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
-  endif()
-
-  target_include_directories(${NVFUSER_CODEGEN} PUBLIC
-                            "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-                            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-                            )
-  set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
   message(STATUS "install_lib_dir: ${TORCH_INSTALL_LIB_DIR}")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
-
-  ## installing nvfuser headers
-  #install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-  #        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-  #        FILES_MATCHING PATTERN "*.h" )
-  ## installing nvfuser python tests
-  #install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-  #	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-  #        FILES_MATCHING PATTERN "*.py" )
-
-else() # PROJECT_IS_TOP_LEVEL
-  # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
-  if (BUILD_NVFUSER)
-    return()
-  endif()
-
-  if(NOT USE_ROCM)
-    set(TORCHLIB_FLAVOR torch_cuda)
-  else()
-    set(TORCHLIB_FLAVOR torch_hip)
-  endif()
-  
-  # --- project
-  
-  set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
+else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
-  
-  # --- build nvfuser_codegen library
-  
-  
-  add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
-  # Note: for some reason, torch_compile_options gives us segfaults when we run test_jit
-  #torch_compile_options(${NVFUSER_CODEGEN})
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
-  
-  if(NOT USE_ROCM)
-    target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-    # NB: This must be target_compile_definitions, not target_compile_options,
-    # as the latter is not respected by nvcc
-    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-  else()
-    target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
-    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
-    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE
-      USE_ROCM
-      __HIP_PLATFORM_HCC__
-      )
-  endif()
-  
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
-  # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-  if(NOT USE_ROCM)
-    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
-    target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
-  else()
-    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${ROCM_HIPRTC_LIB})
-    target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
-  endif()
-  if(NOT MSVC)
-    target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
-  endif()
-  target_include_directories(${NVFUSER_CODEGEN} PUBLIC
-                            "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-                            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-                            )
-  set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
   # installing nvfuser headers
   install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
@@ -365,6 +310,17 @@ else() # PROJECT_IS_TOP_LEVEL
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
   	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
           FILES_MATCHING PATTERN "*.py" )
+endif()
+
+#-----------------------------
+# build nvfuser python library
+#-----------------------------
+
+
+if (PROJECT_IS_TOP_LEVEL)
+  message(STATUS "skipping the rest of the libs")
+
+else() # PROJECT_IS_TOP_LEVEL
   
   # --- build nvfuser_python library
   
@@ -438,6 +394,12 @@ else() # PROJECT_IS_TOP_LEVEL
   
     file(WRITE "${TORCH_ROOT}/nvfuser/.gitignore" "*")
   endif()
+endif()
+
+if (PROJECT_IS_TOP_LEVEL)
+  message(STATUS "skipping the rest of the libs")
+
+else() # PROJECT_IS_TOP_LEVEL
   
   # -- build tests
   if(BUILD_TEST)
