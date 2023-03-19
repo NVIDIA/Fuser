@@ -10,6 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_graphs.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
@@ -252,6 +253,7 @@ void assignRNGOffset(Fusion* fusion) {
 void dumpExprsIfEnabled(
     const std::vector<Expr*>& exprs,
     std::string pass_name,
+    bool force_expr_disable = true,
     bool force_enable = false) {
   auto enabled_by_env = [&pass_name]() {
     if (!isDebugDumpEnabled(DebugDumpOption::LowerVerbose)) {
@@ -262,8 +264,12 @@ void dumpExprsIfEnabled(
         args.empty() ||
         std::find(args.begin(), args.end(), pass_name) != args.end());
   };
-  if (force_enable || enabled_by_env()) {
+  bool name_only = isDebugDumpEnabled(DebugDumpOption::LowerNameOnly);
+  if (name_only || force_enable || enabled_by_env()) {
     std::cout << "After " << pass_name << ":" << std::endl;
+    if (name_only || force_expr_disable) {
+      return;
+    }
     for (auto exp : exprs) {
       std::cout << exp->toString() << std::endl;
     }
@@ -308,16 +314,18 @@ void GpuLower::lower(Fusion* fusion) {
 
   // prepare for lowering
   validateIr(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateIr", true);
 
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
   collectPaddedParallelDims();
-  dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
+  dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims", true);
 
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+
+  IterDomainGraphs test(fusion_);
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
@@ -326,7 +334,7 @@ void GpuLower::lower(Fusion* fusion) {
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
   resolveComputeWith(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
+  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith", true);
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
     std::cout << compute_at_map_->toString() << std::endl;
@@ -336,34 +344,35 @@ void GpuLower::lower(Fusion* fusion) {
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
-  dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
+  dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits", true);
 
   // Used in parallel dimension map
   concretized_broadcast_domains_ =
       std::make_shared<const ConcretizedBroadcastDomains>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
+  dumpExprsIfEnabled(
+      fusion_->exprs(), "build ConcretizedBroadcastDomains", true);
 
   parallelDimensionMap().build(fusion_);
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
     std::cout << "Parallel dimension map:" << std::endl;
     std::cout << parallel_dimension_map_.toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
+  dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap", true);
 
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateMma");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateMma", true);
 
   // Validate swizzle usage on the fusion schedule.
   validateSwizzle(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle", true);
 
   validateResize(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
+  dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_", true);
 
   // Fuse cetain patterns of reductions, such as a grid reduction
   // followed by a grid broadcast. Only depends on parallelization and
@@ -374,26 +383,27 @@ void GpuLower::lower(Fusion* fusion) {
   // Scan the whole fusion and build mappings about halo extensions of
   // all IterDomains
   halo_info_ = std::make_shared<HaloInfo>(fusion_, compute_at_map_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build HaloInfo");
+  dumpExprsIfEnabled(fusion_->exprs(), "build HaloInfo", true);
 
   // Want to run this after parallel map and halo info map are
   // created. vectorized_accesses_ and vectorized_set_info_ are filled.
   validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo", true);
 
   // Depends on ComputeAtMap and HaloInfo.
   validateAndConvertIterDomainGrouping(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
+  dumpExprsIfEnabled(
+      fusion_->exprs(), "validateAndConvertIterDomainGrouping", true);
 
   // Assumes all grouped reductions are convered to
   // GroupedReductionOp, which is done by
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions", true);
 
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV", true);
 
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs
@@ -401,27 +411,27 @@ void GpuLower::lower(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::SyncMap)) {
     std::cout << sync_map_->toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
+  dumpExprsIfEnabled(fusion_->exprs(), "SyncMap", true);
 
   partialSplitMap().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
+  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap", true);
 
   validatePartialSplit(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validatePartialSplit");
+  dumpExprsIfEnabled(fusion_->exprs(), "validatePartialSplit", true);
 
   nonDivisibleSplitInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
+  dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo", true);
 
   // Detects all exprssions that don't need predicates. Depends on
   // nonDivisibleSplitInfo.
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
+  dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination", true);
 
   doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo", true);
 
   compute_at_map_->allocateIndexVariables();
-  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables", true);
   // Run our passes keeping the lowered expressions and forwarding
   // them
 

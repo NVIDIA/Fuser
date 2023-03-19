@@ -374,13 +374,15 @@ enum class IdMappingMode {
   EXACT,
   ALMOSTEXACT,
   LOOP,
+  INDEX,
   PERMISSIVE,
   PERMISSIVE_RESIZE
 };
 
-static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
+    IdMappingMode::INDEX,
     IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE,
     IdMappingMode::PERMISSIVE_RESIZE};

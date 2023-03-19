@@ -223,15 +223,9 @@ TensorView* rfactorHelper(
 namespace {
 
 template <typename T>
-std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
-  std::vector<T*> unique_entries;
-  std::unordered_set<T*> inserted;
-  for (auto tv_entry : tv_deuqe) {
-    if (inserted.emplace(tv_entry).second) {
-      unique_entries.emplace_back(tv_entry);
-    }
-  }
-  return unique_entries;
+std::vector<T*> uniqueEntries(const std::vector<T*>& tv_vector) {
+  VectorOfUniqueEntries<T*> unique_vector(tv_vector.begin(), tv_vector.end());
+  return unique_vector.vector();
 }
 
 } // namespace
@@ -374,6 +368,24 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
 
   // all_tvs has duplicates, to deduplicate it and return
   return uniqueEntries<TensorView>(all_tvs);
+}
+
+std::vector<TensorView*> allTvsOfExprs(const std::vector<Expr*>& exprs) {
+  std::vector<TensorView*> all_tvs;
+  std::unordered_set<TensorView*> added;
+  for (auto expr : exprs) {
+    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (bool input : {true, false}) {
+      auto& tvs = input ? input_tvs : output_tvs;
+      for (auto tv : tvs) {
+        if (added.emplace(tv).second) {
+          all_tvs.push_back(tv);
+        }
+      }
+    }
+  }
+  return all_tvs;
 }
 
 std::vector<TensorView*> allTvsExcept(

@@ -1470,8 +1470,10 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveNodes();
     case IdMappingMode::PERMISSIVE_RESIZE:
       return id_graph_.permissiveResizeNodes();
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false, "Error with mapping mode, didn't expect mode: ", mode);
   }
-  TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");
 }
 
 bool ComputeAtMap::idExistsInMap(IterDomain* id) const {

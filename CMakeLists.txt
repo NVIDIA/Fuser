@@ -15,142 +15,144 @@ else()
 endif()
 
 # --- project
-
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+
 # TODO: have TORCH_ROOT setup as a variable instead
 # currently we are expecting nvfuser to be added from the pytorch root cmake file.
 set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
 set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 
 # --- build nvfuser_codegen library
-
 set(NVFUSER_SRCS)
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 list(APPEND NVFUSER_SRCS
-    ${NVFUSER_SRCS_DIR}/compute_at.cpp
-    ${NVFUSER_SRCS_DIR}/inlining.cpp
-    ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
-    ${NVFUSER_SRCS_DIR}/codegen.cpp
-    ${NVFUSER_SRCS_DIR}/contiguity.cpp
-    ${NVFUSER_SRCS_DIR}/dispatch.cpp
-    ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
-    ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
-    ${NVFUSER_SRCS_DIR}/executor.cpp
-    ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
-    ${NVFUSER_SRCS_DIR}/executor_params.cpp
-    ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
-    ${NVFUSER_SRCS_DIR}/executor_utils.cpp
-    ${NVFUSER_SRCS_DIR}/fusion.cpp
-    ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
-    ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
-    ${NVFUSER_SRCS_DIR}/index_compute.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index_compute.cpp
-    ${NVFUSER_SRCS_DIR}/instrumentation.cpp
-    ${NVFUSER_SRCS_DIR}/ir_base_nodes.cpp
-    ${NVFUSER_SRCS_DIR}/ir_builder.cpp
-    ${NVFUSER_SRCS_DIR}/ir_cloner.cpp
-    ${NVFUSER_SRCS_DIR}/ir_container.cpp
-    ${NVFUSER_SRCS_DIR}/ir_graphviz.cpp
-    ${NVFUSER_SRCS_DIR}/ir_nodes.cpp
-    ${NVFUSER_SRCS_DIR}/ir_iostream.cpp
-    ${NVFUSER_SRCS_DIR}/ir_utils.cpp
-    ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
-    ${NVFUSER_SRCS_DIR}/kernel.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
-    ${NVFUSER_SRCS_DIR}/lower_alias_memory.cpp
-    ${NVFUSER_SRCS_DIR}/lower_allocation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_double_buffer.cpp
-    ${NVFUSER_SRCS_DIR}/lower_divisible_split.cpp
-    ${NVFUSER_SRCS_DIR}/lower_expr_sort.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fused_reduction.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fusion_simplifier.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index.cpp
-    ${NVFUSER_SRCS_DIR}/lower_scalar_hoist.cpp
-    ${NVFUSER_SRCS_DIR}/lower_insert_syncs.cpp
-    ${NVFUSER_SRCS_DIR}/lower_instrument.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loop_rotation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loops.cpp
-    ${NVFUSER_SRCS_DIR}/lower_magic_zero.cpp
-    ${NVFUSER_SRCS_DIR}/lower_misaligned_vectorization.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate_elimination.cpp
-    ${NVFUSER_SRCS_DIR}/lower_replace_size.cpp
-    ${NVFUSER_SRCS_DIR}/lower_shift.cpp
-    ${NVFUSER_SRCS_DIR}/lower_sync_information.cpp
-    ${NVFUSER_SRCS_DIR}/lower_thread_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_trivial_broadcast.cpp
-    ${NVFUSER_SRCS_DIR}/lower_unroll.cpp
-    ${NVFUSER_SRCS_DIR}/lower_utils.cpp
-    ${NVFUSER_SRCS_DIR}/lower_validation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_vectorize_welford.cpp
-    ${NVFUSER_SRCS_DIR}/lower_warp_reduce.cpp
-    ${NVFUSER_SRCS_DIR}/lower2device.cpp
-    ${NVFUSER_SRCS_DIR}/lower_bank_conflict.cpp
-    ${NVFUSER_SRCS_DIR}/manager.cpp
-    ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
-    ${NVFUSER_SRCS_DIR}/multidevice/aggregate_dag.cpp
-    ${NVFUSER_SRCS_DIR}/multidevice/multidevice_runtime.cpp
-    ${NVFUSER_SRCS_DIR}/multidevice/multicluster_fusion.cpp
-    ${NVFUSER_SRCS_DIR}/multidevice/ProcessGroupBuilder.cpp
-    ${NVFUSER_SRCS_DIR}/mutator.cpp
-    ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
-    ${NVFUSER_SRCS_DIR}/ops/alias.cpp
-    ${NVFUSER_SRCS_DIR}/ops/arith.cpp
-    ${NVFUSER_SRCS_DIR}/ops/composite.cpp
-    ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
-    ${NVFUSER_SRCS_DIR}/ops/utils.cpp
-    ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
-    ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
-    ${NVFUSER_SRCS_DIR}/parser.cpp
-    ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
-    ${NVFUSER_SRCS_DIR}/partition.cpp
-    ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/register_interface.cpp
-    ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
-    ${NVFUSER_SRCS_DIR}/swizzle.cpp
-    ${NVFUSER_SRCS_DIR}/sys_utils.cpp
-    ${NVFUSER_SRCS_DIR}/type_inference.cpp
-    ${NVFUSER_SRCS_DIR}/type_promotion.cpp
-    ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
-    ${NVFUSER_SRCS_DIR}/tensor_view.cpp
-    ${NVFUSER_SRCS_DIR}/transform_iter.cpp
-    ${NVFUSER_SRCS_DIR}/transform_replay.cpp
-    ${NVFUSER_SRCS_DIR}/transform_rfactor.cpp
-    ${NVFUSER_SRCS_DIR}/transform_view.cpp
-    ${NVFUSER_SRCS_DIR}/type.cpp
-    ${NVFUSER_SRCS_DIR}/utils.cpp
-    ${NVFUSER_SRCS_DIR}/mma_type.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
+  ${NVFUSER_SRCS_DIR}/compute_at.cpp
+  ${NVFUSER_SRCS_DIR}/inlining.cpp
+  ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
+  ${NVFUSER_SRCS_DIR}/codegen.cpp
+  ${NVFUSER_SRCS_DIR}/contiguity.cpp
+  ${NVFUSER_SRCS_DIR}/dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
+  ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/executor.cpp
+  ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
+  ${NVFUSER_SRCS_DIR}/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/fusion.cpp
+  ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
+  ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/lower_index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/instrumentation.cpp
+  ${NVFUSER_SRCS_DIR}/id_graphs.cpp
+  ${NVFUSER_SRCS_DIR}/ir_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir_builder.cpp
+  ${NVFUSER_SRCS_DIR}/ir_cloner.cpp
+  ${NVFUSER_SRCS_DIR}/ir_container.cpp
+  ${NVFUSER_SRCS_DIR}/ir_graphviz.cpp
+  ${NVFUSER_SRCS_DIR}/ir_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir_iostream.cpp
+  ${NVFUSER_SRCS_DIR}/ir_utils.cpp
+  ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
+  ${NVFUSER_SRCS_DIR}/kernel.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/lower_alias_memory.cpp
+  ${NVFUSER_SRCS_DIR}/lower_allocation.cpp
+  ${NVFUSER_SRCS_DIR}/lower_double_buffer.cpp
+  ${NVFUSER_SRCS_DIR}/lower_divisible_split.cpp
+  ${NVFUSER_SRCS_DIR}/lower_expr_sort.cpp
+  ${NVFUSER_SRCS_DIR}/lower_fused_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/lower_fusion_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/lower_index.cpp
+  ${NVFUSER_SRCS_DIR}/lower_scalar_hoist.cpp
+  ${NVFUSER_SRCS_DIR}/lower_insert_syncs.cpp
+  ${NVFUSER_SRCS_DIR}/lower_instrument.cpp
+  ${NVFUSER_SRCS_DIR}/lower_loop_rotation.cpp
+  ${NVFUSER_SRCS_DIR}/lower_loops.cpp
+  ${NVFUSER_SRCS_DIR}/lower_magic_zero.cpp
+  ${NVFUSER_SRCS_DIR}/lower_misaligned_vectorization.cpp
+  ${NVFUSER_SRCS_DIR}/lower_predicate.cpp
+  ${NVFUSER_SRCS_DIR}/lower_predicate_elimination.cpp
+  ${NVFUSER_SRCS_DIR}/lower_replace_size.cpp
+  ${NVFUSER_SRCS_DIR}/lower_shift.cpp
+  ${NVFUSER_SRCS_DIR}/lower_sync_information.cpp
+  ${NVFUSER_SRCS_DIR}/lower_thread_predicate.cpp
+  ${NVFUSER_SRCS_DIR}/lower_trivial_broadcast.cpp
+  ${NVFUSER_SRCS_DIR}/lower_unroll.cpp
+  ${NVFUSER_SRCS_DIR}/lower_utils.cpp
+  ${NVFUSER_SRCS_DIR}/lower_validation.cpp
+  ${NVFUSER_SRCS_DIR}/lower_vectorize_welford.cpp
+  ${NVFUSER_SRCS_DIR}/lower_warp_reduce.cpp
+  ${NVFUSER_SRCS_DIR}/lower2device.cpp
+  ${NVFUSER_SRCS_DIR}/lower_bank_conflict.cpp
+  ${NVFUSER_SRCS_DIR}/manager.cpp
+  ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/aggregate_dag.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/multidevice_runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/multicluster_fusion.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/ProcessGroupBuilder.cpp
+  ${NVFUSER_SRCS_DIR}/mutator.cpp
+  ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
+  ${NVFUSER_SRCS_DIR}/ops/alias.cpp
+  ${NVFUSER_SRCS_DIR}/ops/arith.cpp
+  ${NVFUSER_SRCS_DIR}/ops/composite.cpp
+  ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
+  ${NVFUSER_SRCS_DIR}/ops/utils.cpp
+  ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
+  ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
+  ${NVFUSER_SRCS_DIR}/parser.cpp
+  ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
+  ${NVFUSER_SRCS_DIR}/partition.cpp
+  ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
+  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
+  ${NVFUSER_SRCS_DIR}/register_interface.cpp
+  ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+  ${NVFUSER_SRCS_DIR}/swizzle.cpp
+  ${NVFUSER_SRCS_DIR}/sys_utils.cpp
+  ${NVFUSER_SRCS_DIR}/type_inference.cpp
+  ${NVFUSER_SRCS_DIR}/type_promotion.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/tensor_view.cpp
+  ${NVFUSER_SRCS_DIR}/transform_iter.cpp
+  ${NVFUSER_SRCS_DIR}/transform_replay.cpp
+  ${NVFUSER_SRCS_DIR}/transform_rfactor.cpp
+  ${NVFUSER_SRCS_DIR}/transform_view.cpp
+  ${NVFUSER_SRCS_DIR}/type.cpp
+  ${NVFUSER_SRCS_DIR}/utils.cpp
+  ${NVFUSER_SRCS_DIR}/mma_type.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
 )
 
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
+
 # Note: for some reason, torch_compile_options gives us segfaults when we run test_jit
-#torch_compile_options(${NVFUSER_CODEGEN})
+# torch_compile_options(${NVFUSER_CODEGEN})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 
 if(NOT USE_ROCM)
   target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+
   # NB: This must be target_compile_definitions, not target_compile_options,
   # as the latter is not respected by nvcc
   target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
@@ -160,12 +162,14 @@ else()
   target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE
     USE_ROCM
     __HIP_PLATFORM_HCC__
-    )
+  )
 endif()
 
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
+
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
+
 if(NOT USE_ROCM)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
   target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
@@ -173,39 +177,44 @@ else()
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${ROCM_HIPRTC_LIB})
   target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
 endif()
+
 if(NOT MSVC)
   target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
 endif()
+
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
-                          "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-                          "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-                          )
+  "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+)
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
+
 # installing nvfuser headers
 install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-        FILES_MATCHING PATTERN "*.h" )
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+  FILES_MATCHING PATTERN "*.h")
+
 # installing nvfuser python tests
 install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-        FILES_MATCHING PATTERN "*.py" )
+  DESTINATION "${TORCH_ROOT}/test/_nvfuser"
+  FILES_MATCHING PATTERN "*.py")
 
 # --- build nvfuser_python library
-
 if(BUILD_PYTHON)
   set(NVFUSER "${PROJECT_NAME}")
 
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
   )
 
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
   torch_compile_options(${NVFUSER})
+
   if(NOT USE_ROCM)
     target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+
     # NB: This must be target_compile_definitions, not target_compile_options,
     # as the latter is not respected by nvcc
     target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
@@ -216,7 +225,7 @@ if(BUILD_PYTHON)
     target_compile_definitions(${NVFUSER} PRIVATE
       USE_ROCM
       __HIP_PLATFORM_HCC__
-      )
+    )
     target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
   endif()
 
@@ -229,6 +238,7 @@ if(BUILD_PYTHON)
 
   # avoid using Python3_add_library, copied from functorch
   set_target_properties(${NVFUSER} PROPERTIES PREFIX "" DEBUG_POSTFIX "")
+
   if(NOT MSVC)
     target_compile_options(${NVFUSER} PRIVATE -Werror)
     set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
@@ -237,22 +247,23 @@ if(BUILD_PYTHON)
   endif()
 
   set_target_properties(${NVFUSER} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
-        ${CMAKE_BINARY_DIR}/nvfuser)
+    ${CMAKE_BINARY_DIR}/nvfuser)
   set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "${_rpath_portable_origin}/../torch/lib")
 
   if(TORCH_PYTHON_LINK_FLAGS AND NOT TORCH_PYTHON_LINK_FLAGS STREQUAL "")
     message(STATUS "somehow this is happening")
     set_target_properties(${NVFUSER} PROPERTIES LINK_FLAGS ${TORCH_PYTHON_LINK_FLAGS})
   endif()
+
   install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${TORCH_ROOT}/nvfuser/)
 
   # setup python API version
   add_custom_command(
     OUTPUT ${NVFUSER_ROOT}/python/version.py
     COMMAND
-      "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-      "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
   )
@@ -264,8 +275,8 @@ if(BUILD_PYTHON)
 
   # install nvfuser python files
   install(DIRECTORY "${NVFUSER_ROOT}/python/"
-          DESTINATION "${TORCH_ROOT}/nvfuser"
-          FILES_MATCHING PATTERN "*.py" )
+    DESTINATION "${TORCH_ROOT}/nvfuser"
+    FILES_MATCHING PATTERN "*.py")
 
   file(WRITE "${TORCH_ROOT}/nvfuser/.gitignore" "*")
 endif()
@@ -310,6 +321,7 @@ file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
 # "stringify" NVFUSER runtime sources
 # (generate C++ header files embedding the original input as a string literal)
 set(NVFUSER_STRINGIFY_TOOL "${NVFUSER_ROOT}/tools/stringify_file.py")
+
 foreach(src ${NVFUSER_RUNTIME_FILES})
   get_filename_component(filename ${src} NAME_WE)
   set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
@@ -369,15 +381,16 @@ if(BUILD_TEST)
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
   add_executable(${NVFUSER_TESTS}
-             ${TORCH_ROOT}/test/cpp/common/main.cpp
-             ${TORCH_ROOT}/test/cpp/jit/test_utils.cpp
-             ${JIT_TEST_SRCS}
-             ${JIT_TEST_CU_SRCS})
+    ${TORCH_ROOT}/test/cpp/common/main.cpp
+    ${TORCH_ROOT}/test/cpp/jit/test_utils.cpp
+    ${JIT_TEST_SRCS}
+    ${JIT_TEST_CU_SRCS})
   torch_compile_options(${NVFUSER_TESTS})
 
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}" "${TORCH_ROOT}/torch/csrc/api/include/")
   target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} torch ${TORCHLIB_FLAVOR} gtest_main gmock_main)
+
   if(NOT MSVC)
     set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
   endif()
@@ -421,11 +434,11 @@ if(BUILD_NVFUSER_BENCHMARK)
   install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark ${NVFUSER_CODEGEN})
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
+
   if(NOT MSVC)
     target_compile_options_if_supported(nvfuser_bench -Werror)
     target_compile_options_if_supported(nvfuser_bench -Wno-deprecated-copy)
   endif()
-
 endif()
 
 # -- install nvfuser cmake config files and symlink to build binaries

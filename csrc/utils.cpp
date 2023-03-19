@@ -135,6 +135,7 @@ auto parseDebugDumpOptions() {
       {"bank_conflict", DebugDumpOption::BankConflictInfo},
       {"sync_map", DebugDumpOption::SyncMap},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
+      {"lower_name_only", DebugDumpOption::LowerNameOnly},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
       {"loop_rotation", DebugDumpOption::LoopRotation}};

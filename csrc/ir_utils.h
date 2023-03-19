@@ -303,7 +303,12 @@ TORCH_CUDA_CU_API std::vector<TensorView*> outputTvsOf(
     std::vector<TensorView*> tvs);
 
 // returns all tensor views in fusion that are used between outputs and inputs.
+// List is topologically sorted.
 TORCH_CUDA_CU_API std::vector<TensorView*> allTvs(Fusion* fusion);
+
+// returns all tensor views used in the provided expressions
+TORCH_CUDA_CU_API std::vector<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs);
 
 // returns all tensor views in fusion that are used between outputs and inputs
 // except the specified set.

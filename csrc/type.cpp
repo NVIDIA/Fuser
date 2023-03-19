@@ -675,10 +675,14 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "exact";
     case IdMappingMode::ALMOSTEXACT:
       return "almost_exact";
-    case IdMappingMode::PERMISSIVE:
-      return "permissive";
+    case IdMappingMode::INDEX:
+      return "index";
     case IdMappingMode::LOOP:
       return "loop";
+    case IdMappingMode::PERMISSIVE:
+      return "permissive";
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
       TORCH_INTERNAL_ASSERT(false, "Unexpected IdMappingMode Type.");

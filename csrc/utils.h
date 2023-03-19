@@ -76,6 +76,7 @@ enum class DebugDumpOption {
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
   LowerVerbose, //! Print all passes' transform in GpuLower::lower
+  LowerNameOnly, //! Print pass names as they're finished
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
   LoopRotation, //! Print loop rotation log
