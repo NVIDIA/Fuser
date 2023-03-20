@@ -95,16 +95,16 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       ss << ir_utils::varName(this);
       return ss.str();
     }
-    if (*getDataType() == DataType::Bool) {
+    auto dtype = getDataType().value();
+    if (dtype == DataType::Bool) {
       ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
-    } else if (isIntegralType(*getDataType())) {
+    } else if (isIntegralType(dtype)) {
       ss << *(value());
-    } else if (
-        isFloatingPointType(*getDataType()) || isComplexType(*getDataType())) {
-      ss << getDataType().value() << "("
-         << std::setprecision(max_digits10(getDataType())) << *(value()) << ")";
+    } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
+      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << *(value())
+         << ")";
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", *getDataType());
+      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
     }
     return ss.str();
   }
