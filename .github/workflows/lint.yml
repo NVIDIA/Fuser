@@ -22,6 +22,7 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
+          pip install lintrunner
           lintrunner init 2> /dev/null
           git clone https://github.com/pytorch/pytorch.git
           cd pytorch
