@@ -1117,6 +1117,26 @@ Val* factorizeFlattenedAdd(Val* x) {
   return assoc_comm::flatten(product);
 }
 
+// Rule O
+Val* factorizeMod(Val* x) {
+  auto bop = dynamic_cast<BinaryOp*>(x->definition());
+  TORCH_INTERNAL_ASSERT(bop->getBinaryOpType() == BinaryOpType::Mod);
+  auto flhs = factorize(bop->lhs());
+  auto frhs = factorize(bop->rhs());
+  auto gcd = greatestCommonDivisor({flhs, frhs});
+  if (gcd->isOne()) {
+    return x;
+  }
+  auto qlhs = divideFactorized(flhs, gcd);
+  auto qrhs = divideFactorized(frhs, gcd);
+  auto mod = IrBuilder::newScalar(*x->getDataType());
+  IrBuilder::create<BinaryOp>(BinaryOpType::Mod, mod, qlhs, qrhs);
+  auto product = IrBuilder::newScalar(*x->getDataType());
+  IrBuilder::create<FOp>(
+      BinaryOpType::Mul, product, std::vector<Val*>{mod, gcd});
+  return product;
+}
+
 } // namespace
 
 // Rewrite x in the form x = x1 * x2 * x3 * ...
@@ -1133,7 +1153,12 @@ Val* factorize(Val* x) {
   if (isFlattenedAdd(x)) {
     return factorizeFlattenedAdd(x);
   }
-  // TODO: handle other operators, for example, rule M, O
+  if (auto bop = dynamic_cast<BinaryOp*>(x->definition())) {
+    if (bop->getBinaryOpType() == BinaryOpType::Mod) {
+      // Rule O
+      return factorizeMod(x);
+    }
+  }
   return x;
 }
 
@@ -1375,7 +1400,7 @@ bool isValidDenominator(Val* denominator, const Context& context) {
     return false;
   }
   if (isDebugDumpEnabled(DebugDumpOption::ExprSimplification)) {
-    TORCH_WARN(
+    TORCH_WARN_ONCE(
         "Assuming ",
         denominator->toInlineString(),
         " to be non-zero does not perserve division-by-zero error");
@@ -1668,10 +1693,10 @@ Val* cancelDivMod(Val* value, const Context& context) {
 // J) Distributivity of % over +:
 //    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
 // Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a+b)/c = a/c + b/c
+//    (a + b) / c = a/c + b/c
 // In this pass we distribute div and mod for a special case:
 // If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a+b)/c = a/c + b/c
+//  (a + b) / c = a/c + b/c
 //  (a + b) % c = b % c
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
@@ -1680,7 +1705,8 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   }
   auto lhs = divmod->lhs();
   auto rhs = divmod->rhs();
-  if (!isValidDenominator(rhs, context)) {
+  if (!lhs->isIntegralScalar() || !rhs->isIntegralScalar() ||
+      !isValidDenominator(rhs, context)) {
     return value;
   }
   auto fop = toFlattenedAdd(lhs->definition());
@@ -1720,6 +1746,192 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
       auto output = IrBuilder::newScalar(*value->getDataType());
       IrBuilder::create<FOp>(BinaryOpType::Add, output, std::move(new_inputs));
       return output;
+    }
+  }
+  return value;
+}
+
+// Use the following rule to simplify div and mod:
+// J) Distributivity of % over +:
+//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
+// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
+//    (a + b) / c = a/c + b/c
+// In this pass we distribute div and mod for a special case:
+// Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|, then:
+//  (a + b) / c = a/c
+//  (a + b) % c = a % c + b
+// Proof:
+//  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
+//  Theorem 6.5, we have b % c = b.
+//  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
+//  So, a % c + b % c = ((a/g) % (c/g)) * g + b
+//  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
+//  -|c/g| + 1 <= (a/g) % (c/g) <= |c/g| - 1
+//  So, -(|c/g| - 1) * |g| <= a % c <= (|c/g| - 1) * |g|
+//  Therefore, we have
+//  -(|c/g| - 1) * |g| - |g| < a % c + b % c < (|c/g| - 1) * |g| + |g|
+// That is: -|c| < a % c + b % c < |c|
+// Therefore:
+// (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
+// (a + b) / c = a/c + b/c = a / c
+Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
+  auto divmod = toDivModOp(value->definition());
+  if (!divmod) {
+    return value;
+  }
+  auto lhs = divmod->lhs();
+  auto rhs = divmod->rhs();
+  if (!lhs->isIntegralScalar() || !rhs->isIntegralScalar() ||
+      !isValidDenominator(rhs, context)) {
+    return value;
+  }
+  auto fop = toFlattenedAdd(lhs->definition());
+  if (!fop) {
+    return value;
+  }
+  auto fdivisor = sym_algebra::factorize(rhs);
+  // We should partition fop->inputs() into two parts. And we need to try all
+  // possible partitions to check if we can find a pattern matching the
+  // condition. However, trying all partition can be slow. So we take advantage
+  // of our knowledge of our prover:
+  // 1. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
+  // able
+  //    to prove -|gcd(c,...)| < x < |gcd(c,...)|
+  // 2. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
+  // able
+  //    to prove -|c| < x + y < |c|
+  // Note that the above observation is just an approximation, it is not
+  // guaranteed. So if we use any of the above assumptions, we might lose
+  // simplifying opportunities. But in practice, this should be fine.
+  //
+  // Taking advantage of the above two points, we come up with the following
+  // algorithm:
+  // We begin by xs = fop->inputs() and g = c; We dynamically update xs and g:
+  // if we find an x in xs that we can not prove -|g| < x < |g|, we remove this
+  // x from xs and update g = gcd(g, x). We repeat this process until converge.
+  // After convergence, we will try all combinations of xs to find matching
+  // pattern that satisfy -|gcd(...)| < x1 + x2 + ... < |gcd(...)|.
+
+  // Step 1: find xs
+  std::deque<Val*> xs;
+  for (auto x : fop->inputs()) {
+    xs.push_back(sym_algebra::factorize(x));
+  }
+  std::vector<Val*> other_terms;
+  bool changed = true;
+  Val* front = nullptr;
+  Val* g = fdivisor;
+  Val* abs_g = IrBuilder::absExpr(g);
+  Val* neg_abs_g = IrBuilder::negExpr(abs_g);
+  while (front != nullptr || changed) {
+    if (front == nullptr) {
+      changed = false;
+      xs.push_back(nullptr);
+    } else {
+      bool in_range = prove::lessThan(front, abs_g, context) &&
+          prove::greaterThan(front, neg_abs_g, context);
+      if (in_range) {
+        xs.push_back(front);
+      } else {
+        changed = true;
+        other_terms.push_back(front);
+        g = sym_algebra::greatestCommonDivisor({g, front});
+        abs_g = IrBuilder::absExpr(g);
+        neg_abs_g = IrBuilder::negExpr(abs_g);
+      }
+    }
+    front = xs.front();
+    xs.pop_front();
+  }
+  if (xs.empty()) {
+    return value;
+  }
+
+  // Step 2: try all combinations of xs
+  // The number of combinations of xs is exponential to the size of xs, so we
+  // limit the maximum size of xs. If xs is larger, then we make another
+  // assumptions that split xs into batches and only consider 1 batch each time.
+  // In practice, I expect the size of xs to be just one or two elements, so I
+  // don't think this approximation makes any trouble. I add this max size just
+  // to make the algorithm more robust.
+  constexpr size_t max_size_xs = 10;
+  static_assert(
+      max_size_xs < sizeof(size_t) * 8,
+      "max_size_xs can not be larger than the number of bits in size_t, "
+      "otherwise num_combinations will overflow");
+  for (size_t batch = 0; batch * max_size_xs < xs.size(); batch++) {
+    size_t start = batch * max_size_xs;
+    size_t end = std::min(xs.size(), (batch + 1) * max_size_xs);
+    size_t batch_size = end - start;
+    size_t num_combinations = 1 << batch_size;
+    for (size_t combo_id = 1; combo_id < num_combinations; combo_id++) {
+      std::vector<Val*> combo_xs;
+      std::vector<Val*> combo_other = other_terms;
+      // dispatch xs into combo_xs and combo_other
+      for (size_t i = 0; i < xs.size(); i++) {
+        if (i < start || i >= end) {
+          combo_other.push_back(xs[i]);
+        } else {
+          size_t batch_i = i - start;
+          if (((combo_id >> batch_i) & size_t(1)) == 1) {
+            combo_xs.push_back(xs[i]);
+          } else {
+            combo_other.push_back(xs[i]);
+          }
+        }
+      }
+      // compute sum of combo_xs and sum of combo_other
+      Val* sum_xs = nullptr;
+      if (combo_xs.size() == 1) {
+        sum_xs = combo_xs.at(0);
+      } else {
+        sum_xs = IrBuilder::newScalar(*lhs->getDataType());
+        IrBuilder::create<FOp>(BinaryOpType::Add, sum_xs, combo_xs);
+      }
+      Val* sum_other = nullptr;
+      if (combo_other.size() == 1) {
+        sum_other = combo_other.at(0);
+        // sum_other is already factorized
+      } else {
+        sum_other = IrBuilder::newScalar(*lhs->getDataType());
+        IrBuilder::create<FOp>(BinaryOpType::Add, sum_other, combo_other);
+        sum_other = sym_algebra::factorize(sum_other);
+      }
+      // prove -|g| < sum_xs < |g|
+      bool allowed_to_simplify =
+          prove::hasCompatibleSign(sum_other, sum_xs, context);
+      if (allowed_to_simplify) {
+        Val* g = sym_algebra::greatestCommonDivisor({fdivisor, sum_other});
+        Val* abs_g = IrBuilder::absExpr(g);
+        Val* neg_abs_g = IrBuilder::negExpr(abs_g);
+        allowed_to_simplify = prove::lessThan(sum_xs, abs_g, context) &&
+            prove::greaterThan(sum_xs, neg_abs_g, context);
+      }
+      if (!allowed_to_simplify) {
+        continue;
+      }
+      // allowed to simplify
+      switch (divmod->getBinaryOpType()) {
+        case BinaryOpType::Div: {
+          // (a + b) / c = a/c
+          auto result = IrBuilder::newScalar(*sum_other->getDataType());
+          IrBuilder::create<BinaryOp>(
+              BinaryOpType::Div, result, sum_other, fdivisor);
+          return result;
+        }
+        case BinaryOpType::Mod: {
+          // (a + b) % c = a % c + b
+          auto term1 = IrBuilder::newScalar(*sum_other->getDataType());
+          IrBuilder::create<BinaryOp>(
+              BinaryOpType::Mod, term1, sum_other, fdivisor);
+          auto result = IrBuilder::newScalar(*sum_other->getDataType());
+          IrBuilder::create<FOp>(
+              BinaryOpType::Add, result, std::vector<Val*>{term1, sum_xs});
+          return result;
+        }
+        default:
+          TORCH_INTERNAL_ASSERT(false);
+      }
     }
   }
   return value;
@@ -2082,6 +2294,7 @@ Val* simplifyExpr(
     RUN_PASS(fundamentalDivisionWithRemainderProperty);
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
+    RUN_PASS(distributeGcdRemainderDivMod);
     PASS_BARRIER;
     RUN_PASS(distributeMul);
     PASS_BARRIER;

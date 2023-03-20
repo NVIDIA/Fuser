@@ -694,6 +694,15 @@ TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
   assertSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
+TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  assertSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2", {"i1 >= 0"_});
+  assertSimplifiedMod("i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
+}
+
 TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
