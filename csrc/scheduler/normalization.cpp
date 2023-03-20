@@ -1154,7 +1154,7 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  scheduler_utils::prepareForMemoryTypePromotion(fusion, cached_inputs);
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
@@ -1226,7 +1226,8 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
     }
   }
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
+      fusion, cached_inputs);
 }
 
 } // namespace nvfuser
