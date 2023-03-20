@@ -3286,7 +3286,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
           maybe_predicate_index_record.value()->getPredicateContigId() ==
               contig_id &&
           // Non divisible split not yet lifted.
-          !contig_id_entry.is_non_divisible_split &&
+          !contig_id_entry.is_intermediate_domain &&
           // TODO: see note: [WAR for predicate peeling and index lifting]
           std::none_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
             return fl->loopTransformInfo().predicate_peel_stage ==
@@ -3440,7 +3440,7 @@ kir::TensorIndex* Index::getReferenceRootPredicateIndex(
         consumer_stop_index_map,
         shift_padding,
         unswitch_or_vec_loop != nullptr,
-        contig_id_entry.is_non_divisible_split);
+        contig_id_entry.is_intermediate_domain);
 
     auto stop_index = consumer_stop_indexing_it->second;
     // auto start_index = consumer_start_index_map.at(contig_id);
@@ -3457,7 +3457,7 @@ kir::TensorIndex* Index::getReferenceRootPredicateIndex(
             loops, contig_id);
     if (canOmitStopPredicate(stop_index, info.stop_offset_, contig_id) ||
         maybe_tiled_entry.has_value() ||
-        contig_id_entry.is_non_divisible_split) {
+        contig_id_entry.is_intermediate_domain) {
       // No need to lift predicate for peeled contig ids.
       continue;
     }
