@@ -82,6 +82,7 @@ auto parseEnvOptions(
           closed = (rparentheses_pos < comma_pos);
         }
         std::cout << "hello world" << std::endl;
+        std::cout << "other world" << std::endl;
         if (options_view.size() > 0) {
           TORCH_CHECK(
               options_view[0] == ',',
