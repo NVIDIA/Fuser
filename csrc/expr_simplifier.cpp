@@ -1279,6 +1279,18 @@ bool lessThan(Val* x, Val* y, const Context& context) {
       return true;
     }
   }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x < b & b <= y  -->  x < y
+    if (a->sameAs(x) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    // x <= b & b < y  -->  x < y
+    if (a->sameAs(x) && lessThan(b, y, context)) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -1297,12 +1309,25 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
     return true;
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
       return true;
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x < b & b <= y  -->  x <= y
+    if (a->sameAs(x) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    // x <= b & b <= y  -->  x <= y
+    if (a->sameAs(x) && lessEqual(b, y, context)) {
       return true;
     }
   }
