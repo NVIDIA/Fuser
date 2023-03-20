@@ -268,7 +268,7 @@ getContigMergeFrontier(
     if (id->isBroadcast()) {
       continue;
     }
-    if (*contiguity[idx++]) {
+    if (*contiguity[idx]) {
       contiguity_id_set.insert(id);
     }
   }
@@ -380,13 +380,12 @@ std::unordered_set<IterDomain*> getInitialContiguousRootIdsOnReferenceTv(
         getIdToUseMap(reference_tv->domain()));
   } else {
     std::unordered_set<IterDomain*> data_contig_domains;
-    size_t no_broadcast_i = 0;
     for (auto root_idx : c10::irange(data_tv->getRootDomain().size())) {
       auto root_id = data_tv->getRootDomain().at(root_idx);
       if (root_id->isBroadcast()) {
         continue;
       }
-      if (data_tv->domain()->contiguity().at(no_broadcast_i++)) {
+      if (data_tv->domain()->contiguity().at(root_idx)) {
         data_contig_domains.insert(root_id);
       }
     }
@@ -400,7 +399,6 @@ std::unordered_set<IterDomain*> getInitialContiguousRootIdsOnReferenceTv(
         TensorDomain::getContiguityFilledWith(
             reference_tv->getRootDomain(), false);
 
-    no_broadcast_i = 0;
     for (auto root_idx = root_size - 1; root_idx >= 0; root_idx--) {
       auto root_id = reference_tv->getRootDomain()[root_idx];
       auto data_id_it = c2p_root_map.find(root_id);
@@ -415,13 +413,12 @@ std::unordered_set<IterDomain*> getInitialContiguousRootIdsOnReferenceTv(
       }
 
       if (data_contig_domains.count(data_id_it->second)) {
-        contiguity_vec.at(no_broadcast_i) = true;
+        contiguity_vec.at(root_idx) = true;
       } else {
         // Skip the rest if we find any domain
         //  that isn't contiguous from the inner most.
         break;
       }
-      no_broadcast_i++;
     }
 
     contig_merge_front = getContigMergeFrontier(
