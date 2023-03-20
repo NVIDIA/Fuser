@@ -2119,6 +2119,8 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     const std::unordered_map<int, Val*>& override_index) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getGlobalConsumerIndex");
 
+  auto root_dom = consumer_tv->getMaybeRFactorDomain();
+
   auto index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
   auto consumer_indexing = index_from_id_graph.index;

@@ -255,22 +255,20 @@ namespace {
 std::pair<std::vector<IterDomain*>, std::unordered_set<IterDomain*>>
 getContigMergeFrontier(
     std::vector<IterDomain*> domains,
-    std::vector<bool> contiguity,
+    std::vector<c10::optional<bool>> contiguity,
     const std::unordered_map<IterDomain*, Expr*> id_to_use_map) {
   std::list<IterDomain*> domain_list{domains.begin(), domains.end()};
   std::unordered_set<IterDomain*> contiguity_id_set;
 
-  TORCH_INTERNAL_ASSERT(
-      TensorDomain::noBroadcasts(domains).size() == contiguity.size());
+  TORCH_INTERNAL_ASSERT(domains.size() == contiguity.size());
 
   // Keep track of the set of Id's that are contiguous
-  size_t no_broadcast_i = 0;
   for (auto idx : c10::irange(domains.size())) {
     auto id = domains[idx];
     if (id->isBroadcast()) {
       continue;
     }
-    if (contiguity[no_broadcast_i++]) {
+    if (*contiguity[idx++]) {
       contiguity_id_set.insert(id);
     }
   }
@@ -398,9 +396,9 @@ std::unordered_set<IterDomain*> getInitialContiguousRootIdsOnReferenceTv(
             .mapConsumerToProducer(reference_tv->domain(), data_tv->domain());
 
     auto root_size = reference_tv->getRootDomain().size();
-    auto contig_size =
-        TensorDomain::noBroadcasts(reference_tv->getRootDomain()).size();
-    std::vector<bool> contiguity_vec(contig_size, false);
+    std::vector<c10::optional<bool>> contiguity_vec =
+        TensorDomain::getContiguityFilledWith(
+            reference_tv->getRootDomain(), false);
 
     no_broadcast_i = 0;
     for (auto root_idx = root_size - 1; root_idx >= 0; root_idx--) {
@@ -1118,7 +1116,7 @@ TensorView* AddressComputeInfo::makeAddressTv(
   return IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           address_domains,
-          TensorDomain::getContiguousContiguity(address_domains)),
+          TensorDomain::getContiguityFilledWith(address_domains, true)),
       dtype);
 }
 
