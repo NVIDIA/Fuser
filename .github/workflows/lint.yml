@@ -22,11 +22,12 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
+          this_dir=$(pwd)
           pip install lintrunner
           lintrunner init 2> /dev/null
           git clone https://github.com/pytorch/pytorch.git
           cd pytorch
-          python3 -m tools.linter.clang_tidy.generate_build_files
+          NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
           cd ..
           lintrunner -a
 
