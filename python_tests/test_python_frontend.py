@@ -1488,5 +1488,57 @@ class TestNvFuserFrontend(TestCase):
 
         out = fd.execute(inputs)
 
+    def test_nanogpt_slice(self) :
+        inputs = [
+            torch.randn(1, 1, 1024, 1204, device='cuda'),
+            torch.randn(16, 16, 128, 128, device='cuda'),
+        ]
+
+        def nvfuser_fusion(fd : FusionDefinition) -> None :
+            T0 = fd.define_tensor(symbolic_sizes=[1, 1, -1, -1], contiguous=[None, None, True, True], dtype=DataType.Float, is_cpu=False)
+            T1 = fd.define_tensor(symbolic_sizes=[-1, -1, -1, -1], contiguous=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
+            S1 = fd.define_constant(0.125000, dtype=DataType.Double)
+            T2 = fd.ops.mul(T1, S1)
+            T0_slice = fd.ops.slice(T0, [0, 0, 0, 0], [1, 1, 128, 128], [1, 1, 1, 1])
+            S2 = fd.define_constant(0.00000, dtype=DataType.Double)
+            T3 = fd.ops.eq(S2, T0_slice)
+            T4 = fd.ops.broadcast_in_dim(T3, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            S5 = fd.define_constant(float("-inf"), dtype=DataType.Double)
+            T6 = fd.ops.where(T4, S5, T2)
+            S7 = fd.define_constant(-1, dtype=DataType.Int)
+            S8 = fd.define_constant(4, dtype=DataType.Int)
+            S9 = fd.ops.add(S7, S8)
+            T10 = fd.ops.max(T6, axes=[3], keepdim=False, dtype=DataType.Null)
+            T11 = fd.ops.broadcast_in_dim(T10, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T12 = fd.ops.broadcast_in_dim(T11, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T13 = fd.ops.sub(T6, T12)
+            T14 = fd.ops.exp(T13)
+            S15 = fd.define_constant(-1, dtype=DataType.Int)
+            S16 = fd.define_constant(4, dtype=DataType.Int)
+            S17 = fd.ops.add(S15, S16)
+            T18 = fd.ops.sum(T14, axes=[3], keepdim=False, dtype=DataType.Null)
+            T19 = fd.ops.broadcast_in_dim(T18, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T20 = fd.ops.broadcast_in_dim(T19, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T21 = fd.ops.div(T14, T20)
+            S22 = fd.define_constant(16, dtype=DataType.Int)
+            S23 = fd.define_constant(16, dtype=DataType.Int)
+            S24 = fd.define_constant(128, dtype=DataType.Int)
+            S25 = fd.define_constant(128, dtype=DataType.Int)
+            S26 = fd.define_constant(0.00000, dtype=DataType.Double)
+            S27 = fd.define_constant(1.00000, dtype=DataType.Double)
+            T28 = fd.ops.uniform(S26, S27, shape=[S22, S23, S24, S25], dtype=DataType.Float)
+            S29 = fd.define_constant(0.900000, dtype=DataType.Double)
+            T30 = fd.ops.lt(T28, S29)
+            T31 = fd.ops.cast(T30, dtype=DataType.Float)
+            T32 = fd.ops.mul(T21, T31)
+            S33 = fd.define_constant(1.11111, dtype=DataType.Double)
+            T34 = fd.ops.mul(T32, S33)
+            fd.add_output(T34)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion(fd)
+
+        out = fd.execute(inputs)
+
 if __name__ == '__main__':
     run_tests()
