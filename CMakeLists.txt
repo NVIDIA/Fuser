@@ -16,7 +16,8 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 if (PROJECT_IS_TOP_LEVEL)
   message(STATUS "top-level build")
   find_package(Torch REQUIRED)
-  find_package(Python REQUIRED)
+  find_package(Python REQUIRED Development Interpreter)
+  find_package(pybind11 REQUIRED)
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
@@ -286,6 +287,7 @@ if(BUILD_PYTHON)
 
     set(NVFUSER "${PROJECT_NAME}")
     add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
+    set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
 
     # setup python API version
     add_custom_command(
@@ -323,9 +325,8 @@ if(BUILD_PYTHON)
     message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
-
-    # we need to figure out how to add pybind11
-    #target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
+    target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/torch/lib/libtorch_python.so")
+    target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
 
