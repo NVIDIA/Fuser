@@ -284,24 +284,25 @@ if(BUILD_PYTHON)
       ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
   )
 
-  # setup python API version
-  add_custom_command(
-    OUTPUT ${NVFUSER_ROOT}/python/version.py
-    COMMAND
-      "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
-    COMMAND
-      "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
-  )
-  add_custom_target(
-    gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_ROOT}/python/version.py
-  )
-  add_dependencies(torch_python gen_nvfuser_version)
-  
     set(NVFUSER "${PROJECT_NAME}")
     add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
+
+    # setup python API version
+    add_custom_command(
+      OUTPUT ${NVFUSER_ROOT}/python/version.py
+      COMMAND
+        "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
+      COMMAND
+        "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+      DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+      WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+    )
+    add_custom_target(
+      gen_nvfuser_version ALL
+      DEPENDS ${NVFUSER_ROOT}/python/version.py
+    )
+    add_dependencies(${NVFUSER} gen_nvfuser_version)
+  
     target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
     # NB: This must be target_compile_definitions, not target_compile_options,
     # as the latter is not respected by nvcc
