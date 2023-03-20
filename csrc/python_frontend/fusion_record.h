@@ -1774,7 +1774,7 @@ struct SliceOpRecord : RecordFunctor {
       }
       os << idx;
     }
-    os << "], end_indice=[";
+    os << "], end_indices=[";
     first_arg = true;
     for (auto idx : end_indices_) {
       if (first_arg) {
