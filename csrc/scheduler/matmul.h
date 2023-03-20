@@ -40,6 +40,24 @@ class MatmulParam {
 
   //! Specify which tensor we double buffer.
   DoubleBufferOptions double_buffer_options;
+
+  //! Tunable spec to enable/disable lifting
+  //!  memory indexing math out of the main
+  //!  loop on the generated kernel.
+  //! (All defaults to on).
+  //! Note: eventually this part of logic
+  //!  will be merged into automatic
+  //!  indexing math allocation/placement pass.
+  struct IndexLiftingOptions {
+    bool lift_smem_read_address = true;
+    bool lift_smem_write_address = true;
+    bool lift_gmem_read_address = true;
+    // TODO: add gmem_write address for
+    //  latency bound kernels.
+  } index_lift_options;
+
+  //! Enables predicate peeling mainloop:
+  bool peel_main_loop = true;
 };
 
 //! Prototype auto scheduling function.

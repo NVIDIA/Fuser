@@ -38,6 +38,7 @@ class BlockSync;
 class GridSync;
 class CpAsyncWait;
 class CpAsyncCommit;
+class AddressCompute;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -63,6 +64,8 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
   explicit Predicate(IrBuilderPasskey passkey, Bool* value);
+
+  explicit Predicate(IrBuilderPasskey passkey, const Predicate* other);
 
   std::string toString(int indent_size = 0) const override;
 
@@ -133,7 +136,16 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
 
 class TORCH_CUDA_CU_API TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      Val* base_address = nullptr,
+      Val* uniform_address = nullptr);
+
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
 
   Val* index() const {
     return index_;
@@ -144,13 +156,33 @@ class TORCH_CUDA_CU_API TensorIndex final : public Val {
     return const_cast<TensorView*>(view_); // NOLINT
   }
 
-  std::string toString(int indent_size = 0) const override;
+  bool hasBaseAddress() const {
+    return base_address_ != nullptr;
+  }
 
-  std::string toInlineString(int indent_size = 0) const override;
+  Val* baseAddress() const {
+    return base_address_;
+  }
+
+  auto uniformAddress() const {
+    return uniform_address_;
+  }
+
+  bool useSmemAddress() const {
+    return use_smem_address_;
+  }
+
+  TensorIndex* toSmemAddress() {
+    use_smem_address_ = true;
+    return this;
+  }
 
  private:
   const TensorView* view_ = nullptr;
   Val* index_ = nullptr;
+  Val* base_address_ = nullptr;
+  Val* uniform_address_ = nullptr;
+  bool use_smem_address_ = false;
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that
@@ -249,12 +281,16 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
     return attribute(0)->as<Attribute<bool>>()->value;
   }
 
-  //! Sets the flag signifying that this block sync is
-  //!  thread aligned.
+  //! tracks if this sync is thread aligned, i.e. all threads on
+  //!  the same block are guaranteed to reach this sync.
+  //!  more details on aligned sync see :
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-bar
   void convertToAligned() {
     attribute(1)->as<Attribute<bool>>()->value = true;
   }
 
+  //! Sets the flag signifying that this block sync is
+  //!  thread aligned.
   bool isAligned() const {
     return attribute(1)->as<Attribute<bool>>()->value;
   }
@@ -329,6 +365,155 @@ class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+};
+
+//! An Expression type that handles pre-computation of memory address
+//!  that are not inlined.
+class TORCH_CUDA_CU_API AddressCompute final : public Expr {
+ public:
+  enum class AddressComputeOpType {
+    // Calculate lifted predicate index
+    PREDICATE_INDEX,
+    // Calculate base address for lifted memory index
+    BASE_ADDRESS,
+    // Switch a double buffer index register,
+    // see [Uniform Double Buffer Offset]
+    DOUBLE_BUFFER_SWITCH,
+    // Inplace update a double buffered address
+    // see [Inplace Double Buffer Update]
+    DOUBLE_BUFFER_UPDATE,
+    // Inplace increment a global address, see
+    // see [Gmem address increment]
+    GMEM_INCREMENT,
+    // Inplace increment a global address, see
+    // see [Gmem Increment Hoisting]
+    GMEM_DECREMENT
+  };
+
+  using Expr::Expr;
+
+  // Constructor for BASE_ADDRESS mode calculation
+  // (Default).
+  explicit AddressCompute(
+      IrBuilderPasskey passkey,
+      AddressComputeOpType op_type,
+      Val* address_tensor,
+      Val* data_tensor);
+
+  // Constructor for gmem increment
+  explicit AddressCompute(
+      IrBuilderPasskey passkey,
+      Val* address_tensor,
+      Val* data_tensor,
+      TensorIndex* increment_value = nullptr,
+      bool is_decrement = false);
+
+  // Constructor for double buffer offset
+  //   calculation:
+  explicit AddressCompute(
+      IrBuilderPasskey passkey,
+      TensorView* data_tv,
+      Val* double_buffer_switch_index,
+      Val* buffer_size_in_byte,
+      int loop_offset,
+      int stage_number,
+      Val* loop_index = nullptr);
+
+  // Constructor for double buffer offset
+  //   inplace update:
+  explicit AddressCompute(
+      IrBuilderPasskey passkey,
+      Val* address_tensor,
+      Val* buffer_size_in_byte,
+      int stage_number,
+      int loop_offset,
+      TensorView* data_tensor,
+      Val* loop_index = nullptr);
+
+  virtual const char* getOpString() const override {
+    return "AddressCompute";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  // Tensor that this address compute is calculating address for.
+  auto dataTv() const {
+    return attributeVal(1);
+  }
+
+  // Tensor that stores pre-computed address for the
+  //  data tensor.
+  auto addressTv() const {
+    return attributeVal(2);
+  }
+
+  // The type of computation this op computes,
+  //  currently only do compute address.
+  auto opType() const {
+    return attribute(0)->as<Attribute<AddressComputeOpType>>()->value;
+  }
+
+  // This is a double buffer switch and update parameters:
+  // The switching index that this op is updating.
+  auto doubleBufferSwitchIndex() const {
+    return attributeVal(3);
+  }
+
+  // This is a double buffer switch and update parameters:
+  // The original buffer alloc size used for double buffer
+  //   update calculation.
+  auto doubleBufferByteSize() const {
+    return attributeVal(4);
+  }
+
+  // This is a double buffer switch and update parameters:
+  // The double buffer loop offset that is used for
+  //  computing the double buffer size update.
+  auto loopOffset() const {
+    return attribute(5)->as<Attribute<int>>()->value;
+  }
+
+  // This is a double buffer switch and update parameters:
+  // The double buffer loop offset that is used for
+  //  computing the double buffer size update.
+  auto stageNumber() const {
+    return attribute(6)->as<Attribute<int>>()->value;
+  }
+
+  // This is a double buffer switch and update parameters:
+  // The double buffer loop index.
+  auto loopIndex() const {
+    return attributeVal(7);
+  }
+
+  // This is a double buffer switch and update parameters:
+  // Gmem increment parameters below:
+  //  The increment value to apply to the pointer.
+  kir::TensorIndex* incrementValue() const {
+    return dynamic_cast<kir::TensorIndex*>(attribute(8));
+  }
+
+  bool isDecrement() const {
+    return opType() == AddressComputeOpType::GMEM_DECREMENT;
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+ private:
+  explicit AddressCompute(
+      IrBuilderPasskey passkey,
+      AddressComputeOpType op_type,
+      Val* data_tensor,
+      Val* address_tensor,
+      Val* double_buffer_switch_index,
+      Val* buffer_size_in_byte,
+      int loop_offset,
+      int stage_number,
+      Val* loop_index,
+      kir::TensorIndex* increment_value);
+
+  std::string addressComputeOpAsString() const;
 };
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
@@ -482,6 +667,68 @@ class TORCH_CUDA_CU_API Scope {
   Expr* owner_ = nullptr;
 };
 
+//! Utility to keep track of loop states when double buffered
+//!  or loop transformed (i.e. rotated, offset etc.)
+struct LoopTransformInfo {
+  //! Tracks if this for loop is implementing a stage of
+  //!  a double buffered iterdomain.
+  DoubleBufferLoopStage double_buffer_loop_stage =
+      DoubleBufferLoopStage::NotApplicable;
+
+  //! Tracks the predicate peeling stage of this loop,
+  //!  see [Predicate Peeling].
+  PredicatePeelStage predicate_peel_stage = PredicatePeelStage::NoApplicable;
+
+  //! Tracks if this for loop is for base index calculation for
+  //!  lifted memory address.
+  bool is_base_index_loop = false;
+
+  //! Tracks if this for loop is a unit from an interleaved set of loops.
+  bool is_interleave_unit = false;
+
+  //! Tracks if this for loop is for calculating inductive variable
+  //!  increments.
+  bool is_increment_loop = false;
+
+  //! Setter API
+  LoopTransformInfo& doubleBufferStage(DoubleBufferLoopStage stage) {
+    double_buffer_loop_stage = stage;
+    return *this;
+  }
+
+  //! Setter API
+  LoopTransformInfo& baseIndexLoop() {
+    is_base_index_loop = true;
+    return *this;
+  }
+
+  //! Setter API
+  LoopTransformInfo& predicatePeelStage(PredicatePeelStage stage) {
+    predicate_peel_stage = stage;
+    return *this;
+  }
+
+  //! Setter API
+  LoopTransformInfo& interLeaveUnit() {
+    is_interleave_unit = true;
+    return *this;
+  }
+
+  // ! Setter API
+  LoopTransformInfo& incrementLoop() {
+    is_increment_loop = true;
+    return *this;
+  }
+
+  bool operator==(const LoopTransformInfo& other) const {
+    return double_buffer_loop_stage == other.double_buffer_loop_stage &&
+        predicate_peel_stage == other.predicate_peel_stage &&
+        is_base_index_loop == other.is_base_index_loop &&
+        is_interleave_unit == other.is_interleave_unit &&
+        is_increment_loop == other.is_increment_loop;
+  }
+};
+
 //! ForLoop provides scoping around an int iterator from 0 to range. Exprs
 //! placed in its body are considered inside the scope of the for loop. In the
 //! future the implementation should look quite different so that we can do
@@ -510,13 +757,13 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
       bool vectorize,
       Val* vectorize_shift,
       bool unroll_required,
-      DoubleBufferLoopStage double_buffer_loop_stage);
+      LoopTransformInfo loop_transform_info);
 
   ForLoop(
       IrBuilderPasskey passkey,
       IterDomain* iter_domain,
       Val* index,
-      DoubleBufferLoopStage double_buffer_loop_stage);
+      LoopTransformInfo loop_transform_info);
 
   ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
 
@@ -588,13 +835,28 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   //! True if no actual for-loop is materialized
   bool isTrivial() const;
 
+  //! Returns all loop transform related information.
+  auto loopTransformInfo() const {
+    return attribute(6)->as<Attribute<LoopTransformInfo>>()->value;
+  }
+
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
   //! Returns the stage of a double buffered iterdomain
   //!  that this for loop materializes.
   auto doubleBufferLoopStage() const {
-    return attribute(6)->as<Attribute<DoubleBufferLoopStage>>()->value;
+    return loopTransformInfo().double_buffer_loop_stage;
+  }
+
+  //! Returns if this loop is used to calculate
+  //!  base index for lifted memory address.
+  bool isBaseIndexLoop() const {
+    return loopTransformInfo().is_base_index_loop;
+  }
+
+  bool isInterleaveUnit() const {
+    return loopTransformInfo().is_interleave_unit;
   }
 
  private:
@@ -1002,6 +1264,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
         ->as<Attribute<ParallelTypeBitmap>>()
         ->value;
   }
+
   ParallelTypeBitmap& threadPredicate() {
     return attribute(numGroupedWelfordOpAttr() + 4)
         ->as<Attribute<ParallelTypeBitmap>>()
@@ -1113,4 +1376,9 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
 };
 
 } // namespace kir
+
+TORCH_CUDA_CU_API std::ostream& operator<<(
+    std::ostream&,
+    const kir::LoopTransformInfo);
+
 } // namespace nvfuser

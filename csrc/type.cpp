@@ -57,6 +57,7 @@ bool isIntegralType(DataType dtype) {
             case DataType::Int:
             case DataType::Int32:
             case DataType::SMemAddress:
+            case DataType::Pointer:
               return true;
             case DataType::Null:
               TORCH_CHECK(
@@ -173,6 +174,8 @@ static std::string data_type2string(DataType t) {
               return "nvfuser_index_t";
             case DataType::Int32:
               return "int";
+            case DataType::Pointer:
+              return "DataPointer";
             case DataType::SMemAddress:
               return "unsigned";
             case DataType::ComplexFloat:
@@ -927,6 +930,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
+    case DataType::Pointer:
       TORCH_INTERNAL_ASSERT(
           false,
           "Index is determined at compile time,",
@@ -1117,6 +1121,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Int32:
     case DataType::SMemAddress:
       return "i";
+    case DataType::Pointer:
+      return "p";
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
       return "c";
@@ -1172,6 +1178,7 @@ size_t dataTypeSize(DataType type) {
             case DataType::BFloat16:
               return sizeof(at::BFloat16);
             case DataType::Index:
+            case DataType::Pointer:
               TORCH_INTERNAL_ASSERT(
                   false,
                   "The actual type of Index is only known at compile time.");
@@ -1205,6 +1212,19 @@ size_t dataTypeSize(DataType type, DataType index_type) {
   return dataTypeSize(type);
 }
 
+bool isProlog(DoubleBufferLoopStage stage) {
+  switch (stage) {
+    case DoubleBufferLoopStage::Prolog:
+    case DoubleBufferLoopStage::CircularInitProlog:
+      return true;
+
+    default:
+      return false;
+  }
+
+  return false;
+}
+
 std::ostream& operator<<(
     std::ostream& os,
     const DoubleBufferLoopStage loop_stage) {
@@ -1222,6 +1242,25 @@ std::ostream& operator<<(
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown double buffer stage");
+  }
+  return os;
+}
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const PredicatePeelStage& peel_stage) {
+  switch (peel_stage) {
+    case PredicatePeelStage::NoApplicable:
+      break;
+    case PredicatePeelStage::Prolog:
+      os << "{PeeledProlog}";
+      break;
+    case PredicatePeelStage::Main:
+      os << "{PeeledMain}";
+      break;
+    default:
+      TORCH_INTERNAL_ASSERT(false, "unsupported loop attribute");
+      break;
   }
   return os;
 }

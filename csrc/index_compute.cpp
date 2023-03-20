@@ -321,6 +321,45 @@ Val* getProducerIndexWithPartialSplit(
       producer_index, SimplifyingIrBuilder::create<Int>(diff->evaluateInt()));
 }
 
+//! See [Note on memory index lifting] in lower_mem_index.cpp:
+//!  Returns true if there is a lifted component of this index computation
+//! that was pre-computed earlier on the same kernel.
+//!
+//! \param data_tv: the tensor holding the data that the indexing math is
+//!   indexing into.
+//! \param reference_tv: the tensorview supplying the loop information for
+//!   indexing purpose, i.e. consumer_tv if data_tv is producer, or data_tv
+//!   it self in the case of consumer indexing.
+//! \param loops: The current loop nest that the indexing math is operating at.
+bool shouldUseLiftedAddress(
+    const TensorView* data_tv,
+    const TensorView* reference_tv,
+    const std::vector<kir::ForLoop*>& loops) {
+  // Check if there's any record in gpu lower signifying this index
+  //  math has been lifted.
+  auto maybe_address_record =
+      GpuLower::current()->addressComputeInfo().getMaybeLiftedAddress(
+          data_tv, reference_tv);
+  if (maybe_address_record.has_value()) {
+    auto serial_id = maybe_address_record.value()->getConcreteSerialLoopId();
+    return std::any_of(loops.begin(), loops.end(), [serial_id](auto loop) {
+      // 1. We should not use the lifted index math in the case of base index
+      //  loop, which is the place where we are pre-computing the lifted
+      //  components.
+      // 2. The serial id on the index record is essential in the index lifitng
+      // pass
+      //  and the lifted component is valid only if we are indexing an
+      //  expression within the serial loop, or a loop that's mapped with the
+      //  serial loop.
+      return !loop->isBaseIndexLoop() &&
+          GpuLower::current()->caMap()->areMapped(
+              loop->iter_domain(), serial_id, IdMappingMode::LOOP);
+    });
+  }
+
+  return false;
+}
+
 Val* getTensorBaseAddress(TensorView* tv) {
   Val* output = nullptr;
   switch (auto memtype = tv->getMemoryType()) {
@@ -1463,6 +1502,34 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
     if (root_ind->isZeroInt()) {
       continue;
     } else {
+      if (auto tile_entry = GpuLower::current()
+                                ->predicatePeelingInfo()
+                                .getMaybePeeledTileEntry(loops, root_dom[i])) {
+        // Add the "predicate peeling offset", see [Predicate Peeling]
+        //  to the tensor index if this root domain is predicate peeled.
+
+        // Incremental mode should add offset at prolog,
+        // See Note [Predicate Peeing interaction with Incremental Offset]
+        bool is_increment =
+            std::any_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
+              return fl->loopTransformInfo().is_increment_loop;
+            });
+
+        bool should_add_offset =
+            (tile_entry.value().peel_stage != PredicatePeelStage::Prolog &&
+             !producer_tv->shouldLiftReadAddress()) ||
+            (tile_entry.value().peel_stage == PredicatePeelStage::Prolog &&
+             producer_tv->shouldLiftReadAddress() && is_increment);
+        if (should_add_offset &&
+            !tile_entry.value()
+                 .for_loop->loopTransformInfo()
+                 .is_base_index_loop) {
+          root_ind = SimplifyingIrBuilder::subExpr(
+              root_ind,
+              PredicatePeeling::getSplitTileMainOffset(
+                  root_dom[i], tile_entry.value().inner_factor));
+        }
+      }
       auto strided_ind = SimplifyingIrBuilder::mulExpr(root_ind, strides[i]);
       if (i == root_dom.size() - 1 && vectorize_shift != nullptr) {
         strided_inds[i] =
@@ -1530,6 +1597,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   const auto gpu_lower = GpuLower::current();
+  auto should_use_lifted_address =
+      shouldUseLiftedAddress(producer_tv, consumer_tv, loops);
+
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
   auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
@@ -1607,7 +1677,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   auto producer_swizzled_index = index_swizzle;
 
-  if (producer_tv->hasSwizzleOp()) {
+  // Swizzle should be lifted when lifting read index is
+  // specified. So would not need to compute the swizzle again
+  // on the inlined part of tensor index.
+  if (producer_tv->hasSwizzleOp() && !should_use_lifted_address) {
     // Special handling needed on the new swizzle
     //  op pass:
     //  each swizzle op is local to the tensor,
@@ -1734,20 +1807,43 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     auto db_loop = gpu_lower->doubleBufferInfo().getDoubleBufferLoop(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
-      auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
-          db_loop->iter_domain());
-      auto loop_index =
-          db_loop->isTrivial() ? db_loop->start() : db_loop->index();
-      if (rotated_loops.count(db_loop) > 0) {
-        loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
+      // No need to compute double buffer index in the address compute loop
+      //  as they have been handled with addtional offsets.
+      if (!db_loop->isBaseIndexLoop()) {
+        auto maybe_read_offset =
+            GpuLower::current()->doubleBufferInfo().getReadSwitchIndex(
+                producer_tv);
+
+        // The double buffer switching indices are now applied in two
+        //  different ways, depending on if the index is lifted or not.
+        //
+        // When lifted, the double buffer switching index is computed
+        //  separately as a "double buffer offset" and added to the
+        //  uniform section of the tensor index.
+        // When not lifted, the behavior stays the same as before
+        //  i.e. they are computed inline.
+        // See also:
+        //  [Double Buffer Uniform Offset].
+        if (!maybe_read_offset.has_value()) {
+          auto loop_index =
+              db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+          if (rotated_loops.count(db_loop) > 0) {
+            loop_index =
+                SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
+          }
+
+          auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
+              db_loop->iter_domain());
+          auto db_switch_index = SimplifyingIrBuilder::modExpr(
+              loop_index, SimplifyingIrBuilder::create<Int>(stage_depth));
+
+          auto original_alloc_size =
+              gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
+          auto db_strided_index = SimplifyingIrBuilder::mulExpr(
+              db_switch_index, original_alloc_size);
+          strided_inds.push_back(db_strided_index);
+        }
       }
-      auto db_switch_index = SimplifyingIrBuilder::modExpr(
-          loop_index, SimplifyingIrBuilder::create<Int>(stage_depth));
-      auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
-      auto db_strided_index =
-          SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
-      strided_inds.push_back(db_strided_index);
     }
   }
 
@@ -2045,8 +2141,20 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     if (root_inds[i]->isZeroInt()) {
       continue;
     } else {
-      auto strided_ind =
-          SimplifyingIrBuilder::mulExpr(root_inds[i], strides[i]);
+      auto root_ind = root_inds[i];
+      if (auto tile_entry = GpuLower::current()
+                                ->predicatePeelingInfo()
+                                .getMaybePeeledTileEntry(loops, root_dom[i])) {
+        // Add the "predicate peeling offset", see [Predicate Peeling]
+        //  to the tensor index if this root domain is predicate peeled.
+        if (tile_entry.value().peel_stage != PredicatePeelStage::Prolog) {
+          root_ind = SimplifyingIrBuilder::subExpr(
+              root_ind,
+              PredicatePeeling::getSplitTileMainOffset(
+                  root_dom[i], tile_entry.value().inner_factor));
+        }
+      }
+      auto strided_ind = SimplifyingIrBuilder::mulExpr(root_ind, strides[i]);
       if (i == strides.size() - 1 && vectorize_shift != nullptr) {
         strided_inds[i] =
             SimplifyingIrBuilder::addExpr(strided_ind, vectorize_shift);
@@ -2059,6 +2167,12 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   TORCH_INTERNAL_ASSERT(
       strided_inds.size() == consumer_tv->getMaybeRFactorDomain().size());
 
+  // TODO:
+  //  Cannot yet lift global consumer indices in matmul kernels as it is
+  // not within the main loop, which also means it's not as important to
+  // lift.
+  //  Would definitely need to enable lifting on this path since there might
+  // be cases where global memory is written in a not unrolled serial loop.
   return strided_inds;
 }
 
@@ -2090,7 +2204,11 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       consumer_indexing.zeroDomains(),
       consumer_indexing.zeroMergedIn());
 
-  index_swizzle.run();
+  // Do not need to run swizzle again if the lifted indices path is
+  //  used. They are guaranteed to be in the lifted components.
+  if (!shouldUseLiftedAddress(consumer_tv, consumer_tv, loops)) {
+    index_swizzle.run();
+  }
 
   const auto& index_map = index_swizzle.indexMap();
   const auto& extent_map = consumer_indexing.extentMap();
@@ -2178,49 +2296,61 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   TORCH_INTERNAL_ASSERT(
       strided_inds.size() == consumer_tv->getMaybeRFactorDomain().size());
 
-  if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
+  if ((consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered())
+      // Lifted address case the double buffer offset is
+      //   computed inplace into the write address buffer.
+      // See [Inplace double buffer update]
+      && !lower_utils::useDirectSmemAddress(consumer_tv)) {
     auto db_loop =
         gpu_lower->doubleBufferInfo().getDoubleBufferLoop(consumer_tv, loops);
-    auto stage_depth =
-        gpu_lower->doubleBufferInfo().getStageDepthFor(db_loop->iter_domain());
-    bool is_circular_buffer_loop = stage_depth > 2;
-    bool is_prolog =
-        db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
+    TORCH_INTERNAL_ASSERT(
+        db_loop != nullptr, "double buffer loop not materialized.");
 
-    Val* db_switch_index = nullptr;
+    // Do not need to calculate db switch index if the loop is used for
+    //  precomputing the lifted components of the indices.
+    if (!db_loop->isBaseIndexLoop()) {
+      auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
+          db_loop->iter_domain());
+      bool is_circular_buffer_loop = stage_depth > 2;
+      bool is_prolog = isProlog(db_loop->doubleBufferLoopStage());
 
-    // In double buffered we don't materialize the prolog loop as there will
-    //  be only one iteration. In circular buffer case we materialize the
-    //  prolog loop as well covering the first N-1 iterations, N being the
-    //  stage depth.
-    if (!is_prolog || is_circular_buffer_loop) {
-      if (is_prolog && is_circular_buffer_loop) {
-        // The buffer switching logic is the same as original index
-        //  in the case of circular buffer prolog.
-        db_switch_index = db_loop->index();
-        if (rotated_loops.count(db_loop)) {
+      Val* db_switch_index = nullptr;
+
+      // In double buffered we don't materialize the prolog loop as there will
+      //  be only one iteration. In circular buffer case we materialize the
+      //  prolog loop as well covering the first N-1 iterations, N being the
+      //  stage depth.
+      if (!is_prolog || is_circular_buffer_loop) {
+        if (is_prolog && is_circular_buffer_loop) {
+          // The buffer switching logic is the same as original index
+          //  in the case of circular buffer prolog.
           db_switch_index =
-              SimplifyingIrBuilder::addExpr(db_switch_index, db_loop->step());
+              db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+          if (rotated_loops.count(db_loop)) {
+            db_switch_index =
+                SimplifyingIrBuilder::addExpr(db_switch_index, db_loop->step());
+          }
+        } else {
+          auto loop_index = db_loop->index();
+          if (rotated_loops.count(db_loop)) {
+            loop_index =
+                SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
+          }
+          // Switching index generated for main loop or epilog component.
+          db_switch_index = SimplifyingIrBuilder::modExpr(
+              SimplifyingIrBuilder::addExpr(
+                  loop_index,
+                  SimplifyingIrBuilder::create<Int>(stage_depth - 1)),
+              SimplifyingIrBuilder::create<Int>(stage_depth));
         }
-      } else {
-        auto loop_index = db_loop->index();
-        if (rotated_loops.count(db_loop)) {
-          loop_index =
-              SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
-        }
-        // Switching index generated for main loop or epilog component.
-        db_switch_index = SimplifyingIrBuilder::modExpr(
-            SimplifyingIrBuilder::addExpr(
-                loop_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1)),
-            SimplifyingIrBuilder::create<Int>(stage_depth));
-      }
 
-      // Use the generated switching buffer index to access the buffer space.
-      auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(consumer_tv);
-      auto db_strided_index =
-          SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
-      strided_inds.push_back(db_strided_index);
+        // Use the generated switching buffer index to access the buffer space.
+        auto original_alloc_size =
+            gpu_lower->doubleBufferInfo().getOriginalAllocSize(consumer_tv);
+        auto db_strided_index =
+            SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
+        strided_inds.push_back(db_strided_index);
+      }
     }
   }
   return strided_inds;
@@ -2282,6 +2412,31 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
+  // Insert base address and uniform components into the tensor
+  //  index object directly to support separating them on the
+  //  code gen interface.
+  // See also: [Pointer Addressing In Lifted Indices]
+  if (shouldUseLiftedAddress(producer, consumer, loops)) {
+    auto maybe_address_record =
+        GpuLower::current()->addressComputeInfo().getMaybeLiftedAddress(
+            producer, consumer);
+
+    auto maybe_read_offset =
+        GpuLower::current()->doubleBufferInfo().getReadSwitchIndex(producer);
+    Val* uniform_address = nullptr;
+    if (maybe_read_offset.has_value()) {
+      uniform_address = maybe_read_offset.value();
+    }
+    // TODO: hoist?
+    uniform_address = GpuLower::current()->commonScalarMap().hoistScalar(
+        uniform_address, loops);
+    auto address_index = generateAddressTensorIndex(
+        loops, maybe_address_record.value()->addressTensor());
+    return SimplifyingIrBuilder::create<kir::TensorIndex>(
+        producer, index, address_index, uniform_address);
+  }
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(producer, index);
 }
 
@@ -2334,6 +2489,22 @@ kir::TensorIndex* Index::getConsumerIndex(
   auto index = getConsumerStridedIndices(
       consumer, loops, rotated_loops, override_index, generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
+  // Insert base address and uniform components into the tensor
+  //  index object directly to support separating them on the
+  //  code gen interface.
+  // See also: [Pointer Addressing In Lifted Indices]
+  if (shouldUseLiftedAddress(consumer, consumer, loops)) {
+    auto maybe_address_record =
+        GpuLower::current()->addressComputeInfo().getMaybeLiftedAddress(
+            consumer);
+
+    auto address_index = generateAddressTensorIndex(
+        loops, maybe_address_record.value()->addressTensor());
+    return SimplifyingIrBuilder::create<kir::TensorIndex>(
+        consumer, index, address_index);
+  }
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(consumer, index);
 }
 
@@ -3035,10 +3206,20 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
             ->as<Bool>();
     info.start_predicate_ = start_pred;
 
+    auto maybe_tiled_entry =
+        gpu_lower->predicatePeelingInfo().getMaybePeeledTileEntry(
+            loops, contig_id);
+
+    // Check if this predicate for this contig_id is being generated
+    //  in predicate peeling prolog. See also [Predicate Peeling].
+    bool has_peeled_prolog = maybe_tiled_entry.has_value() &&
+        maybe_tiled_entry.value().peel_stage == PredicatePeelStage::Prolog;
+
     // Build predicates for stop positions as:
     //   stop_index + stop_offset < IterDomain::extent
     auto stop_offset = info.stop_offset_;
-    if (canOmitStopPredicate(stop_index, stop_offset, contig_id)) {
+    if (canOmitStopPredicate(stop_index, stop_offset, contig_id) &&
+        !has_peeled_prolog) {
       info.stop_predicate_ = GpuLower::current()->kernel()->trueVal();
     } else {
       auto offsetted_stop_index =
@@ -3046,6 +3227,83 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
                            offsetted_stop_index, contig_id->extent())
                            ->as<Bool>();
+
+      // Check if there's any record of pre-computed components of
+      //  predicates.
+      auto maybe_predicate_index_record =
+          GpuLower::current()
+              ->addressComputeInfo()
+              .getMaybeLiftedPredicateIndex(consumer_tv);
+
+      // Modifying predicate math for predicate peeled loop:
+      //  detailed definition see [Predicate Peeling]
+      if (maybe_tiled_entry.has_value()) {
+        auto tile_entry = maybe_tiled_entry.value();
+        if (tile_entry.peel_stage == PredicatePeelStage::Prolog) {
+          // In predicate peeled prolog, the stop predicate is
+          //  stop_index < tile_residue
+          stop_pred = SimplifyingIrBuilder::ltExpr(
+                          offsetted_stop_index,
+                          PredicatePeeling::getPrologPredicateOffset(
+                              contig_id, tile_entry.inner_factor))
+                          ->as<Bool>();
+        } else if (
+            // Handle the condition where the predicate peeled
+            //  iterdomain is double/circular buffered.
+            tile_entry.for_loop->doubleBufferLoopStage() ==
+                DoubleBufferLoopStage::Main &&
+            db_axis != nullptr &&
+            GpuLower::current()->caMap()->areMapped(
+                db_axis,
+                tile_entry.for_loop->iter_domain(),
+                IdMappingMode::LOOP)) {
+          // When the predicate peeled loop is double buffered
+          //  or circular buffered, the producer index is skewed
+          //  ahead of the main loop by (stage_depth-1). So on the
+          //  predicate peeled main loop side, instead of just removing
+          //  the predicate for this contig_id, just re-write it to
+          //  (loop_index + stage_depth) < loop_stop, which should
+          //  be thread uniform and very cheap to evaluate.
+          auto db_index = SimplifyingIrBuilder::addExpr(
+              tile_entry.for_loop->index(),
+              IrBuilder::create<Int>(
+                  gpu_lower->doubleBufferInfo().getStageDepthFor(
+                      tile_entry.for_loop->iter_domain()) -
+                  1));
+          stop_pred = SimplifyingIrBuilder::ltExpr(
+                          db_index, tile_entry.for_loop->stop())
+                          ->as<Bool>();
+        } else {
+          // If the predicate peeled loop is not double buffered
+          //  then in the main stage of the predicate peeled loop
+          //  this predicate can just be omitted.
+          stop_pred = gpu_lower->kernel()->trueVal();
+        }
+      } else if (
+          maybe_predicate_index_record.has_value() &&
+          maybe_predicate_index_record.value()->getPredicateContigId() ==
+              contig_id &&
+          // Non divisible split not yet lifted.
+          !contig_id_entry.is_non_divisible_split &&
+          // TODO: see note: [WAR for predicate peeling and index lifting]
+          std::none_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
+            return fl->loopTransformInfo().predicate_peel_stage ==
+                PredicatePeelStage::Prolog;
+          })) {
+        // Use the lifted predicate record if found.
+        //  See [Predicate Lifting].
+
+        auto cached_index = generateAddressTensorIndex(
+            loops, maybe_predicate_index_record.value()->addressTensor());
+
+        // Move the inlined component to the right of the inequality
+        //  to minize register usage.
+        auto inlined_extent = SimplifyingIrBuilder::subExpr(
+            contig_id->extent(), offsetted_stop_index);
+
+        stop_pred = SimplifyingIrBuilder::ltExpr(cached_index, inlined_extent)
+                        ->as<Bool>();
+      }
       info.stop_predicate_ = stop_pred;
     }
 
@@ -3058,12 +3316,248 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
   return pred_info_vec;
 }
 
+// Duplicated code from getReferenceRootPredicates that only does the
+//  indexing part, in order to support pre-computing base index in
+//  [Predicate Lifting].
+// Most of the initial code should be duplicated other than the
+//  parts setting pred_record.
+// TODO: should really build this out and unify the code paths.
+kir::TensorIndex* Index::getReferenceRootPredicateIndex(
+    TensorView* consumer_tv,
+    const std::vector<kir::ForLoop*>& loops,
+    const std::unordered_set<kir::ForLoop*>& rotated_loops) {
+  const auto gpu_lower = GpuLower::current();
+  // TODO: enable unswitch and shift padding in a follow up.
+  kir::ForLoop* unswitch_or_vec_loop = nullptr;
+  const bool shift_padding = false;
+  const bool is_unswitch = unswitch_or_vec_loop != nullptr;
+
+  auto db_axis = gpu_lower->doubleBufferInfo().getDoubleBufferAxis(consumer_tv);
+
+  // Generate start and stop indexing from idgraph.
+  //
+  // Both start and stop positions may need to be predicated. Indexing
+  // differs when generating predicates for unswitch.
+  // NOTE: If we could find-and-replace KIR nodes, we could just
+  // generate one index map, clone it and replace the loop-to-index
+  // mappings of unswitched loops for the start predicate.
+
+  auto stop_indexing_from_idgraph = getPredicateIndexingFromIdGraph(
+      loops, rotated_loops, consumer_tv, unswitch_or_vec_loop, db_axis, false);
+  const auto consumer_stop_indexing = stop_indexing_from_idgraph.index;
+  const auto& consumer_stop_index_map = consumer_stop_indexing.indexMap();
+
+  // If not unswitch, share the same indexing map as the stop index
+  // map
+  const auto start_indexing_from_idgraph = is_unswitch
+      ? getPredicateIndexingFromIdGraph(
+            loops,
+            rotated_loops,
+            consumer_tv,
+            unswitch_or_vec_loop,
+            db_axis,
+            true)
+      : stop_indexing_from_idgraph;
+  const auto consumer_start_indexing = start_indexing_from_idgraph.index;
+  const auto& consumer_start_index_map = consumer_start_indexing.indexMap();
+
+  // Get the contiguous ids we need to generate predicates for
+  auto contig_id_infos =
+      getPredicateContigIds(consumer_tv, consumer_stop_index_map);
+
+  auto non_divisible_splits =
+      getNonDivisibleConsumerDomainsToPredicate(consumer_tv);
+  contig_id_infos.insert(
+      contig_id_infos.end(),
+      non_divisible_splits.begin(),
+      non_divisible_splits.end());
+
+  auto pred_record =
+      GpuLower::current()->addressComputeInfo().getMaybeLiftedPredicateIndex(
+          consumer_tv);
+
+  TORCH_INTERNAL_ASSERT(
+      pred_record.has_value(),
+      "predicate lifting info missing for lifted pred computation.");
+
+  // FIXME: [Restriction on Predicate Hoisting]
+  //  Only supporting lifting one contig id of the predicate
+  //    currently. Allocating space for all the predicates
+  //    ahead of time would need require deciding contig_id_infos
+  //    without the loop nest, which should be a goal with loop free
+  //    indexing generation.
+  // TODO:
+  //  There are currently many variants on the predicate math. In order
+  //   to turn on this kind of predicate lifting, all of them would need
+  //   to be re-visited to ensure proper and preferrably unified handling.
+  std::vector<RootPredicateInfo> pred_info_vec;
+  kir::TensorIndex* result_index = nullptr;
+
+  for (auto contig_id_entry : contig_id_infos) {
+    auto contig_id = contig_id_entry.id;
+    // No predicates needed for braodcasted indices.
+    if (contig_id->isBroadcast()) {
+      continue;
+    }
+
+    auto root_ids = contig_id_entry.covered_ids;
+
+    const auto consumer_stop_indexing_it =
+        consumer_stop_index_map.find(contig_id);
+
+    // First condition below happens with Misaligned predicates, where
+    // inner-most vectorized loops are not included in the loops
+    // parameter. Predicates involving vectorized loops are separately
+    // generated in lower_misaligned_vectorization.
+    //
+    // Second condition is simply to avoid predication on broadcasting axes as
+    // it's not required.
+    if (consumer_stop_indexing_it == consumer_stop_index_map.end() ||
+        consumer_stop_indexing_it->second->isZeroInt()) {
+      continue;
+    }
+
+    RootPredicateInfo info;
+
+    // Compute offsets for start and stop predicate. For non-shift,
+    // non-gather ops, there's only stop predicate as indices never be
+    // negative. However, for shift and gather, the index may need to
+    // be predicated so that it is >= zero.
+    //
+    // Furthermore, in case of gather, both producer and consumer
+    // positions may need to be predicated, so there can be multiple
+    // offset values.
+    //
+    // The final predicates will look like:
+    // (index + start_offset) >= 0 && (index + stop_offset) < extent.
+
+    std::tie(info.start_offset_, info.stop_offset_) = getStartAndStopOffsets(
+        contig_id,
+        consumer_tv,
+        consumer_start_index_map,
+        consumer_stop_index_map,
+        shift_padding,
+        unswitch_or_vec_loop != nullptr,
+        contig_id_entry.is_non_divisible_split);
+
+    auto stop_index = consumer_stop_indexing_it->second;
+    // auto start_index = consumer_start_index_map.at(contig_id);
+
+    // Build predicates for start positions as:
+    //   start_index + start_offset >= 0
+    auto start_offset = simplifyStartOffset(info.start_offset_);
+
+    TORCH_INTERNAL_ASSERT(
+        start_offset == nullptr, "No support for start offset yet");
+
+    auto maybe_tiled_entry =
+        gpu_lower->predicatePeelingInfo().getMaybePeeledTileEntry(
+            loops, contig_id);
+    if (canOmitStopPredicate(stop_index, info.stop_offset_, contig_id) ||
+        maybe_tiled_entry.has_value() ||
+        contig_id_entry.is_non_divisible_split) {
+      // No need to lift predicate for peeled contig ids.
+      continue;
+    }
+    // Build predicates for stop positions as:
+    //   stop_index + stop_offset < IterDomain::extent
+    auto offsetted_stop_index =
+        SimplifyingIrBuilder::addExpr(stop_index, info.stop_offset_);
+
+    // Each consumer tv currently has only one predicate record
+    //  handling one contig_id as an initial support. The actual
+    //  indexing path will use the hoisted predicate index when
+    //  the contig id matches. see [Restriction on Predicate Hoisting].
+    if (pred_record.value()->getPredicateContigId() == nullptr) {
+      pred_record.value()->setPredicateContigId(contig_id);
+    }
+
+    result_index = SimplifyingIrBuilder::create<kir::TensorIndex>(
+        consumer_tv, offsetted_stop_index);
+  }
+
+  TORCH_INTERNAL_ASSERT(result_index != nullptr);
+  return result_index;
+}
+
 RootPredicateInfo RootPredicateInfo::getFalseInfo() {
   RootPredicateInfo info;
   info.start_predicate_ = GpuLower::current()->kernel()->falseVal();
   info.stop_predicate_ = GpuLower::current()->kernel()->falseVal();
 
   return info;
+}
+
+kir::TensorIndex* Index::generateAddressTensorIndex(
+    const std::vector<kir::ForLoop*>& for_loops,
+    TensorView* address_tv) {
+  auto maybe_address_record =
+      GpuLower::current()->addressComputeInfo().getMaybeRecordForAddressTv(
+          address_tv);
+  TORCH_INTERNAL_ASSERT(
+      maybe_address_record.has_value(),
+      "Each address tv has to be associated with an address record");
+  auto address_record = maybe_address_record.value();
+
+  auto alloc_id_it = address_record->allocationIterDomains().rbegin();
+
+  std::deque<Val*> index_deq;
+  Val* local_stride = address_tv->fusion()->oneVal();
+
+  // Double buffer loop used to handle double buffer read access
+  auto double_buffer_loop =
+      GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+          address_record->indexReferenceTensor(), for_loops, true);
+  auto maybe_serial_loop = address_record->getMaybeSerialLoop(for_loops);
+  TORCH_INTERNAL_ASSERT(
+      maybe_serial_loop.has_value(), "Invalid address record in the loop nest");
+  bool is_address_calculation = maybe_serial_loop.value()->index()->isZeroInt();
+
+  for (auto loop_it = for_loops.rbegin(); loop_it != for_loops.rend();
+       loop_it++) {
+    auto loop = *loop_it;
+    if (alloc_id_it == address_record->allocationIterDomains().rend()) {
+      break;
+    }
+    if (GpuLower::current()->caMap()->areMapped(
+            loop->iter_domain(), *alloc_id_it, IdMappingMode::LOOP)) {
+      auto index = loop->isTrivial() ? loop->start() : loop->index();
+
+      // Double buffer read access:
+      //  Need to advance the read index of the double buffer
+      // loop the same way as in other places.
+      if (loop == double_buffer_loop && !is_address_calculation) {
+        auto stage_depth =
+            GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+                double_buffer_loop->iter_domain());
+        // TODO: the write address lifting case would be most likely a single
+        //  unrolled loop of cpasync. Will add coverage and support in a follow
+        //  up.
+        TORCH_INTERNAL_ASSERT(
+            address_record->isRead(),
+            "index lifting in unrolled double buffer write support not yet enabled");
+        index = SimplifyingIrBuilder::addExpr(
+            index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+      }
+
+      index_deq.push_front(SimplifyingIrBuilder::mulExpr(index, local_stride));
+      local_stride =
+          SimplifyingIrBuilder::mulExpr(local_stride, (*alloc_id_it)->extent());
+      alloc_id_it++;
+    }
+  }
+
+  std::vector<Val*> index_vec{index_deq.begin(), index_deq.end()};
+  auto index = sumVals(index_vec);
+
+  // TODO: hoist?
+  index = GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
+
+  TORCH_INTERNAL_ASSERT(
+      alloc_id_it == address_record->allocationIterDomains().rend(),
+      "loop nest didn't cover all address allocation");
+
+  return IrBuilder::create<kir::TensorIndex>(address_tv, index);
 }
 
 Val* Index::iota(

@@ -464,6 +464,32 @@ class Index {
       kir::ForLoop* unswitch_or_vec_loop,
       bool padding_predicate);
 
+  //! Generates the tensor index that accesses the pre-computed
+  //!  base address stored in address tv.
+  //! Eg.
+  //!   for i in 0..16:
+  //!      T0[i] = ...; // T0 is the address tv
+  //!   for i in 0..32:
+  //!     for j in 0..16:
+  //!      ... = T1[i*16 + T0[j]]
+  //!   The "T0[j]" part is what this function tries to generate.
+  //! See also [Note on memory index lifting] in lower_mem_index.cpp
+  static kir::TensorIndex* generateAddressTensorIndex(
+      const std::vector<kir::ForLoop*>& for_loops,
+      TensorView* address_tv);
+
+  //! Partially duplicated code from getReferenceRootPredicates that only does
+  //! the
+  //!  indexing part, in order to support pre-computing base index in
+  //!  [Predicate Lifting].
+  //! Most of the initial code should be duplicated other than the
+  //!  parts setting pred_record.
+  //! TODO: should really build this out and unify the code paths.
+  static kir::TensorIndex* getReferenceRootPredicateIndex(
+      TensorView* consumer_tv,
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+
   //! Compute the result for iota
   static Val* iota(
       TensorView* consumer_tv,

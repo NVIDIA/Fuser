@@ -471,9 +471,81 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Returns the depth of circular buffering if applicable.
   unsigned int circularBufferDepth() const {
+    if (is_double_buffered_) {
+      // Double buffering is circular buffering with stage 2.
+      return 2;
+    }
     TORCH_INTERNAL_ASSERT(
         is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
+  }
+
+  //! A scheduler primitive signifying that part of the read
+  //!  index math of this tensor would need to be pre-computed.
+  //! See also [Note on memory index lifting] in lower_mem_index.cpp
+  //! FIXME:
+  //!   This is currently formulated as a scheduler primitive to
+  //! unblock matmul performance. It should ideally be a generic
+  //! optimization that gets applied automatically.
+  void liftReadAddress() {
+    TORCH_CHECK(
+        memory_type_ == MemoryType::Global ||
+            memory_type_ == MemoryType::Shared,
+        "cannot do address computation for local tensors");
+    lift_read_address_ = true;
+  }
+
+  //! A scheduler primitive signifying that part of the write
+  //!  index math of this tensor would need to be pre-computed.
+  //! See also [Note on memory index lifting] in lower_mem_index.cpp
+  //! FIXME:
+  //!   This is currently formulated as a scheduler primitive to
+  //! unblock matmul performance. It should ideally be a generic
+  //! optimization that gets applied automatically.
+  void liftWriteAddress() {
+    TORCH_CHECK(
+        memory_type_ == MemoryType::Shared,
+        "cannot do write address computation for global and local tensors");
+    lift_write_address_ = true;
+  }
+
+  //! A scheduler primitive signifying that part of the read
+  //!  index math of this tensor would need to be pre-computed.
+  //! See also [Predicate Lifting] in lower_mem_index.cpp
+  //! FIXME:
+  //!   This is currently formulated as a scheduler primitive to
+  //! unblock matmul performance. It should ideally be a generic
+  //! optimization that gets applied automatically.
+  void liftPredicateIndex() {
+    lift_predicate_index_ = true;
+  }
+
+  //! Returns true if the read index of this tensor
+  //!  should be partially pre-computed.
+  bool shouldLiftReadAddress() const {
+    return lift_read_address_;
+  }
+
+  //! Returns true if the write index of this tensor
+  //!  should be partially pre-computed.
+  bool shouldLiftWriteAddress() const {
+    return lift_write_address_;
+  }
+
+  //! Returns true if the predicate index of this tensor
+  //!  should be partially pre-computed.
+  bool shouldLiftPredicateIndex() const {
+    return lift_predicate_index_;
+  }
+
+  void interleave(int axis, int number_of_units = 4) {
+    // TODO: move to tensorview.cpp
+    //  and add upfront validation.
+    maybe_interleave_axis_and_factor_ = std::make_pair(axis, number_of_units);
+  }
+
+  auto getMaybeInterleavedAxisAndFactor() const {
+    return maybe_interleave_axis_and_factor_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
@@ -565,6 +637,17 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
+  //! A scheduler primitive requesting predicate peeling transform
+  //!  on the loop generated corresponding to `axis_id`.
+  //! See [Predicate Peeling].
+  void peelPredicatedLoop(int axis_id);
+
+  //! Returns the iterdomain corresponding to the loop that will
+  //!  be using the predicate peeling transform.
+  auto peeledSerialId() const {
+    return peeled_serial_id_;
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -599,18 +682,31 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! Indicates the circular buffering stage depth if applicable.
   unsigned int circular_buffer_stage_ = 0;
 
-  // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that
-  // only have one value). This is only used if on an input value, otherwise
-  // ignored. This is important as special handling because these "scalars"
-  // should be type promoted as a tensor, but we want to avoid explicit
-  // copying of the data, so we want to pass the data value as a standard
-  // kernel argument value.
+  //! Keeps track of the iterdomain that will use predicate
+  //!  peeling transform on the corresponding loop.
+  IterDomain* peeled_serial_id_ = nullptr;
+
+  // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that only
+  // have one value). This is only used if on an input value, otherwise ignored.
+  // This is important as special handling because these "scalars" should be
+  // type promoted as a tensor, but we want to avoid explicit copying of the
+  // data, so we want to pass the data value as a standard kernel argument
+  // value.
   bool cpu_scalar_ = false;
 
   //! Indicates if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
   //!  implementation is used and will be removed in follow ups.
   bool has_swizzle_op_ = false;
+
+  // Indicates if the lowering pass should try to pre-allocate
+  //   and pre-compute address for this tensor.
+  bool lift_read_address_ = false;
+  bool lift_write_address_ = false;
+  bool lift_predicate_index_ = false;
+
+  // Loop where the next level of unrolled loops are interleaved.
+  c10::optional<std::pair<int, int>> maybe_interleave_axis_and_factor_;
 
   //! Direct consumer tensors that this tensor is computed with
   std::vector<TensorView*> compute_with_consumers_;

@@ -87,7 +87,7 @@ class EliminateDeadBroadcastAndAllocate {
         if (allocate->memoryType() == MemoryType::Local) {
           if (auto tv = dynamic_cast<TensorView*>(allocate->buffer())) {
             // We know only tvs that we'd want to consider are broadcast outputs
-            if (tv->definition()->isA<BroadcastOp>()) {
+            if (tv->definition() && tv->definition()->isA<BroadcastOp>()) {
               candidate_tv_set_.insert(tv);
             }
           }

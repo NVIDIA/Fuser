@@ -55,7 +55,7 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
         false,
         nullptr,
         false,
-        DoubleBufferLoopStage::NotApplicable);
+        kir::LoopTransformInfo());
   } else {
     new_scope = IrBuilder::create<kir::ForLoop>(id);
   }

@@ -22,11 +22,13 @@
 #include <lower_index.h>
 #include <lower_insert_syncs.h>
 #include <lower_instrument.h>
+#include <lower_interleaved_loop.h>
 #include <lower_loop_rotation.h>
 #include <lower_loops.h>
 #include <lower_magic_zero.h>
 #include <lower_misaligned_vectorization.h>
 #include <lower_predicate.h>
+#include <lower_predicate_peeling.h>
 #include <lower_replace_size.h>
 #include <lower_shift.h>
 #include <lower_unroll.h>
@@ -420,8 +422,17 @@ void GpuLower::lower(Fusion* fusion) {
   doubleBufferInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
 
+  interleavedLoopInfo().build(fusion_);
+
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  addressComputeInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "addressComputeInfo");
+
+  predicatePeelingInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "predicatePeelingInfo");
+
   // Run our passes keeping the lowered expressions and forwarding
   // them
 
@@ -456,11 +467,22 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_war_sync = insertWarThreadSynchronization(exprs_reuse_mem);
   dumpExprsIfEnabled(exprs_war_sync, "insertWarThreadSynchronization");
 
-  const auto exprs_double_buffered = DoubleBufferPass::run(exprs_war_sync);
+  // Generate address pre-computation if applicable.
+  const auto exprs_with_precompute_address =
+      preComputeLiftedAddress(exprs_war_sync);
+
+  const auto exprs_double_buffered =
+      DoubleBufferPass::run(exprs_with_precompute_address);
   dumpExprsIfEnabled(exprs_double_buffered, "DoubleBufferPass");
 
+  const auto predicate_peeled =
+      PredicatePeeling::peelPredicatedLoop(exprs_double_buffered);
+
+  const auto exprs_interleaved =
+      interLeaveDoubleBufferUnrolledLoops(predicate_peeled);
+
   const auto exprs_loop_rotated =
-      rotateLoops(exprs_double_buffered, fusion_->getLoopRotationParam());
+      rotateLoops(exprs_interleaved, fusion_->getLoopRotationParam());
   dumpExprsIfEnabled(exprs_loop_rotated, "rotateLoops");
 
   // This pass inserts predicates as well as branches in the code. Up until now

@@ -75,6 +75,8 @@ enum class PrimDataType {
   Half,
   Int,
   Index,
+  Pointer,
+  SmemAddress,
   Int32,
   Bool,
   BFloat16,
@@ -120,6 +122,7 @@ struct DataType {
   static constexpr PrimDataType BFloat16 = PrimDataType::BFloat16;
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
+  static constexpr PrimDataType Pointer = PrimDataType::Pointer;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
@@ -396,7 +399,19 @@ enum class LoadStoreOpType {
 
 // Used to label what part of the double buffered iterdomain
 //  a for loop is materializing.
-enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class DoubleBufferLoopStage {
+  NotApplicable,
+  Prolog,
+  Main,
+  Epilog,
+  CircularInitProlog
+};
+
+enum class PredicatePeelStage { NoApplicable, Prolog, Main };
+
+//! Returns true if the given stage is a prolog stage
+//!  for some double buffered or circular buffered loop.
+bool isProlog(DoubleBufferLoopStage stage);
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda
@@ -450,6 +465,9 @@ TORCH_CUDA_CU_API std::ostream& operator<<(
     const DoubleBufferLoopStage);
 TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
+TORCH_CUDA_CU_API std::ostream& operator<<(
+    std::ostream&,
+    const PredicatePeelStage&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);

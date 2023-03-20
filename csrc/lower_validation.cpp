@@ -920,7 +920,8 @@ void validateMmaTensors(MmaOp* mma) {
                   //  CA axis are constant sized to ensure early detection of
                   //  invalid mma schedules.
                   ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial);
+                   id->getParallelType() == ParallelType::Serial) ||
+                  id->isThread();
             }),
         "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
         tv);

@@ -585,6 +585,37 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   return view_ops;
 }
 
+bool isIterDomainOp(const Expr* expr) {
+  if (expr->outputs().empty()) {
+    return false;
+  }
+  return expr->output(0)->isA<IterDomain>();
+}
+
+TORCH_CUDA_CU_API c10::optional<Expr*> getMaybeSingleUse(
+    const Val* val,
+    std::function<bool(Expr*)> filter) {
+  // Get all uses of the given val.
+  auto uses = FusionGuard::getCurFusion()->unordered_uses(val);
+
+  // Pre-allocate space for the result.
+  c10::optional<Expr*> result = c10::nullopt;
+
+  for (auto use : uses) {
+    if (filter(use)) {
+      if (!result.has_value()) {
+        result = use;
+      } else {
+        // This will be where we hit a second use of the given
+        //  val that satisfies the filter condition, so c10::nullopt
+        //  should be returned.
+        return c10::nullopt;
+      }
+    }
+  }
+  return result;
+}
+
 namespace {
 
 struct ReplaceValInIndexVal : public OptInDispatch {

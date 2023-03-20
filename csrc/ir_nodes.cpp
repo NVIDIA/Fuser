@@ -2222,8 +2222,9 @@ void IterDomain::parallelize(ParallelType t) {
     //  they are swizzled.
     TORCH_CHECK(
         t == ParallelType::Vectorize || t == ParallelType::TIDx ||
-            t == ParallelType::Serial,
-        "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
+            t == ParallelType::Serial || t == ParallelType::Mma,
+        "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids",
+        t);
   }
 
   parallel_type_ = t;

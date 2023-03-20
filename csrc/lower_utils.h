@@ -34,6 +34,15 @@ kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop);
 //! Create an **empty** IfThenElse and copy the metadata.
 kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
 
+//! Create an **empty** loop nest according to the
+//!  given vector sequence and returns pointer of
+//!  the outermost and innermost cloned loops.
+//! TODO: should construct the iterdomain ordering
+//!  in iterdomain graph and ensure that the given
+//!  loop nest never violates the global partial ordering.
+std::pair<kir::ForLoop*, kir::ForLoop*> makeLoopNest(
+    const std::vector<kir::ForLoop*>& loop_vec);
+
 } // namespace scope_utils
 
 namespace ir_utils {
@@ -267,6 +276,14 @@ BasicAllocInfo getAllocInformation(
 //! Returns true if the expression has a variant that takes a predicate
 //!  as an inline argument.
 bool supportInlinePredicate(Expr* expr);
+
+//! Returns true if the consumer indexing of this tensor directly
+//!  uses shared mem address.
+bool useDirectSmemAddress(const TensorView* tv);
+
+//! Returns true if the given val depends on any named scalars
+//!  used in thread indexing, i.e. thhreadIdx and blockDim.
+bool dependsOnThreadNamedScalars(Val* val);
 
 //! Test if an expression is a scalar expression.
 bool isScalarExpr(Expr* expr);

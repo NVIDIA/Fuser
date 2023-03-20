@@ -260,11 +260,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return "CudaCodeGen";
   }
 
+ public:
   // Add preamble and wrap in namespace
   std::string getStructuredCode(
       const std::string& kernel,
       PrimDataType index_type);
 
+ private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,

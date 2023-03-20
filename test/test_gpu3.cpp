@@ -7271,6 +7271,182 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
       __FILE__);
 }
 
+// Simple test case for predicate peeling use pattern
+TEST_F(NVFuserTest, FusionPredicatePeeling1_CUDA) {
+  // requires ampere+ GPU
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Using vectorization so need to keep n multiple of 4.
+  int m = 33, n = 48;
+
+  TensorView* tv0 = makeContigTensor(2);
+
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 16);
+
+  tv0->computeAt(tv2, 1);
+  tv1->computeAt(tv2, -1);
+
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDy);
+  tv2->peelPredicatedLoop(0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// A circular buffer test case for predicate peeling use pattern
+TEST_F(NVFuserTest, FusionPredicatePeeling2_CUDA) {
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+    return;
+  }
+  // requires ampere+ GPU
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Using vectorization so need to keep n multiple of 4.
+  int m = 33, n = 45;
+
+  TensorView* tv0 = makeContigTensor(2);
+
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+
+  tv1->split(1, 16);
+  tv1->split(0, 16);
+  // make tile
+  tv1->reorder({{1, 2}, {2, 1}});
+
+  tv0->computeAt(tv1, 2);
+
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->peelPredicatedLoop(1);
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->circularBuffer(3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  auto ref = t0.sum({1});
+
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, FusionSimpleMemHoisting_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+
+  // Register your outputs
+  fusion.addOutput(tv3);
+
+  auto schedule_tv = [](TensorView* tv) {
+    //[M, N]
+    tv->split(-2, 4);
+    //[Mo, Mi8, N]
+    tv->split(-1, 16);
+    //[Mo,Mi8, No, Ni32]
+    tv->split(-1, 2);
+    //[Mo,Mi8,No, Ni16, Nii2]
+    tv->reorder({{1, 2}, {2, 1}});
+    tv->merge(2);
+    //[Mo, No, Mi8Ni16, Nii2]
+  };
+
+  schedule_tv(tv1);
+  schedule_tv(tv2);
+  schedule_tv(tv3);
+
+  tv0->computeAt(tv3, 2);
+
+  tv3->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  tv2->liftWriteAddress();
+  tv2->liftReadAddress();
+  tv0->liftReadAddress();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({32, 32}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// Initial test case for interleaving unrolled loops
+TEST_F(NVFuserTest, FusionSimpleInterleaving1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [M,K]
+  auto tv0 = makeContigTensor(1);
+
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+
+  fusion.addOutput(tv3);
+
+  tv3->split(0, 4);
+  tv3->split(0, 8);
+  tv3->reorder({{1, 2}, {2, 1}});
+  tv0->computeAt(tv3, 1);
+  tv2->computeAt(tv3, 2);
+
+  tv1->doubleBuffer();
+  tv2->doubleBuffer();
+
+  tv3->interleave(0);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({256}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, FusionRepro2241_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();

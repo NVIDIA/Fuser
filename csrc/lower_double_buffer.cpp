@@ -25,7 +25,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
   // which defines the loop where prefetching is applied. Therefore,
   // the CA position must be larger than 0.
 
-  TORCH_INTERNAL_ASSERT(tv->getComputeAtPosition() > 0);
+  TORCH_INTERNAL_ASSERT(tv->getComputeAtPosition() > 0, tv->toString());
 
   // Unroll must not exist outside of double-buffer axis
   auto first_unroll_it = std::find_if(
@@ -108,7 +108,7 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
   TORCH_INTERNAL_ASSERT(
       (p_mem_type == MemoryType::Global &&
        (c_mem_type == MemoryType::Shared || c_mem_type == MemoryType::Local)) ||
-          (p_mem_type == MemoryType::Shared && c_mem_type == MemoryType::Local),
+          (c_mem_type == MemoryType::Local),
       "Invalid tensor to double-buffer: ",
       tv->toString(),
       ". Producer memory type: ",
@@ -161,6 +161,69 @@ bool requireEpilogue(const std::vector<Expr*>& exprs) {
     return expr->input(0)->as<TensorView>()->getMemoryType() ==
         MemoryType::Shared;
   });
+}
+
+bool isGmemIncrement(Expr* expr) {
+  if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    if (loop->body().exprs().size() != 1) {
+      return false;
+    }
+    return isGmemIncrement(loop->body().exprs()[0]);
+  } else if (auto address_compute = dynamic_cast<kir::AddressCompute*>(expr)) {
+    return address_compute->opType() ==
+        kir::AddressCompute::AddressComputeOpType::GMEM_INCREMENT;
+  }
+  return false;
+}
+
+//! Hoists the gmem increment ops to the beginning of the loop
+//!  within the scope of the given loop.
+//! Note: [Gmem Increment Hoisting]
+//!
+//! This optimization is very useful when inplace increment
+//!  is used on the global memory pointers.
+//! Before this optimization, the code would look like:
+//!
+//!  for i in ... // main loop
+//!    load.global ... [ptr]
+//!    // Here we actually have an anti-dependency (WAR) on
+//!    //  the register holding ptr and could result in
+//!    //  non-ideal performance when we do not have enough
+//!    //  instructions to put between the load and the increment.
+//!    // depending on how many other instructions we have
+//!    //   within this loop.
+//!    ptr += increment_value
+//!
+//! After this transformation, the code looks like:
+//!  ptr -=increment_value // a naive way to compensate
+//!                        //  for the first iter.
+//!  for i in ... // main loop
+//!    ptr += increment_value
+//!    // This is actually ok as integer instructions
+//!    //   are usually much faster than memory.
+//!    load.global ... [ptr]
+//!
+//! This function hoists the pointer increments, in the given
+//!  loop, assuming that the decrements have been inserted
+//!  on the CircularInitProlog stage.
+kir::ForLoop* hoistGmemIncrement(kir::ForLoop* fl) {
+  auto hoisted_loop = IrBuilder::create<kir::ForLoop>(fl);
+
+  // insert all gmem increment exprs
+  for (auto expr : fl->body().exprs()) {
+    if (isGmemIncrement(expr)) {
+      hoisted_loop->body().push_back(expr);
+    }
+  }
+
+  // insert all non gmem increment exprs
+  for (auto expr : fl->body().exprs()) {
+    if (!isGmemIncrement(expr)) {
+      hoisted_loop->body().push_back(expr);
+    }
+  }
+
+  return hoisted_loop;
 }
 
 // Replicates double buffer loops for Prologue, Main, and
@@ -219,6 +282,11 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+    } else if (loop_type_ == DoubleBufferLoopStage::CircularInitProlog) {
+      // See [Predicate Peeling Interaction with Circular Buffering]
+      TORCH_INTERNAL_ASSERT(start->isZeroInt());
+      start = SimplifyingIrBuilder::create<Int>(stage_depth - 1);
+      stop = SimplifyingIrBuilder::create<Int>(stage_depth);
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
@@ -230,9 +298,77 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         false,
         nullptr,
         double_buffer_loop_->isUnrollRequired(),
-        loop_type_);
+        double_buffer_loop_->loopTransformInfo().doubleBufferStage(loop_type_));
 
     handle(double_buffer_loop_);
+
+    // insert double buffer switching for the read offset:
+    if (loop_type_ == DoubleBufferLoopStage::Main) {
+      auto& db_info = GpuLower::current()->doubleBufferInfo();
+
+      for (auto load : double_buffer_load_exprs_) {
+        if (auto tv_out = ir_utils::getTvOutput(load)) {
+          // calculate the switching size
+          auto switch_size = db_info.getOriginalAllocSize(tv_out);
+          auto switch_size_in_byte = SimplifyingIrBuilder::mulExpr(
+              switch_size,
+              SimplifyingIrBuilder::create<Int>(dataTypeSize(tv_out->dtype())));
+
+          // insert db switch expressions:
+          // Note:[Uniform Double Buffer Offset]
+          // This modification is to encourage usage of uniform registers on
+          // sm75+ when
+          //  accessing shared memory double buffered tensors.
+          // The code before transformation:
+          //   for i in ... // double buffer loop
+          //     ... = ld.shared [... + (i%5) * double_buffer_size]
+          // The above code doesn't explictly specify that the double buffer
+          // switch
+          //  component is uniform. The following transformed code makes it
+          //  explicit:
+          //   for i in ... // double buffer loop
+          //     ... = ld.shared [... + switch_index]
+          //     doubleBufferSwitch(switch_index);
+          //  So that the double buffer indices are all placed in uniform reg.
+
+          auto maybe_read_index = db_info.getReadSwitchIndex(tv_out);
+          if (maybe_read_index.has_value()) {
+            // Instantiate and insert the update operator.
+            auto address_compute =
+                SimplifyingIrBuilder::create<kir::AddressCompute>(
+                    tv_out,
+                    maybe_read_index.value(),
+                    switch_size_in_byte,
+                    0, // assume this path only supports read
+                       // so offset is 0
+                    db_info.getStageDepthFor(
+                        double_buffer_loop_->iter_domain()));
+
+            cloned_top_level_loop_->body().push_back(address_compute);
+          }
+        }
+      }
+    }
+
+    // Hoist the address increment in the double buffer main
+    // loop, see also [Gmem Increment Hoisting]
+    if (loop_type_ == DoubleBufferLoopStage::Main &&
+        std::any_of(
+            double_buffer_loop_->body().exprs().begin(),
+            double_buffer_loop_->body().exprs().end(),
+            isGmemIncrement) &&
+        // FIXME:
+        // Below is current condition that is required for gmem increment
+        //  hoisting because the gmem decrement is currently placed in
+        //  CircularInitProlog which requires predicate peeling to
+        //  be generated.
+        // To fix this should probably dedicate another double buffer
+        //  loop stage, maybe GmemPointerDecrement, that is reserved
+        //  for placing the gmem decrement before the main loop stage.
+        GpuLower::current()->predicatePeelingInfo().shouldPeelLoop(
+            double_buffer_loop_)) {
+      cloned_top_level_loop_ = hoistGmemIncrement(cloned_top_level_loop_);
+    }
   }
 
   void handle(kir::ForLoop* fl) final {
@@ -266,7 +402,9 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     TORCH_INTERNAL_ASSERT(!cloned_scopes_.empty());
 
     if (loop_type_ == DoubleBufferLoopStage::Main) {
-      cloned_scopes_.back()->push_back(expr);
+      if (!canOmitInitInMainLoop(expr, double_buffer_loop_)) {
+        cloned_scopes_.back()->push_back(expr);
+      }
       return;
     }
 
@@ -283,12 +421,126 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
           TORCH_INTERNAL_ASSERT(double_buffer_tv != nullptr);
           return out_tv == double_buffer_tv;
         });
+
     if ((loop_type_ == DoubleBufferLoopStage::Prolog &&
          is_double_buffer_load_expr) ||
         (loop_type_ == DoubleBufferLoopStage::Epilog &&
          !is_double_buffer_load_expr)) {
-      cloned_scopes_.back()->push_back(expr);
+      if (lower_utils::supportInlinePredicate(expr) &&
+          expr->isA<LoadStoreOp>()) {
+        auto ldst = expr->as<LoadStoreOp>();
+        cloned_scopes_.back()->push_back(IrBuilder::create<LoadStoreOp>(
+            ldst->opType(), ldst->out(), ldst->in()));
+      } else {
+        cloned_scopes_.back()->push_back(expr);
+      }
+    } else if (
+        loop_type_ == DoubleBufferLoopStage::CircularInitProlog &&
+        is_double_buffer_load_expr) {
+      // Only need the init expressions in circular init prolog stage
+      if (ir_utils::isTensorScalarFillOp(expr)) {
+        cloned_scopes_.back()->push_back(expr);
+      }
     }
+
+    if (loop_type_ == DoubleBufferLoopStage::CircularInitProlog) {
+      // Convert the address compute ops to decrement in the circular
+      //  buffer init prolog, see [Gmem Increment Hoisting].
+      if (auto address_compute = dynamic_cast<kir::AddressCompute*>(expr)) {
+        if (address_compute->opType() ==
+            kir::AddressCompute::AddressComputeOpType::GMEM_INCREMENT) {
+          cloned_scopes_.back()->push_back(
+              IrBuilder::create<kir::AddressCompute>(
+                  address_compute->addressTv(),
+                  address_compute->dataTv(),
+                  address_compute->incrementValue(),
+                  true /* is_decrement */));
+        }
+      }
+    }
+
+    // Include the double buffer update expressions in prologs too as
+    //  prolog does write into the double buffered space.
+    if (loop_type_ == DoubleBufferLoopStage::Prolog) {
+      if (auto address_compute = dynamic_cast<kir::AddressCompute*>(expr)) {
+        if (address_compute->opType() ==
+            kir::AddressCompute::AddressComputeOpType::DOUBLE_BUFFER_UPDATE) {
+          if (std::any_of(
+                  double_buffer_load_exprs_.begin(),
+                  double_buffer_load_exprs_.end(),
+                  [address_compute](Expr* expr) {
+                    return ir_utils::getTvOutput(expr)->sameAs(
+                        address_compute->dataTv());
+                  })) {
+            cloned_scopes_.back()->push_back(expr);
+          }
+        }
+      }
+    }
+
+    if (loop_type_ != DoubleBufferLoopStage::CircularInitProlog) {
+      if (auto address_compute = dynamic_cast<kir::AddressCompute*>(expr)) {
+        if (address_compute->opType() ==
+            kir::AddressCompute::AddressComputeOpType::GMEM_INCREMENT) {
+          cloned_scopes_.back()->push_back(expr);
+        }
+      }
+    }
+  }
+
+  //! Returns true if the expression is an initialization expr that
+  //!  can be omitted in main loop.
+  //! See [Predicate Peeling Interaction with Circular Buffering]
+  bool canOmitInitInMainLoop(Expr* expr, kir::ForLoop* double_buffer_loop) {
+    // Check that this is an initialization for cp.async.
+    if (!ir_utils::isCpAsyncInit(expr) ||
+        !GpuLower::current()->predicatePeelingInfo().shouldPeelLoop(
+            double_buffer_loop)) {
+      return false;
+    }
+
+    auto out_tv = ir_utils::getTvOutput(expr);
+
+    // Check that the double buffer loop is the main stage of
+    //  the loop defining out_tv as there might be multiple
+    //  loops that realize double buffers.
+    bool db_loop_found = false;
+    const auto& ca_map = GpuLower::current()->caMap();
+
+    if (!(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered()) ||
+        !ca_map->areMapped(
+            GpuLower::current()->doubleBufferInfo().getDoubleBufferAxis(out_tv),
+            double_buffer_loop->iter_domain(),
+            IdMappingMode::LOOP)) {
+      return false;
+    }
+
+    // This optimization only applies when all the loops on the
+    //  inner side of the double buffer main loop are either
+    //  constant unrolled or parallel.
+    // TODO:
+    //  Buffer alias and broadcast resolution might still
+    // break this. These are not showing in matmul kernels but
+    // would need to build out support for general safty usage.
+    for (auto id : out_tv->domain()->domain()) {
+      if (db_loop_found) {
+        auto loop_concrete_id =
+            ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+
+        if (!loop_concrete_id->isParallelized() &&
+            !loop_concrete_id->extent()->isConstInt()) {
+          return false;
+        }
+      }
+
+      db_loop_found = db_loop_found ||
+          ca_map->areMapped(
+              id, double_buffer_loop->iter_domain(), IdMappingMode::LOOP);
+    }
+
+    // Only when double buffer loop was found on out_tv could useful
+    //  information have been inferred by this function.
+    return db_loop_found;
   }
 
  private:
@@ -465,6 +717,41 @@ class DoubleBufferInserter : private kir::ExprMutator {
   void insert(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& loads) {
+    // Allocate read switching index if they need to be updated
+    //  independently. see [Uniform Double Buffer Offset]
+    for (auto load : loads) {
+      if (auto load_output = dynamic_cast<TensorView*>(load->output(0))) {
+        auto uses = load_output->fusion()->unordered_uses(load_output);
+        if (load_output->getMemoryType() == MemoryType::Shared &&
+            (load_output->isDoubleBuffered() ||
+             load_output->isCircularBuffered()) &&
+            load_output->shouldLiftReadAddress() &&
+            // TODO: read switch index is only enabled for ldmatrix
+            //  at the moment.
+            // Would need to extend the ld.shared usage to directly
+            //  take pointers to use this in other cases.
+            std::all_of(uses.begin(), uses.end(), ir_utils::isLdMatrixOp)) {
+          auto switch_val = IrBuilder::create<Int>();
+          switch_val->to32b();
+
+          // Record the read switch indexing variable so it can be
+          //  used in the indexing pass.
+          // TODO: maybe want to do this in id graph instead
+          GpuLower::current()->doubleBufferInfo().setReadSwitchIndex(
+              load_output, switch_val);
+
+          // Place allocation for the switching variable before the
+          //  double buffer loop.
+          auto index_alloc = IrBuilder::create<kir::Allocate>(
+              switch_val,
+              MemoryType::Local,
+              GpuLower::current()->kernel()->oneVal(),
+              true);
+          registerInsertBefore(double_buffer_loop, index_alloc);
+        }
+      }
+    }
+
     auto prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
     registerInsertBefore(double_buffer_loop, prologue_loop);
@@ -474,6 +761,17 @@ class DoubleBufferInserter : private kir::ExprMutator {
           return expr->output(0)->as<TensorView>()->getMemoryType() ==
               MemoryType::Shared;
         });
+
+    // If the double buffer loop is to be peeled. Will need to insert
+    //  a circular buffer init stage to initialize the final stage of
+    //  circular buffer space.
+    if (GpuLower::current()->predicatePeelingInfo().shouldPeelLoop(
+            double_buffer_loop) &&
+        write_to_smem) {
+      auto circular_init_loop = DoubleBufferLoopCloner::clone(
+          double_buffer_loop, loads, DoubleBufferLoopStage::CircularInitProlog);
+      registerInsertBefore(double_buffer_loop, circular_init_loop);
+    }
 
     // RAW sync is not inserted for double buffered tensors. The only
     // exception is the prologue load.
@@ -708,8 +1006,7 @@ kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
                loop->iter_domain(), axis, IdMappingMode::EXACT) &&
-        (!ignore_prologue ||
-         loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Prolog);
+        (!ignore_prologue || !isProlog(loop->doubleBufferLoopStage()));
   });
 
   if (loop_it != loops.end()) {

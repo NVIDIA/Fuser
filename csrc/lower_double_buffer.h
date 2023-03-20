@@ -219,6 +219,24 @@ class TORCH_CUDA_CU_API DoubleBufferInfo {
   //!  the number of stages will be 2 in the case of double buffer loop.
   unsigned int getStageDepthFor(IterDomain* circular_buffered_id);
 
+  //! Record the allocated double buffer switching index,
+  //!  see [Uniform Double Buffer Offset]
+  void setReadSwitchIndex(TensorView* db_tv, Val* switch_index) {
+    TORCH_INTERNAL_ASSERT(
+        read_switch_index_map_.insert(std::make_pair(db_tv, switch_index))
+            .second);
+  }
+
+  //! Returns the double buffer switching index if one has been
+  //!  allocated and recorded for the given tv.
+  c10::optional<Val*> getReadSwitchIndex(TensorView* db_tv) {
+    auto val_it = read_switch_index_map_.find(db_tv);
+    if (val_it == read_switch_index_map_.end()) {
+      return c10::nullopt;
+    }
+    return val_it->second;
+  }
+
  private:
   TvInfo& getTvInfo(const TensorView* tv);
 
@@ -245,6 +263,9 @@ class TORCH_CUDA_CU_API DoubleBufferInfo {
   //! Only one stage depth is supported, so that the loops can indeed
   //! shared with the same prolog extent and main loop offset.
   std::unordered_map<IterDomain*, unsigned int> stage_depth_;
+
+  //! Keep track of read switch index
+  std::unordered_map<TensorView*, Val*> read_switch_index_map_;
 };
 
 } // namespace nvfuser

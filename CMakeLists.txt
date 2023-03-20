@@ -75,12 +75,15 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/lower_scalar_hoist.cpp
     ${NVFUSER_SRCS_DIR}/lower_insert_syncs.cpp
     ${NVFUSER_SRCS_DIR}/lower_instrument.cpp
+    ${NVFUSER_SRCS_DIR}/lower_interleaved_loop.cpp
     ${NVFUSER_SRCS_DIR}/lower_loop_rotation.cpp
     ${NVFUSER_SRCS_DIR}/lower_loops.cpp
     ${NVFUSER_SRCS_DIR}/lower_magic_zero.cpp
+    ${NVFUSER_SRCS_DIR}/lower_mem_index.cpp
     ${NVFUSER_SRCS_DIR}/lower_misaligned_vectorization.cpp
     ${NVFUSER_SRCS_DIR}/lower_predicate.cpp
     ${NVFUSER_SRCS_DIR}/lower_predicate_elimination.cpp
+    ${NVFUSER_SRCS_DIR}/lower_predicate_peeling.cpp
     ${NVFUSER_SRCS_DIR}/lower_replace_size.cpp
     ${NVFUSER_SRCS_DIR}/lower_shift.cpp
     ${NVFUSER_SRCS_DIR}/lower_sync_information.cpp

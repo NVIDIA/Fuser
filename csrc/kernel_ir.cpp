@@ -17,6 +17,7 @@
 #include <type.h>
 
 #include <iostream>
+#include "ir_interface_nodes.h"
 
 namespace nvfuser {
 namespace kir {
@@ -65,6 +66,19 @@ Predicate::Predicate(IrBuilderPasskey passkey, Bool* value)
   TORCH_INTERNAL_ASSERT(value != nullptr);
 }
 
+Predicate::Predicate(IrBuilderPasskey passkey, const Predicate* other)
+    : Val(passkey, ValType::Predicate, DataType::Bool),
+      ptype_(other->ptype_),
+      expr_(other->expr_),
+      thread_pred_(other->thread_pred_),
+      unrolled_loop_(other->unrolled_loop_) {
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  TORCH_INTERNAL_ASSERT(
+      other->value_ == nullptr, "No support yet for predicate deep copy");
+}
+
 std::string Predicate::toString(int indent_size) const {
   std::stringstream ss;
   ss << predicate_type2string(predicate_type());
@@ -81,10 +95,14 @@ std::string Predicate::toInlineString(int indent_size) const {
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
-    Val* index)
+    Val* index,
+    Val* base_address,
+    Val* uniform_address)
     : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
       view_(view),
-      index_(index) {
+      index_(index),
+      base_address_(base_address),
+      uniform_address_(uniform_address) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -358,6 +376,153 @@ std::string BaseAddress::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
 
+AddressCompute::AddressCompute(
+    IrBuilderPasskey passkey,
+    AddressComputeOpType op_type,
+    Val* data_tensor,
+    Val* address_tensor,
+    Val* double_buffer_switch_index,
+    Val* buffer_size_in_byte,
+    int loop_offset,
+    int stage_number,
+    Val* loop_index,
+    kir::TensorIndex* increment_value)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addAttribute(IrBuilder::create<Attribute<AddressComputeOpType>>(
+      passkey.ir_container_, op_type));
+  addAttribute(data_tensor);
+  addAttribute(address_tensor);
+  addAttribute(double_buffer_switch_index);
+  addAttribute(buffer_size_in_byte);
+  addAttribute(
+      IrBuilder::create<Attribute<int>>(passkey.ir_container_, loop_offset));
+  addAttribute(
+      IrBuilder::create<Attribute<int>>(passkey.ir_container_, stage_number));
+  addAttribute(loop_index);
+  addAttribute(increment_value);
+}
+
+AddressCompute::AddressCompute(
+    IrBuilderPasskey passkey,
+    AddressCompute::AddressComputeOpType op_type,
+    Val* address_tensor,
+    Val* data_tensor)
+    : AddressCompute(
+          passkey,
+          op_type,
+          data_tensor,
+          address_tensor,
+          nullptr,
+          nullptr,
+          0,
+          0,
+          nullptr,
+          nullptr) {}
+
+AddressCompute::AddressCompute(
+    IrBuilderPasskey passkey,
+    Val* address_tensor,
+    Val* data_tensor,
+    TensorIndex* increment_value,
+    bool is_decrement)
+    : AddressCompute(
+          passkey,
+          is_decrement ? AddressCompute::AddressComputeOpType::GMEM_DECREMENT
+                       : AddressCompute::AddressComputeOpType::GMEM_INCREMENT,
+          data_tensor,
+          address_tensor,
+          nullptr,
+          nullptr,
+          0,
+          0,
+          nullptr,
+          increment_value) {}
+
+AddressCompute::AddressCompute(
+    IrBuilderPasskey passkey,
+    TensorView* data_tv,
+    Val* double_buffer_switch_index,
+    Val* buffer_size_in_byte,
+    int loop_offset,
+    int stage_number,
+    Val* loop_index)
+    : AddressCompute(
+          passkey,
+          AddressCompute::AddressComputeOpType::DOUBLE_BUFFER_SWITCH,
+          data_tv,
+          nullptr,
+          double_buffer_switch_index,
+          buffer_size_in_byte,
+          loop_offset,
+          stage_number,
+          loop_index,
+          nullptr) {}
+
+AddressCompute::AddressCompute(
+    IrBuilderPasskey passkey,
+    Val* address_tensor,
+    Val* buffer_size_in_byte,
+    int stage_number,
+    int loop_offset,
+    TensorView* data_tensor,
+    Val* loop_index)
+    : AddressCompute(
+          passkey,
+          AddressCompute::AddressComputeOpType::DOUBLE_BUFFER_UPDATE,
+          data_tensor,
+          address_tensor,
+          nullptr,
+          buffer_size_in_byte,
+          loop_offset,
+          stage_number,
+          loop_index,
+          nullptr) {}
+
+std::string AddressCompute::addressComputeOpAsString() const {
+  switch (opType()) {
+    case AddressComputeOpType::PREDICATE_INDEX:
+      return "PREDICATE_INDEX";
+    case AddressComputeOpType::BASE_ADDRESS:
+      return "BASE_ADDRESS";
+    case AddressComputeOpType::DOUBLE_BUFFER_SWITCH:
+      return "DOUBLE_BUFFER_SWITCH";
+    case AddressComputeOpType::DOUBLE_BUFFER_UPDATE:
+      return "DOUBLE_BUFFER_UPDATE";
+    case AddressComputeOpType::GMEM_INCREMENT:
+      return "GMEM_INCREMENT";
+    case AddressComputeOpType::GMEM_DECREMENT:
+      return "GMEM_DECREMENT";
+  }
+  return "UNSUPPORTED";
+}
+
+std::string AddressCompute::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size)
+      << "AddressCompute(op=" << addressComputeOpAsString()
+      << ", dataTv=" << (dataTv() ? ir_utils::varName(dataTv()) : "[nullptr]")
+      << ", addressTv="
+      << (addressTv() ? ir_utils::varName(addressTv()) : "[nullptr]")
+      << ", loopOffset=" << loopOffset() << ", stageNumber=" << stageNumber()
+      << ")\n";
+  return ss.str();
+}
+
+std::string AddressCompute::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "AddressCompute(op=" << addressComputeOpAsString()
+     << ", dataTv=" << ir_utils::varName(dataTv())
+     << ", addressTv=" << ir_utils::varName(addressTv())
+     << ", loopOffset=" << loopOffset() << ", stageNumber=" << stageNumber()
+     << ")\n";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AddressCompute)
+
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
   for (auto expr : exprs()) {
@@ -440,7 +605,7 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    LoopTransformInfo loop_transform_info)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -466,8 +631,8 @@ ForLoop::ForLoop(
   addAttribute(vectorize_shift);
   addAttribute(IrBuilder::create<Attribute<bool>>(
       passkey.ir_container_, unroll_required));
-  addAttribute(IrBuilder::create<Attribute<DoubleBufferLoopStage>>(
-      passkey.ir_container_, double_buffer_loop_stage));
+  addAttribute(IrBuilder::create<Attribute<LoopTransformInfo>>(
+      passkey.ir_container_, loop_transform_info));
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
   addAttribute(
@@ -478,7 +643,7 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    LoopTransformInfo loop_transform_info)
     : ForLoop(
           passkey,
           iter_domain,
@@ -490,14 +655,14 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          double_buffer_loop_stage) {}
+          loop_transform_info) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
           GpuLower::current()->caMap()->getIndexVariable(iter_domain),
-          DoubleBufferLoopStage::NotApplicable) {}
+          LoopTransformInfo()) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -510,7 +675,7 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->doubleBufferLoopStage()) {}
+          other->loopTransformInfo()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
@@ -625,6 +790,11 @@ bool ForLoop::isTrivial() const {
   // analysis seems sufficient.
   if (stop() == iter_domain()->extent() && iter_domain()->isThread()) {
     return true;
+  }
+
+  if (isInterleaveUnit()) {
+    // Index is important in interleave unit.
+    return false;
   }
 
   // Extent-1 loop: for (int i = 0; i < 1; ++i) {
@@ -1215,4 +1385,11 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocateFusedReduction)
 
 } // namespace kir
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const kir::LoopTransformInfo loop_transform_info) {
+  return os;
+}
+
 } // namespace nvfuser

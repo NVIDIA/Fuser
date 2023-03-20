@@ -17,6 +17,7 @@
 #include <ir_utils.h>
 #include <lower2device.h>
 #include <lower_double_buffer.h>
+#include <lower_predicate_peeling.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -312,8 +313,13 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       is_double_buffered_(src->is_double_buffered_),
       is_circular_buffered_(src->is_circular_buffered_),
       circular_buffer_stage_(src->circular_buffer_stage_),
+      peeled_serial_id_(ir_cloner->clone(src->peeled_serial_id_)),
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
+      lift_read_address_(src->lift_read_address_),
+      lift_write_address_(src->lift_write_address_),
+      lift_predicate_index_(src->lift_predicate_index_),
+      maybe_interleave_axis_and_factor_(src->maybe_interleave_axis_and_factor_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_) {}
 
@@ -1494,6 +1500,13 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
       TORCH_INTERNAL_ASSERT(false, "unknown operand flag");
       break;
   }
+}
+
+void TensorView::peelPredicatedLoop(int axis_id) {
+  auto id = axis(axis_id);
+  TORCH_CHECK(
+      PredicatePeeling::supportedPeelingLoop(id), "unsupported loop peeling");
+  peeled_serial_id_ = id;
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

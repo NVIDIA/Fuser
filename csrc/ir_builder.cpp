@@ -68,9 +68,7 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
       TORCH_INTERNAL_ASSERT(
           op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
       dtype = rhs->dtype();
-    } else if (
-        (lhs->dtype() == DataType::Int && rhs->dtype() == DataType::Int32) ||
-        (lhs->dtype() == DataType::Int32 && rhs->dtype() == DataType::Int)) {
+    } else if (lhs->dtype() == DataType::Int || rhs->dtype() == DataType::Int) {
       dtype = DataType::Int;
     } else {
       TORCH_CHECK(
@@ -417,7 +415,6 @@ Bool* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
 
   return IrBuilder::andExpr(lhs, rhs);
 }
-
 namespace {
 
 template <typename IrBuilderFunc, typename IntFunc>

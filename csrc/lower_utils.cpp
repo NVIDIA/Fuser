@@ -36,6 +36,27 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
   return IrBuilder::create<kir::IfThenElse>(ite->predicate());
 }
 
+std::pair<kir::ForLoop*, kir::ForLoop*> makeLoopNest(
+    const std::vector<kir::ForLoop*>& loop_vec) {
+  TORCH_INTERNAL_ASSERT(
+      !loop_vec.empty(), "cloneLoopNest: empty loop vec given.");
+
+  auto loop_it = loop_vec.cbegin();
+  auto outermost_loop = cloneForLoop(*loop_it);
+  auto current_loop = outermost_loop;
+  loop_it++;
+
+  while (loop_it != loop_vec.end()) {
+    auto new_loop = cloneForLoop(*loop_it);
+    current_loop->body().push_back(new_loop);
+    current_loop = new_loop;
+    loop_it++;
+  }
+
+  // Return pair of outermost loop and innermost loop.
+  return std::make_pair(outermost_loop, current_loop);
+}
+
 } // namespace scope_utils
 
 namespace ir_utils {
@@ -179,6 +200,11 @@ bool isCpAsyncOp(const Expr* expr) {
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
+  // Check that this expression outputs to tensor
+  if (getTvOutput(expr) == nullptr) {
+    return false;
+  }
+
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {
     // All load store op with a single scalar input
@@ -329,7 +355,9 @@ std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
 }
 
 bool isCpAsyncInit(const Expr* expr) {
-  return isTensorScalarFillOp(expr) &&
+  return
+
+      isTensorScalarFillOp(expr) &&
       // FIXME:
       //  We'd need to add a flag to all the init
       //   exprs so we could robustly detect initialization
@@ -700,10 +728,12 @@ BasicAllocInfo getAllocInformation(
 
     // Allocation of a double buffered tensor is placed outside its
     // double buffer axis.
-    if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
-        tv->axis(info.alloc_pos) ==
-            gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
-      outer_alloc_found = true;
+    if (tv->isDoubleBuffered() || tv->isCircularBuffered()) {
+      auto double_buffer_alloc_axis =
+          gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv);
+      if (tv->axis(info.alloc_pos) == double_buffer_alloc_axis) {
+        outer_alloc_found = true;
+      }
     }
 
     auto local_id = tv->axis(info.alloc_pos);
@@ -738,6 +768,43 @@ bool supportInlinePredicate(Expr* expr) {
     return true;
   }
   // TODO: build out support.
+  return false;
+}
+
+bool useDirectSmemAddress(const TensorView* tv) {
+  // Not applicable for any indexing that's not
+  //  lifted.
+  if (!tv->shouldLiftWriteAddress() ||
+      tv->getMemoryType() != MemoryType::Shared) {
+    return false;
+  }
+
+  auto expr = tv->definition();
+  // Direct usage of smem address should be avoided at all cost,
+  //  so only allowing this very specific case where this is the
+  //  necessary step to take to get efficient indexing code.
+  return expr != nullptr && ir_utils::isCpAsyncOp(expr);
+}
+
+bool dependsOnThreadNamedScalars(Val* val) {
+  if (val == nullptr) {
+    // Handle trivial case.
+    return false;
+  }
+
+  auto inputs = InputsOf::output(val->fusion(), val);
+
+  for (auto input : inputs) {
+    if (auto ns = dynamic_cast<NamedScalar*>(input)) {
+      for (auto ptype : kParallelTypeTIDs) {
+        if (ns->name() == stringifyThread(ptype) ||
+            ns->name() == stringifyThreadSize(ptype)) {
+          return true;
+        }
+      }
+    }
+  }
+
   return false;
 }
 

@@ -21,6 +21,11 @@ DEVICE_INLINE unsigned toSmem(const void* raw_ptr) {
   return smem_ptr_uint;
 }
 
+DEVICE_INLINE unsigned toSmem(unsigned addr) {
+  // already converted
+  return addr;
+}
+
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
 
 namespace Turing {
@@ -186,5 +191,105 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 } // namespace Ampere
 
 #endif // Arch 80
+
+// Double buffer calculation utilities:
+
+// In place update of double buffer index that has been accumulated to the data
+// buffer.
+template <int number_of_stage, int loop_offset>
+DEVICE_INLINE void doubleBufferUpdate(
+    DataPointer& data_buffer,
+    const nvfuser_index_t& loop_index,
+    nvfuser_index_t buffer_size) {
+  // static_assert(
+  //     loop_offset < number_of_stage && loop_offset > -number_of_stage);
+
+  // convert offset to [0, number_of_stage)
+  constexpr nvfuser_index_t offset =
+      loop_offset < 0 ? (loop_offset + number_of_stage) : loop_offset;
+
+  // Rewind back at number_of_stage-1, otherwise increment by 1.
+  nvfuser_index_t increment =
+      (loop_index % number_of_stage) == (number_of_stage - 1 - offset)
+      ? buffer_size * (-number_of_stage + 1)
+      : buffer_size;
+  data_buffer += increment;
+}
+
+template <int number_of_stage, int loop_offset>
+DEVICE_INLINE void doubleBufferUpdate(
+    unsigned& data_buffer,
+    const nvfuser_index_t& loop_index,
+    nvfuser_index_t buffer_size) {
+  // static_assert(
+  //     loop_offset < number_of_stage && loop_offset > -number_of_stage);
+
+  // convert offset to [0, number_of_stage)
+  constexpr nvfuser_index_t offset =
+      loop_offset < 0 ? (loop_offset + number_of_stage) : loop_offset;
+
+  // Rewind back at number_of_stage-1, otherwise increment by 1.
+  nvfuser_index_t increment =
+      (loop_index % number_of_stage) == (number_of_stage - 1 - offset)
+      ? buffer_size * (-number_of_stage + 1)
+      : buffer_size;
+  data_buffer += (unsigned)increment;
+}
+
+// Update double buffer offset value for smem double buffered tensors.
+// See [Uniform Double Buffer Offset]
+template <int number_of_stage, int loop_offset>
+DEVICE_INLINE void doubleBufferSwitch(
+    int& buffer_offset,
+    const nvfuser_index_t& loop_index,
+    nvfuser_index_t buffer_size) {
+  constexpr nvfuser_index_t offset =
+      loop_offset < 0 ? (loop_offset + number_of_stage) : loop_offset;
+
+  // Rewind back at number_of_stage-1, otherwise increment by 1.
+  nvfuser_index_t increment =
+      (loop_index % number_of_stage) == (number_of_stage - 1 - offset)
+      ? buffer_size * (-number_of_stage + 1)
+      : buffer_size;
+  buffer_offset += (int)increment;
+}
+
+// Reset smem space to zero
+// TODO: try cp.async.ignore-source ?
+template <typename dtype, int len>
+DEVICE_INLINE void smemReset(SmemAddress smem_addr) {
+  constexpr int byte_size = sizeof(dtype) * len;
+
+  static_assert(
+      byte_size == 4 || byte_size == 8 || byte_size == 16,
+      "cp_async : unsupported byte size");
+
+  switch (byte_size) {
+    case 4:
+      asm volatile(
+          "{\n"
+          "st.shared.u32 [%0], {%1};\n"
+          "}\n"
+          :
+          : "r"(smem_addr), "r"(0));
+      break;
+    case 8:
+      asm volatile(
+          "{\n"
+          "st.shared.v2.u32 [%0], {%1, %2};\n"
+          "}\n"
+          :
+          : "r"(smem_addr), "r"(0), "r"(0));
+      break;
+    case 16:
+      asm volatile(
+          "{\n"
+          "st.shared.v4.u32 [%0], {%1, %2, %3, %4};\n"
+          "}\n"
+          :
+          : "r"(smem_addr), "r"(0), "r"(0), "r"(0), "r"(0));
+      break;
+  }
+}
 
 #undef DEVICE_INLINE

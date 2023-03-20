@@ -367,6 +367,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   void resolveIndexDtype();
 
+  // Provide a way to instantiate a 32b integer scalar
+  void to32b() {
+    TORCH_INTERNAL_ASSERT(vtype_ == ValType::Scalar && dtype_ == DataType::Int);
+    dtype_ = DataType::Int32;
+  }
+
   NVFUSER_DECLARE_CLONE
 
  protected:

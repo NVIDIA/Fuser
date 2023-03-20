@@ -124,6 +124,7 @@ class BlockSync;
 class GridSync;
 class CpAsyncWait;
 class CpAsyncCommit;
+class AddressCompute;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
@@ -206,6 +207,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GridSync*);
   virtual void handle(const kir::CpAsyncWait*);
   virtual void handle(const kir::CpAsyncCommit*);
+  virtual void handle(const kir::AddressCompute*);
   virtual void handle(const kir::InitMagicZero*);
   virtual void handle(const kir::UpdateMagicZero*);
   virtual void handle(const kir::ForLoop*);
@@ -288,6 +290,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::GridSync* stmt);
   virtual void handle(kir::CpAsyncWait* stmt);
   virtual void handle(kir::CpAsyncCommit* stmt);
+  virtual void handle(kir::AddressCompute* stmt);
   virtual void handle(kir::InitMagicZero* stmt);
   virtual void handle(kir::UpdateMagicZero* stmt);
   virtual void handle(kir::ForLoop* stmt);

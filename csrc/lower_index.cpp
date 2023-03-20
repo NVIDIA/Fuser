@@ -213,6 +213,20 @@ void IndexLowering::handle(const EyeOp* eop) {
 void IndexLowering::handle(const UnaryOp* uop) {
   const auto in = lowerSrcIndex(uop->in(), uop->out());
   const auto out = lowerDstIndex(uop->out());
+
+  // Convert the output index to direct shared memory
+  //  address usage if this unary op is initialization
+  //  for cp.async op. see [Lifting smem address decoding for cp.async]
+  // In order to use the same register for indexing the init
+  //  expression as well, the init expr also needs to
+  //  directly use the shared memory address.
+  if (ir_utils::isCpAsyncInit(uop)) {
+    auto out_tv = ir_utils::getTvOutput(uop);
+    if (out_tv->shouldLiftWriteAddress()) {
+      out->as<kir::TensorIndex>()->toSmemAddress();
+    }
+  }
+
   pushBack(IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, in));
   GpuLower::current()->propagateExprInfo(uop, back());
 }
@@ -1241,9 +1255,16 @@ void IndexLowering::handleGroupedGridWelford(
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   // Today, LoadStoreOp can only be ld.matrix and cp.async. In the future, when
   // we start to work on hopper support, this can also be TMA operations.
-  const auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  const auto out =
-      lowerDstIndex(ldst->out(), {}, !ir_utils::isLdMatrixOp(ldst));
+  const auto in = lowerSrcIndex(
+      ldst->in(),
+      ldst->out(),
+      {},
+      !ldst->in()->as<TensorView>()->shouldLiftReadAddress());
+  const auto out = lowerDstIndex(
+      ldst->out(),
+      {},
+      !ldst->out()->as<TensorView>()->shouldLiftWriteAddress() &&
+          !ir_utils::isLdMatrixOp(ldst));
   auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
                       ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
@@ -1337,6 +1358,104 @@ void IndexLowering::handle(const kir::CpAsyncWait* wait) {
 void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::AddressCompute* address_compute) {
+  // Logic for double buffer switching:
+  if (address_compute->opType() ==
+      kir::AddressCompute::AddressComputeOpType::DOUBLE_BUFFER_SWITCH) {
+    // no indexing is needed, just forward through the expression and
+    //  attach the loop index corresponding to the double buffer loop.
+    auto db_loop = GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+        address_compute->dataTv()->as<TensorView>(), for_loops_, false);
+    TORCH_INTERNAL_ASSERT(db_loop != nullptr);
+    auto db_index = db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+
+    pushBack(IrBuilder::create<kir::AddressCompute>(
+        address_compute->dataTv()->as<TensorView>(),
+        address_compute->doubleBufferSwitchIndex(),
+        address_compute->doubleBufferByteSize(),
+        address_compute->loopOffset(),
+        address_compute->stageNumber(),
+        db_index));
+    return;
+  } else if (
+      address_compute->opType() ==
+      kir::AddressCompute::AddressComputeOpType::DOUBLE_BUFFER_UPDATE) {
+    // Unpack the double buffer loop and double buffer allocation component
+    auto db_loop = GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+        address_compute->dataTv()->as<TensorView>(), for_loops_, false);
+    TORCH_INTERNAL_ASSERT(db_loop != nullptr);
+    auto db_index = db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+    auto loop_offset =
+        db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Main
+        ? address_compute->stageNumber() - 1
+        : 0;
+
+    // Generate index into the address tensor to update.
+    auto indexed_address_tv = Index::generateAddressTensorIndex(
+        for_loops_, address_compute->addressTv()->as<TensorView>());
+
+    pushBack(IrBuilder::create<kir::AddressCompute>(
+        indexed_address_tv,
+        address_compute->doubleBufferByteSize(),
+        address_compute->stageNumber(),
+        loop_offset,
+        address_compute->dataTv()->as<TensorView>(),
+        db_index));
+    return;
+  }
+
+  // Logic for base address computation
+  auto address_tv = address_compute->addressTv();
+
+  // Unpack additional info related to this address pre-computaion op.
+  auto maybe_address_record =
+      GpuLower::current()->addressComputeInfo().getMaybeRecordForAddressTv(
+          address_tv->as<TensorView>());
+  TORCH_INTERNAL_ASSERT(maybe_address_record.has_value());
+
+  auto address_record = maybe_address_record.value();
+
+  if (address_compute->opType() ==
+          kir::AddressCompute::AddressComputeOpType::GMEM_INCREMENT ||
+      address_compute->opType() ==
+          kir::AddressCompute::AddressComputeOpType::GMEM_DECREMENT) {
+    // GMEM_INCREMENT/DECREMENT is only used on global producer tv
+    //  currently, so only lowering source index for the address tensor
+    //  to compute the amount of increment.
+    pushBack(IrBuilder::create<kir::AddressCompute>(
+        Index::generateAddressTensorIndex(
+            for_loops_, address_compute->addressTv()->as<TensorView>()),
+        address_compute->dataTv(),
+        lowerSrcIndex(
+            address_record->dataTensor(),
+            address_record->indexReferenceTensor())
+            ->as<kir::TensorIndex>(),
+        address_compute->isDecrement()));
+    return;
+  }
+
+  Val* lowered_data_index = nullptr;
+
+  // This is the base math generation logic, lowering src/dst indexing
+  //  math based on if this record is read, write, or predicate.
+  if (address_record->isPredicate()) {
+    lowered_data_index = Index::getReferenceRootPredicateIndex(
+        address_record->indexReferenceTensor(), for_loops_, getRotatedLoop());
+  } else if (address_record->isRead()) {
+    lowered_data_index = lowerSrcIndex(
+        address_record->dataTensor(), address_record->indexReferenceTensor());
+  } else {
+    // Write index
+    lowered_data_index = lowerDstIndex(address_record->dataTensor());
+  }
+
+  pushBack(IrBuilder::create<kir::AddressCompute>(
+      address_compute->opType(),
+      Index::generateAddressTensorIndex(
+          for_loops_, address_tv->as<TensorView>()),
+      lowered_data_index));
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {

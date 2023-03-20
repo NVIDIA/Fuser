@@ -147,7 +147,7 @@ class AllocationInserter : public kir::ExprMutator {
             false,
             nullptr,
             false,
-            DoubleBufferLoopStage::NotApplicable);
+            kir::LoopTransformInfo());
       } else {
         new_loop = IrBuilder::create<kir::ForLoop>(id);
       }
@@ -453,6 +453,13 @@ class AllocationInserter : public kir::ExprMutator {
 
       auto out_tv = out->as<TensorView>();
       auto default_val = gpu_lower->predicateElimination().getInitValue(out_tv);
+
+      if (out_tv->isCircularBuffered() && default_val == nullptr) {
+        if (GpuLower::current()->predicatePeelingInfo().hasPeeledId(out_tv)) {
+          // Always initialize cp async output if it has peeled id.
+          default_val = GpuLower::current()->kernel()->zeroVal();
+        }
+      }
 
       Val* init = nullptr;
       if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {

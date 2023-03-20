@@ -838,6 +838,9 @@ void ComputeAtMap::allocateIndexVariables() {
           std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
               {{DoubleBufferLoopStage::Prolog,
                 IrBuilder::create<Int>(c10::nullopt)},
+               // TODO: need to add upper and lower prolog here too.
+               {DoubleBufferLoopStage::CircularInitProlog,
+                IrBuilder::create<Int>(c10::nullopt)},
                {DoubleBufferLoopStage::Main,
                 IrBuilder::create<Int>(c10::nullopt)},
                {DoubleBufferLoopStage::Epilog,

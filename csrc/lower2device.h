@@ -17,8 +17,11 @@
 #include <lower_allocation.h>
 #include <lower_double_buffer.h>
 #include <lower_fused_reduction.h>
+#include <lower_interleaved_loop.h>
+#include <lower_mem_index.h>
 #include <lower_predicate.h>
 #include <lower_predicate_elimination.h>
+#include <lower_predicate_peeling.h>
 #include <lower_scalar_hoist.h>
 #include <lower_shift.h>
 #include <lower_sync_information.h>
@@ -162,12 +165,28 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
+  auto& addressComputeInfo() {
+    return address_compute_info_;
+  }
+
+  const auto& addressComputeInfo() const {
+    return address_compute_info_;
+  }
+
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
 
   std::shared_ptr<const SyncMap> syncMap() const {
     return sync_map_;
+  }
+
+  auto& interleavedLoopInfo() {
+    return interleave_info_;
+  }
+
+  const auto& interleavedLoopInfo() const {
+    return interleave_info_;
   }
 
   kir::KernelPerformanceProfile& profile() {
@@ -179,6 +198,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
       return false;
     }
     return cparams_.enable_magic_zero;
+  }
+
+  auto& predicatePeelingInfo() {
+    return predicate_peeling_info_;
+  }
+
+  const auto& predicatePeelingInfo() const {
+    return predicate_peeling_info_;
   }
 
   // This is an interface to propagate information after expression
@@ -228,7 +255,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;
+  AddressComputeInfo address_compute_info_;
+  PredicatePeelingInfo predicate_peeling_info_;
   kir::KernelPerformanceProfile profile_;
+  InterleaveLoopInfo interleave_info_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
 
