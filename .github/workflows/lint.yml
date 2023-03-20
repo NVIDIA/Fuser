@@ -36,6 +36,8 @@ jobs:
           NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
 
+          git log --name-status HEAD^..HEAD
+
           echo $this_dir
           ls -ll
           ls -l ./build
