@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   TORCH_CHECK(
       tv1->getMemoryType() == MemoryType::Shared,
@@ -275,7 +275,7 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
 
   scheduler_utils::parallelizeAllLike(tv3);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -323,7 +323,7 @@ TEST_F(NVFuserTest, FusionResizePad8_CUDA) {
   tv4->axis(1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   fusion.printMath();
   fusion.print();
@@ -1637,6 +1637,12 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel =
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  TORCH_CHECK(
+      !kernel->summary().has_cooperative_grid_reduction,
+      "Grid sync should not be used as slicing input should avoid input caching");
 
   auto aten_t0_slice = t0.index(
       {at::indexing::Slice(0, 1, 1),
