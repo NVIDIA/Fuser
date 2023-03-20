@@ -3447,7 +3447,7 @@ kir::TensorIndex* Index::getReferenceRootPredicateIndex(
 
     // Build predicates for start positions as:
     //   start_index + start_offset >= 0
-    auto start_offset = simplifyStartOffset(info.start_offset_);
+    auto start_offset = info.start_offset_;
 
     TORCH_INTERNAL_ASSERT(
         start_offset == nullptr, "No support for start offset yet");
