@@ -99,34 +99,10 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
     } else if (isIntegralType(*getDataType())) {
       ss << *(value());
-    } else if (isFloatingPointType(*getDataType())) {
-      ss << getDataType().value() << "(";
-      if (getDataType() == DataType::Double) {
-        ss << std::setprecision(std::numeric_limits<double>::max_digits10)
-           << *(value()) << ")";
-      } else if (getDataType() == DataType::Float) {
-        ss << std::setprecision(std::numeric_limits<float>::max_digits10)
-           << *(value()) << ")";
-      } else if (getDataType() == DataType::Half) {
-        ss << 5 << *(value()) << ")";
-      } else if (getDataType() == DataType::BFloat16) {
-        ss << 4 << *(value()) << ")";
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "Invalid data type: ", getDataType().value());
-      }
-    } else if (isComplexType(*getDataType())) {
-      ss << getDataType().value() << "(";
-      if (getDataType() == DataType::ComplexDouble) {
-        ss << std::setprecision(std::numeric_limits<double>::max_digits10)
-           << *(value()) << ")";
-      } else if (getDataType() == DataType::ComplexFloat) {
-        ss << std::setprecision(std::numeric_limits<float>::max_digits10)
-           << *(value()) << ")";
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "Invalid data type: ", getDataType().value());
-      }
+    } else if (
+        isFloatingPointType(*getDataType()) || isComplexType(*getDataType())) {
+      ss << getDataType().value() << "("
+         << std::setprecision(max_digits10(getDataType())) << *(value()) << ")";
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", *getDataType());
     }
