@@ -2371,7 +2371,7 @@ std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
 }
 
 // If the producer of a resized tensor is an input cache and we need to promote
-// it to global memory, just do not cache the input but directy read from the
+// it to global memory, just do not cache the input but directly read from the
 // global memory input. It doesn't make any sense to cache a global memory input
 // in global memory. Note that a copy of an input cache is inserted by
 // prepareForMemoryTypePromotion, so grab the producer of the
@@ -2392,7 +2392,7 @@ bool revertUseOfInputCacheInResize(
 
   // Only applies if the promoted new type is Global
   if (promoted_memory_type != MemoryType::Global) {
-    return true;
+    return false;
   }
 
   // To see if the producer is a cache of an input, need to look at
@@ -2400,7 +2400,7 @@ bool revertUseOfInputCacheInResize(
   auto producer_of_producer = get_copy_src(producer_of_resize);
   if (producer_of_producer == nullptr) {
     // No copy is detected. This must mean the producer is not a copy
-    // of an input cache
+    // of any input cache
     return false;
   }
 
@@ -2422,7 +2422,6 @@ bool revertUseOfInputCacheInResize(
   // tv2 = tv1 // copy of the tv1. Placed on Global
   // tv3 = resizeOp(tv2) // some op using resize
 
-  //
   // Translate it to:
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
