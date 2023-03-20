@@ -60,10 +60,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
     for(nvfuser_index_t i22 = 0; i22 < 3; ++i22) {
-      int64_t i37;
-      i37 = i22 + nvfuser_zero;
-      int64_t i61;
-      i61 = (1 + i22) + nvfuser_zero;
+      int64_t i657;
+      i657 = (1 + i22) + nvfuser_zero;
       float T3[1];
       T3[0]
          = T2[0];
@@ -74,7 +72,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
       T1[0] = 0;
       if ((b71 && (i61 < 3))) {
         T1[0]
-           = T0[(i30 + (T0.stride[1] * i61))];
+           = T0[(i160 + (T0.stride[1] * i657))];
       }
       T2[0]
          = T1[0];
@@ -129,7 +127,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     i29 = i21 + nvfuser_zero;
     if ((b80 && (i29 < 3))) {
       T1[i21]
-         = T0[(T0.stride[1] * i29)];
+         = T0[(T0.stride[1] * (i21 + nvfuser_zero))];
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO
@@ -178,7 +176,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
       i52 = i21 + nvfuser_zero;
       if ((b153 && (i52 < 3))) {
         T1[i21]
-           = T0[(i69 + (T0.stride[1] * i52))];
+           = T0[(i687 + (T0.stride[1] * (i21 + nvfuser_zero)))];
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO
@@ -240,7 +238,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     i44 = i36 + nvfuser_zero;
     if ((i44 < i279)) {
       T1[i36]
-         = T0[((T0.stride[0] * (i44 / T0.size[1])) + (T0.stride[1] * (i44 % T0.size[1])))];
+         = T0[((T0.stride[0] * (i154 / T0.size[1])) + (T0.stride[1] * (i154 % T0.size[1])))];
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO
@@ -252,10 +250,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
   NVFUSER_UPDATE_MAGIC_ZERO
   #pragma unroll 1
   for(nvfuser_index_t i39 = 0; i39 < (ceilDiv((T0.size[0] * T0.size[1]), 5)); ++i39) {
-    int64_t i98;
-    i98 = 5 * i39;
-    int64_t i246;
-    i246 = 5 + i98;
+    int64_t i608;
+    i608 = 5 * i39;
+    int64_t i900;
+    i900 = 5 + i608;
     // Alias Allocation - register
     auto& T3 = T1;
     #pragma unroll
@@ -285,7 +283,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
       i247 = i246 + (i36 + nvfuser_zero);
       if ((i247 < i279)) {
         T1[i36]
-           = T0[((T0.stride[0] * (i247 / T0.size[1])) + (T0.stride[1] * (i247 % T0.size[1])))];
+           = T0[((T0.stride[0] * (i901 / T0.size[1])) + (T0.stride[1] * (i901 % T0.size[1])))];
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO
@@ -329,8 +327,8 @@ TEST_F(LoopRotationTest, DoubleBuffered_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
-  int64_t i111;
-  i111 = T0.stride[0] * 4;
+  int64_t i537;
+  i537 = T0.stride[0] * 4;
   float T1[15];
   #pragma unroll
   for(nvfuser_index_t i24 = 0; i24 < 4; ++i24) {
@@ -342,7 +340,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     b180 = (i24 + nvfuser_zero) < T0.size[0];
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
-      T1[(i40 + i21)] = 0;
+      T1[(i152 + i21)] = 0;
     }
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
@@ -380,7 +378,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     b238 = i25 < T0.size[0];
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
-      T1[(i91 + i21)] = 0;
+      T1[(i455 + i21)] = 0;
     }
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
@@ -413,7 +411,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     #pragma unroll
     for(nvfuser_index_t i22 = 0; i22 < 3; ++i22) {
       T2[i22]
-         = T1[(i173 + i22)];
+         = T1[(i949 + i22)];
     }
     NVFUSER_UPDATE_MAGIC_ZERO
   }
@@ -470,7 +468,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     i35 = i21 + nvfuser_zero;
     if ((b296 && (i35 < 3))) {
       T1[i21]
-         = T0[(T0.stride[1] * i35)];
+         = T0[(T0.stride[1] * (i21 + nvfuser_zero))];
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO
@@ -484,7 +482,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     b349 = ((1 + i24) + nvfuser_zero) < T0.size[0];
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
-      T1[(i57 + i21)] = 0;
+      T1[(i285 + i21)] = 0;
     }
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
@@ -509,7 +507,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     i109 = i21 + nvfuser_zero;
     if ((b360 && (i109 < 3))) {
       T1[(12 + i21)]
-         = T0[(i119 + (T0.stride[1] * i109))];
+         = T0[(i545 + (T0.stride[1] * (i21 + nvfuser_zero)))];
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO
@@ -552,7 +550,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
     for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
-      T1[(i192 + i21)] = 0;
+      T1[(i1026 + i21)] = 0;
     }
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
@@ -568,7 +566,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     #pragma unroll
     for(nvfuser_index_t i22 = 0; i22 < 3; ++i22) {
       T2[i22]
-         = T1[(i288 + i22)];
+         = T1[(i1302 + i22)];
     }
     NVFUSER_UPDATE_MAGIC_ZERO
   }
@@ -615,15 +613,16 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer_CUDA) {
   tv1->doubleBuffer();
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
+  // TODO: i923 < 3 is trivial, simplify it away
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
   alignas(16) extern __shared__ char array[];
   unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO
-  float* ptr44;
-  ptr44 = T0.data;
-  float* ptr114;
-  ptr114 = ptr44 + (T0.stride[0] * 4);
+  float* ptr98;
+  ptr98 = T0.data;
+  float* ptr384;
+  ptr384 = ptr98 + (T0.stride[0] * 4);
   smem_offset = alignBufferSize(smem_offset, 16);
   float* T4 = reinterpret_cast<float*>(array + smem_offset);
   smem_offset += (15 * sizeof(float));
@@ -675,10 +674,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
     Ampere::cpAsyncCommit();
     #pragma unroll
     for(nvfuser_index_t i22 = 0; i22 < 2; ++i22) {
-      int64_t i209;
-      i209 = i22 + nvfuser_zero;
+      int64_t i827;
+      i827 = i22 + nvfuser_zero;
       T1[((1 + i22) % 2)]
-         = T4[(i181 + i22)];
+         = T4[(i567 + i22)];
       float T2[1];
       T2[0]
          = T1[(i22 % 2)];

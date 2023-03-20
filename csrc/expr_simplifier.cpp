@@ -140,52 +140,112 @@ std::unique_ptr<debug_print::NoOpLogger> createLogger(Val* value) {
 
 namespace {
 
+std::vector<Bool*> getAxioms() {
+  std::vector<Bool*> axioms;
+  axioms.reserve(kParallelTypeThreads.size() * 3);
+  for (auto p : kParallelTypeThreads) {
+    auto pidx = NamedScalar::getParallelIndex(p);
+    auto pdim = NamedScalar::getParallelDim(p);
+    auto zero = pidx->container()->zeroVal();
+    axioms.push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+    axioms.push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+    axioms.push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+  }
+  return axioms;
+}
+
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
   Context() = default;
 
-  Context(const std::list<VarInfo>& variables, bool preserve_error)
+  Context(
+      const std::list<VarInfo>& variables,
+      std::vector<Bool*> assumptions,
+      bool preserve_error)
       : preserve_error_(preserve_error) {
-    var_info_map_.reserve(variables.size());
     var_order_.reserve(variables.size());
-    set_.reserve(variables.size());
+    var_set_.reserve(variables.size());
+    less_than_.reserve(assumptions.size());
+    less_equal_.reserve(assumptions.size());
     for (const auto& info : variables) {
-      var_order_.emplace_back(info.variable);
-      set_.emplace(info.variable);
-      var_info_map_[info.variable] = info;
+      auto var = info.variable;
+      if (info.is_unrolled_loop_index) {
+        unrolled_loop_index_.insert(var);
+      }
+      var_order_.emplace_back(var);
+      var_set_.emplace(var);
+    }
+    // decompose a && b in assumptions as a and b
+    auto axioms = getAxioms();
+    assumptions.insert(assumptions.end(), axioms.begin(), axioms.end());
+    while (!assumptions.empty()) {
+      auto back = assumptions.back();
+      assumptions.pop_back();
+      auto bop = dynamic_cast<BinaryOp*>(back->definition());
+      if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
+        assume(back);
+      } else {
+        assumptions.push_back(bop->lhs()->as<Bool>());
+        assumptions.push_back(bop->rhs()->as<Bool>());
+      }
     }
   }
 
-  // Get the order of variables
-  const std::vector<Val*>& order() const {
+  const std::vector<Val*>& variableOrder() const {
     return var_order_;
   }
 
-  // Get the info of a variable
-  const VarInfo& info(Val* var) const {
-    return var_info_map_.at(var);
-  }
-
-  // Check if this mapping has information about the given variable
-  bool has(Val* var) const {
-    return set_.count(var);
-  }
-
-  // Get the set of variables that has information
-  const std::unordered_set<Val*>& set() const {
-    return set_;
+  const std::unordered_set<Val*>& variableSet() const {
+    return var_set_;
   }
 
   bool preserveError() const {
     return preserve_error_;
   }
 
+  bool isUnrolledLoopIndex(Val* x) const {
+    return unrolled_loop_index_.count(x) > 0;
+  }
+
+  const std::vector<std::pair<Val*, Val*>>& getKnownLessThan() const {
+    return less_than_;
+  }
+
+  const std::vector<std::pair<Val*, Val*>>& getKnownLessEqual() const {
+    return less_equal_;
+  }
+
  private:
-  std::unordered_map<Val*, VarInfo> var_info_map_;
-  std::vector<Val*> var_order_;
-  std::unordered_set<Val*> set_;
+  void assume(Bool* a) {
+    auto def = a->definition();
+    if (auto bop = dynamic_cast<BinaryOp*>(def)) {
+      switch (bop->getBinaryOpType()) {
+        case BinaryOpType::LT:
+          less_than_.emplace_back(bop->lhs(), bop->rhs());
+          break;
+        case BinaryOpType::LE:
+          less_equal_.emplace_back(bop->lhs(), bop->rhs());
+          break;
+        case BinaryOpType::GT:
+          less_than_.emplace_back(bop->rhs(), bop->lhs());
+          break;
+        case BinaryOpType::GE:
+          less_equal_.emplace_back(bop->rhs(), bop->lhs());
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+ private:
   bool preserve_error_ = false;
+  std::vector<Val*> var_order_;
+  std::unordered_set<Val*> var_set_;
+  std::unordered_set<Val*> unrolled_loop_index_;
+  std::vector<std::pair<Val*, Val*>> less_than_;
+  std::vector<std::pair<Val*, Val*>> less_equal_;
 };
 
 bool hasSimilarType(DataType t1, DataType t2) {
@@ -317,7 +377,7 @@ RegisterType getRegisterType(Val* value, const Context& context) {
   if (value->isConstScalar()) {
     return RegisterType::Immediate;
   }
-  if (context.has(value) && context.info(value).is_unrolled_loop_index) {
+  if (context.isUnrolledLoopIndex(value)) {
     return RegisterType::Immediate;
   }
   if (auto def = value->definition()) {
@@ -332,7 +392,7 @@ RegisterType getRegisterType(Val* value, const Context& context) {
 }
 
 bool hasUnrolledLoopIndex(Val* value, const Context& context) {
-  if (context.has(value) && context.info(value).is_unrolled_loop_index) {
+  if (context.isUnrolledLoopIndex(value)) {
     return true;
   }
   auto def = value->definition();
@@ -577,7 +637,7 @@ class FlattenedAssocCommOp : public Expr {
     std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
     dependency.reserve(sorted_inputs.size());
     for (auto v : sorted_inputs) {
-      dependency[v] = getSubexprDependency(v, context.set());
+      dependency[v] = getSubexprDependency(v, context.variableSet());
     }
     auto compare = [&](Val* v1, Val* v2) {
       // Find all variables in context that v1 and v2 depends on. The input (v1
@@ -597,7 +657,7 @@ class FlattenedAssocCommOp : public Expr {
       if (hasTensorIndex(deps1)) {
         return false;
       }
-      for (auto v : context.order()) {
+      for (auto v : context.variableOrder()) {
         if (deps1.count(v) > 0 && deps2.count(v) == 0) {
           v1_is_left_of_v2 = false;
         } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
@@ -1091,30 +1151,33 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool isPositive(Val* value, const Context& context);
+bool lessThan(Val* x, Val* y, const Context& context);
+bool lessEqual(Val* x, Val* y, const Context& context);
+
+bool greaterThan(Val* x, Val* y, const Context& context) {
+  return lessThan(y, x, context);
+}
+
+bool greaterEqual(Val* x, Val* y, const Context& context) {
+  return lessEqual(y, x, context);
+}
+
+bool isPositive(Val* value, const Context& context) {
+  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  return greaterThan(value, zero, context);
+}
 
 bool isNonNegative(Val* value, const Context& context) {
-  value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() >= 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() >= 0.0) {
-    return true;
-  }
-  if (isPositive(value, context)) {
-    return true;
-  }
+  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  return greaterEqual(value, zero, context);
+}
+
+bool isNonNegativeHelper(Val* value, const Context& context) {
   if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    if (ns->getParallelDim().has_value() ||
-        ns->getParallelIndex().has_value() || ns->isTensorSize() ||
-        ns->isTensorStride()) {
+    // TODO: make tensor size and tensor stride an expr
+    if (ns->isTensorSize() || ns->isTensorStride()) {
       return true;
     }
-  }
-  value = maybeUnwrapMagicZero(value);
-  if (context.has(value)) {
-    return isNonNegative(context.info(value).start, context) &&
-        isNonNegative(context.info(value).step, context);
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
@@ -1137,19 +1200,7 @@ bool isNonNegative(Val* value, const Context& context) {
   return false;
 }
 
-bool isPositive(Val* value, const Context& context) {
-  value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() > 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() > 0.0) {
-    return true;
-  }
-  if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    if (ns->getParallelDim().has_value()) {
-      return true;
-    }
-  }
+bool isPositiveHelper(Val* value, const Context& context) {
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
     if (op == BinaryOpType::Add) {
@@ -1208,6 +1259,55 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
+bool lessThan(Val* x, Val* y, const Context& context) {
+  x = foldConstants(x);
+  y = foldConstants(y);
+  if (x->getInt().has_value() && y->getInt().has_value()) {
+    return *x->getInt() < *y->getInt();
+  }
+  if (x->getDouble().has_value() && y->getDouble().has_value()) {
+    return *x->getDouble() < *y->getDouble();
+  }
+  x = maybeUnwrapMagicZero(x);
+  y = maybeUnwrapMagicZero(y);
+  if (x->isZero() && isPositiveHelper(y, context)) {
+    return true;
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool lessEqual(Val* x, Val* y, const Context& context) {
+  x = foldConstants(x);
+  y = foldConstants(y);
+  if (x->getInt().has_value() && y->getInt().has_value()) {
+    return *x->getInt() <= *y->getInt();
+  }
+  if (x->getDouble().has_value() && y->getDouble().has_value()) {
+    return *x->getDouble() <= *y->getDouble();
+  }
+  x = maybeUnwrapMagicZero(x);
+  y = maybeUnwrapMagicZero(y);
+  if (x->isZero() && isNonNegativeHelper(y, context)) {
+    return true;
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace prove
 
 namespace {
@@ -1263,7 +1363,7 @@ namespace rules {
 // context. This canonicalization is important, because some passes use set of
 // pointers to find variables, without canonicalization, this finding will fail.
 Val* canonicalizeVariables(Val* value, const Context& context) {
-  for (auto v : context.order()) {
+  for (auto v : context.variableOrder()) {
     if (v->sameAs(value)) {
       return v;
     }
@@ -1425,49 +1525,45 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
     return value;
   }
   auto op = bop->getBinaryOpType();
-  if (bop->lhs()->sameAs(bop->rhs())) {
-    if (op == BinaryOpType::Eq) {
+  auto lhs = bop->lhs();
+  auto rhs = bop->rhs();
+  if (op == BinaryOpType::Eq) {
+    if (lhs->sameAs(rhs)) {
       return value->fusion()->trueVal();
-    } else if (op == BinaryOpType::NE) {
+    } else if (
+        (lhs->isZero() && prove::isNonZero(rhs, context)) ||
+        (rhs->isZero() && prove::isNonZero(lhs, context))) {
       return value->fusion()->falseVal();
     }
-  }
-  if (bop->rhs()->isZero()) {
-    if (op == BinaryOpType::GE && prove::isNonNegative(bop->lhs(), context)) {
+  } else if (op == BinaryOpType::NE) {
+    if ((lhs->isZero() && prove::isNonZero(rhs, context)) ||
+        (rhs->isZero() && prove::isNonZero(lhs, context))) {
       return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::GT && prove::isPositive(bop->lhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::NE && prove::isNonZero(bop->lhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::LT && prove::isNonNegative(bop->lhs(), context)) {
-      return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::LE && prove::isPositive(bop->lhs(), context)) {
-      return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::Eq && prove::isNonZero(bop->lhs(), context)) {
+    } else if (lhs->sameAs(rhs)) {
       return value->fusion()->falseVal();
     }
-  } else if (bop->lhs()->isZero()) {
-    if (op == BinaryOpType::LE && prove::isNonNegative(bop->rhs(), context)) {
+  } else if (op == BinaryOpType::GE) {
+    if (prove::greaterEqual(lhs, rhs, context)) {
       return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::LT && prove::isPositive(bop->rhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::NE && prove::isNonZero(bop->rhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::GT && prove::isNonNegative(bop->rhs(), context)) {
+    } else if (prove::lessThan(lhs, rhs, context)) {
       return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::GE && prove::isPositive(bop->rhs(), context)) {
+    }
+  } else if (op == BinaryOpType::GT) {
+    if (prove::greaterThan(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::lessEqual(lhs, rhs, context)) {
       return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::Eq && prove::isNonZero(bop->rhs(), context)) {
+    }
+  } else if (op == BinaryOpType::LE) {
+    if (prove::lessEqual(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::greaterThan(lhs, rhs, context)) {
+      return value->fusion()->falseVal();
+    }
+  } else if (op == BinaryOpType::LT) {
+    if (prove::lessThan(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::greaterEqual(lhs, rhs, context)) {
       return value->fusion()->falseVal();
     }
   }
@@ -1915,9 +2011,10 @@ Val* fundamentalDivisionWithRemainderProperty(
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
+    std::vector<Bool*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, preserve_error);
+  const Context context(variables, assumptions, preserve_error);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
