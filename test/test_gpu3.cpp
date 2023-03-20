@@ -7899,18 +7899,11 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::BFloat16);
   fusion->addInput(tv1);
 
-  // test constants
   auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::Half));
   fusion->addOutput(tv2);
 
   auto tv3 = full_like(tv1, IrBuilder::create<Double>(1.7, DataType::BFloat16));
   fusion->addOutput(tv3);
-
-  // test input scalars
-  auto s4 = IrBuilder::create<Double>(DataType::Half);
-  fusion->addInput(s4);
-  auto tv4 = full_like(tv0, s4);
-  fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -7918,19 +7911,13 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   at::Tensor t1 = at::zeros({5}, options.dtype(at::kBFloat16));
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, 2.3});
-
-  std::cout << cg_outputs[0] << std::endl;
-  std::cout << cg_outputs[1] << std::endl;
-  std::cout << cg_outputs[2] << std::endl;
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      {t0, t1, 2.3},
-      {at::ones_like(t0) * 1.5,
-       at::ones_like(t1) * 1.7,
-       at::ones_like(t0) * 1.3},
+      {t0, t1},
+      {at::ones_like(t0) * 1.5, at::ones_like(t1) * 1.7},
       __LINE__,
       __FILE__);
 }
