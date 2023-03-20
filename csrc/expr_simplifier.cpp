@@ -234,7 +234,8 @@ class Context {
           less_equal_.emplace_back(bop->rhs(), bop->lhs());
           break;
         default:
-          break;
+          TORCH_INTERNAL_ASSERT(
+              false, "Unknown operator type ", bop->getBinaryOpType());
       }
     }
   }
