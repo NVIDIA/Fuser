@@ -572,6 +572,7 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer_CUDA) {
   tv1->doubleBuffer();
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
+  // TODO: i827 < 3 is trivial, simplify it away
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
   alignas(16) extern __shared__ char array[];
