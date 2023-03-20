@@ -278,7 +278,7 @@ std::vector<Bool*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
 Val* CommonScalarMap::hoistScalar(
     Val* value,
     const std::vector<kir::ForLoop*>& loops) {
-  value = simplifyExpr(value, getLoopIndices(loops), getAssumptions(loops));
+  value = simplifyExpr(value, getVariableInfo(loops), getAssumptions(loops));
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     return value;
   }
