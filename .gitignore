@@ -2,4 +2,4 @@ bin
 python/version.py
 __pycache__
 build
-
+.vscode

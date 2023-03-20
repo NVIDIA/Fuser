@@ -704,6 +704,42 @@ TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
 }
 
+TEST_F(ExprSimplifierTest, Compare_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto simplify = [](Val* x, Val* assumption) {
+    return simplifyExpr(x, {}, {assumption->as<Bool>()})->getBool();
+  };
+
+  ASSERT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
+
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
+  ASSERT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).has_value());
+
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
+  ASSERT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).has_value());
+
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
+
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
+
+  ASSERT_TRUE(*simplify(
+      "i1 < 3"_,
+      "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
+}
+
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
