@@ -1305,6 +1305,10 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
+  // x == y -> x <= y
+  if (x->sameAs(y)) {
+    return true;
+  }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
     return true;
   }

@@ -572,7 +572,6 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer_CUDA) {
   tv1->doubleBuffer();
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
-  // TODO: i827 < 3 is trivial, simplify it away
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
   alignas(16) extern __shared__ char array[];
@@ -627,17 +626,13 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
     Ampere::cpAsyncCommit();
     #pragma unroll
     for(nvfuser_index_t i22 = 0; i22 < 2; ++i22) {
-      int64_t i827;
-      i827 = i22 + nvfuser_zero;
       T1[((1 + i22) % 2)]
          = T4[(i567 + i22)];
       float T2[1];
       T2[0]
          = T1[(i22 % 2)];
-      if ((i827 < 3)) {
-        T3[(i895 + i827)]
-           = T2[0];
-      }
+      T3[(i895 + (i22 + nvfuser_zero))]
+         = T2[0];
     }
     NVFUSER_UPDATE_MAGIC_ZERO
     float T2[1];
