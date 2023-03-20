@@ -3318,6 +3318,26 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
   return pred_info_vec;
 }
 
+// A partial value of a start offset is returned if determined to be
+// safe. Nullptr is returned if it can be omitted completely.
+Val* simplifyStartOffset(Val* start_offset) {
+  // Start predicate can be omitted when start_offset >= 0.
+  auto offset_val = start_offset->as<Int>()->value();
+  if (offset_val.has_value() && offset_val.value() >= 0) {
+    return nullptr;
+  }
+
+  // start_offset may look like min(0, window_index - pad). Then, can
+  // remove min and leave the rhs only.
+  auto def = dynamic_cast<BinaryOp*>(start_offset->definition());
+  if (def != nullptr && def->getBinaryOpType() == BinaryOpType::Min &&
+      def->lhs()->isZeroInt()) {
+    return def->rhs();
+  }
+
+  return start_offset;
+}
+
 // Duplicated code from getReferenceRootPredicates that only does the
 //  indexing part, in order to support pre-computing base index in
 //  [Predicate Lifting].
@@ -3447,7 +3467,7 @@ kir::TensorIndex* Index::getReferenceRootPredicateIndex(
 
     // Build predicates for start positions as:
     //   start_index + start_offset >= 0
-    auto start_offset = info.start_offset_;
+    auto start_offset = simplifyStartOffset(info.start_offset_);
 
     TORCH_INTERNAL_ASSERT(
         start_offset == nullptr, "No support for start offset yet");
