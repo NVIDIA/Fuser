@@ -224,12 +224,7 @@ std::list<VarInfo> getVariableInfo(
         variables.push_front({loop->index()});
       }
     } else {
-      variables.push_back(
-          {loop->index(),
-           loop->start(),
-           loop->simplifiedStop(),
-           loop->step(),
-           loop->isUnrolled()});
+      variables.push_back({loop->index(), loop->isUnrolled()});
     }
   }
   // Tensor base addresses
@@ -250,12 +245,40 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
+std::vector<Bool*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+  std::vector<Bool*> assumptions;
+  for (auto loop : loops) {
+    // Trivial loop is not generated, so there is no `if` or `for` in C++ to
+    // guard its scope. So we should not assume index < stop. One real example
+    // for this is loop rotation, where we might have trivial loop
+    //   FOR [index:0, start:0, stop:size]:
+    //     IF index < size:
+    //       ... = T0[index]
+    // The generated code will be
+    //   if (0 < size) {
+    //     ... = T0[0]
+    //   }
+    // We should not assume index smaller than size and simplify the code into
+    //   if (true) {
+    //     ... = T0[0]
+    //   }
+    // because this will break empty tensor support.
+    if (loop->isTrivial()) {
+      continue;
+    }
+    assumptions.push_back(
+        IrBuilder::ltExpr(loop->index(), loop->simplifiedStop()));
+    assumptions.push_back(IrBuilder::geExpr(loop->index(), loop->start()));
+  }
+  return assumptions;
+}
+
 } // namespace
 
 Val* CommonScalarMap::hoistScalar(
     Val* value,
     const std::vector<kir::ForLoop*>& loops) {
-  value = simplifyExpr(value, getVariableInfo(value, loops));
+  value = simplifyExpr(value, getLoopIndices(loops), getAssumptions(loops));
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     return value;
   }
