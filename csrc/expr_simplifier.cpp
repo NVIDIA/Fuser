@@ -1164,6 +1164,10 @@ Val* factorize(Val* x) {
 
 } // namespace sym_algebra
 
+namespace {
+bool isValidDenominator(Val* denominator, const Context& context);
+}
+
 namespace prove {
 
 // Prove properties of values. Note that functions in this namespace return
@@ -1220,7 +1224,8 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
     if (op == BinaryOpType::Mod || op == BinaryOpType::Div ||
         op == BinaryOpType::CeilDiv) {
       return isNonNegative(bop->lhs(), context) &&
-          isPositive(bop->rhs(), context);
+          isValidDenominator(bop->rhs(), context) &&
+          isNonNegative(bop->rhs(), context);
     }
   }
   return false;

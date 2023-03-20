@@ -634,8 +634,7 @@ TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<Bool*> assumptions{
-      "i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
+  std::vector<Bool*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
   ASSERT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   ASSERT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
   ASSERT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
@@ -716,6 +715,11 @@ TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
       "32 * T0.size[0]"_,
       "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
       {"i1 >= 0"_b});
+  assertSimplifiedDiv(
+      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
+      "32 * T0.size[3]"_,
+      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
+      {});
 }
 
 TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
