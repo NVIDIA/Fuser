@@ -1477,11 +1477,9 @@ class TestNvFuserFrontend(TestCase):
         def nvfuser_fusion_id(fd : FusionDefinition) -> None :
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
-            t1_sizes = fd.ops.tensor_sizes(t1)
             t2 = fd.ops.slice(t0, [0, 0, 0, 0], [1, 1, 128, 128], [1, 1, 1, 1])
-            t3 = fd.ops.broadcast_in_dim(t2, output_shape=t1_sizes, broadcast_dims=[0, 1, 2, 3])
-            t4 = fd.ops.add(t0, t1)
-            fd.add_output(t4)
+            t3 = fd.ops.add(t1, t2)
+            fd.add_output(t3)
 
         with FusionDefinition() as fd:
             nvfuser_fusion_id(fd)
@@ -1534,6 +1532,31 @@ class TestNvFuserFrontend(TestCase):
             S33 = fd.define_constant(1.11111, dtype=DataType.Double)
             T34 = fd.ops.mul(T32, S33)
             fd.add_output(T34)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion(fd)
+
+        out = fd.execute(inputs)
+    
+    def test_nanogpt_slice_2(self) :
+        inputs = [
+            torch.randn(16, 128, 3072, device='cuda'),
+        ]
+
+        def nvfuser_fusion(fd : FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1] )
+            T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1] )
+            T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1] )
+            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 1024], [16, 128, 16, 64])
+            T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
+            T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
+            T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
+            fd.add_output(T2_slice1)
+            fd.add_output(T2_slice2)
+            fd.add_output(T2_slice3)
 
         with FusionDefinition() as fd:
             nvfuser_fusion(fd)
