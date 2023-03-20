@@ -291,7 +291,7 @@ if(BUILD_PYTHON)
 
     # setup python API version
     add_custom_command(
-      OUTPUT ${NVFUSER_ROOT}/python/version.py
+      OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
       COMMAND
         "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
       COMMAND
@@ -301,7 +301,7 @@ if(BUILD_PYTHON)
     )
     add_custom_target(
       gen_nvfuser_version ALL
-      DEPENDS ${NVFUSER_ROOT}/python/version.py
+      DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
     )
     add_dependencies(${NVFUSER} gen_nvfuser_version)
   
@@ -348,7 +348,7 @@ if(BUILD_PYTHON)
     install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${TORCH_ROOT}/nvfuser/)
   
     # install nvfuser python files
-    install(DIRECTORY "${NVFUSER_ROOT}/python/"
+    install(DIRECTORY "${NVFUSER_ROOT}/nvfuser/"
             DESTINATION "${TORCH_ROOT}/nvfuser"
             FILES_MATCHING PATTERN "*.py" )
     file(WRITE "${TORCH_ROOT}/nvfuser/.gitignore" "*")
