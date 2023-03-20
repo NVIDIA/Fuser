@@ -20,6 +20,7 @@ if (PROJECT_IS_TOP_LEVEL)
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
+  set(BUILD_PYTHON ON)
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
@@ -39,47 +40,6 @@ else() # PROJECT_IS_TOP_LEVEL
   set(ATEN_CUDA_ROOT "${TORCH_ROOT}/ATen")
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 endif() # PROJECT_IS_TOP_LEVEL
-
-# python API sources
-set(NVFUSER_PYTHON_SRCS)
-list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
-)
-
-# nvfuser runtime files
-set(NVFUSER_RUNTIME_FILES)
-list(APPEND NVFUSER_RUNTIME_FILES
-  ${NVFUSER_ROOT}/runtime/array.cu
-  ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
-  ${NVFUSER_ROOT}/runtime/bf16_support.cu
-  ${NVFUSER_ROOT}/runtime/block_reduction.cu
-  ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
-  ${NVFUSER_ROOT}/runtime/block_sync_default.cu
-  ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
-  ${NVFUSER_ROOT}/runtime/broadcast.cu
-  ${NVFUSER_ROOT}/runtime/complex_number.cu
-  ${NVFUSER_ROOT}/runtime/fp16_support.cu
-  ${NVFUSER_ROOT}/runtime/fused_reduction.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
-  ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
-  ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
-  ${NVFUSER_ROOT}/runtime/grid_reduction.cu
-  ${NVFUSER_ROOT}/runtime/grid_sync.cu
-  ${NVFUSER_ROOT}/runtime/helpers.cu
-  ${NVFUSER_ROOT}/runtime/index_utils.cu
-  ${NVFUSER_ROOT}/runtime/memory.cu
-  ${NVFUSER_ROOT}/runtime/random_numbers.cu
-  ${NVFUSER_ROOT}/runtime/tensor.cu
-  ${NVFUSER_ROOT}/runtime/tensorcore.cu
-  ${NVFUSER_ROOT}/runtime/tuple.cu
-  ${NVFUSER_ROOT}/runtime/type_traits.cu
-  ${NVFUSER_ROOT}/runtime/warp.cu
-  ${NVFUSER_ROOT}/runtime/welford.cu
-  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
-)
 
 # nvfuser test sources
 set(JIT_TEST_SRCS)
@@ -274,6 +234,9 @@ set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+if(NOT MSVC)
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+endif()
 # NB: This must be target_compile_definitions, not target_compile_options,
 # as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
@@ -284,9 +247,6 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtool
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 # TODO: we should guard the include of gloo
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
-if(NOT MSVC)
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
-endif()
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
                           "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
                           "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
@@ -316,82 +276,79 @@ endif()
 # build nvfuser python library
 #-----------------------------
 
+if(BUILD_PYTHON)
+  # nvfuser python API sources
+  set(NVFUSER_PYTHON_SRCS)
+  list(APPEND NVFUSER_PYTHON_SRCS
+      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
+  )
 
-if (PROJECT_IS_TOP_LEVEL)
-  message(STATUS "skipping the rest of the libs")
-
-else() # PROJECT_IS_TOP_LEVEL
+  # setup python API version
+  add_custom_command(
+    OUTPUT ${NVFUSER_ROOT}/python/version.py
+    COMMAND
+      "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
+    COMMAND
+      "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+  )
+  add_custom_target(
+    gen_nvfuser_version ALL
+    DEPENDS ${NVFUSER_ROOT}/python/version.py
+  )
+  add_dependencies(torch_python gen_nvfuser_version)
   
-  # --- build nvfuser_python library
-  
-  if(BUILD_PYTHON)
     set(NVFUSER "${PROJECT_NAME}")
-  
     add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
-    torch_compile_options(${NVFUSER})
-    if(NOT USE_ROCM)
-      target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-      # NB: This must be target_compile_definitions, not target_compile_options,
-      # as the latter is not respected by nvcc
-      target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-      target_link_libraries(${NVFUSER} PRIVATE torch::nvtoolsext)
-    else()
-      target_compile_options(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
-      target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
-      target_compile_definitions(${NVFUSER} PRIVATE
-        USE_ROCM
-        __HIP_PLATFORM_HCC__
-        )
-      target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
-    endif()
-  
-    target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
-    target_link_libraries(${NVFUSER} PRIVATE torch torch_python ${TORCHLIB_FLAVOR})
-    target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
-    target_include_directories(${NVFUSER} PRIVATE ${TORCH_ROOT})
-    target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
-    target_compile_options(${NVFUSER} PRIVATE ${TORCH_PYTHON_COMPILE_OPTIONS})
-  
-    # avoid using Python3_add_library, copied from functorch
-    set_target_properties(${NVFUSER} PROPERTIES PREFIX "" DEBUG_POSTFIX "")
+    target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+    # NB: This must be target_compile_definitions, not target_compile_options,
+    # as the latter is not respected by nvcc
+    target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
     if(NOT MSVC)
       target_compile_options(${NVFUSER} PRIVATE -Werror)
       set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
     else()
       set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".pyd")
     endif()
+
+    target_link_libraries(${NVFUSER} PRIVATE torch::nvtoolsext)
+    target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
+
+    target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
   
+  if (PROJECT_IS_TOP_LEVEL)
+    message(STATUS "skipping the rest of the libs")
+    target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
+    target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
+
+    # we need to figure out how to add pybind11
+    #target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
+  else() # PROJECT_IS_TOP_LEVEL
+    torch_compile_options(${NVFUSER})
+
+    target_link_libraries(${NVFUSER} PRIVATE torch torch_python ${TORCHLIB_FLAVOR})
+    target_include_directories(${NVFUSER} PRIVATE ${TORCH_ROOT})
+
+
+    target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
+    target_compile_options(${NVFUSER} PRIVATE ${TORCH_PYTHON_COMPILE_OPTIONS})
+  
+    # avoid using Python3_add_library, copied from functorch
+    set_target_properties(${NVFUSER} PROPERTIES PREFIX "" DEBUG_POSTFIX "")
     set_target_properties(${NVFUSER} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
           ${CMAKE_BINARY_DIR}/nvfuser)
     set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "${_rpath_portable_origin}/../torch/lib")
-  
     if(TORCH_PYTHON_LINK_FLAGS AND NOT TORCH_PYTHON_LINK_FLAGS STREQUAL "")
-      message(STATUS "somehow this is happening")
       set_target_properties(${NVFUSER} PROPERTIES LINK_FLAGS ${TORCH_PYTHON_LINK_FLAGS})
     endif()
     install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${TORCH_ROOT}/nvfuser/)
-  
-    # setup python API version
-    add_custom_command(
-      OUTPUT ${NVFUSER_ROOT}/python/version.py
-      COMMAND
-        "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
-      COMMAND
-        "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-      DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-      WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
-    )
-    add_custom_target(
-      gen_nvfuser_version ALL
-      DEPENDS ${NVFUSER_ROOT}/python/version.py
-    )
-    add_dependencies(torch_python gen_nvfuser_version)
   
     # install nvfuser python files
     install(DIRECTORY "${NVFUSER_ROOT}/python/"
             DESTINATION "${TORCH_ROOT}/nvfuser"
             FILES_MATCHING PATTERN "*.py" )
-  
     file(WRITE "${TORCH_ROOT}/nvfuser/.gitignore" "*")
   endif()
 endif()
@@ -445,6 +402,40 @@ endif() # PROJECT_IS_TOP_LEVEL
 
 
 # --- generate runtime files
+# nvfuser runtime files
+set(NVFUSER_RUNTIME_FILES)
+list(APPEND NVFUSER_RUNTIME_FILES
+  ${NVFUSER_ROOT}/runtime/array.cu
+  ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
+  ${NVFUSER_ROOT}/runtime/bf16_support.cu
+  ${NVFUSER_ROOT}/runtime/block_reduction.cu
+  ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
+  ${NVFUSER_ROOT}/runtime/block_sync_default.cu
+  ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
+  ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/complex_number.cu
+  ${NVFUSER_ROOT}/runtime/fp16_support.cu
+  ${NVFUSER_ROOT}/runtime/fused_reduction.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
+  ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
+  ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
+  ${NVFUSER_ROOT}/runtime/grid_reduction.cu
+  ${NVFUSER_ROOT}/runtime/grid_sync.cu
+  ${NVFUSER_ROOT}/runtime/helpers.cu
+  ${NVFUSER_ROOT}/runtime/index_utils.cu
+  ${NVFUSER_ROOT}/runtime/memory.cu
+  ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/tensor.cu
+  ${NVFUSER_ROOT}/runtime/tensorcore.cu
+  ${NVFUSER_ROOT}/runtime/tuple.cu
+  ${NVFUSER_ROOT}/runtime/type_traits.cu
+  ${NVFUSER_ROOT}/runtime/warp.cu
+  ${NVFUSER_ROOT}/runtime/welford.cu
+  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
+  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
+)
+
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
 
