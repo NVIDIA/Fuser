@@ -58,7 +58,8 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
       : Val(passkey, ValType::Scalar, dtype), maybe_value_{c10::nullopt} {
     TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value && isIntegralType(dtype)) ||
+        (std::is_integral<UnderlyingType>::value &&
+         isIntegralOrPointerType(dtype)) ||
             (std::is_same<UnderlyingType, bool>::value &&
              isBooleanType(dtype)) ||
             (std::is_floating_point<UnderlyingType>::value &&

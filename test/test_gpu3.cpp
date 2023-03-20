@@ -7760,6 +7760,29 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
       fe.kernel(), cg_outputs, inputs, {ref_t1, ref_t3}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
+  auto convertible_to_aten = {
+      DataType::Bool,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::BFloat16,
+      DataType::Int,
+      DataType::Int32,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+  for (auto t1 : convertible_to_aten) {
+    for (auto t2 : convertible_to_aten) {
+      auto t1_aten = data_type_to_aten(t1);
+      auto t2_aten = data_type_to_aten(t2);
+      std::cout << t1 << ", " << t2 << std::endl;
+      auto result_aten = c10::promoteTypes(t1_aten, t2_aten);
+      auto result = promoteType(t1, t2);
+      ASSERT_EQ(data_type_to_aten(result), result_aten);
+    }
+  }
+}
+
 // Make sure invalid usage of index type is detected
 TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   Fusion fusion;
