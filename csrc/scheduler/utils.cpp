@@ -2439,7 +2439,16 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
   std::unordered_set<TensorView*> cached;
   for (auto resized_tensor : resized_tensors) {
     // Resized tensors are those created by operations like pad and
-    // slice. Assume it has only one input tensor, which may need to
+    // slice. If it has no defining expression, it must be a fusion
+    // input, and no need of the memory type promotion
+    if (resized_tensor->definition() == nullptr) {
+      TORCH_INTERNAL_ASSERT(
+          resized_tensor->isFusionInput(),
+          "Unexpected resized tensor: ",
+          resized_tensor->toString());
+      continue;
+    }
+    // Assume it has only one input tensor, which may need to
     // be placed on a non-local memory for data dependencies.
     TORCH_INTERNAL_ASSERT(
         resized_tensor->definition(),
