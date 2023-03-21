@@ -1480,6 +1480,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1, 1, 1])
             fd.add_output(t1)
 
+            # tensor method version
             t2 = t0.pad([1, 1, 1, 1])
             fd.add_output(t2)
 
@@ -1495,6 +1496,14 @@ class TestNvFuserFrontend(TestCase):
             t5 = fd.ops.pad(t0, [2, 3])
             fd.add_output(t5)
 
+            # test padding with a value other than 0
+            t6 = fd.ops.pad(t0, [2, 3], 2)
+            fd.add_output(t6)
+
+            # test padding with a value other than 0 with tensor method
+            #t7 = t0.pad([2, 3], 2)
+            #fd.add_output(t7)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
@@ -1502,6 +1511,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
         self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[4])
+        self.assertEqual(F.pad(inputs[0], [2, 3], 2), nvf_out[5])
 
     def test_cat(self):
         inputs = [

@@ -419,13 +419,14 @@ struct PadOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto fill_value = fd.getFusionState(args_.at(1).index);
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
       auto pval = IrBuilder::create<Int>(p);
       val_widths.push_back(pval);
     }
-    auto output = pad(arg, val_widths);
+    auto output = pad(arg, val_widths, fill_value);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 

@@ -2429,7 +2429,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "pad",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& pad_widths) -> Tensor {
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2438,14 +2439,18 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
+        auto actual_value = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, StateType::None);
         fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg())},
+            {fd->recordingState(arg()), actual_value},
             {fd->recordingState(output())},
             pad_widths));
         return output;
       },
       py::arg("arg"),
       py::arg("pad_widths"),
+      py::arg("value").none(true),
       py::return_value_policy::reference);
   tensor_class.def(
       "pad",
