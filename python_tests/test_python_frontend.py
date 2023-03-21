@@ -1620,6 +1620,35 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(eager_out0[idx], nvf_out0[idx])
         for idx in range(len(eager_out1)):
             self.assertEqual(eager_out1[idx], nvf_out1[idx])
+    
+    def test_slice_error_checks(self) :
+        inputs = [
+            torch.randn(10, 10, device='cuda'),
+        ]
+
+        def check_start_indices(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[-1, -2], end_indices=[10, 10], strides=[1, 1])
+            fd.add_output(T1)
+        
+        def check_end_indices(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[3, 4], end_indices=[1, 2], strides=[1, 1])
+            fd.add_output(T1)
+        
+        def check_strides(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[0, 0], end_indices=[10, 10], strides=[5, 5])
+            fd.add_output(T1)
+        
+        checks = [
+            (check_start_indices, "Slice operation start_indices must be greater-than-or-equal-to 0. .*"),
+            (check_end_indices, "Slice operation end_indices must be greater-than-or-equal-to start_indices. .*"),
+            (check_strides, "nvFuser Limitation: All slice operation strides must be of size 1. .*"),
+        ]
+
+        for check, error in checks:
+            self.assertRaisesRegex(RuntimeError, error, partial(self.exec_nvfuser, check), inputs)
 
 if __name__ == '__main__':
     run_tests()
