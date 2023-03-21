@@ -31,7 +31,10 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Install cuda
-          sudo apt install cuda
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
+          sudo dpkg -i cuda-keyring_1.0-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda
 
           # Clone pytorch and run cmake build
           git clone https://github.com/pytorch/pytorch.git
