@@ -24,18 +24,27 @@
 namespace nvfuser {
 
 Val* castOp(DataType dtype, Val* v1) {
-  if (v1->getDataType().value() == dtype) {
+  auto orig_dtype = v1->getDataType().value();
+  if (dtype == orig_dtype) {
     return set(v1);
   }
 
-  if (cast_func_str(std::make_pair(v1->getDataType().value(), dtype)) ==
-      c10::nullopt) {
+  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == c10::nullopt) {
     TORCH_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
-        v1->getDataType().value(),
+        orig_dtype,
         " to DataType: ",
         dtype);
+  }
+
+  if (isComplexType(orig_dtype) && !isComplexType(dtype)) {
+    TORCH_WARN(
+        "Casting from ",
+        orig_dtype,
+        " to ",
+        dtype,
+        " discards the imaginary part.");
   }
 
   Val* out = ops::newValLike(v1, dtype);
