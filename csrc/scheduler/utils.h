@@ -569,7 +569,7 @@ inline void rotateLoop(
     std::unordered_set<Statement*> selection) {
   auto fusion = loop_tv->fusion();
   if (!fusion->hasManaged("loop_rotation")) {
-    fusion->manage(LoopRotationParam{});
+    fusion->manage("loop_rotation", LoopRotationParam{});
   }
   fusion->getManaged<LoopRotationParam>("loop_rotation")
       .emplace_back(loop_tv, axis, std::move(selection));

@@ -275,13 +275,13 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   }
 
   template <typename T>
-  inline T getManaged(size_t index) {
-    return std::any_cast<T>(managed_data_.at(index).first);
+  inline T& getManaged(size_t index) {
+    return std::any_cast<T&>(managed_data_.at(index).first);
   }
 
   template <typename T>
-  inline T getManaged(std::string key) {
-    return std::any_cast<T>(managed_named_data_.at(key).first);
+  inline T& getManaged(std::string key) {
+    return std::any_cast<T&>(managed_named_data_.at(key).first);
   }
 
   inline bool hasManaged(size_t index) const {
