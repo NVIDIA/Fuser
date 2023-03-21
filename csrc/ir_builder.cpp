@@ -104,6 +104,13 @@ Val* IrBuilder::notExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::absExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  auto result = newScalar(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
+  return result;
+}
+
 Val* IrBuilder::setExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExpr.");
   auto result = newScalar(val->dtype());
