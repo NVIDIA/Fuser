@@ -38,6 +38,7 @@ jobs:
 
           echo $this_dir
           ls -ll
+          ls -ll ./pytorch/build
 
           RC=0
           # Run lintrunner on all files
