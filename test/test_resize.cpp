@@ -325,11 +325,6 @@ TEST_F(NVFuserTest, FusionResizePad8_CUDA) {
 
   scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
-  fusion.printMath();
-  fusion.print();
-
-  fusion.printKernel();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
 
@@ -1632,8 +1627,6 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
   auto t0 = at::randn(input_shape0, options);
   auto t1 = at::randn(input_shape1, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  fusion.print();
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
