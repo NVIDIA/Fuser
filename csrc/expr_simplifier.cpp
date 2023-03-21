@@ -1912,7 +1912,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
       if (combo_xs.size() == 1) {
         sum_xs = combo_xs.at(0);
       } else {
-        sum_xs = IrBuilder::newScalar(*lhs->getDataType());
+        sum_xs = IrBuilder::newScalar(inferDtypes(combo_xs));
         IrBuilder::create<FOp>(BinaryOpType::Add, sum_xs, combo_xs);
       }
       Val* sum_other = nullptr;
@@ -1920,7 +1920,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
         sum_other = combo_other.at(0);
         // sum_other is already factorized
       } else {
-        sum_other = IrBuilder::newScalar(*lhs->getDataType());
+        sum_other = IrBuilder::newScalar(inferDtypes(combo_other));
         IrBuilder::create<FOp>(BinaryOpType::Add, sum_other, combo_other);
         sum_other = sym_algebra::factorize(sum_other);
       }
@@ -1940,18 +1940,21 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
       // allowed to simplify
       switch (divmod->getBinaryOpType()) {
         case BinaryOpType::Div: {
-          // (a + b) / c = a/c
-          auto result = IrBuilder::newScalar(*sum_other->getDataType());
+          // (a + b) / c = a / c
+          auto result = IrBuilder::newScalar(
+              promoteType(*sum_other->getDataType(), *fdivisor->getDataType()));
           IrBuilder::create<BinaryOp>(
               BinaryOpType::Div, result, sum_other, fdivisor);
           return result;
         }
         case BinaryOpType::Mod: {
           // (a + b) % c = a % c + b
-          auto term1 = IrBuilder::newScalar(*sum_other->getDataType());
+          auto term1 = IrBuilder::newScalar(
+              promoteType(*sum_other->getDataType(), *fdivisor->getDataType()));
           IrBuilder::create<BinaryOp>(
               BinaryOpType::Mod, term1, sum_other, fdivisor);
-          auto result = IrBuilder::newScalar(*sum_other->getDataType());
+          auto result = IrBuilder::newScalar(
+              promoteType(*term1->getDataType(), *sum_xs->getDataType()));
           IrBuilder::create<FOp>(
               BinaryOpType::Add, result, std::vector<Val*>{term1, sum_xs});
           return result;
