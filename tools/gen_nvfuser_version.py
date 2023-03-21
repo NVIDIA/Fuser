@@ -19,7 +19,7 @@ def get_sha(nvfuser_root: Path) -> str:
 
 if __name__ == "__main__":
     nvfuser_root = Path(__file__).parent.parent
-    version_file = nvfuser_root / "python" / "version.py"
+    version_file = nvfuser_root / "nvfuser" / "version.py"
     sha = get_sha(nvfuser_root)
     version = open((nvfuser_root / "version.txt"), "r").read().strip() + "+git" + sha[:7]
     with open(version_file, "w") as f:
