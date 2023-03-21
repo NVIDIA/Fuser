@@ -56,6 +56,10 @@ code = 'CLANGTIDY'
 include_patterns = [
     '**/*.cpp',
 ]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+]
+
 init_command = [
     'python3',
     'tools/linter/adapters/s3_init.py',
