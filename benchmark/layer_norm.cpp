@@ -168,6 +168,24 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+// GPT-2
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
+    ->Args({8 * 1024, 768})
+    ->Args({8 * 1024, 1024})
+    ->Args({8 * 1024, 1280})
+    ->Args({8 * 1024, 1600})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
+    ->Args({16 * 1024, 768})
+    ->Args({16 * 1024, 1024})
+    ->Args({16 * 1024, 1280})
+    ->Args({16 * 1024, 1600})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+//------------------------------------------------------------------------------
 NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_LayerNorm_fp16,
     setupLayerNorm,
@@ -195,6 +213,23 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
     // ->RangeMultiplier(2)
     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// GPT-2
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
+    ->Args({8 * 1024, 768})
+    ->Args({8 * 1024, 1024})
+    ->Args({8 * 1024, 1280})
+    ->Args({8 * 1024, 1600})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
+    ->Args({16 * 1024, 768})
+    ->Args({16 * 1024, 1024})
+    ->Args({16 * 1024, 1280})
+    ->Args({16 * 1024, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
