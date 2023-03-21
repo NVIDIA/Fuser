@@ -325,8 +325,8 @@ if(BUILD_PYTHON)
     message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
-    target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/torch/lib/libtorch_python.so")
-    target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
+    target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
+    target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
 
