@@ -36,11 +36,24 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cuda
 
-          # Clone pytorch and run cmake build
+          # cmake environment variables
           export CUDAARCHS=86
+          export CUDACXX=/usr/local/cuda/bin/nvcc
+          export PATH=/usr/local/cuda/bin:${PATH}
+          export CUDA_INSTALL_PATH=/usr/local/cuda
+
+          # pytorch environment variables
+          export TORCH_CUDA_ARCH_LIST="8.6"
+          export BUILD_NVFUSER=1
+          export USE_MKLDNN=0 
+          export USE_CUDNN=0
+          export USE_DISTRIBUTED=0
+          export NVFUSER_SOURCE_DIR=$this_dir
+
+          # Clone pytorch and run cmake build
           git clone https://github.com/pytorch/pytorch.git
           cd pytorch
-          TORCH_CUDA_ARCH_LIST="8.6" BUILD_NVFUSER=1 NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
+          python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
 
           echo $this_dir
