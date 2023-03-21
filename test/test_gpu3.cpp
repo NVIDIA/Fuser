@@ -7775,7 +7775,6 @@ TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
     for (auto t2 : convertible_to_aten) {
       auto t1_aten = data_type_to_aten(t1);
       auto t2_aten = data_type_to_aten(t2);
-      std::cout << t1 << ", " << t2 << std::endl;
       auto result_aten = c10::promoteTypes(t1_aten, t2_aten);
       auto result = promoteType(t1, t2);
       ASSERT_EQ(data_type_to_aten(result), result_aten);
