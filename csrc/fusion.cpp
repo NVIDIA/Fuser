@@ -426,10 +426,8 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
       return nullptr;
     }
     auto tv = ti->view();
-    auto it = std::find(
-        smem_tvs_in_kernel.begin(),
-        smem_tvs_in_kernel.end(),
-        tv);
+    auto it =
+        std::find(smem_tvs_in_kernel.begin(), smem_tvs_in_kernel.end(), tv);
     if (it == smem_tvs_in_kernel.end()) {
       return nullptr;
     }
