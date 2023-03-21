@@ -39,7 +39,7 @@ jobs:
           # Clone pytorch and run cmake build
           git clone https://github.com/pytorch/pytorch.git
           cd pytorch
-          BUILD_NVFUSER=1 NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
+          TORCH_CUDA_ARCH_LIST="8.6" BUILD_NVFUSER=1 NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
 
           echo $this_dir
