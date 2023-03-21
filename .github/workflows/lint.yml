@@ -24,11 +24,6 @@ jobs:
         run: |
           this_dir=$(pwd)
 
-          git fetch origin main
-          git branch main
-          git branch
-          git --no-pager diff --name-only $(git merge-base FETCH_HEAD main)
-
           # Install lintrunner
           pip install lintrunner
 
@@ -65,7 +60,10 @@ jobs:
           # find csrc/ -type f | xargs lintrunner --force-color
           #
           # Run lintrunner on all csrc files
-          git --no-pager diff --name-only $(git merge-base FETCH_HEAD main) |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
+          git fetch origin main
+          git branch main
+          git --no-pager diff --name-only main
+          git --no-pager diff --name-only main |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
 
   lintrunner:
     runs-on: ubuntu-latest
