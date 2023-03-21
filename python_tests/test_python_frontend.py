@@ -18,7 +18,7 @@ import torch._prims as prims
 
 # Will only create the nvfuser module if CUDA is available
 try:
-    from nvfuser import FusionCache, FusionDefinition, DataType, version, compute_contiguity
+    from nvfuser import FusionCache, FusionDefinition, DataType, Tensor, version, compute_contiguity
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
     pass
@@ -1516,16 +1516,13 @@ class TestNvFuserFrontend(TestCase):
             s0 = fd.define_constant(1.0, dtype=DataType.Float)
             s1 = fd.define_constant(-1.0, dtype=DataType.Double)
 
-            t2 = fd.ops.add(t0, s0)  # float
-            t3 = fd.ops.add(t1, s1)  # double
-
             for a, b in itertools.product(
                 [t0, t1, s0, s1],
                 [t0, t1, s0, s1],
             ):
                 # always enter the fusion...
                 t = fd.ops.nextafter(a, b)
-                if a in [t0, t1] or b in [t0, t1]:
+                if isinstance(t, Tensor):
                     # ...but skip outputting scalars, which we don't support
                     fd.add_output(t)
 
