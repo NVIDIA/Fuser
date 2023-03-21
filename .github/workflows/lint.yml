@@ -26,6 +26,7 @@ jobs:
 
           git fetch origin main
           git branch main
+          git branch
           git --no-pager diff --name-only $(git merge-base FETCH_HEAD main)
 
           # Install lintrunner
