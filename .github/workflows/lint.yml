@@ -10,7 +10,7 @@ env:
   working_directory: .
 
 jobs:
-  lintrunner:
+  clang-tidy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -57,7 +57,31 @@ jobs:
           cd $this_dir
 
           # Run lintrunner on all csrc files
-          time find csrc/ -type f | xargs lintrunner --force-color
+          # find csrc/ -type f | xargs lintrunner --force-color
+          #
+          # Run lintrunner on all csrc files
+          git --no-pager diff --name-only $(git merge-base FETCH_HEAD main) |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
+
+  lintrunner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Run lintrunner
+        working-directory: ${{ env.working_directory }}
+        run: |
+          # Install lintrunner
+          pip install lintrunner
+
+          # Initialize lintrunner
+          lintrunner init 2> /dev/null
+
+          # Run lintrunner except clang-tidy
+          lintrunner --force-color --take FLAKE8, MYPY, CLANGFORMAT, NOQA, TYPEIGNORE, NEWLINE, MYPYSTRICT, TABS, SPACES, EXEC, BLACK --all-files
 
   flake8:
     runs-on: ubuntu-latest
