@@ -269,6 +269,7 @@ enum class BinaryOpType {
   Pow,
   Remainder,
   Sub,
+  Nextafter,
   // TypeAs,
 
   // Integer output ops. If changing modify isIntegerOp

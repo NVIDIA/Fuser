@@ -107,6 +107,16 @@ c10::ScalarType computeTypes(
       c10::isIntegralType(common_dtype, /*includeBool=*/true)) {
     common_dtype = c10::get_default_dtype_as_scalartype();
   }
+
+  // Some ops like nextafter are not implemented for non-float types
+  if (config.require_full_precision_promoted) {
+    TORCH_CHECK(
+        common_dtype == c10::ScalarType::Float ||
+            common_dtype == c10::ScalarType::Double,
+        "Promoted type must be single or double precision float but found ",
+        common_dtype);
+  }
+
   return common_dtype;
 }
 

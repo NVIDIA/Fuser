@@ -437,6 +437,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "remainder";
     case BinaryOpType::Sub:
       return "sub";
+    case BinaryOpType::Nextafter:
+      return "nextafter";
 
     // Integer Ops
     case BinaryOpType::Mod:
