@@ -411,6 +411,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
     return {};
   }
   manage("smem_tvs", smem_tvs);
+
   GpuLower lower(this, compile_params);
   auto kernel = lower.kernel();
   auto info = getBankConflictInfo(kernel);
@@ -420,14 +421,19 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
       lower.fusion()->getManaged<std::vector<TensorView*>>("smem_tvs");
   TORCH_INTERNAL_ASSERT(smem_tvs_in_kernel.size() == smem_tvs.size());
   auto getSmemTvInFusion = [&](Val* v) -> TensorView* {
+    auto ti = dynamic_cast<kir::TensorIndex*>(v);
+    if (ti == nullptr) {
+      return nullptr;
+    }
+    auto tv = ti->view();
     auto it = std::find(
         smem_tvs_in_kernel.begin(),
         smem_tvs_in_kernel.end(),
-        dynamic_cast<TensorView*>(v));
+        tv);
     if (it == smem_tvs_in_kernel.end()) {
       return nullptr;
     }
-    auto index = std::distance(it, smem_tvs_in_kernel.begin());
+    auto index = std::distance(smem_tvs_in_kernel.begin(), it);
     return smem_tvs.at(index);
   };
 

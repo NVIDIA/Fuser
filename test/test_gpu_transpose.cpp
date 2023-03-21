@@ -870,7 +870,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict2_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{32});
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 32));
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict3_CUDA) {
@@ -927,7 +927,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
 
   auto bank_conflict_info = fusion.bankConflictInfo();
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{8});
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 8));
   ASSERT_EQ(bank_conflict_info.at(tv2).first, std::vector<int>{2});
   ASSERT_EQ(bank_conflict_info.at(tv2).second, std::vector<int>{4});
 }
@@ -1001,7 +1001,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict7_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{2});
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 2));
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
