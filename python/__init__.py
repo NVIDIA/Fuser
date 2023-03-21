@@ -6,6 +6,7 @@
 from . import _C
 from ._C import *  # noqa: F401,F403
 
+
 class FusionDefinition(_C._FusionDefinition):
     def __enter__(self):
         return self._setup_definition()
@@ -32,7 +33,7 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             List[Tensor]
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
         func_based_def = False
 
         # if definition is not defined by a context manager, try a child class
@@ -50,7 +51,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         return self._execute(inputs, override_user_schedule)
 
-    def from_pytorch(self, tensor) :
+    def from_pytorch(self, tensor):
         """
         Defines an nvfuser input tensor from a pytorch tensor
 
@@ -68,10 +69,15 @@ class FusionDefinition(_C._FusionDefinition):
         if not tensor.is_cuda:
             raise ValueError("Tensor should be on a cuda device!")
 
-        return self.define_tensor(sizes=tensor.size(), strides=tensor.stride(),
-                                  dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype))
+        return self.define_tensor(
+            sizes=tensor.size(),
+            strides=tensor.stride(),
+            dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+        )
+
 
 from .nvfuser_version import __version__
+
 
 def version():
     r"""returns nvfuser version in format of a string 'm.n.p+git[7d-sha]'.

@@ -196,6 +196,7 @@ exclude_patterns = [
     '**/.gitattributes',
     '**/.gitmodules',
     '.lintrunner.toml',
+    'CMakeLists.txt',
 ]
 command = [
     'python3',

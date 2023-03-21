@@ -45,7 +45,7 @@ jobs:
           # pytorch environment variables
           export TORCH_CUDA_ARCH_LIST="8.6"
           export BUILD_NVFUSER=1
-          export USE_MKLDNN=0 
+          export USE_MKLDNN=0
           export USE_CUDNN=0
           export USE_DISTRIBUTED=0
           export NVFUSER_SOURCE_DIR=$this_dir
@@ -81,7 +81,7 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Run lintrunner except clang-tidy
-          lintrunner --force-color --take FLAKE8, MYPY, CLANGFORMAT, NOQA, TYPEIGNORE, NEWLINE, MYPYSTRICT, TABS, SPACES, EXEC, BLACK --all-files
+          lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK --all-files
 
   flake8:
     runs-on: ubuntu-latest
