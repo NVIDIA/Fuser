@@ -1509,7 +1509,7 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(1, 1, 1024, 1024, device='cuda'),
         ]
 
-        def nvfuser_fusion(fd : FusionDefinition) -> None :                                                                        
+        def nvfuser_fusion(fd : FusionDefinition, prob) -> None :                                                                        
             T0 = fd.define_tensor(symbolic_sizes=[-1, -1, -1, -1], contiguous=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
             T1 = fd.define_tensor(symbolic_sizes=[1, 1, -1, -1], contiguous=[None, None, True, True], dtype=DataType.Float, is_cpu=False)
             S2 = fd.define_constant(0.125000, dtype=DataType.Double)
@@ -1542,34 +1542,28 @@ class TestNvFuserFrontend(TestCase):
             S29 = fd.define_constant(0.00000, dtype=DataType.Double)
             S30 = fd.define_constant(1.00000, dtype=DataType.Double)
             T31 = fd.ops.uniform(S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float)
-            S32 = fd.define_constant(0.900000, dtype=DataType.Double)
+            S32 = fd.define_constant(1.0 - prob, dtype=DataType.Double)
             T33 = fd.ops.lt(T31, S32)
             T34 = fd.ops.cast(T33, dtype=DataType.Float)
             T35 = fd.ops.mul(T24, T34)
-            S36 = fd.define_constant(1.11111, dtype=DataType.Double)
+            S36 = fd.define_constant(1.0 / (1.0 - prob), dtype=DataType.Double)
             T37 = fd.ops.mul(T35, S36)
             fd.add_output(T37)
 
-        def torch_def(acts, bias, n_seq_len, n_head_dim):
+        def torch_def(acts, bias, n_seq_len, n_head_dim, prob):
             att = acts * (1.0 / math.sqrt(n_head_dim))
             att = att.masked_fill(bias[:, :, :n_seq_len, :n_seq_len] == 0, float("-inf"))
-            print("SIZE0", att.size())
             att = torch.nn.functional.softmax(att, dim=-1)
-            print("SIZE1", att.size())
-            att = torch.nn.functional.dropout(att), 1.0)
-            print("SIZE2", att.size())
+            att = torch.nn.functional.dropout(att, p=prob)
             return att
 
-        with FusionDefinition() as fd:
-            nvfuser_fusion(fd)
+        # NOTE: The dropout probabilities need to be set to 0 elements zeroed out
+        # in order to match implementations as eager and nvFuser do not have matching
+        # blocking.
+        nvf_out, _ = self.exec_nvfuser(partial(nvfuser_fusion, prob=0.0), inputs)
+        eager_out = torch_def(inputs[0], inputs[1], 128, 64, 0.0)
 
-        # TODO: Fix printing of -inf so a comparison can be done of the python printing
-        nvf_out = fd.execute(inputs)
-        eager_out = torch_def(inputs[0], inputs[1], 128, 64)
-
-        print(nvf_out[0].size(), eager_out.size())
-        
-        for idx in range(len(eager_out)):
+        for idx in range(len(nvf_out)):
             self.assertEqual(eager_out, nvf_out[idx])
 
 

@@ -1056,14 +1056,24 @@ struct ConstantRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    if (std::is_same<ValueType, bool>::value) {
+    if constexpr (std::is_same_v<ValueType, bool>) {
       bool value = __toBool(value_);
       os << (value ? "True" : "False");
-    } else if (
-        std::is_same<ValueType, std::complex<float>>::value ||
-        std::is_same<ValueType, std::complex<double>>::value) {
+    } else if constexpr (std::is_same_v<ValueType, std::complex<float>> ||
+        std::is_same_v<ValueType, std::complex<double>>) {
       os << std::showpoint << std::real(value_) << "+" << std::showpoint
          << std::imag(value_) << "j";
+    } else if constexpr (std::is_same_v<ValueType, float> ||
+        std::is_same_v<ValueType, double>) {
+      if (std::isinf(value_)) {
+        if (std::signbit(value_)) {
+          os << "float(\"-inf\")";
+        } else {
+          os << "float(\"inf\")";
+        }
+      } else {
+        os << std::showpoint << value_;
+      }
     } else {
       os << std::showpoint << value_;
     }
