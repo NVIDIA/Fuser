@@ -56,28 +56,8 @@ jobs:
           python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
 
-          echo $this_dir
-          ls -ll
-          ls -ll ./pytorch/build
-
-          lintrunner --force-color csrc/utils.cpp
-
-          RC=0
           # Run lintrunner on all files
-          if ! lintrunner --force-color csrc/utils.cpp --tee-json=lint.json 2> /dev/null; then
-            echo ""
-            echo -e "\e[1m\e[36mYou can reproduce these results locally by using \`lintrunner\`.\e[0m"
-            echo -e "\e[1m\e[36mSee https://github.com/pytorch/pytorch/wiki/lintrunner for setup instructions.\e[0m"
-            RC=1
-          fi
-
-          ls -ll
-
-          # Use jq to massage the JSON lint output into GitHub Actions workflow commands.
-          jq --raw-output \
-          '"::\(if .severity == "advice" or .severity == "disabled" then "warning" else .severity end) file=\(.path),line=\(.line),col=\(.char),title=\(.code) \(.name)::" + (.description | gsub("\\n"; "%0A"))' \
-          lint.json || true
-          exit $RC
+          time find csrc/ops/ -type f | xargs lintrunner --force-color
 
   flake8:
     runs-on: ubuntu-latest
