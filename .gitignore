@@ -1,6 +1,12 @@
 bin
-python/version.py
+build
+nvfuser/version.py
+nvfuser/lib
+
+*.egg-info/
 __pycache__
+
+*.so
 
 # Editor temporaries
 *.swa

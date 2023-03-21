@@ -37,18 +37,12 @@ subprocess.check_call(cmd_str)
 # copy nvfuser pybind extension
 src = os.path.join(cmake_build_dir, "libnvfuser.so")
 dst = os.path.join(cwd, "nvfuser", "_C.cpython-310-x86_64-linux-gnu.so")
-
 copy_file(src, dst)
 
-#nvfuser_package_data = [
-#  'share/cmake/nvfuser/*.cmake',
-#  'include/nvfuser/*.h',
-#  'include/nvfuser/kernel_db/*.h',
-#  'include/nvfuser/multidevice/*.h',
-#  'include/nvfuser/ops/*.h',
-#  'include/nvfuser/python_frontend/*.h',
-#  'include/nvfuser/scheduler/*.h',
-#]
+# NOTE: package include files for cmake
+nvfuser_package_data = [
+  "lib/*.so",
+]
 
 setup(
   name="nvfuser",
@@ -58,4 +52,7 @@ setup(
   packages=["nvfuser"],
   ext_modules=ext_modules,
   license_files=("LICENSE",),
+  package_data={
+    "nvfuser": nvfuser_package_data,
+  },
 )
