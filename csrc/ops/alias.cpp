@@ -398,10 +398,10 @@ TensorView* pad(
       value = static_cast<Val*>(IrBuilder::create<Int>(0, dt));
     }
   }
-
-  TORCH_CHECK(
-      !isComplexType(value->dtype()) || isComplexType(dt),
-      "Only TensorViews with complex dtypes may be padded with complex values");
+  if (value->getDataType().value() != dt) {
+    // Insert an explicit castOp if dtype of value does not match TensorView's
+    value = castOp(dt, value);
+  }
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
