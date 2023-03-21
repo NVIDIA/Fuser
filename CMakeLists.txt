@@ -255,23 +255,26 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if (PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
-
-  message(STATUS "install_lib_dir: ${TORCH_INSTALL_LIB_DIR}")
-  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
+  #install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+  #        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+  #        FILES_MATCHING PATTERN "*.h" )
+  #install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
-
-  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
-  # installing nvfuser headers
-  install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-          DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-          FILES_MATCHING PATTERN "*.h" )
   # installing nvfuser python tests
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
   	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
           FILES_MATCHING PATTERN "*.py" )
+
 endif()
+message(STATUS "install_lib_dir: ${TORCH_INSTALL_LIB_DIR}")
+message(STATUS "cmake_install_includedir: ${CMAKE_INSTALL_INCLUDEDIR}")
+install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
+# installing nvfuser headers
+install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+        FILES_MATCHING PATTERN "*.h" )
 
 #-----------------------------
 # build nvfuser python library
