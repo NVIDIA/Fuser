@@ -58,27 +58,10 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   // than just allowing the integer type promotion for the two inputs as below.
   // Note that this is only needed for integer types. See also PR #2228.
   if (lhs->dtype() != rhs->dtype()) {
-    if (isPointerType(lhs->dtype())) {
-      TORCH_INTERNAL_ASSERT(isIntegralType(rhs->dtype()));
+    dtype = promoteType(lhs->dtype(), rhs->dtype());
+    if (isPointerType(lhs->dtype()) || isPointerType(rhs->dtype())) {
       TORCH_INTERNAL_ASSERT(
           op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
-      dtype = lhs->dtype();
-    } else if (isPointerType(rhs->dtype())) {
-      TORCH_INTERNAL_ASSERT(isIntegralType(lhs->dtype()));
-      TORCH_INTERNAL_ASSERT(
-          op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
-      dtype = rhs->dtype();
-    } else if (
-        (lhs->dtype() == DataType::Int && rhs->dtype() == DataType::Int32) ||
-        (lhs->dtype() == DataType::Int32 && rhs->dtype() == DataType::Int)) {
-      dtype = DataType::Int;
-    } else {
-      TORCH_CHECK(
-          false,
-          "Incompatible operand types: ",
-          lhs->dtype(),
-          " and ",
-          rhs->dtype());
     }
   }
   auto result = newScalar(dtype);
