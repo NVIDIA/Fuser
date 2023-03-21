@@ -1822,11 +1822,9 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
   // condition. However, trying all partition can be slow. So we take advantage
   // of our knowledge of our prover:
   // 1. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
-  // able
-  //    to prove -|gcd(c,...)| < x < |gcd(c,...)|
+  //    able to prove -|gcd(c,...)| < x < |gcd(c,...)|
   // 2. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
-  // able
-  //    to prove -|c| < x + y < |c|
+  //    able to prove -|c| < x + y < |c|
   // Note that the above observation is just an approximation, it is not
   // guaranteed. So if we use any of the above assumptions, we might lose
   // simplifying opportunities. But in practice, this should be fine.
