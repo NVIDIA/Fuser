@@ -485,8 +485,20 @@ void scheduleMatmul(
 
   //  0   1  2  3   4   5   6  7  8  9  10
   // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  cc->axis(0)->parallelize(ParallelType::BIDx);
-  cc->axis(1)->parallelize(ParallelType::BIDy);
+  if (params.rasterization_order ==
+      MatmulParam::TileRasterizationOrder::RowMajor) {
+    cc->axis(0)->parallelize(ParallelType::BIDx);
+    cc->axis(1)->parallelize(ParallelType::BIDy);
+  } else if (
+      params.rasterization_order ==
+      MatmulParam::TileRasterizationOrder::ColumnMajor) {
+    cc->axis(0)->parallelize(ParallelType::BIDy);
+    cc->axis(1)->parallelize(ParallelType::BIDx);
+  } else {
+    TORCH_CHECK(
+        false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
+  }
+
   cc->axis(4)->parallelize(ParallelType::TIDz);
   cc->axis(5)->parallelize(ParallelType::TIDy);
 
