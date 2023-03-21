@@ -52,7 +52,7 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             result = self._execute(inputs, override_user_schedule)
         except Exception as err:
-            print("Error executing FusionDefinition:")
+            print("\nError executing nvFuser FusionDefinition:")
             print(self)
             raise RuntimeError(err)
 
