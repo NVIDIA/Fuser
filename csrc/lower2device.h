@@ -62,6 +62,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
 
   kir::Kernel* kernel() const;
 
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
   //! Returns the currently active lowering object.
   //! It's an error if no lowering is in progress.
   static GpuLower* current();

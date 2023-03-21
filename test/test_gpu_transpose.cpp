@@ -850,12 +850,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict1_CUDA) {
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{32, 0};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict2_CUDA) {
@@ -875,12 +870,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict2_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{0, 32};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{32});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict3_CUDA) {
@@ -900,12 +890,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict3_CUDA) {
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{8, 0};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
@@ -941,16 +926,10 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
   // T3 [16, TIDx(32), 2]
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect1{0, 8};
-    std::pair<int, int> expect2{8, 4};
-    std::pair<int, int> expect3{2, 0};
-    TORCH_CHECK(
-        info.second == expect1 || info.second == expect2 ||
-        info.second == expect3);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{8});
+  ASSERT_EQ(bank_conflict_info.at(tv2).first, std::vector<int>{2});
+  ASSERT_EQ(bank_conflict_info.at(tv2).second, std::vector<int>{4});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict5_CUDA) {
@@ -973,12 +952,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict5_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{32, 0};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict6_CUDA) {
@@ -1001,12 +975,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict6_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{32, 0};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict7_CUDA) {
@@ -1032,12 +1001,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict7_CUDA) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto bank_conflict_info = fusion.bankConflictInfo();
-
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{0, 2};
-    TORCH_CHECK(info.second == expect);
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>{2});
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {

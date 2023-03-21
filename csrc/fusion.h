@@ -16,6 +16,8 @@
 #include <ir_container.h>
 #include <iter_visitor.h>
 
+#include <any>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -146,8 +148,11 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   bool isNoOp();
 
   //! Lower the fusion and evaluate bank conflict info
-  std::unordered_map<std::string, std::pair<int, int>> bankConflictInfo(
-      const CompileParams& compile_params = CompileParams());
+  //! Returns (tensor, read conflict ways, write conflict ways)
+  //! Each tensor can be read/write by multiple expressions, so the ways are
+  //! vectors.
+  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to genereate registered outputs.
@@ -242,21 +247,49 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return io_alias_;
   }
 
-  // vector of (tv, dim, selection)
-  // For each entry in the vector, the selected tv/expr in loop tv->axis(dim)
-  // will be rotated
-  using LoopRotationParam = std::vector<
-      std::tuple<TensorView*, int64_t, std::unordered_set<Statement*>>>;
+  using CloneFn = std::function<std::any(IrCloner&, std::any)>;
 
-  const LoopRotationParam& getLoopRotationParam() const {
-    return loop_rotation_param_;
+  inline size_t manage(std::any data, CloneFn clone) {
+    managed_data_.push_back(std::make_pair(data, clone));
+    return managed_data_.size() - 1;
   }
 
-  void rotateLoop(
-      TensorView* loop_tv,
-      int64_t axis,
-      std::unordered_set<Statement*> selection) {
-    loop_rotation_param_.emplace_back(loop_tv, axis, std::move(selection));
+  inline void manage(std::string key, std::any data, CloneFn clone) {
+    managed_named_data_[key] = std::make_pair(data, clone);
+  }
+
+  template <typename T>
+  inline size_t manage(T data);
+
+  template <typename T>
+  inline void manage(std::string key, T data);
+
+  template <typename T>
+  inline T getManaged(size_t index) const {
+    return std::any_cast<T>(managed_data_.at(index).first);
+  }
+
+  template <typename T>
+  inline T getManaged(std::string key) const {
+    return std::any_cast<T>(managed_named_data_.at(key).first);
+  }
+
+  template <typename T>
+  inline T getManaged(size_t index) {
+    return std::any_cast<T>(managed_data_.at(index).first);
+  }
+
+  template <typename T>
+  inline T getManaged(std::string key) {
+    return std::any_cast<T>(managed_named_data_.at(key).first);
+  }
+
+  inline bool hasManaged(size_t index) const {
+    return index >= 0 && index < managed_data_.size();
+  }
+
+  inline bool hasManaged(std::string key) const {
+    return managed_named_data_.find(key) != managed_named_data_.end();
   }
 
  protected:
@@ -310,9 +343,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   bool all_tv_uses_valid_ = false;
   bool is_during_update_uses_ = false;
 
-  // Compilation parameters guiding the loop rotation pass. See note
-  // [Loop Rotation] for detail.
-  LoopRotationParam loop_rotation_param_;
+  std::vector<std::pair<std::any, CloneFn>> managed_data_;
+  std::unordered_map<std::string, std::pair<std::any, CloneFn>>
+      managed_named_data_;
 };
 
 } // namespace nvfuser
