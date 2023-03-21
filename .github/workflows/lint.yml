@@ -56,8 +56,8 @@ jobs:
           python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
 
-          # Run lintrunner on all files
-          time find csrc/ops/ -type f | xargs lintrunner --force-color
+          # Run lintrunner on all csrc files
+          time find csrc/ -type f | xargs lintrunner --force-color
 
   flake8:
     runs-on: ubuntu-latest
