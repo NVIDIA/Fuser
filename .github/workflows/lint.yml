@@ -26,7 +26,8 @@ jobs:
 
           git fetch origin main
           git branch main
-          git --no-pager diff --name-only main
+          git branch
+          git diff --name-only main
           git log -10
 
           '''
