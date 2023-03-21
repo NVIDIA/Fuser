@@ -146,15 +146,64 @@ PrimDataType indexModeToDtype(KernelIndexMode index_mode);
 KernelIndexMode indexTypeToMode(DataType index_type);
 
 // Returns if the datatype is a floating point type
-TORCH_CUDA_CU_API bool isFloatingPointType(DataType dtype);
+TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
+  TORCH_CHECK(
+      dtype != DataType::Null,
+      "Null type is not a valid argument to isFloatingPointType");
+  return dtype == DataType::Double || dtype == DataType::Float ||
+      dtype == DataType::Half || dtype == DataType::BFloat16;
+}
+
 // Returns if the datatype is an integer type
-TORCH_CUDA_CU_API bool isIntegralType(DataType dtype);
+TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
+  return std::visit(
+      [](auto&& dtype) {
+        using T = std::decay_t<decltype(dtype)>;
+        if constexpr (std::is_same_v<T, PrimDataType>) {
+          switch (dtype) {
+            case DataType::Index:
+            case DataType::Int:
+            case DataType::Int32:
+              return true;
+            case DataType::Null:
+              TORCH_CHECK(
+                  false, "Null type is not a valid argument to isIntegralType");
+            default:
+              return false;
+          }
+        }
+        return false;
+      },
+      dtype.type);
+}
+
 // Returns if the datatype is a pointer type
-TORCH_CUDA_CU_API bool isPointerType(DataType dtype);
-// Returns if the datatype is an boolean type
-TORCH_CUDA_CU_API bool isBooleanType(DataType dtype);
+TORCH_CUDA_CU_API inline bool isPointerType(DataType dtype) {
+  return std::holds_alternative<PointerOf>(dtype.type) ||
+      dtype == DataType::SMemAddress;
+}
+
+// Returns if the datatype is an integer or pointer type
+TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
+  return isIntegralType(dtype) || isPointerType(dtype);
+}
+
+// Returns if the datatype is a boolean type
+TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
+  TORCH_CHECK(
+      dtype != DataType::Null,
+      "Null type is not a valid argument to isBooleanType");
+  return dtype == DataType::Bool;
+}
+
 // Returns if the datatype is a complex type
-TORCH_CUDA_CU_API bool isComplexType(DataType dtype);
+TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
+  TORCH_CHECK(
+      dtype != DataType::Null,
+      "Null type is not a valid argument to isComplexType");
+  return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
+}
+
 // Return the corresponding scalar of a complex type
 DataType getTypeFromComplexType(DataType dtype);
 // Return if the datatype is supported on the current device
@@ -427,8 +476,110 @@ bool needFloatSuffix(UnaryOpType t);
 bool needFloatSuffix(BinaryOpType t);
 bool needFloatSuffix(RNGOpType t);
 
-ValType promote_type(const ValType& t1, const ValType& t2);
-DataType promote_type(const DataType& t1, const DataType& t2);
+ValType promoteType(const ValType& t1, const ValType& t2);
+
+#define HANDLE_TYPE_PROMOTION(Type1, Type2)                              \
+  if (t1 == NativeTypeToDataType<Type1>::type &&                         \
+      t2 == NativeTypeToDataType<Type2>::type) {                         \
+    return NativeTypeToDataType<std::common_type_t<Type1, Type2>>::type; \
+  }
+
+#define HANDLE_TYPE_PROMOTION1(Type1)                \
+  HANDLE_TYPE_PROMOTION(Type1, float);               \
+  HANDLE_TYPE_PROMOTION(Type1, double);              \
+  HANDLE_TYPE_PROMOTION(Type1, int64_t);             \
+  HANDLE_TYPE_PROMOTION(Type1, int);                 \
+  HANDLE_TYPE_PROMOTION(Type1, bool);                \
+  HANDLE_TYPE_PROMOTION(Type1, std::complex<float>); \
+  HANDLE_TYPE_PROMOTION(Type1, std::complex<double>)
+
+inline DataType promoteType(const DataType& t1, const DataType& t2) {
+  if (t1 == t2) {
+    return t1;
+  }
+  // pointer +- integer = pointer
+  if (isPointerType(t1) && isIntegralType(t2)) {
+    return t1;
+  }
+  if (isPointerType(t2) && isIntegralType(t1)) {
+    return t2;
+  }
+  // When seeing DataType::Index, assuming we are computing index, so propagate
+  // DataType::Index
+  if ((t1 == DataType::Index && isIntegralType(t2)) ||
+      (t2 == DataType::Index && isIntegralType(t1))) {
+    return DataType::Index;
+  }
+  // Workaround a case where C++ and ATen have different type promotion rules
+  if ((t1 == DataType::Double && t2 == DataType::ComplexFloat) ||
+      (t2 == DataType::Double && t1 == DataType::ComplexFloat)) {
+    // WARNING: ATen and C++ behave differently for this case. ATen returns
+    // DataType::ComplexDouble but C++ returns DataType::ComplexFloat. Right now
+    // we choose to be consistent with ATen.
+    // TODO: I am pretty sure that for some cases we would need C++'s promotion
+    // rule, for example, when we are simplifying scalar expressions, and for
+    // other cases, we need ATen's promotion rule, for example, when we define
+    // fusion from ATen graph. Fortunately, right now this is the only case to
+    // worry about, and I don't think in practice, using ATen's rule would cause
+    // any trouble.
+    return DataType::ComplexDouble;
+  }
+  // Use C++ promotion rule when dtype has a native C++ type
+  HANDLE_TYPE_PROMOTION1(float);
+  HANDLE_TYPE_PROMOTION1(double);
+  HANDLE_TYPE_PROMOTION1(int64_t);
+  HANDLE_TYPE_PROMOTION1(int);
+  HANDLE_TYPE_PROMOTION1(bool);
+  HANDLE_TYPE_PROMOTION1(std::complex<float>);
+  HANDLE_TYPE_PROMOTION1(std::complex<double>);
+  // double + half/bfloat16 = double
+  if ((t1 == DataType::Double && isFloatingPointType(t2)) ||
+      (t2 == DataType::Double && isFloatingPointType(t1))) {
+    return DataType::Double;
+  }
+  // float + half/bfloat16 = float
+  // half + bfloat16 = float
+  if (isFloatingPointType(t1) && isFloatingPointType(t2)) {
+    return DataType::Float;
+  }
+  // complex + half/bfloat16 = complex
+  if (isComplexType(t1)) {
+    return t1;
+  }
+  if (isComplexType(t2)) {
+    return t2;
+  }
+  // half + integers/bool = half
+  // bfloat16 + integers/bool = bfloat16
+  if (isFloatingPointType(t1)) {
+    return t1;
+  }
+  if (isFloatingPointType(t2)) {
+    return t2;
+  }
+  TORCH_CHECK(
+      false, "Expected promotable DataTypes but got: ", t1, " and ", t2);
+}
+
+#undef HANDLE_TYPE_PROMOTION
+#undef HANDLE_TYPE_PROMOTION1
+
+template <typename... Args>
+inline DataType promoteType(
+    const DataType& t1,
+    const DataType& t2,
+    const Args&... args) {
+  return promoteType(t1, promoteType(t2, promoteType(args...)));
+}
+
+inline DataType promoteType(const std::vector<DataType>& types) {
+  TORCH_CHECK(types.size() > 0, "Can not promote empty type vector")
+  DataType result = types.at(0);
+  for (auto t : types) {
+    result = promoteType(result, t);
+  }
+  return result;
+}
 
 // If type cannot be found (i.e. codegen does not support provided type) returns
 // DataType::Null
