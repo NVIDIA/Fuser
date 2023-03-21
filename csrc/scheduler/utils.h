@@ -580,7 +580,8 @@ TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 //! the dependency. A proper RAW sync will be automatically inserted
 //! when the fusion is lowered.
 TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
-    Fusion* fusion);
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
