@@ -13,6 +13,14 @@ jobs:
   lintrunner:
     runs-on: ubuntu-latest
     steps:
+      - uses: Jimver/cuda-toolkit@v0.2.10
+        id: cuda-toolkit
+        with:
+          cuda: '12.1.0'
+      - run: |
+          echo "Installed cuda version is: ${{steps.cuda-toolkit.outputs.cuda}}"
+          echo "Cuda install location: ${{steps.cuda-toolkit.outputs.CUDA_PATH}}"
+          nvcc -V
       - uses: actions/checkout@v3
         with:
           submodules: true
@@ -31,7 +39,7 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Clone pytorch and run cmake build
-          git clone https://github.com/rdspring1/pytorch.git
+          git clone https://github.com/pytorch/pytorch.git
           cd pytorch
           BUILD_NVFUSER=1 NVFUSER_SOURCE_DIR=$this_dir USE_MKLDNN=0 python3 -m tools.linter.clang_tidy.generate_build_files
           cd $this_dir
