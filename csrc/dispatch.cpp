@@ -58,6 +58,8 @@ void Val::dispatch(T handler, Val* val) {
           return;
         case DataType::Float:
         case DataType::Double:
+        case DataType::Half:
+        case DataType::BFloat16:
           ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:
@@ -342,6 +344,8 @@ void Val::constDispatch(T handler, const Val* val) {
           return;
         case DataType::Float:
         case DataType::Double:
+        case DataType::Half:
+        case DataType::BFloat16:
           ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:
