@@ -1,8 +1,14 @@
+# binary reference
 bin
+# cmake build directory
 build
+# pip wheel directory
+dist
+
 nvfuser/version.py
 nvfuser/lib
 
+.hypothesis
 *.egg-info/
 __pycache__
 
