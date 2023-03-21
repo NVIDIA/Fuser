@@ -5,6 +5,7 @@
 
 from copy import deepcopy
 from functools import partial
+import math
 import re
 from typing import List
 import unittest
@@ -1502,82 +1503,82 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
-    def test_slice(self) :
+    def test_nanogpt_mha_dpa(self) :
         inputs = [
-            torch.randn(1, 1, 1024, 1204, device='cuda'),
-            torch.randn(32, 16, 128, 128, device='cuda'),
-        ]
-
-        def nvfuser_fusion_id(fd : FusionDefinition) -> None :
-            t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.from_pytorch(inputs[1])
-            t2 = fd.ops.slice(t0, [0, 0, 0, 0], [1, 1, 128, 128], [1, 1, 1, 1])
-            t3 = fd.ops.add(t1, t2)
-            fd.add_output(t3)
-
-        with FusionDefinition() as fd:
-            nvfuser_fusion_id(fd)
-
-        out = fd.execute(inputs)
-
-    def test_nanogpt_slice(self) :
-        inputs = [
-            torch.randn(1, 1, 1024, 1204, device='cuda'),
             torch.randn(16, 16, 128, 128, device='cuda'),
+            torch.randn(1, 1, 1024, 1024, device='cuda'),
         ]
 
-        def nvfuser_fusion(fd : FusionDefinition) -> None :
-            T0 = fd.define_tensor(symbolic_sizes=[1, 1, -1, -1], contiguous=[None, None, True, True], dtype=DataType.Float, is_cpu=False)
-            T1 = fd.define_tensor(symbolic_sizes=[-1, -1, -1, -1], contiguous=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
-            S1 = fd.define_constant(0.125000, dtype=DataType.Double)
-            T2 = fd.ops.mul(T1, S1)
-            T0_slice = fd.ops.slice(T0, [0, 0, 0, 0], [1, 1, 128, 128], [1, 1, 1, 1])
-            S2 = fd.define_constant(0.00000, dtype=DataType.Double)
-            T3 = fd.ops.eq(S2, T0_slice)
-            T4 = fd.ops.broadcast_in_dim(T3, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
-            S5 = fd.define_constant(float("-inf"), dtype=DataType.Double)
-            T6 = fd.ops.where(T4, S5, T2)
-            S7 = fd.define_constant(-1, dtype=DataType.Int)
-            S8 = fd.define_constant(4, dtype=DataType.Int)
-            S9 = fd.ops.add(S7, S8)
-            T10 = fd.ops.max(T6, axes=[3], keepdim=False, dtype=DataType.Null)
-            T11 = fd.ops.broadcast_in_dim(T10, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
-            T12 = fd.ops.broadcast_in_dim(T11, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
-            T13 = fd.ops.sub(T6, T12)
-            T14 = fd.ops.exp(T13)
-            S15 = fd.define_constant(-1, dtype=DataType.Int)
-            S16 = fd.define_constant(4, dtype=DataType.Int)
-            S17 = fd.ops.add(S15, S16)
-            T18 = fd.ops.sum(T14, axes=[3], keepdim=False, dtype=DataType.Null)
-            T19 = fd.ops.broadcast_in_dim(T18, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
-            T20 = fd.ops.broadcast_in_dim(T19, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
-            T21 = fd.ops.div(T14, T20)
-            S22 = fd.define_constant(16, dtype=DataType.Int)
-            S23 = fd.define_constant(16, dtype=DataType.Int)
-            S24 = fd.define_constant(128, dtype=DataType.Int)
-            S25 = fd.define_constant(128, dtype=DataType.Int)
-            S26 = fd.define_constant(0.00000, dtype=DataType.Double)
-            S27 = fd.define_constant(1.00000, dtype=DataType.Double)
-            T28 = fd.ops.uniform(S26, S27, shape=[S22, S23, S24, S25], dtype=DataType.Float)
-            S29 = fd.define_constant(0.900000, dtype=DataType.Double)
-            T30 = fd.ops.lt(T28, S29)
-            T31 = fd.ops.cast(T30, dtype=DataType.Float)
-            T32 = fd.ops.mul(T21, T31)
-            S33 = fd.define_constant(1.11111, dtype=DataType.Double)
-            T34 = fd.ops.mul(T32, S33)
-            fd.add_output(T34)
+        def nvfuser_fusion(fd : FusionDefinition) -> None :                                                                        
+            T0 = fd.define_tensor(symbolic_sizes=[-1, -1, -1, -1], contiguous=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
+            T1 = fd.define_tensor(symbolic_sizes=[1, 1, -1, -1], contiguous=[None, None, True, True], dtype=DataType.Float, is_cpu=False)
+            S2 = fd.define_constant(0.125000, dtype=DataType.Double)
+            T3 = fd.ops.mul(T0, S2)                    
+            T4 = fd.ops.slice(T1, start_indices=[0, 0, 0, 0], end_indices=[1, 1, 128, 128], strides=[1, 1, 1, 1])
+            S5 = fd.define_constant(0.00000, dtype=DataType.Double)                                                                    
+            T6 = fd.ops.eq(S5, T4)                                     
+            T7 = fd.ops.broadcast_in_dim(T6, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            S8 = fd.define_constant(float("-inf"), dtype=DataType.Double)
+            T9 = fd.ops.where(T7, S8, T3)                           
+            S10 = fd.define_constant(-1, dtype=DataType.Int)
+            S11 = fd.define_constant(4, dtype=DataType.Int)
+            S12 = fd.ops.add(S10, S11)
+            T13 = fd.ops.max(T9, axes=[3], keepdim=False, dtype=DataType.Null)
+            T14 = fd.ops.broadcast_in_dim(T13, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T15 = fd.ops.broadcast_in_dim(T14, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T16 = fd.ops.sub(T9, T15)
+            T17 = fd.ops.exp(T16)
+            S18 = fd.define_constant(-1, dtype=DataType.Int)
+            S19 = fd.define_constant(4, dtype=DataType.Int)
+            S20 = fd.ops.add(S18, S19)
+            T21 = fd.ops.sum(T17, axes=[3], keepdim=False, dtype=DataType.Null)
+            T22 = fd.ops.broadcast_in_dim(T21, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T23 = fd.ops.broadcast_in_dim(T22, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T24 = fd.ops.div(T17, T23)
+            S25 = fd.define_constant(16, dtype=DataType.Int)
+            S26 = fd.define_constant(16, dtype=DataType.Int)
+            S27 = fd.define_constant(128, dtype=DataType.Int)
+            S28 = fd.define_constant(128, dtype=DataType.Int)
+            S29 = fd.define_constant(0.00000, dtype=DataType.Double)
+            S30 = fd.define_constant(1.00000, dtype=DataType.Double)
+            T31 = fd.ops.uniform(S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float)
+            S32 = fd.define_constant(0.900000, dtype=DataType.Double)
+            T33 = fd.ops.lt(T31, S32)
+            T34 = fd.ops.cast(T33, dtype=DataType.Float)
+            T35 = fd.ops.mul(T24, T34)
+            S36 = fd.define_constant(1.11111, dtype=DataType.Double)
+            T37 = fd.ops.mul(T35, S36)
+            fd.add_output(T37)
+
+        def torch_def(acts, bias, n_seq_len, n_head_dim):
+            att = acts * (1.0 / math.sqrt(n_head_dim))
+            att = att.masked_fill(bias[:, :, :n_seq_len, :n_seq_len] == 0, float("-inf"))
+            print("SIZE0", att.size())
+            att = torch.nn.functional.softmax(att, dim=-1)
+            print("SIZE1", att.size())
+            att = torch.nn.functional.dropout(att), 1.0)
+            print("SIZE2", att.size())
+            return att
 
         with FusionDefinition() as fd:
             nvfuser_fusion(fd)
 
-        out = fd.execute(inputs)
-    
-    def test_nanogpt_slice_2(self) :
+        # TODO: Fix printing of -inf so a comparison can be done of the python printing
+        nvf_out = fd.execute(inputs)
+        eager_out = torch_def(inputs[0], inputs[1], 128, 64)
+
+        print(nvf_out[0].size(), eager_out.size())
+        
+        for idx in range(len(eager_out)):
+            self.assertEqual(eager_out, nvf_out[idx])
+
+
+    def test_nanogpt_split_mha_linears(self) :
         inputs = [
             torch.randn(16, 128, 3072, device='cuda'),
         ]
 
-        def nvfuser_fusion(fd : FusionDefinition) -> None :
+        def nvfuser_fusion_0(fd : FusionDefinition) -> None :
             T0 = fd.from_pytorch(inputs[0])
             T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1] )
             T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1] )
@@ -1592,10 +1593,39 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T2_slice2)
             fd.add_output(T2_slice3)
 
-        with FusionDefinition() as fd:
-            nvfuser_fusion(fd)
+        def nvfuser_fusion_1(fd : FusionDefinition) -> None :
+            T0 = fd.define_tensor(symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True], dtype=DataType.Float, is_cpu=False)
+            T1 = fd.ops.slice(T0, start_indices=[0, 0, 0], end_indices=[16, 128, 1024], strides=[1, 1, 1])
+            T2 = fd.ops.slice(T0, start_indices=[0, 0, 1024], end_indices=[16, 128, 2048], strides=[1, 1, 1])
+            T3 = fd.ops.slice(T0, start_indices=[0, 0, 2048], end_indices=[16, 128, 3072], strides=[1, 1, 1])
+            fd.add_output(T1)
+            fd.add_output(T2)
+            fd.add_output(T3)
 
-        out = fd.execute(inputs)
+        def torch_def_0(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            k = k.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            q = q.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            v = v.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            return (q, k, v,)
+        
+        def torch_def_1(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            return (q, k, v,)
+
+ 
+        nvf_out0, _ = self.exec_nvfuser(nvfuser_fusion_0, inputs)
+        nvf_out1, _ = self.exec_nvfuser(nvfuser_fusion_1, inputs)
+
+        eager_out0 = torch_def_0(inputs, 1024, 16)
+        eager_out1 = torch_def_1(inputs, 1024, 16)
+
+        for idx in range(len(eager_out0)):
+            self.assertEqual(eager_out0[idx], nvf_out0[idx])
+        for idx in range(len(eager_out1)):
+            self.assertEqual(eager_out1[idx], nvf_out1[idx])
 
 if __name__ == '__main__':
     run_tests()
