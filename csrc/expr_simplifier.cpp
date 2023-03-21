@@ -1957,7 +1957,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
               promoteType(*term1->getDataType(), *sum_xs->getDataType()));
           IrBuilder::create<FOp>(
               BinaryOpType::Add, result, std::vector<Val*>{term1, sum_xs});
-          return result;
+          return assoc_comm::flatten(result);
         }
         default:
           TORCH_INTERNAL_ASSERT(false);
