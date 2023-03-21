@@ -7910,6 +7910,39 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   }
 }
 
+//! Test whether we can create and use half-precision scalars
+TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion->addInput(tv1);
+
+  auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::Half));
+  fusion->addOutput(tv2);
+
+  auto tv3 = full_like(tv1, IrBuilder::create<Double>(1.7, DataType::BFloat16));
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::zeros({5}, options);
+  at::Tensor t1 = at::zeros({5}, options.dtype(at::kBFloat16));
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, t1},
+      {at::ones_like(t0) * 1.5, at::ones_like(t1) * 1.7},
+      __LINE__,
+      __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

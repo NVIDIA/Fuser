@@ -3117,7 +3117,8 @@ PadOp::PadOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
-    const std::vector<Val*>& pad_widths)
+    const std::vector<Val*>& pad_widths,
+    Val* value)
     : Expr(passkey) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
@@ -3133,6 +3134,7 @@ PadOp::PadOp(
       ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
   addOutput(out);
   addInput(inp);
+  addInput(value);
   for (auto width : pad_widths) {
     TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);

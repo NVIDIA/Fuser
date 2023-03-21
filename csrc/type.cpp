@@ -1166,4 +1166,33 @@ std::ostream& operator<<(
   return os;
 }
 
+int max_digits10(DataType dtype) {
+  // [max_digits10 calculation]
+  // As of C++17 there is no max_digits10 for __half or bfloat16, so we use the
+  // general formula (see [1] p31 Section 5.2.4.2.2 part 11):
+  //   ceil(1 + p log10(2))
+  // where p is the precision of the type (aka significand):
+  //    Type      Precision   max_digits10
+  //   bfloat16       8           4
+  //   float16       11           5
+  //   float32       24           9
+  //   float64       53          17
+  // [1] http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
+  if (dtype == DataType::Float || dtype == DataType::ComplexFloat) {
+    return std::numeric_limits<float>::max_digits10;
+  } else if (dtype == DataType::Double || dtype == DataType::ComplexDouble) {
+    return std::numeric_limits<double>::max_digits10;
+  } else if (dtype == DataType::Half) {
+    return 5;
+  } else if (dtype == DataType::BFloat16) {
+    return 4;
+  } else {
+    TORCH_CHECK(
+        !isFloatingPointType(dtype),
+        "Unhandled floating point type in max_digits10 ",
+        dtype);
+    return 0;
+  }
+}
+
 } // namespace nvfuser

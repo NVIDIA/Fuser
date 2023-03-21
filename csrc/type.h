@@ -236,6 +236,10 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexDouble, std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 
+//! Returns the number of base-10 digits required to guarantee a lossless
+//! binary->text->binary round-trip. For exact types, this function returns 0.
+int max_digits10(DataType dtype);
+
 enum class UnaryOpType {
   Abs,
   Acos,
