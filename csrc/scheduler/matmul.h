@@ -56,6 +56,14 @@ class MatmulParam {
     //  latency bound kernels.
   } index_lift_options;
 
+  //! Configurable rasterization/parallelization order.
+  //! Depending on the problem shape, switching blockIdx.x and blockIdx.y can
+  //! help improve L2 hit rate.
+  enum class TileRasterizationOrder {
+    RowMajor = 0,
+    ColumnMajor = 1
+  } rasterization_order = TileRasterizationOrder::RowMajor;
+
   //! Enables predicate peeling mainloop:
   bool peel_main_loop = true;
 };
