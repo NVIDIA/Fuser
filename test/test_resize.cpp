@@ -1710,10 +1710,15 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
       IrBuilder::create<Int>(0),
       IrBuilder::create<Int>(128),
       IrBuilder::create<Int>(1)};
-  auto tv0_slice = slice(tv0, {dim0, dim1, dim2, dim3});
+  auto tv2 = slice(tv0, {dim0, dim1, dim2, dim3});
 
-  auto tv2 = add(tv0_slice, tv1);
-  fusion.addOutput(tv2);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  auto tv4 = slice(tv0, {dim0, dim1, dim2, dim3});
+
+  auto tv5 = add(tv4, tv1);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -1736,13 +1741,13 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
        at::indexing::Slice(0, 1, 1),
        at::indexing::Slice(0, 128, 1),
        at::indexing::Slice(0, 128, 1)});
-  auto aten_t2 = torch::add(aten_t0_slice, t1);
+  auto aten_t3 = torch::add(aten_t0_slice, t1);
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
       aten_inputs,
-      {aten_t2},
+      {aten_t3, aten_t3},
       __LINE__,
       __FILE__);
 }
