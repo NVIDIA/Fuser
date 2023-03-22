@@ -36,7 +36,7 @@ include_patterns = [
 command = [
     'python3',
     'tools/linter/adapters/clangformat_linter.py',
-    '--binary=/home/rspring/miniconda3/bin/clang-format',
+    '--binary=.lintbin/clang-format',
     '--',
     '@{{PATHSFILE}}'
 ]
@@ -56,6 +56,10 @@ code = 'CLANGTIDY'
 include_patterns = [
     '**/*.cpp',
 ]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+]
+
 init_command = [
     'python3',
     'tools/linter/adapters/s3_init.py',
@@ -192,6 +196,7 @@ exclude_patterns = [
     '**/.gitattributes',
     '**/.gitmodules',
     '.lintrunner.toml',
+    'CMakeLists.txt',
 ]
 command = [
     'python3',
