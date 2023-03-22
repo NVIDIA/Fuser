@@ -187,7 +187,7 @@ def main():
         # query nvfuser version
         version=get_version(),
         description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-        packages=["nvfuser", "nvfuser_patch_pytorch"],
+        packages=["nvfuser", "nvfuser_python_utils"],
         license_files=("LICENSE",),
         cmdclass={
             "bdist_wheel": build_whl,
@@ -198,7 +198,7 @@ def main():
         },
         entry_points={
             'console_scripts': [
-                'patch-nvfuser = nvfuser_patch_pytorch:patch_pytorch_nvfuser_binaries',
+                'patch-nvfuser = nvfuser_python_utils:patch_pytorch_nvfuser_binaries',
             ],
         },
     )
