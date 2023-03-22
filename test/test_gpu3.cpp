@@ -1755,21 +1755,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i39;
-  i39 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i111;
+  i111 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b86;
-  b86 = i39 < i7;
+  bool b243;
+  b243 = i111 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b86) {
+  if (b243) {
     T1[0]
-       = sinf(T0[i39]);
+       = sinf(T0[i111]);
   }
-  if (b86) {
-    T2[i39]
+  if (b243) {
+    T2[i111]
       = T1[0]
       + f8;
   }
@@ -7760,6 +7760,28 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
       fe.kernel(), cg_outputs, inputs, {ref_t1, ref_t3}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
+  auto convertible_to_aten = {
+      DataType::Bool,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::BFloat16,
+      DataType::Int,
+      DataType::Int32,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+  for (auto t1 : convertible_to_aten) {
+    for (auto t2 : convertible_to_aten) {
+      auto t1_aten = data_type_to_aten(t1);
+      auto t2_aten = data_type_to_aten(t2);
+      auto result_aten = c10::promoteTypes(t1_aten, t2_aten);
+      auto result = promoteType(t1, t2);
+      ASSERT_EQ(data_type_to_aten(result), result_aten);
+    }
+  }
+}
+
 // Make sure invalid usage of index type is detected
 TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   Fusion fusion;
@@ -7888,6 +7910,39 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   }
 }
 
+//! Test whether we can create and use half-precision scalars
+TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion->addInput(tv1);
+
+  auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::Half));
+  fusion->addOutput(tv2);
+
+  auto tv3 = full_like(tv1, IrBuilder::create<Double>(1.7, DataType::BFloat16));
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::zeros({5}, options);
+  at::Tensor t1 = at::zeros({5}, options.dtype(at::kBFloat16));
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, t1},
+      {at::ones_like(t0) * 1.5, at::ones_like(t1) * 1.7},
+      __LINE__,
+      __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

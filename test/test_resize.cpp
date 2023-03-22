@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   TORCH_CHECK(
       tv1->getMemoryType() == MemoryType::Shared,
@@ -275,7 +275,7 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
 
   scheduler_utils::parallelizeAllLike(tv3);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -323,12 +323,7 @@ TEST_F(NVFuserTest, FusionResizePad8_CUDA) {
   tv4->axis(1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion);
-
-  fusion.printMath();
-  fusion.print();
-
-  fusion.printKernel();
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -1587,6 +1582,167 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
       cg_outputs,
       aten_inputs,
       {t2},
+      __LINE__,
+      __FILE__);
+}
+
+// Same as Pad1 but pad by specified value
+TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Int>(2));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2);
+
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Same as above but try to pad an int tensor with a double value
+TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Double>(2.5));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::ones(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
+
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that padding Half tensor by Double does not promote output
+TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
+          IrBuilder::create<Double>(2.5));
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::ones(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
+
+  TORCH_CHECK(ref.dtype() == cg_outputs[0].dtype());
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> input_shape0{1, 1, 1024, 1024};
+  std::vector<int64_t> input_shape1{32, 16, 128, 128};
+
+  auto tv0 = makeContigConcreteTensor({1, 1, -1, -1});
+  auto tv1 = makeContigConcreteTensor({-1, -1, -1, -1});
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  Slice dim0{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(1),
+      IrBuilder::create<Int>(1)};
+  Slice dim1{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(1),
+      IrBuilder::create<Int>(1)};
+  Slice dim2{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(128),
+      IrBuilder::create<Int>(1)};
+  Slice dim3{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(128),
+      IrBuilder::create<Int>(1)};
+  auto tv0_slice = slice(tv0, {dim0, dim1, dim2, dim3});
+
+  auto tv2 = add(tv0_slice, tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(input_shape0, options);
+  auto t1 = at::randn(input_shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel =
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  TORCH_CHECK(
+      !kernel->summary().has_cooperative_grid_reduction,
+      "Grid sync should not be used as slicing input should avoid input caching");
+
+  auto aten_t0_slice = t0.index(
+      {at::indexing::Slice(0, 1, 1),
+       at::indexing::Slice(0, 1, 1),
+       at::indexing::Slice(0, 128, 1),
+       at::indexing::Slice(0, 128, 1)});
+  auto aten_t2 = torch::add(aten_t0_slice, t1);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {aten_t2},
       __LINE__,
       __FILE__);
 }

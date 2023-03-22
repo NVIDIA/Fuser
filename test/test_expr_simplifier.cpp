@@ -30,8 +30,12 @@ bool isEquivalent(Val* x, Val* y) {
 }
 
 // assert that x/y -> z
-void assertSimplifiedDiv(Val* x, Val* y, Val* z) {
-  auto simplified = simplifyExpr(cpp_div(x, y));
+void assertSimplifiedDiv(
+    Val* x,
+    Val* y,
+    Val* z,
+    std::vector<Bool*> assumptions = {}) {
+  auto simplified = simplifyExpr(cpp_div(x, y), {}, assumptions);
   TORCH_CHECK(
       isEquivalent(simplified, z),
       "Expect ",
@@ -45,8 +49,12 @@ void assertSimplifiedDiv(Val* x, Val* y, Val* z) {
 }
 
 // assert that x % y -> z
-void assertSimplifiedMod(Val* x, Val* y, Val* z) {
-  auto simplified = simplifyExpr(mod(x, y));
+void assertSimplifiedMod(
+    Val* x,
+    Val* y,
+    Val* z,
+    std::vector<Bool*> assumptions = {}) {
+  auto simplified = simplifyExpr(mod(x, y), {}, assumptions);
   TORCH_CHECK(
       isEquivalent(simplified, z),
       "Expect ",
@@ -335,6 +343,10 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
+Bool* operator""_b(const char* str, size_t) {
+  return parse(str)->as<Bool>();
+}
+
 } // namespace ops
 
 } // namespace stupid_simple_compiler
@@ -516,53 +528,57 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-  auto assertProvedPositive =
-      [&fusion](Val* x, const std::list<VarInfo>& variables = {}) {
-        auto proved =
-            (simplifyExpr(IrBuilder::gtExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::ltExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::leExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == false) &&
-            (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == false) &&
-            (simplifyExpr(IrBuilder::geExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == false) &&
-            (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == false);
-        TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " > 0");
-      };
-  auto assertProvedNonNegative =
-      [&fusion](Val* x, const std::list<VarInfo>& variables = {}) {
-        auto proved =
-            (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == false) &&
-            (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == false);
-        TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " >= 0");
-      };
-  auto assertProvedNonZero =
-      [&fusion](Val* x, const std::list<VarInfo>& variables = {}) {
-        auto proved =
-            (simplifyExpr(IrBuilder::neExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::neExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == true) &&
-            (simplifyExpr(IrBuilder::eqExpr(x, fusion.zeroVal()), variables)
-                 ->getBool() == false) &&
-            (simplifyExpr(IrBuilder::eqExpr(fusion.zeroVal(), x), variables)
-                 ->getBool() == false);
-        TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " != 0");
-      };
+  auto assertProvedPositive = [&fusion](
+                                  Val* x,
+                                  const std::vector<Bool*>& assumptions = {}) {
+    auto proved =
+        (simplifyExpr(IrBuilder::gtExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::ltExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::leExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == false) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == false) &&
+        (simplifyExpr(IrBuilder::geExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == false) &&
+        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == false);
+    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " > 0");
+  };
+  auto assertProvedNonNegative = [&fusion](
+                                     Val* x,
+                                     const std::vector<Bool*>& assumptions =
+                                         {}) {
+    auto proved =
+        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == false) &&
+        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == false);
+    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " >= 0");
+  };
+  auto assertProvedNonZero = [&fusion](
+                                 Val* x,
+                                 const std::vector<Bool*>& assumptions = {}) {
+    auto proved =
+        (simplifyExpr(IrBuilder::neExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::neExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == true) &&
+        (simplifyExpr(IrBuilder::eqExpr(x, fusion.zeroVal()), {}, assumptions)
+             ->getBool() == false) &&
+        (simplifyExpr(IrBuilder::eqExpr(fusion.zeroVal(), x), {}, assumptions)
+             ->getBool() == false);
+    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " != 0");
+  };
 
   assertProvedPositive(NamedScalar::getParallelDim(ParallelType::TIDx));
   assertProvedPositive(NamedScalar::getParallelDim(ParallelType::TIDy));
@@ -588,28 +604,49 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
   assertProvedNonNegative("T123.size[3]"_);
   assertProvedNonNegative("T123.stride[3]"_);
 
-  VarInfo ainfo{"i1"_, "0"_, "2"_, "1"_};
-  VarInfo binfo{"i2"_, "0"_, "2"_, "1"_};
-  VarInfo cinfo{"i3"_, "0"_, "2"_, "1"_};
-  VarInfo dinfo{"i4"_, "0"_, "2"_, "1"_};
-  auto variables = {ainfo, binfo, cinfo, dinfo};
+  std::vector<Bool*> assumptions{
+      "i1 < 2 && i1 >= 0"_b,
+      "i2 < 2 && i2 >= 0"_b,
+      "i3 < 2 && i3 >= 0"_b,
+      "i4 < 2 && i4 >= 0"_b,
+  };
 
-  assertProvedNonNegative("i1"_, variables);
-  assertProvedNonNegative("i2"_, variables);
-  assertProvedNonNegative("i3"_, variables);
-  assertProvedNonNegative("i4"_, variables);
-  assertProvedNonNegative("i1 + i2"_, variables);
-  assertProvedNonNegative("i1 + ( i2 + i3 )"_, variables);
-  assertProvedNonNegative("( i1 + i4 ) * ( i2 + i3 )"_, variables);
-  assertProvedNonNegative("( i1 + 2 ) * ( i2 + i3 )"_, variables);
+  assertProvedNonNegative("i1"_, assumptions);
+  assertProvedNonNegative("i2"_, assumptions);
+  assertProvedNonNegative("i3"_, assumptions);
+  assertProvedNonNegative("i4"_, assumptions);
+  assertProvedNonNegative("i1 + i2"_, assumptions);
+  assertProvedNonNegative("i1 + ( i2 + i3 )"_, assumptions);
+  assertProvedNonNegative("( i1 + i4 ) * ( i2 + i3 )"_, assumptions);
+  assertProvedNonNegative("( i1 + 2 ) * ( i2 + i3 )"_, assumptions);
 
-  assertProvedPositive("( i1 + 2 ) + ( i2 + i3 )"_, variables);
-  assertProvedNonZero("( i1 + 2 ) + ( i2 + i3 )"_, variables);
+  assertProvedPositive("( i1 + 2 ) + ( i2 + i3 )"_, assumptions);
+  assertProvedNonZero("( i1 + 2 ) + ( i2 + i3 )"_, assumptions);
 
   assertProvedNonNegative(
-      "( i4 + 1 ) / ( ( i1 + 2 ) + ( i2 + i3 ) )"_, variables);
+      "( i4 + 1 ) / ( ( i1 + 2 ) + ( i2 + i3 ) )"_, assumptions);
   assertProvedNonNegative(
-      "( i4 + 1 ) % ( ( i1 + 2 ) + ( i2 + i3 ) )"_, variables);
+      "( i4 + 1 ) % ( ( i1 + 2 ) + ( i2 + i3 ) )"_, assumptions);
+}
+
+TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<Bool*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
+  ASSERT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 >= i1"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("i2 <= 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 >= i2"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("i3 > 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("i3 >= 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 < i3"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 <= i3"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("i4 >= 5"_, {}, assumptions)->getBool(), true);
+  ASSERT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
 }
 
 TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
@@ -654,14 +691,35 @@ TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto a = NamedScalar::getParallelDim(ParallelType::TIDx);
-  auto b = NamedScalar::getParallelDim(ParallelType::TIDy);
-  auto c = NamedScalar::getParallelDim(ParallelType::TIDz);
+  std::vector<Bool*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
 
-  // TODO: replace threadIdx.{x,y,z} with i1, i2, i3 and migrate to string
-  // compiler when we have https://github.com/csarofeen/pytorch/pull/2541
-  assertSimplifiedDiv(add(mul(a, b), c), a, add(b, cpp_div(c, a)));
-  assertSimplifiedMod(add(mul(a, b), c), a, mod(c, a));
+  assertSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
+  assertSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
+}
+
+TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  assertSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
+  assertSimplifiedMod(
+      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
+  assertSimplifiedDiv(
+      "i1 * 4 + 3"_,
+      "32 * T0.size[0]"_,
+      "i1 / ( 8 * T0.size[0] )"_,
+      {"i1 >= 0"_b});
+  assertSimplifiedMod(
+      "i1 * 4 + 3"_,
+      "32 * T0.size[0]"_,
+      "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
+      {"i1 >= 0"_b});
+  assertSimplifiedDiv(
+      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
+      "32 * T0.size[3]"_,
+      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
+      {});
 }
 
 TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
@@ -672,6 +730,42 @@ TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
   TORCH_CHECK(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
   TORCH_CHECK(isEquivalent(
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
+}
+
+TEST_F(ExprSimplifierTest, Compare_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto simplify = [](Val* x, Val* assumption) {
+    return simplifyExpr(x, {}, {assumption->as<Bool>()})->getBool();
+  };
+
+  ASSERT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
+
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
+  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
+  ASSERT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).has_value());
+
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
+  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
+  ASSERT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).has_value());
+
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
+  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
+
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
+  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
+
+  ASSERT_TRUE(*simplify(
+      "i1 < 3"_,
+      "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
@@ -702,7 +796,6 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
   auto zero = fusion.zeroVal();
-  auto one = fusion.oneVal();
   auto five = IrBuilder::create<Int>(5);
   auto neg_five = IrBuilder::create<Int>(-5);
 
@@ -713,8 +806,7 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   auto unroll_uniform2 = mul(a, u2);
   auto unroll_imm2 = mul(five, u2);
 
-  std::list<VarInfo> variables{
-      VarInfo{u1, zero, five, one, true}, VarInfo{u2, zero, five, one, true}};
+  std::list<VarInfo> variables{VarInfo{u1, true}, VarInfo{u2, true}};
 
   // unroll + other == unroll + other
   {
