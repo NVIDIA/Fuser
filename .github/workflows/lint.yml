@@ -24,14 +24,6 @@ jobs:
         run: |
           this_dir=$(pwd)
 
-          this_commit=$(git rev-parse HEAD)
-          git fetch origin main
-          git checkout origin/main
-          head_commit=$(git rev-parse HEAD)
-          git checkout $this_commit
-          git --no-pager diff --name-only $head_commit |  grep -e "\.cpp" -e "\.h" |tail
-
-          '''
           # Install lintrunner
           pip install lintrunner
 
@@ -74,7 +66,6 @@ jobs:
           head_commit=$(git rev-parse HEAD)
           git checkout $this_commit
           git --no-pager diff --name-only $head_commit |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
-          '''
 
   lintrunner:
     runs-on: ubuntu-latest
