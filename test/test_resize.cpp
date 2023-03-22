@@ -1882,4 +1882,78 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
       __FILE__);
 }
 
+// C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
+TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> input_shape{16, 128, 3072};
+
+  auto tv0 = makeSymbolicTensor(3);
+
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(1024)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
+       {IrBuilder::create<Int>(1024), IrBuilder::create<Int>(2048)}});
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
+       {IrBuilder::create<Int>(2048), IrBuilder::create<Int>(3072)}});
+
+  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv6 = reshape(tv3, {16, 128, 1024}, {16, 128, 16, 64});
+
+  // TODO: add permute
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel =
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  TORCH_CHECK(
+      !kernel->summary().has_cooperative_grid_reduction,
+      "Grid sync should not be used as slicing input should avoid input caching");
+
+  auto at_t1 = t0.index(
+      {at::indexing::Slice(0, 16),
+       at::indexing::Slice(0, 128),
+       at::indexing::Slice(0, 1024)});
+  auto at_t2 = t0.index(
+      {at::indexing::Slice(0, 16),
+       at::indexing::Slice(0, 128),
+       at::indexing::Slice(1024, 2048)});
+  auto at_t3 = t0.index(
+      {at::indexing::Slice(0, 16),
+       at::indexing::Slice(0, 128),
+       at::indexing::Slice(2048, 3072)});
+
+  auto at_t4 = at_t1.reshape({16, 128, 16, 64});
+  auto at_t5 = at_t2.reshape({16, 128, 16, 64});
+  auto at_t6 = at_t3.reshape({16, 128, 16, 64});
+
+  TORCH_CHECK(cg_outputs.at(0).equal(at_t4));
+  TORCH_CHECK(cg_outputs.at(1).equal(at_t5));
+  TORCH_CHECK(cg_outputs.at(2).equal(at_t6));
+}
+
 } // namespace nvfuser
