@@ -24,12 +24,6 @@ jobs:
         run: |
           this_dir=$(pwd)
 
-          this_commit=$(git rev-parse HEAD)
-          git fetch origin main
-          git checkout origin/main
-          git --no-pager diff --name-only $this_commit |  grep -e "\.cpp" -e "\.h" |tail
-
-          '''
           # Install lintrunner
           pip install lintrunner
 
@@ -64,12 +58,12 @@ jobs:
 
           # Run lintrunner on all csrc files
           # find csrc/ -type f | xargs lintrunner --force-color
-          #
+
           # Run lintrunner on all csrc files
+          this_commit=$(git rev-parse HEAD)
           git fetch origin main
-          git branch main
-          git --no-pager diff --name-only main |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
-          '''
+          git checkout origin/main
+          git --no-pager diff --name-only $this_commit |  grep -e "\.cpp" -e "\.h" |tail | xargs lintrunner --take CLANGTIDY --force-color
 
   lintrunner:
     runs-on: ubuntu-latest
