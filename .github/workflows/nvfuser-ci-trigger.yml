@@ -3,18 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # A workflow to trigger ci on hybrid infra (github + self hosted runner)
-name: Blossom-CI
+name: Nvfuser-CI Trigger
 on:
   issue_comment:
     types: [created]
-  workflow_dispatch:
-      inputs:
-          platform:
-            description: 'runs-on argument'
-            required: false
-          args:
-            description: 'argument'
-            required: false
+  
 jobs:
   Authorization:
     name: Authorization
@@ -65,17 +58,5 @@ jobs:
         run: blossom-ci
         env:
           OPERATION: 'START-CI-JOB'
-          CI_SERVER: ${{ secrets.CI_SERVER }}
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  Upload-Log:
-    name: Upload log
-    runs-on: blossom
-    if : github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Jenkins log for pull request ${{ fromJson(github.event.inputs.args).pr }} (click here)
-        run: blossom-ci
-        env:
-          OPERATION: 'POST-PROCESSING'
           CI_SERVER: ${{ secrets.CI_SERVER }}
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
