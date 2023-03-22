@@ -19,13 +19,7 @@ import torch._prims as prims
 
 # Will only create the nvfuser module if CUDA is available
 try:
-    from nvfuser import (
-        FusionCache,
-        FusionDefinition,
-        DataType,
-        version,
-        compute_contiguity,
-    )
+    from nvfuser import FusionCache, FusionDefinition, DataType, version, compute_contiguity
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
     pass
@@ -777,6 +771,7 @@ class TestNvFuserFrontend(TestCase):
         test_fn(0)
         test_fn(1)
 
+
     def test_squeeze(self):
         t0_sizes = [4]
         t1_sizes = [1, 4, 1]
@@ -925,14 +920,14 @@ class TestNvFuserFrontend(TestCase):
     def test_normal(self):
         input_size = [64, 128, 1024]
         dtype = torch.float32
-        device = "cuda"
+        device = 'cuda'
         inputs = [
             torch.randn(*input_size, device=device, dtype=dtype),
         ]
         mean = 3.7
         std = 2.5
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) :
             t0 = fd.from_pytorch(inputs[0])
             s_mean = fd.define_constant(mean)
             s_std = fd.define_constant(std)
@@ -943,34 +938,20 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # Is there a better way to test distribution?!
-        self.assertTrue(
-            nvf_out[0]
-            .mean()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(mean), rtol=1e-2, atol=1e-2)
-            .item()
-        )
-        self.assertTrue(
-            nvf_out[0]
-            .std()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(std), rtol=1e-2, atol=1e-2)
-            .item()
-        )
+        self.assertTrue(nvf_out[0].mean().cpu().float().isclose(torch.tensor(mean), rtol=1e-2, atol=1e-2).item())
+        self.assertTrue(nvf_out[0].std().cpu().float().isclose(torch.tensor(std), rtol=1e-2, atol=1e-2).item())
 
     def test_uniform(self):
         input_size = [64, 128, 1024]
         dtype = torch.float32
-        device = "cuda"
+        device = 'cuda'
         inputs = [
             torch.randn(*input_size, device=device, dtype=dtype),
         ]
         lo = 1.8
         hi = 1223.5
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) :
             t0 = fd.from_pytorch(inputs[0])
             s_lo = fd.define_constant(lo)
             s_hi = fd.define_constant(hi)
@@ -981,30 +962,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # Is there a better way to test distribution?!
-        self.assertTrue(
-            nvf_out[0]
-            .mean()
-            .cpu()
-            .float()
-            .isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2)
-            .item()
-        )
-        self.assertTrue(
-            nvf_out[0]
-            .min()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2)
-            .item()
-        )
-        self.assertTrue(
-            nvf_out[0]
-            .max()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2)
-            .item()
-        )
+        self.assertTrue(nvf_out[0].mean().cpu().float().isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2).item())
+        self.assertTrue(nvf_out[0].min().cpu().float().isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2).item())
+        self.assertTrue(nvf_out[0].max().cpu().float().isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2).item())
 
     def test_where_dtypes(self):
         inputs = [
@@ -1183,21 +1143,17 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(at_rfloat, rfloat)
         self.assertEqual(at_rdouble, rdouble)
 
-    def test_reduction_complex_number(self):
+    def test_reduction_complex_number(self) :
         def test_dtype(torch_dtype):
-            inputs = [torch.randn(2, 32, device="cuda", dtype=torch_dtype)]
+            inputs = [torch.randn(2, 32, device='cuda', dtype=torch_dtype)]
 
-            def fusion_func(fd: FusionDefinition):
+            def fusion_func(fd: FusionDefinition) :
                 t0 = fd.from_pytorch(inputs[0])
-                t1 = fd.ops.sum(
-                    t0, [-1], False, torch_dtype_to_nvfuser_dtype(torch_dtype)
-                )
+                t1 = fd.ops.sum(t0, [-1], False, torch_dtype_to_nvfuser_dtype(torch_dtype))
                 fd.add_output(t1)
-
             nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
             eager_out = torch.sum(inputs[0], dim=-1)
             self.assertEqual(eager_out, nvf_out1[0])
-
         list_of_dtype = [torch.complex64, torch.complex128]
         for torch_dtype in list_of_dtype:
             test_dtype(torch_dtype)
@@ -1403,12 +1359,12 @@ class TestNvFuserFrontend(TestCase):
         contiguity = [False, None, True, None, None, True, False]
         self.assertEqual(compute_contiguity(sizes, strides), contiguity)
 
-    def test_prod(self):
+    def test_prod(self) :
         inputs = [
-            torch.ones(2, 4, 8, device="cuda"),
+            torch.ones(2, 4, 8, device='cuda'),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) :
             t0 = fd.from_pytorch(inputs[0])
 
             t1 = fd.ops.prod(t0, DataType.Float)
@@ -1434,7 +1390,7 @@ class TestNvFuserFrontend(TestCase):
         for n, e in zip(nvf_out, eager_outs):
             self.assertEqual(n, e)
 
-    def test_output_stride_order(self):
+    def test_output_stride_order(self) :
         inputs = [
             torch.range(0, 119).reshape(2, 3, 4, 5).cuda().float(),
         ]
@@ -1442,7 +1398,7 @@ class TestNvFuserFrontend(TestCase):
 
         for perm in permutations(range(4), 4):
 
-            def fusion_func(fd: FusionDefinition):
+            def fusion_func(fd: FusionDefinition) :
                 t0 = fd.from_pytorch(inputs[0])
                 c0 = fd.define_constant(3.0)
                 t1 = fd.ops.add(t0, c0)
@@ -1457,17 +1413,14 @@ class TestNvFuserFrontend(TestCase):
                 sorted_stride[axis] = nvf_stride[idx]
             self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
 
-    def test_expanded_bcast_tensor(self):
+    def test_expanded_bcast_tensor(self) :
         inputs = [
             torch.tensor(1.5, device="cuda"),
-            torch.randn(5, 5, 5, device="cuda"),
-            torch.randint(0, 1, (5, 5), device="cuda")
-            .bool()
-            .unsqueeze(-1)
-            .expand(5, 5, 5),
+            torch.randn(5, 5, 5, device='cuda'),
+            torch.randint(0, 1, (5, 5), device="cuda").bool().unsqueeze(-1).expand(5, 5, 5),
         ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
+        def fusion_func(fd : FusionDefinition) -> None :
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.from_pytorch(inputs[1])
             T2 = fd.from_pytorch(inputs[2])
@@ -1481,16 +1434,12 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(eager_out, nvf_out[0])
 
     def test_fix_2549(self):
-        a = torch.ones(4, 1, dtype=torch.double, device="cuda")
-        b = torch.ones(4, 4, dtype=torch.double, device="cuda")
+        a = torch.ones(4, 1, dtype=torch.double, device='cuda')
+        b = torch.ones(4, 4, dtype=torch.double, device='cuda')
 
-        def nvfuser_fusion_id(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                sizes=a.shape, strides=a.stride(), dtype=DataType.Double, is_cpu=False
-            )
-            T1 = fd.define_tensor(
-                sizes=b.shape, strides=b.stride(), dtype=DataType.Double, is_cpu=False
-            )
+        def nvfuser_fusion_id(fd : FusionDefinition) -> None :
+            T0 = fd.define_tensor(sizes=a.shape, strides=a.stride(), dtype=DataType.Double, is_cpu=False)
+            T1 = fd.define_tensor(sizes=b.shape, strides=b.stride(), dtype=DataType.Double, is_cpu=False)
             T2 = fd.ops.broadcast_in_dim(T0, output_shape=[4, 4], broadcast_dims=[0, 1])
             T3 = fd.ops.div(T1, T2)
             fd.add_output(T3)
@@ -1501,13 +1450,16 @@ class TestNvFuserFrontend(TestCase):
         out = fd.execute([a, b])
         self.assertEqual(out[0], b / a)
 
+
     def test_real_imag(self):
-        for dtype in [torch.complex128, torch.complex64]:
+        for dtype in [
+                torch.complex128,
+                torch.complex64]:
             inputs = [
-                torch.randn(5, dtype=dtype, device="cuda"),
+                torch.randn(5, dtype=dtype, device='cuda'),
             ]
 
-            def fusion_func(fd: FusionDefinition):
+            def fusion_func(fd: FusionDefinition) :
                 t0 = fd.from_pytorch(inputs[0])
                 fd.add_output(t0.real())
                 fd.add_output(t0.imag())
@@ -1540,7 +1492,7 @@ class TestNvFuserFrontend(TestCase):
             # torch.cat accepts empty tensors (size 0 in the concat dimension),
             # which do not affect the output.
             # The below fails with RuntimeError: mapped_id_resize != nullptr
-            # INTERNAL ASSERT FAILED at
+            # INTERNAL ASSERT FAILED at 
             # "/opt/pytorch/nvfuser/csrc/lower_index_compute.cpp":1306
             # t5 = fd.ops.cat([t0, t3], 0)
             # fd.add_output(t5)
@@ -1781,5 +1733,5 @@ class TestNvFuserFrontend(TestCase):
             )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     run_tests()
