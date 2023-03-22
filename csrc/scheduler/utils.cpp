@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
+#include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <transform_iter.h>
@@ -2369,23 +2370,119 @@ std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
   return resized_tensors;
 }
 
+// If the producer of a resized tensor is an input cache and we need to promote
+// it to global memory, just do not cache the input but directly read from the
+// global memory input. It doesn't make any sense to cache a global memory input
+// in global memory. Note that a copy of an input cache is inserted by
+// prepareForMemoryTypePromotion, so grab the producer of the
+// producer and see if it's included in input_caches.
+bool revertUseOfInputCacheInResize(
+    TensorView* resized_tensor,
+    TensorView* producer_of_resize,
+    MemoryType promoted_memory_type,
+    const std::vector<TensorView*>& input_caches) {
+  auto get_copy_src = [](TensorView* tv) -> TensorView* {
+    if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+      if (uop->getUnaryOpType() == UnaryOpType::Set) {
+        return uop->in()->as<TensorView>();
+      }
+    }
+    return nullptr;
+  };
+
+  // Only applies if the promoted new type is Global
+  if (promoted_memory_type != MemoryType::Global) {
+    return false;
+  }
+
+  // To see if the producer is a cache of an input, need to look at
+  // its producer as a copy is inserted
+  auto producer_of_producer = get_copy_src(producer_of_resize);
+  if (producer_of_producer == nullptr) {
+    // No copy is detected. This must mean the producer is not a copy
+    // of any input cache
+    return false;
+  }
+
+  auto cache_it =
+      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
+  if (cache_it == input_caches.end()) {
+    return false;
+  }
+
+  auto fusion_input = get_copy_src(producer_of_producer);
+  TORCH_INTERNAL_ASSERT(
+      fusion_input != nullptr,
+      "Unexpected input cache: ",
+      producer_of_producer->toString());
+
+  // Currently, the ops look like:
+  // tv0: fusion input
+  // tv1 = tv0 // cache of the input
+  // tv2 = tv1 // copy of the tv1. Placed on Global
+  // tv3 = resizeOp(tv2) // some op using resize
+
+  // Translate it to:
+  // tv0: fusion input
+  // tv3 = resizeOp(tv0) // some op using resize
+
+  ir_utils::replaceValInExpr(
+      resized_tensor->definition(), producer_of_resize, fusion_input);
+
+  return true;
+}
+
 } // namespace
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto resized_tensors = getResizedTensors(fusion);
   std::unordered_set<TensorView*> cached;
   for (auto resized_tensor : resized_tensors) {
-    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      if (cached.count(producer) != 0) {
-        continue;
-      }
-      producer->cacheAfter();
-      cached.insert(producer);
+    // Resized tensors are those created by operations like pad and
+    // slice. If it has no defining expression, it must be a fusion
+    // input, and no need of the memory type promotion
+    if (resized_tensor->definition() == nullptr) {
+      TORCH_INTERNAL_ASSERT(
+          resized_tensor->isFusionInput(),
+          "Unexpected resized tensor: ",
+          resized_tensor->toString());
+      continue;
     }
+    // Assume it has only one input tensor, which may need to
+    // be placed on a non-local memory for data dependencies.
+    TORCH_INTERNAL_ASSERT(
+        resized_tensor->definition(),
+        "Unexpected to have an undefined resized tensor: ",
+        resized_tensor->toString());
+    auto producers = ir_utils::producerTvsOf(resized_tensor);
+    TORCH_INTERNAL_ASSERT(
+        producers.size() == 1,
+        "Unexpected number of inputs of the defining expression: ",
+        resized_tensor->definition()->toString());
+    auto producer = producers.at(0);
+    // At this point, all tensors should be either on Global or Local
+    TORCH_INTERNAL_ASSERT(
+        producer->getMemoryType() == MemoryType::Local ||
+            producer->getMemoryType() == MemoryType::Global,
+        "Unexpected memory type: ",
+        producer->getMemoryType());
+
+    // If already placed on Global, nothing to worry about
+    if (producer->getMemoryType() == MemoryType::Global ||
+        cached.count(producer) != 0) {
+      continue;
+    }
+    // Insert a copy between resized_tensor and producer
+    auto copy_of_producer = set(producer);
+    ir_utils::replaceValInExpr(
+        resized_tensor->definition(), producer, copy_of_producer);
+    cached.insert(producer);
   }
 }
 
-void promoteProducerMemoryTypesOfResizedTensors(Fusion* fusion) {
+void promoteProducerMemoryTypesOfResizedTensors(
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches) {
   auto resized_tensors = getResizedTensors(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
@@ -2466,7 +2563,15 @@ void promoteProducerMemoryTypesOfResizedTensors(Fusion* fusion) {
           it->second == producer->getMemoryType()) {
         continue;
       }
-      auto new_mem_type = it->second;
+
+      // Required memory type of the producer
+      const auto new_mem_type = it->second;
+
+      if (revertUseOfInputCacheInResize(
+              resized_tensor, producer, new_mem_type, input_caches)) {
+        continue;
+      }
+
       producer->setMemoryType(new_mem_type);
     }
   }

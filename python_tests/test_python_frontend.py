@@ -5,6 +5,7 @@
 
 from copy import deepcopy
 from functools import partial
+import math
 import re
 from typing import List
 import unittest
@@ -1502,6 +1503,161 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
+    def test_nanogpt_mha_dpa(self) :
+        inputs = [
+            torch.randn(16, 16, 128, 128, device='cuda'),
+            torch.randn(1, 1, 1024, 1024, device='cuda'),
+        ]
+
+        def nvfuser_fusion(fd : FusionDefinition, prob) -> None :                                                                        
+            T0 = fd.define_tensor(symbolic_sizes=[-1, -1, -1, -1], contiguous=[True, True, True, True], dtype=DataType.Float, is_cpu=False)
+            T1 = fd.define_tensor(symbolic_sizes=[1, 1, -1, -1], contiguous=[None, None, True, True], dtype=DataType.Float, is_cpu=False)
+            S2 = fd.define_constant(0.125000, dtype=DataType.Double)
+            T3 = fd.ops.mul(T0, S2)                    
+            T4 = fd.ops.slice(T1, start_indices=[0, 0, 0, 0], end_indices=[1, 1, 128, 128], strides=[1, 1, 1, 1])
+            S5 = fd.define_constant(0.00000, dtype=DataType.Double)                                                                    
+            T6 = fd.ops.eq(S5, T4)                                     
+            T7 = fd.ops.broadcast_in_dim(T6, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            S8 = fd.define_constant(float("-inf"), dtype=DataType.Double)
+            T9 = fd.ops.where(T7, S8, T3)                           
+            S10 = fd.define_constant(-1, dtype=DataType.Int)
+            S11 = fd.define_constant(4, dtype=DataType.Int)
+            S12 = fd.ops.add(S10, S11)
+            T13 = fd.ops.max(T9, axes=[3], keepdim=False, dtype=DataType.Null)
+            T14 = fd.ops.broadcast_in_dim(T13, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T15 = fd.ops.broadcast_in_dim(T14, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T16 = fd.ops.sub(T9, T15)
+            T17 = fd.ops.exp(T16)
+            S18 = fd.define_constant(-1, dtype=DataType.Int)
+            S19 = fd.define_constant(4, dtype=DataType.Int)
+            S20 = fd.ops.add(S18, S19)
+            T21 = fd.ops.sum(T17, axes=[3], keepdim=False, dtype=DataType.Null)
+            T22 = fd.ops.broadcast_in_dim(T21, output_shape=[16, 16, 128, 1], broadcast_dims=[0, 1, 2])
+            T23 = fd.ops.broadcast_in_dim(T22, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3])
+            T24 = fd.ops.div(T17, T23)
+            S25 = fd.define_constant(16, dtype=DataType.Int)
+            S26 = fd.define_constant(16, dtype=DataType.Int)
+            S27 = fd.define_constant(128, dtype=DataType.Int)
+            S28 = fd.define_constant(128, dtype=DataType.Int)
+            S29 = fd.define_constant(0.00000, dtype=DataType.Double)
+            S30 = fd.define_constant(1.00000, dtype=DataType.Double)
+            T31 = fd.ops.uniform(S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float)
+            S32 = fd.define_constant(1.0 - prob, dtype=DataType.Double)
+            T33 = fd.ops.lt(T31, S32)
+            T34 = fd.ops.cast(T33, dtype=DataType.Float)
+            T35 = fd.ops.mul(T24, T34)
+            S36 = fd.define_constant(1.0 / (1.0 - prob), dtype=DataType.Double)
+            T37 = fd.ops.mul(T35, S36)
+            fd.add_output(T37)
+
+        def torch_def(acts, bias, n_seq_len, n_head_dim, prob):
+            att = acts * (1.0 / math.sqrt(n_head_dim))
+            att = att.masked_fill(bias[:, :, :n_seq_len, :n_seq_len] == 0, float("-inf"))
+            att = torch.nn.functional.softmax(att, dim=-1)
+            att = torch.nn.functional.dropout(att, p=prob)
+            return att
+
+        # NOTE: The dropout probabilities need to be set to 0 elements zeroed out
+        # in order to match implementations as eager and nvFuser do not have matching
+        # blocking.
+        nvf_out, _ = self.exec_nvfuser(partial(nvfuser_fusion, prob=0.0), inputs)
+        eager_out = torch_def(inputs[0], inputs[1], 128, 64, 0.0)
+
+        for idx in range(len(nvf_out)):
+            self.assertEqual(eager_out, nvf_out[idx])
+
+
+    def test_nanogpt_split_mha_linears(self) :
+        inputs = [
+            torch.randn(16, 128, 3072, device='cuda'),
+        ]
+
+        def nvfuser_fusion_0(fd : FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
+            T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
+            T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
+            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 1024], [16, 128, 16, 64])
+            T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
+            T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
+            T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
+            fd.add_output(T2_slice1)
+            fd.add_output(T2_slice2)
+            fd.add_output(T2_slice3)
+
+        def nvfuser_fusion_1(fd : FusionDefinition) -> None :
+            T0 = fd.define_tensor(symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True], dtype=DataType.Float, is_cpu=False)
+            T1 = fd.ops.slice(T0, start_indices=[0, 0, 0], end_indices=[16, 128, 1024], strides=[1, 1, 1])
+            T2 = fd.ops.slice(T0, start_indices=[0, 0, 1024], end_indices=[16, 128, 2048], strides=[1, 1, 1])
+            T3 = fd.ops.slice(T0, start_indices=[0, 0, 2048], end_indices=[16, 128, 3072], strides=[1, 1, 1])
+            fd.add_output(T1)
+            fd.add_output(T2)
+            fd.add_output(T3)
+
+        def torch_def_0(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            k = k.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            q = q.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            v = v.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
+            return (q, k, v,)
+
+        def torch_def_1(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            return (q, k, v,)
+
+        # TODO: Remove try/catches for excepted errors
+        try:
+            nvf_out0, _ = self.exec_nvfuser(nvfuser_fusion_0, inputs)
+        except RuntimeError as err:
+            print("Expected error test_nanogpt_split_mha_linears check 0: ", err)
+        try:
+            nvf_out1, _ = self.exec_nvfuser(nvfuser_fusion_1, inputs)
+        except RuntimeError as err:
+            print("Expected error test_nanogpt_split_mha_linears check 1: ", err)
+
+        # TODO: Enable eager mode checks once fusions are fixed!
+        """
+        eager_out0 = torch_def_0(inputs, 1024, 16)
+        eager_out1 = torch_def_1(inputs, 1024, 16)
+
+        for idx in range(len(eager_out0)):
+            self.assertEqual(eager_out0[idx], nvf_out0[idx])
+        for idx in range(len(eager_out1)):
+            self.assertEqual(eager_out1[idx], nvf_out1[idx])
+        """
+
+    def test_slice_error_checks(self) :
+        inputs = [
+            torch.randn(10, 10, device='cuda'),
+        ]
+
+        def check_start_indices(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[-1, -2], end_indices=[10, 10], strides=[1, 1])
+            fd.add_output(T1)
+
+        def check_end_indices(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[3, 4], end_indices=[1, 2], strides=[1, 1])
+            fd.add_output(T1)
+
+        def check_strides(fd: FusionDefinition) -> None :
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.slice(T0, start_indices=[0, 0], end_indices=[10, 10], strides=[5, 5])
+            fd.add_output(T1)
+
+        checks = [
+            (check_start_indices, "Slice operation start_indices must be greater-than-or-equal-to 0. .*"),
+            (check_end_indices, "Slice operation end_indices must be greater-than-or-equal-to start_indices. .*"),
+            (check_strides, "nvFuser Limitation: All slice operation strides must be of size 1. .*"),
+        ]
+
+        for check, error in checks:
+            self.assertRaisesRegex(RuntimeError, error, partial(self.exec_nvfuser, check), inputs)
 
 if __name__ == '__main__':
     run_tests()

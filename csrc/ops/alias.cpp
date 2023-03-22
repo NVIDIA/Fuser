@@ -381,7 +381,27 @@ TensorView* transpose(TensorView* x) {
 
 // Padding widths are assumed to be non-negative. Currently there's no
 // validation.
-TensorView* pad(TensorView* inp, const std::vector<Val*>& pad_widths) {
+TensorView* pad(
+    TensorView* inp,
+    const std::vector<Val*>& pad_widths,
+    Val* value) {
+  DataType dt = inp->getDataType().value();
+  if (!value) {
+    // Create a zero of the appropriate type
+    if (isComplexType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<ComplexDouble>(0, dt));
+    } else if (isFloatingPointType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<Double>(0, dt));
+    } else if (isBooleanType(dt)) {
+      value = static_cast<Val*>(IrBuilder::create<Bool>(false, dt));
+    } else {
+      value = static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+    }
+  }
+  if (value->getDataType().value() != dt) {
+    // Insert an explicit castOp if dtype of value does not match TensorView's
+    value = castOp(dt, value);
+  }
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
@@ -454,7 +474,7 @@ TensorView* pad(TensorView* inp, const std::vector<Val*>& pad_widths) {
           TensorDomain::getContiguityFilledWith(rfactor_ids, true)),
       *inp->getDataType());
 
-  IrBuilder::create<PadOp>(out, inp, normalized_pad_widths);
+  IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
 
   return out;
 }
