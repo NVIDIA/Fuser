@@ -7,7 +7,6 @@ name: Nvfuser-CI Trigger
 on:
   issue_comment:
     types: [created]
-  
 jobs:
   Authorization:
     name: Authorization
