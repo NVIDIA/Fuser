@@ -28,8 +28,7 @@ jobs:
           this_commit=$(git rev-parse HEAD)
           git fetch origin main
           git checkout origin/main
-          git diff --name-only $this_commit
-          git --no-pager diff --name-only main |  grep -e "\.cpp" -e "\.h" |tail
+          git --no-pager diff --name-only $this_commit |  grep -e "\.cpp" -e "\.h" |tail
 
           '''
           # Install lintrunner
