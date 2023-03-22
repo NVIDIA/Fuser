@@ -7784,130 +7784,135 @@ TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
 
 // Make sure invalid usage of index type is detected
 TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1, DataType::Bool);
-  fusion.addInput(tv0);
-
-  auto tv2 = neg(tv0);
-  fusion.addOutput(tv2);
-
-  tv2->split(0, 256);
-  tv2->split(0, 1024);
-
-  MaxRootDomainInfoSpanningTree tree(tv2);
-  TransformPropagator tp(tv2);
-  tree.traverse(&tp);
-
-  inlineMost();
-
-  tv2->axis(1)->parallelize(ParallelType::BIDx);
-  tv2->axis(2)->parallelize(ParallelType::TIDx);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn({999}, options).ge(0);
-  std::vector<c10::IValue> small_inputs = {t0};
-
-  at::Tensor t0_large =
-      at::randn({std::numeric_limits<int>::max()}, options).ge(0);
-  std::vector<c10::IValue> large_inputs = {t0_large};
-
-  TORCH_CHECK(
-      KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-          .getIndexMode() == KernelIndexMode::INT64);
-  TORCH_CHECK(
-      KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-          .getIndexMode() == KernelIndexMode::INT32);
-
   {
-    FusionExecutor fe;
-    // Lower the kernel with large inputs and int64 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int};
-    fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(1, DataType::Bool);
+    fusion.addInput(tv0);
+
+    auto tv2 = neg(tv0);
+    fusion.addOutput(tv2);
+
+    tv2->split(0, 256);
+    tv2->split(0, 1024);
+
+    MaxRootDomainInfoSpanningTree tree(tv2);
+    TransformPropagator tp(tv2);
+    tree.traverse(&tp);
+
+    inlineMost();
+
+    tv2->axis(1)->parallelize(ParallelType::BIDx);
+    tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({999}, options).ge(0);
+    std::vector<c10::IValue> small_inputs = {t0};
+
+    at::Tensor t0_large =
+        at::randn({std::numeric_limits<int>::max()}, options).ge(0);
+    std::vector<c10::IValue> large_inputs = {t0_large};
 
     TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
-
-    // Since the index type is int64, both small and large inputs
-    // should work fine
-    fe.runFusion(small_inputs);
-    fe.runFusion(large_inputs);
-  }
-
-  {
-    FusionExecutor fe;
-    // Lower the kernel with small inputs and int64 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int};
-    fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
-
+        KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
+            .getIndexMode() == KernelIndexMode::INT64);
     TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
+        KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
+            .getIndexMode() == KernelIndexMode::INT32);
 
-    // Since the index type is int64, both small and large inputs
-    // should work fine
-    fe.runFusion(small_inputs);
-    fe.runFusion(large_inputs);
+    {
+      FusionExecutor fe;
+      // Lower the kernel with large inputs and int64 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
+
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // Since the index type is int64, both small and large inputs
+      // should work fine
+      fe.runFusion(small_inputs);
+      fe.runFusion(large_inputs);
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with small inputs and int64 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
+
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // Since the index type is int64, both small and large inputs
+      // should work fine
+      fe.runFusion(small_inputs);
+      fe.runFusion(large_inputs);
+    }
+
+    {
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, small_inputs);
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int32,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // This should complete successfully as the arguments are small
+      // enough to use the int32 index type
+      fe.runFusion(small_inputs);
+
+      // This should fail as the Kernel is already compiled for Int32, but
+      // the arguments are too large
+      EXPECT_THAT(
+          [&]() { fe.runFusion(large_inputs); },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Given index mode and argument index mode don't match")));
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with int32 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+
+      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int32,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      fe.runFusion(small_inputs);
+
+      // This should fail as the Kernel is already compiled for Int32, but
+      // the arguments are too large
+      EXPECT_THAT(
+          [&]() { fe.runFusion(large_inputs); },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Given index mode and argument index mode don't match")));
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with large inputs and int32 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      // This should fail due to the conflict
+      EXPECT_THAT(
+          [&]() {
+            fe.compileFusion(
+                &fusion, large_inputs, LaunchParams(), compile_opts);
+          },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Compilation with int32 is requested but int64 is required for the arguments")));
+    }
   }
 
-  {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, small_inputs);
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int32,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
-
-    // This should complete successfully as the arguments are small
-    // enough to use the int32 index type
-    fe.runFusion(small_inputs);
-
-    // This should fail as the Kernel is already compiled for Int32, but
-    // the arguments are too large
-    EXPECT_THAT(
-        [&]() { fe.runFusion(large_inputs); },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Given index mode and argument index mode don't match")));
-  }
-
-  {
-    FusionExecutor fe;
-    // Lower the kernel with int32 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-    fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int32,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
-
-    fe.runFusion(small_inputs);
-
-    // This should fail as the Kernel is already compiled for Int32, but
-    // the arguments are too large
-    EXPECT_THAT(
-        [&]() { fe.runFusion(large_inputs); },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Given index mode and argument index mode don't match")));
-  }
-
-  {
-    FusionExecutor fe;
-    // Lower the kernel with large inputs and int32 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-    // This should fail due to the conflict
-    EXPECT_THAT(
-        [&]() {
-          fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
-        },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Compilation with int32 is requested but int64 is required for the arguments")));
-  }
+  c10::cuda::CUDACachingAllocator::emptyCache();
 }
 
 //! Test whether we can create and use half-precision scalars
