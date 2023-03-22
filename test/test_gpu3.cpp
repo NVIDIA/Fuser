@@ -7948,6 +7948,36 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
       __LINE__,
       __FILE__);
 }
+
+// Quick test of traversing attributes with IterVisitor
+TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Int>(1))}});
+  fusion.addOutput(tv1);
+
+  auto tv1_resize = tv1->axis(0)->definition()->as<Resize>();
+
+  auto stmts = StmtSort::getStmts(&fusion, true, true);
+
+  // Make sure the expansion parameters of tv1_resize are visited
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), tv1_resize->leftExpand()) !=
+          stmts.end(),
+      "Resize left expand parameter not found");
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), tv1_resize->rightExpand()) !=
+          stmts.end(),
+      "Resize right expand parameter not found");
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
