@@ -1,6 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+
+import os
+import sys
+
+import torch
+# This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
+sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
+
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
 from . import _C
