@@ -2167,23 +2167,9 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  // The overall extent is (in->extent() + left_expansion +
-  // right_expansion). This can be simplified for a slice op as
-  // the right expansion should look like (slice_end_offset -
-  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
-  Val* resized_id_size = nullptr;
-  if (right_expansion->definition() != nullptr &&
-      right_expansion->definition()->isA<BinaryOp>() &&
-      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
-          BinaryOpType::Sub &&
-      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
-    resized_id_size = SimplifyingIrBuilder::addExpr(
-        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
-  } else {
-    resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
-        right_expansion);
-  }
+  Val* resized_id_size = SimplifyingIrBuilder::addExpr(
+      SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+      right_expansion);
 
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
