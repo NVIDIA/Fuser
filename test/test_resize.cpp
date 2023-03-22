@@ -1680,7 +1680,7 @@ TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
+TEST_F(NVFuserTest, FusionSliceForNanoGPT1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1710,10 +1710,15 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
       IrBuilder::create<Int>(0),
       IrBuilder::create<Int>(128),
       IrBuilder::create<Int>(1)};
-  auto tv0_slice = slice(tv0, {dim0, dim1, dim2, dim3});
+  auto tv2 = slice(tv0, {dim0, dim1, dim2, dim3});
 
-  auto tv2 = add(tv0_slice, tv1);
-  fusion.addOutput(tv2);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  auto tv4 = slice(tv0, {dim0, dim1, dim2, dim3});
+
+  auto tv5 = add(tv4, tv1);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -1736,13 +1741,143 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT_CUDA) {
        at::indexing::Slice(0, 1, 1),
        at::indexing::Slice(0, 128, 1),
        at::indexing::Slice(0, 128, 1)});
-  auto aten_t2 = torch::add(aten_t0_slice, t1);
+  auto aten_t3 = torch::add(aten_t0_slice, t1);
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
       aten_inputs,
-      {aten_t2},
+      {aten_t3, aten_t3},
+      __LINE__,
+      __FILE__);
+}
+
+// Similar to FusionSliceForNanoGPT1 but the input to slice is an
+// intermediate tensor
+TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> input_shape0{100, 100};
+  std::vector<int64_t> input_shape1{32, 32};
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+
+  Slice dim0{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(32),
+      IrBuilder::create<Int>(1)};
+  Slice dim1{
+      IrBuilder::create<Int>(0),
+      IrBuilder::create<Int>(32),
+      IrBuilder::create<Int>(1)};
+
+  auto tv3 = slice(tv2, {dim0, dim1});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = slice(tv2, {dim0, dim1});
+  auto tv6 = add(tv5, tv1);
+  fusion.addOutput(tv6);
+
+  // Another use of tv2. Unlike the above two slice ops, this should
+  // not use the copy of tv2
+  auto tv7 = add(tv2, IrBuilder::create<Double>(1));
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(input_shape0, options);
+  auto t1 = at::randn(input_shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel =
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+
+  // Make sure the slices ops use the same producer
+  TensorView* known_slice_producer = nullptr;
+  for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+    auto out_tv = ir_utils::getTvOutput(expr);
+    if (out_tv->name() == tv3->name() || out_tv->name() == tv5->name()) {
+      TORCH_CHECK(
+          expr->isA<UnaryOp>() &&
+              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set,
+          "Unexpected defintion of slice output tensor: ",
+          out_tv->toString(),
+          ", ",
+          expr->toString());
+      auto producer =
+          dynamic_cast<kir::TensorIndex*>(expr->as<UnaryOp>()->in());
+      if (producer == nullptr) {
+        // this could be a default initialization
+        continue;
+      }
+      if (known_slice_producer == nullptr) {
+        known_slice_producer = producer->view();
+      } else {
+        TORCH_CHECK(
+            known_slice_producer == producer->view(),
+            "Expected to have the same tensor is used for the two slice ops. ",
+            "Previously found producer: ",
+            known_slice_producer->toString(),
+            ", new producer: ",
+            producer->view()->toString());
+      }
+    } else if (auto binary_op = dynamic_cast<BinaryOp*>(expr)) {
+      // If this is a binary op producing tv7, make sure its producer
+      // is tv2
+      if (binary_op->getBinaryOpType() == BinaryOpType::Add &&
+          binary_op->out()->isA<kir::TensorIndex>() &&
+          binary_op->out()->as<kir::TensorIndex>()->view()->name() ==
+              tv7->name()) {
+        TORCH_CHECK(
+            binary_op->lhs()->as<kir::TensorIndex>()->view()->name() ==
+                tv2->name(),
+            "Unexpected tv7 definition: ",
+            binary_op->toString());
+      }
+    }
+  }
+
+  TORCH_CHECK(known_slice_producer != nullptr, "Slice producer not found");
+
+  // The slice producer must be a copy of tv2
+  TORCH_CHECK(
+      known_slice_producer->definition() &&
+          known_slice_producer->definition()->isA<UnaryOp>() &&
+          known_slice_producer->definition()->as<UnaryOp>()->getUnaryOpType() ==
+              UnaryOpType::Set &&
+          known_slice_producer->definition()->as<UnaryOp>()->in()->name() ==
+              tv2->name(),
+      "Unexpected slice producer: ",
+      known_slice_producer->toString());
+
+  auto aten_t2 = t0 + 1;
+  auto aten_slice = aten_t2.index(
+      {at::indexing::Slice(0, 32, 1), at::indexing::Slice(0, 32, 1)});
+  auto aten_t4 = aten_slice + t1;
+
+  auto aten_t7 = aten_t2 + 1;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {aten_t4, aten_t4, aten_t7},
       __LINE__,
       __FILE__);
 }

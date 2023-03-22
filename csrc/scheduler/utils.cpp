@@ -2436,7 +2436,14 @@ bool revertUseOfInputCacheInResize(
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto resized_tensors = getResizedTensors(fusion);
-  std::unordered_set<TensorView*> cached;
+
+  // Inserting a copy of the producer of each resize op. If a tensor
+  // is used as the producer of multiple resize ops, only insert one
+  // copy and share it with the resize ops.
+
+  // Map to keep track resize producer and its copy
+  std::unordered_map<TensorView*, TensorView*> resize_producer_copy_map;
+
   for (auto resized_tensor : resized_tensors) {
     // Resized tensors are those created by operations like pad and
     // slice. If it has no defining expression, it must be a fusion
@@ -2468,15 +2475,24 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
         producer->getMemoryType());
 
     // If already placed on Global, nothing to worry about
-    if (producer->getMemoryType() == MemoryType::Global ||
-        cached.count(producer) != 0) {
+    if (producer->getMemoryType() == MemoryType::Global) {
       continue;
     }
+
+    auto resize_producer_copy_map_it = resize_producer_copy_map.find(producer);
+    if (resize_producer_copy_map_it == resize_producer_copy_map.end()) {
+      // Create a copy of the producer that is to be inserted between
+      // resized_tensor and producer
+      auto copy_of_producer = set(producer);
+      resize_producer_copy_map_it =
+          resize_producer_copy_map.emplace(producer, copy_of_producer).first;
+    }
+
     // Insert a copy between resized_tensor and producer
-    auto copy_of_producer = set(producer);
     ir_utils::replaceValInExpr(
-        resized_tensor->definition(), producer, copy_of_producer);
-    cached.insert(producer);
+        resized_tensor->definition(),
+        producer,
+        resize_producer_copy_map_it->second);
   }
 }
 
