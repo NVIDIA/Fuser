@@ -29,9 +29,12 @@ jobs:
           git branch main
 
           this_commit=$(git rev-parse HEAD)
-          git log
 
+          git log -3
           git checkout main
+          git log -3
+
+          echo $this_commit
           git diff --name-only $this_commit
 
           '''
