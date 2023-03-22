@@ -26,14 +26,10 @@ jobs:
           this_dir=$(pwd)
 
           this_commit=$(git rev-parse HEAD)
-          git log -3
-
           git fetch origin main
           git checkout origin/main
-          git log -3
-
-          echo $this_commit
           git diff --name-only $this_commit
+          git --no-pager diff --name-only main |  grep -e "\.cpp" -e "\.h" |tail
 
           '''
           # Install lintrunner
