@@ -30,6 +30,8 @@ def get_cmake_bin():
 
 
 class clean(setuptools.Command):
+    user_options = []
+
     def initialize_options(self):
         pass
 
@@ -54,8 +56,6 @@ class clean(setuptools.Command):
 
 
 class concat_third_party_license:
-    user_options = []
-
     def __init__(self, directory="third_party"):
         self.license_file = "LICENSE"
         self.directory = directory
