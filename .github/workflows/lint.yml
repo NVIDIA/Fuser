@@ -28,12 +28,11 @@ jobs:
           git fetch origin main
           git branch main
 
-          git branch
-          git rev-parse HEAD
+          this_commit=$(git rev-parse HEAD)
+          git log
 
-          git log -2
-          git diff --name-only $(git rev-parse HEAD) main
-          git log -2 main
+          git checkout main
+          git diff --name-only $this_commit
 
           '''
           # Install lintrunner
