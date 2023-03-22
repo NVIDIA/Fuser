@@ -247,6 +247,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return io_alias_;
   }
 
+  // Fusion-managed data is a mechanism to communicate data that survives fusion
+  // clone.
   using CloneFn = std::function<std::any(IrCloner&, std::any)>;
 
   inline size_t manage(std::any data, CloneFn clone) {
