@@ -2439,34 +2439,38 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
-        auto actual_value = value.has_value()
+        auto value_state = value.has_value()
             ? fd->recordingState(value.value()())
             : State(0, StateType::None);
         fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), actual_value},
+            {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
             pad_widths));
         return output;
       },
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value").none(true),
+      py::arg("value") = py::none(),
       py::return_value_policy::reference);
   tensor_class.def(
       "pad",
-      [](Tensor arg, std::vector<int64_t>& pad_widths) -> Tensor {
+      [](Tensor arg, std::vector<int64_t>& pad_widths, c10::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
             !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, StateType::None);
         fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg())},
+            {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
             pad_widths));
         return output;
       },
       py::arg("pad_widths"),
+      py::arg("value") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "permute",

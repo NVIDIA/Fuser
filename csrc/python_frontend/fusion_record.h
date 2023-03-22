@@ -419,20 +419,32 @@ struct PadOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto fill_value = fd.getFusionState(args_.at(1).index);
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
       auto pval = IrBuilder::create<Int>(p);
       val_widths.push_back(pval);
     }
-    auto output = pad(arg, val_widths, fill_value);
+
+    TensorView* output;
+    if (args_.at(1).stype == StateType::Scalar) {
+       output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
+    } else { // default: None
+       output = pad(arg, val_widths);
+    }
+
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << ", pad_widths=[";
+    // pad_widths is the second (required) argument, but the fill value is a
+    // Scalar, so it would be printed first by the default printer, so we
+    // implement our own print() here
+    os << outputs_.at(0);
+    os << " = "
+       << "fd." << name_ << "(";
+    os << args_.at(0); // unpadded tensor
+    os << ", [";
     bool first_arg = true;
     for (auto w : pad_widths_) {
       if (first_arg) {
@@ -443,9 +455,12 @@ struct PadOpRecord : RecordFunctor {
       os << w;
     }
     os << "]";
-    if (close_function) {
-      os << ")";
+    if (args_.at(1).stype == StateType::Scalar) {
+      // fill value was given
+      os << ", " << args_.at(1);
     }
+    os << ")";
+
   }
 
  private:
