@@ -181,10 +181,12 @@ def main():
     if BUILD_SETUP:
         cmake()
 
+    from nvfuser.version import _version_str
+
     setup(
         name="nvfuser",
         # query nvfuser version
-        version="0.0.1",
+        version=_version_str,
         description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
         packages=["nvfuser"],
         license_files=("LICENSE",),
