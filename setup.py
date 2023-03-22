@@ -142,9 +142,8 @@ def cmake():
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    import torch.utils
-
-    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + torch.utils.cmake_prefix_path
+    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     # generate cmake directory
     cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
@@ -180,16 +179,13 @@ def main():
 
     if BUILD_SETUP:
         cmake()
-        from nvfuser.version import _version_str
-    else:
-        _version_str = None
 
-
+    from tools.gen_nvfuser_version import get_version
 
     setup(
         name="nvfuser",
         # query nvfuser version
-        version=_version_str,
+        version=get_version(),
         description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
         packages=["nvfuser"],
         license_files=("LICENSE",),
