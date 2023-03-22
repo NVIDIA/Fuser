@@ -3,9 +3,24 @@ import os
 import multiprocessing
 import shutil
 
+import setuptools
 from setuptools import setup
 from distutils.version import LooseVersion
 from distutils.file_util import copy_file
+
+# pick args used by this script
+CMAKE_ONLY = False
+BUILD_SETUP = True
+forward_args = []
+for i, arg in enumerate(sys.argv):
+    if arg == "--cmake-only":
+        CMAKE_ONLY = True
+        continue
+    if arg in ["clean"]:
+        # only disables BUILD_SETUP, but keep the argument for setuptools
+        BUILD_SETUP = False
+    forward_args.append(arg)
+sys.argv = forward_args
 
 
 def get_cmake_bin():
@@ -114,7 +129,7 @@ else:
                         f.write("\n" + license_ref)
 
 
-def main():
+def cmake():
     # make build directories
     build_dir_name = "build"
     cwd = os.path.dirname(os.path.abspath(__file__))
@@ -130,20 +145,23 @@ def main():
     cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
     subprocess.check_call(cmd_str)
 
-    # build binary
-    max_jobs = str(multiprocessing.cpu_count())
-    cmd_str = [
-        get_cmake_bin(),
-        "--build",
-        build_dir_name,
-        "--target",
-        "install",
-        "--",
-        "-j",
-        max_jobs,
-    ]
-    subprocess.check_call(cmd_str)
+    if not CMAKE_ONLY:
+        # build binary
+        max_jobs = str(multiprocessing.cpu_count())
+        cmd_str = [
+            get_cmake_bin(),
+            "--build",
+            build_dir_name,
+            "--target",
+            "install",
+            "--",
+            "-j",
+            max_jobs,
+        ]
+        subprocess.check_call(cmd_str)
 
+
+def main():
     # copy nvfuser pybind extension
     src = os.path.join(cmake_build_dir, "libnvfuser.so")
     dst = os.path.join(cwd, "nvfuser", "_C.cpython-310-x86_64-linux-gnu.so")
@@ -154,6 +172,9 @@ def main():
         "*.so",
         "lib/*.so",
     ]
+
+    if BUILD_SETUP:
+        cmake()
 
     setup(
         name="nvfuser",
