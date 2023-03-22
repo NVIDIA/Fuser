@@ -99,14 +99,14 @@ else:
         def run(self):
             with concat_third_party_license() as tp_licenses:
 
-                if not tp_licenses.empty():
+                if len(tp_licenses) != 0:
                     with open("LICENSE", "a") as f:
                         f.write("\n\n")
                         f.write(
                             "NVIDIA/fuser depends on libraries with license listed below:"
                         )
 
-                for project_name, license_files in tp_licenses:
+                for project_name, license_files in tp_licenses.items():
                     # check all license files are identical
                     with open(license_files[0], "r") as f:
                         license_ref = f.read()
@@ -131,6 +131,8 @@ else:
                             f.write("\t" + file_name)
                         f.write("\n" + license_ref)
 
+                # generate whl before we restore LICENSE
+                super().run()
 
 def cmake():
     # make build directories
