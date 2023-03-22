@@ -2436,7 +2436,6 @@ bool revertUseOfInputCacheInResize(
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto resized_tensors = getResizedTensors(fusion);
-  std::unordered_set<TensorView*> cached;
   for (auto resized_tensor : resized_tensors) {
     // Resized tensors are those created by operations like pad and
     // slice. If it has no defining expression, it must be a fusion
@@ -2468,15 +2467,13 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
         producer->getMemoryType());
 
     // If already placed on Global, nothing to worry about
-    if (producer->getMemoryType() == MemoryType::Global ||
-        cached.count(producer) != 0) {
+    if (producer->getMemoryType() == MemoryType::Global) {
       continue;
     }
     // Insert a copy between resized_tensor and producer
     auto copy_of_producer = set(producer);
     ir_utils::replaceValInExpr(
         resized_tensor->definition(), producer, copy_of_producer);
-    cached.insert(producer);
   }
 }
 
