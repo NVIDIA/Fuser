@@ -47,11 +47,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
-  for (auto id : tv->getMaybeRFactorDomain()) {
-    if (!eraseIfMapped(in_concrete_ids, id)) {
-      eraseIfInputMappedThroughRFactorDomain(in_concrete_ids, id);
-    }
-  }
+  eraseIfInputMappedThroughRFactorDomain(
+      in_concrete_ids, tv->getMaybeRFactorDomain());
 
   return in_concrete_ids.empty();
 }
@@ -70,32 +67,29 @@ bool DomainMap::eraseIfMapped(
   return found_match;
 }
 
-// Check if in_id is mapped to out_id through any rfactor domain.
-// Currently this function only allow having one view on the path from input to
-// output. If there are multiple views, then likely the pointwise scheduler will
-// reject the fusion because we can not correctly find a reference tensor.
 void DomainMap::eraseIfInputMappedThroughRFactorDomain(
-    std::unordered_set<IterDomain*>& in_concrete_ids,
-    IterDomain* id) const {
-  for (auto view : tvs_with_rfactor_) {
-    // Find any ID in view rfactor domain that is mapped to output ID
-    auto view_rfactor_id = anyMapped(view->getRFactorDomain(), id);
-    if (view_rfactor_id == nullptr) {
-      continue;
-    }
+    std::unordered_set<IterDomain*>& in_ids,
+    const std::vector<IterDomain*>& ids) const {
+  // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer
+  // IDs through rfactor exprs
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      exact_sets;
+  std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {
+    exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
+  });
 
-    if (view_rfactor_id->isRFactorProduct()) {
-      // Check if input ID is mapped to any input IDs of the view rfactor ID
-      auto root_inputs = InputsOf::outputs(fusion_, {view_rfactor_id});
-      auto filtered_root_ids = ir_utils::filterByType<IterDomain>(root_inputs);
-      for (auto view_root_id : filtered_root_ids) {
-        eraseIfMapped(in_concrete_ids, view_root_id);
-      }
-    } else {
-      // Otherwise, the input ID must map to the view rfactor ID
-      eraseIfMapped(in_concrete_ids, view_rfactor_id);
-    }
+  // This technically traverses exprs that are not rfactor
+  // transformations but when this function is used, there should be
+  // no non-rfactor IterDomain exprs
+  auto all_exact_sets_covered = ca_map_.getAllDisjointSetProducers(exact_sets);
+
+  for (const auto& exact_set_ptr : all_exact_sets_covered) {
+    auto exact_concrete_id = ca_map_.getConcreteMappedID(
+        exact_set_ptr->front(), IdMappingMode::EXACT);
+    eraseIfMapped(in_ids, exact_concrete_id);
   }
+
+  return;
 }
 
 // Find any id in domain that maps with target id
