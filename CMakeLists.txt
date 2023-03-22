@@ -333,6 +333,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
+    install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${NVFUSER_LIB_DIR})
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
 

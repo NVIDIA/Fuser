@@ -165,7 +165,7 @@ def cmake():
         subprocess.check_call(cmd_str)
 
         # copy nvfuser pybind extension
-        src = os.path.join(cmake_build_dir, "libnvfuser.so")
+        src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser.so")
         dst = os.path.join(cwd, "nvfuser", "_C.cpython-310-x86_64-linux-gnu.so")
         copy_file(src, dst)
 
