@@ -10,9 +10,8 @@ nvfuser/lib
 
 .hypothesis
 *.egg-info/
-__pycache__
-
-*.so
+**/__pycache__
+*/*.so
 
 # Editor temporaries
 *.swa
