@@ -40,9 +40,10 @@ def patch_codegen_so():
     """
     import torch
     import shutil
+    import os
 
     dst_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
-    src_dir = os.path.join(os.path.abspath(__file__), "lib")
+    src_dir = os.path.join(os.path.dirname(__file__), "lib")
 
     shutil.copyfile(
         os.path.join(src_dir, "libnvfuser_codegen.so"),

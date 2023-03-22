@@ -180,8 +180,11 @@ def main():
 
     if BUILD_SETUP:
         cmake()
+        from nvfuser.version import _version_str
+    else:
+        _version_str = None
 
-    from nvfuser.version import _version_str
+
 
     setup(
         name="nvfuser",
