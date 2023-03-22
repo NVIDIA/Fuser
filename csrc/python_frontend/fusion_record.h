@@ -1059,12 +1059,13 @@ struct ConstantRecord : RecordFunctor {
     if constexpr (std::is_same_v<ValueType, bool>) {
       bool value = __toBool(value_);
       os << (value ? "True" : "False");
-    } else if constexpr (std::is_same_v<ValueType, std::complex<float>> ||
+    } else if constexpr (
+        std::is_same_v<ValueType, std::complex<float>> ||
         std::is_same_v<ValueType, std::complex<double>>) {
       os << std::showpoint << std::real(value_) << "+" << std::showpoint
          << std::imag(value_) << "j";
-    } else if constexpr (std::is_same_v<ValueType, float> ||
-        std::is_same_v<ValueType, double>) {
+    } else if constexpr (
+        std::is_same_v<ValueType, float> || std::is_same_v<ValueType, double>) {
       if (std::isinf(value_)) {
         if (std::signbit(value_)) {
           os << "float(\"-inf\")";
@@ -1720,7 +1721,7 @@ struct SliceOpRecord : RecordFunctor {
   virtual RecordFunctor* clone() final {
     return new SliceOpRecord(*this);
   }
-  
+
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
   //! | start_indices  | end_indices    | strides      |
@@ -1764,9 +1765,30 @@ struct SliceOpRecord : RecordFunctor {
       auto start_idx = start_indices_[i];
       auto end_idx = end_indices_[i];
       auto stride = strides_[i];
-      TORCH_CHECK(start_idx >= 0, "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ", start_indices_, " End Indices: " , end_indices_, " Strides: ", strides_);
-      TORCH_CHECK(end_idx >= start_idx, "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ", start_indices_, " End Indices: " , end_indices_, " Strides: ", strides_);
-      TORCH_CHECK(stride == 1, "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ", start_indices_, " End Indices: " , end_indices_, " Strides: ", strides_);
+      TORCH_CHECK(
+          start_idx >= 0,
+          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+          start_indices_,
+          " End Indices: ",
+          end_indices_,
+          " Strides: ",
+          strides_);
+      TORCH_CHECK(
+          end_idx >= start_idx,
+          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+          start_indices_,
+          " End Indices: ",
+          end_indices_,
+          " Strides: ",
+          strides_);
+      TORCH_CHECK(
+          stride == 1,
+          "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+          start_indices_,
+          " End Indices: ",
+          end_indices_,
+          " Strides: ",
+          strides_);
       tmp.start = IrBuilder::create<Int>(start_idx);
       tmp.stop = IrBuilder::create<Int>(end_idx);
       tmp.step = IrBuilder::create<Int>(stride);
@@ -1777,7 +1799,7 @@ struct SliceOpRecord : RecordFunctor {
     auto output = slice(arg, ranges);
     fd.setFusionState(outputs_.at(0).index, output);
   }
-  
+
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", start_indices=[";

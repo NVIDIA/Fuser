@@ -1574,9 +1574,9 @@ class TestNvFuserFrontend(TestCase):
 
         def nvfuser_fusion_0(fd : FusionDefinition) -> None :
             T0 = fd.from_pytorch(inputs[0])
-            T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1] )
-            T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1] )
-            T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1] )
+            T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
+            T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
+            T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
             T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 1024], [16, 128, 16, 64])
             T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 1024], [16, 128, 16, 64])
             T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 1024], [16, 128, 16, 64])
@@ -1603,7 +1603,7 @@ class TestNvFuserFrontend(TestCase):
             q = q.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
             v = v.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
             return (q, k, v,)
-        
+
         def torch_def_1(acts, n_embd, n_head):
             B, T, C = acts.size()
             q, k, v = acts.split(n_embd, dim=2)
