@@ -1515,6 +1515,51 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[5])
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[6])
 
+    def test_pad_cache(self):
+        """Test that using different pad widths causes a cache miss.
+
+        cf. https://github.com/NVIDIA/Fuser/pull/10#pullrequestreview-1352667557
+        """
+        inputs = [
+            torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func_pad1(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.pad(t0, [1, 1])
+            fd.add_output(t1)
+
+        nvf_out1, _ = self.exec_nvfuser(
+            fusion_func_pad1, inputs, new_fusion_expected=True
+        )
+        _ = self.exec_nvfuser(fusion_func_pad1, inputs, new_fusion_expected=False)
+
+        def fusion_func_pad2(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.pad(t0, [2, 2])
+            fd.add_output(t1)
+
+        nvf_out2, _ = self.exec_nvfuser(
+            fusion_func_pad2, inputs, new_fusion_expected=True
+        )
+
+        def fusion_func_pad3(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            fill_val = fd.define_constant(2.0)
+            t1 = fd.ops.pad(t0, [1, 1], fill_val)
+            fd.add_output(t1)
+
+        nvf_out3, _ = self.exec_nvfuser(
+            fusion_func_pad3, inputs, new_fusion_expected=True
+        )
+        _ = self.exec_nvfuser(fusion_func_pad3, inputs, new_fusion_expected=False)
+
+        self.assertEqual(F.pad(inputs[0], [1, 1]), nvf_out1[0])
+        # Erroneous cache miss would use kernel 1 instead of 2
+        self.assertEqual(F.pad(inputs[0], [2, 2]), nvf_out2[0])
+        # Erroneous cache hit based on fill value would use kernel1
+        self.assertEqual(F.pad(inputs[0], [1, 1], "constant", 2.0), nvf_out3[0])
+
     def test_cat(self):
         inputs = [
             torch.randn(2, 4, device="cuda"),
@@ -1538,7 +1583,7 @@ class TestNvFuserFrontend(TestCase):
             # torch.cat accepts empty tensors (size 0 in the concat dimension),
             # which do not affect the output.
             # The below fails with RuntimeError: mapped_id_resize != nullptr
-            # INTERNAL ASSERT FAILED at 
+            # INTERNAL ASSERT FAILED at
             # "/opt/pytorch/nvfuser/csrc/lower_index_compute.cpp":1306
             # t5 = fd.ops.cat([t0, t3], 0)
             # fd.add_output(t5)

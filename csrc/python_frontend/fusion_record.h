@@ -400,22 +400,25 @@ struct PadOpRecord : RecordFunctor {
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t widths_hash = 0;
-    // for (auto w : pad_widths_) {
-    // TODO: How to hash vector<Scalar*> pad_widths here?
-    // widths_hash ^= w.hash();
-    //}
+    for (auto w : pad_widths_) {
+      widths_hash ^= w;
+    }
     return result | (widths_hash & 0xffff);
   }
 
-  /*
   virtual bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
+      if (pad_widths_.size() != child_ptr->pad_widths_.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < pad_widths_.size(); ++i) {
+        result &= pad_widths_.at(i) == child_ptr->pad_widths_.at(i);
+      }
     }
     return result;
   }
-  */
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
@@ -428,9 +431,9 @@ struct PadOpRecord : RecordFunctor {
 
     TensorView* output;
     if (args_.at(1).stype == StateType::Scalar) {
-       output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
+      output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
     } else { // default: None
-       output = pad(arg, val_widths);
+      output = pad(arg, val_widths);
     }
 
     fd.setFusionState(outputs_.at(0).index, output);
@@ -460,7 +463,6 @@ struct PadOpRecord : RecordFunctor {
       os << ", " << args_.at(1);
     }
     os << ")";
-
   }
 
  private:
