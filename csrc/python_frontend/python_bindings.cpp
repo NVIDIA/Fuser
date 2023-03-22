@@ -2462,18 +2462,21 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.slice");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(arg.dims == start_indices.size(),
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
             arg.dims,
             " Slice-dims: ",
-            start_indices.size()); 
-        TORCH_CHECK((start_indices.size() == end_indices.size()) && (end_indices.size() == strides.size()),
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
             "Slice indexing attribute dimensions don't match! Start Indices: ",
             start_indices.size(),
             " End Indices: ",
             end_indices.size(),
             " Strides: ",
-            strides.size()); 
+            strides.size());
         for (const auto i : c10::irange(arg.dims)) {
           auto start_idx = start_indices[i];
           auto end_idx = end_indices[i];
@@ -2528,18 +2531,21 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
             fd->ops.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(arg.dims == start_indices.size(),
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
             arg.dims,
             " Slice-dims: ",
-            start_indices.size()); 
-        TORCH_CHECK((start_indices.size() == end_indices.size()) && (end_indices.size() == strides.size()),
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
             "Slice indexing attribute dimensions don't match! Start Indices: ",
             start_indices.size(),
             " End Indices: ",
             end_indices.size(),
             " Strides: ",
-            strides.size()); 
+            strides.size());
         for (const auto i : c10::irange(arg.dims)) {
           auto start_idx = start_indices[i];
           auto end_idx = end_indices[i];
