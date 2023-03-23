@@ -196,6 +196,11 @@ void IterVisitor::traverseBetween(
       // If stmt is an expression, traverse attributes as well
       if (traverse_attributes && stmt->isExpr()) {
         for (Statement* x : stmt->as<Expr>()->attributes()) {
+          // There can be nullptr attributes, e.g., philox_index of
+          // RngOp. Don't traverse into them
+          if (x == nullptr) {
+            continue;
+          }
           // Note that attributes of type Attribute is not possible to
           // dispatch as it's a template type.
           if (x->getValType() == ValType::Attribute) {
