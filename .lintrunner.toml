@@ -3,8 +3,6 @@ code = 'FLAKE8'
 include_patterns = ['**/*.py']
 exclude_patterns = [
     '.git/**',
-    '**/*.pyi',
-    'tools/linter/adapters/*.py'
 ]
 command = [
     'python3',
