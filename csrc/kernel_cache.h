@@ -79,7 +79,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
 
   //! starts compilation async
-  void startAsyncCompile(KernelArgumentHolder& );
+  void startAsyncCompile(KernelArgumentHolder& args);
 
   //! maps entries in `args` to fusion inputs.
   //! Note that this function also pushes extra bits like dimension extent into
@@ -168,6 +168,15 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::pair<LaunchParams, CompileParams> compileKernel(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
+
+  //! Runs each fusion segment given arguments. The outputs for a fusion are
+  //! added back to the arguments, so they can be used as inputs to successive
+  //! segments. Returns a map that links each NvFuser Val to its corresponding
+  //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
+  //! real PyTorch tensor or a fake MetaData tensor.
+  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+      KernelArgumentHolder& args,
+      bool is_dry_run);
 
   //! Access the list of schedulers maintained in this runtime instance
   const std::vector<SchedulerEntryPtr>& schedulers();

@@ -474,56 +474,8 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
     c10::cuda::CUDAGuard dg(args.getDeviceIndex());
 
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-
-    TORCH_INTERNAL_ASSERT(
-        args.size() == segmented_fusion_->inputs().size(),
-        "Inputs were not set up correctly, received ",
-        args.size(),
-        " inputs but expecting ",
-        segmented_fusion_->inputs().size());
-
-    c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-    std::unordered_map<Val*, const ArgAbstract*> tensor_map;
-    mapFusionInputsToArgs(tensor_map, args);
-
-    // TODO: compilation can happen in parallel! We can have output sizes
-    // inferred on un-compiled kernel and setup all tensor_map prior to
-    // compilation.
-
-    // group should share cache id.
-    auto group_cache_id = args.getCacheId();
-
-    for (auto group_to_run : runtime_workspace_.group_run_order) {
-      // TODO: index mode should be updated per segmented kernel
-      // Prepare input vector
-      KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
-      group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-      if (group_cache_id.has_value()) {
-        group_runtime_inputs.setCacheId(group_cache_id.value());
-      }
-
-      for (auto input : group_to_run->inputs()) {
-        group_runtime_inputs.push(tensor_map.at(input));
-      }
-
-      // Run graph segment
-      KernelArgumentHolder group_runtime_outputs =
-          dryRunKernelWithInput(group_runtime_inputs, group_to_run);
-
-      // Insert graph segment outputs to tensor map
-      const auto& group_outputs = group_to_run->outputs();
-
-      TORCH_INTERNAL_ASSERT(
-        group_outputs.size() == group_runtime_outputs.size(),
-        "Output size does not match.");
-
-      for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-        if (!group_outputs[group_out_i]->isFusionInput()) {
-          args.push(group_runtime_outputs[group_out_i]);
-          tensor_map.emplace(group_outputs[group_out_i], args.back());
-        }
-      }
-    }
+    std::unordered_map<Val*, const ArgAbstract*> tensor_map =
+      runSegmentsWithInputs(args, true /* is_dry_run */);
   };
 
   getThreadPool()->run(compile_fusion);
@@ -604,61 +556,14 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInput");
 
-  TORCH_INTERNAL_ASSERT(
-      args.size() == segmented_fusion_->inputs().size(),
-      "Inputs were not set up correctly, received ",
-      args.size(),
-      " inputs but expecting ",
-      segmented_fusion_->inputs().size());
-
-  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-
-  std::unordered_map<Val*, const ArgAbstract*> tensor_map;
-  mapFusionInputsToArgs(tensor_map, args);
-
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "=================RUNNING FUSION SEGMENTS================="
               << std::endl;
   }
 
-  // group should share cache id.
-  auto group_cache_id = args.getCacheId();
-  for (auto group_to_run : runtime_workspace_.group_run_order) {
-    // TODO: index mode should be updated per segmented kernel
-    // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
-    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-    if (group_cache_id.has_value()) {
-      group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(tensor_map.at(input));
-    }
-
-    // TODO: currently we are still outputing PyTorch tensors, instead of
-    // something abstract. This is quite unsatisfying. Prepare input vector
-
-    // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run);
-
-    const auto& group_outputs = group_to_run->outputs();
-
-    // Insert graph segment output to tensor map
-    TORCH_INTERNAL_ASSERT(
-        group_outputs.size() == group_runtime_outputs.size(),
-        "Output size does not match.");
-
-    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
-    // updating the tensor_map because we want all future use of inputs on
-    // the original tensor input. See note [Trivial Forwarding]
-    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        args.push(group_runtime_outputs[group_out_i]);
-        tensor_map.emplace(group_outputs[group_out_i], args.back());
-      }
-    }
-  }
+  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map =
+    runSegmentsWithInputs(args, false /* is_dry_run */);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -724,6 +629,68 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
     }
   }
   return fusion_outputs;
+}
+
+std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::runSegmentsWithInputs(
+    KernelArgumentHolder& args,
+    bool is_dry_run) {
+  TORCH_INTERNAL_ASSERT(
+      args.size() == segmented_fusion_->inputs().size(),
+      "Inputs were not set up correctly, received ",
+      args.size(),
+      " inputs but expecting ",
+      segmented_fusion_->inputs().size());
+
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map;
+  mapFusionInputsToArgs(tensor_map, args);
+
+  // group should share cache id.
+  auto group_cache_id = args.getCacheId();
+
+  auto update_outputs = [&args, &tensor_map] (auto group_outputs, auto group_runtime_outputs) {
+    // Insert graph segment output to tensor map
+    TORCH_INTERNAL_ASSERT(
+        group_outputs.size() == group_runtime_outputs.size(),
+        "Output size does not match.");
+
+    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
+    // updating the tensor_map because we want all future use of inputs on
+    // the original tensor input. See note [Trivial Forwarding]
+    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+      if (!group_outputs[group_out_i]->isFusionInput()) {
+        args.push(group_runtime_outputs[group_out_i]);
+        tensor_map.emplace(group_outputs[group_out_i], args.back());
+      }
+    }
+  };
+
+  for (auto group_to_run : runtime_workspace_.group_run_order) {
+    // TODO: index mode should be updated per segmented kernel
+    // Prepare input vector
+    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+    if (group_cache_id.has_value()) {
+      group_runtime_inputs.setCacheId(group_cache_id.value());
+    }
+    for (auto input : group_to_run->inputs()) {
+      group_runtime_inputs.push(tensor_map.at(input));
+    }
+
+    // TODO: currently we are still outputing PyTorch tensors, instead of
+    // something abstract. This is quite unsatisfying.
+
+    // Run graph segment
+    if (is_dry_run) {
+      KernelArgumentHolder group_runtime_outputs =
+        dryRunKernelWithInput(group_runtime_inputs, group_to_run);
+      update_outputs(group_to_run->outputs(), group_runtime_outputs);
+    } else {
+      std::vector<at::Tensor> group_runtime_outputs =
+        runKernelWithInput(group_runtime_inputs, group_to_run);
+      update_outputs(group_to_run->outputs(), group_runtime_outputs);
+    }
+  }
+  return tensor_map;
 }
 
 const std::vector<FusionKernelRuntime::SchedulerEntryPtr>& FusionKernelRuntime::
