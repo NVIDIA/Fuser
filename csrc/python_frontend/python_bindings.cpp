@@ -2454,7 +2454,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   tensor_class.def(
       "pad",
-      [](Tensor arg, std::vector<int64_t>& pad_widths, c10::optional<Scalar> value) -> Tensor {
+      [](Tensor arg,
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
