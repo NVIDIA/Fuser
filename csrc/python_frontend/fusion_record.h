@@ -1762,36 +1762,9 @@ struct SliceOpRecord : RecordFunctor {
     ranges.reserve(ndims);
     for (const auto i : c10::irange(ndims)) {
       Slice tmp;
-      auto start_idx = start_indices_[i];
-      auto end_idx = end_indices_[i];
-      auto stride = strides_[i];
-      TORCH_CHECK(
-          start_idx >= 0,
-          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-          start_indices_,
-          " End Indices: ",
-          end_indices_,
-          " Strides: ",
-          strides_);
-      TORCH_CHECK(
-          end_idx >= start_idx,
-          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-          start_indices_,
-          " End Indices: ",
-          end_indices_,
-          " Strides: ",
-          strides_);
-      TORCH_CHECK(
-          stride == 1,
-          "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-          start_indices_,
-          " End Indices: ",
-          end_indices_,
-          " Strides: ",
-          strides_);
-      tmp.start = IrBuilder::create<Int>(start_idx);
-      tmp.stop = IrBuilder::create<Int>(end_idx);
-      tmp.step = IrBuilder::create<Int>(stride);
+      tmp.start = IrBuilder::create<Int>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<Int>(end_indices_[i]);
+      tmp.step = IrBuilder::create<Int>(strides_[i]);
       ranges.emplace_back(tmp);
     }
 
