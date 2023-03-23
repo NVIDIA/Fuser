@@ -7978,6 +7978,50 @@ TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
       "Resize right expand parameter not found");
 }
 
+TEST_F(NVFuserTest, FusionManagedData_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2});
+  auto tv1 = set(set(set(set(set(set(set(set(set(set(set(set(tv0))))))))))));
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  using T1 = std::vector<Val*>;
+  T1 data1 = {tv0, tv1};
+
+  struct T2 {
+    Val* input;
+    Val* output;
+    size_t magic_number;
+  } data2{tv0, tv1, 0x123456789abcdef};
+  auto clone_fn = [](IrCloner& cloner, std::any data) -> std::any {
+    T2 result;
+    auto d = std::any_cast<T2>(data);
+    result.input = cloner.clone(d.input);
+    result.output = cloner.clone(d.output);
+    result.magic_number = d.magic_number;
+    return result;
+  };
+
+  auto i1 = fusion.manage(data1);
+  auto i2 = fusion.manage(data2, clone_fn);
+  fusion.manage("data1", data1);
+  fusion.manage("data2", data2, clone_fn);
+
+  GpuLower lower(&fusion);
+  auto kernel = lower.kernel();
+
+  T1 expect1{kernel->inputs().at(0), kernel->outputs().at(0)};
+  ASSERT_EQ(kernel->getManaged<T1>(i1), expect1);
+  ASSERT_EQ(kernel->getManaged<T1>("data1"), expect1);
+  ASSERT_EQ(kernel->getManaged<T2>(i2).input, kernel->inputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>(i2).output, kernel->outputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").input, kernel->inputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").output, kernel->outputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

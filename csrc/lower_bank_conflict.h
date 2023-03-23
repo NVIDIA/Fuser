@@ -39,6 +39,9 @@ namespace nvfuser {
 // Also note that this utility will not provide accurate estimation if the above
 // assumptions are satisfied
 
+// Returns (expression, input conflict ways, output conflict ways)
+// way == 0 --> not applicable (for example, tensor is not a smem tensor)
+// way == 1 --> no conflict
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     kir::Kernel* kernel,
     c10::optional<LaunchParams> launch_params = c10::nullopt,
