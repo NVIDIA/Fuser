@@ -1956,4 +1956,38 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   TORCH_CHECK(cg_outputs.at(2).equal(at_t6));
 }
 
+TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {4, 8}, {8, 4});
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)}});
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({4, 8});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.reshape({8, 4}).index(
+      {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
 } // namespace nvfuser
