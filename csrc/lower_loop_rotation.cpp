@@ -99,7 +99,7 @@ class RotateLoop : kir::ExprMutator {
  public:
   static std::vector<Expr*> run(
       std::vector<Expr*> exprs,
-      const Fusion::LoopRotationParam& params) {
+      const LoopRotationParam& params) {
     // Rotate one loop at a time so that nested loops can be rotated without
     // interacting with each other.
     for (auto item : params) {
@@ -385,7 +385,7 @@ class RotateLoop : kir::ExprMutator {
 
 std::vector<Expr*> rotateLoops(
     const std::vector<Expr*>& exprs,
-    const Fusion::LoopRotationParam& params) {
+    const LoopRotationParam& params) {
   return RotateLoop::run(exprs, params);
 }
 

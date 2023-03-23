@@ -114,6 +114,14 @@ class FilteredView {
     return std::vector<value_type>(begin(), end());
   }
 
+  size_t size() const {
+    size_t s = 0;
+    for (auto it = cbegin(); it != cend(); ++it) {
+      ++s;
+    }
+    return s;
+  }
+
  private:
   const InputIt input_it_;
   const InputIt last_;

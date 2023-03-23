@@ -2462,6 +2462,50 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.slice");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
+            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+            arg.dims,
+            " Slice-dims: ",
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
+            "Slice indexing attribute dimensions don't match! Start Indices: ",
+            start_indices.size(),
+            " End Indices: ",
+            end_indices.size(),
+            " Strides: ",
+            strides.size());
+        for (const auto i : c10::irange(arg.dims)) {
+          auto start_idx = start_indices[i];
+          auto end_idx = end_indices[i];
+          auto stride = strides[i];
+          TORCH_CHECK(
+              start_idx >= 0,
+              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              end_idx >= start_idx,
+              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              stride == 1,
+              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+        }
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new SliceOpRecord(
@@ -2487,6 +2531,50 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
             fd->ops.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
+            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+            arg.dims,
+            " Slice-dims: ",
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
+            "Slice indexing attribute dimensions don't match! Start Indices: ",
+            start_indices.size(),
+            " End Indices: ",
+            end_indices.size(),
+            " Strides: ",
+            strides.size());
+        for (const auto i : c10::irange(arg.dims)) {
+          auto start_idx = start_indices[i];
+          auto end_idx = end_indices[i];
+          auto stride = strides[i];
+          TORCH_CHECK(
+              start_idx >= 0,
+              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              end_idx >= start_idx,
+              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              stride == 1,
+              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+        }
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new SliceOpRecord(
             {fd->recordingState(arg())},
