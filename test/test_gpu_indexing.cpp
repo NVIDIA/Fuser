@@ -1057,4 +1057,37 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
   ASSERT_ANY_THROW(fusion.printKernel());
 }
 
+// TODO: All the above tests are merges followed by splits, we should make some
+// more complex examples even though merging then spliting is the most likely
+// use case. In multi-gpu it may be the exact opposite where we split out the
+// outer most iter domain to the multi-gpu dimension, then schedule.
+
+TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // [w]
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // [w, x]
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->split(0, 3);
+  tv3->split(2, 4);
+  tv3->merge(1);
+  tv3->split(1, 5);
+
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  inlineAllAt(tv3, 2, false);
+
+  fusion.printKernel();
+}
+
+
 } // namespace nvfuser
