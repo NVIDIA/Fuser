@@ -573,6 +573,27 @@ inline void rotateLoop(
 //! caches of those tensors so that original operations producing
 //! them should keep using the same memory. This avoids, for example,
 //! reductions to global memory.
+//!
+//! Example:
+//!
+//! tv1 = sum(tv0)
+//! tv2 = some_resize_op(tv1);
+//! tv3 = some_other_op(tv1);
+//!
+//! When tv1 is promoted to Global, we want to avoid reducing to a
+//! global memory tensor. After the transformation by this function,
+//! the fusion should look like:
+//!
+//! tv1 = sum(tv0);
+//! tv4 = tv1
+//! tv4->setMemoryType(Global)
+//! tv2 = some_resize_op(tv4)
+//! tv3 = some_other_op(tv1);
+//!
+//! Note that the sum reduction is done using a Local buffer, i.e.,
+//! tv1, but the data dependency for the resize op is still satisfied
+//! by having a copy of tv1, i.e., tv4. Note that the other op using
+//! tv1 still uses tv1.
 TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
 //! If a resized tensor induces a data dependency between threads,
@@ -580,7 +601,8 @@ TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 //! the dependency. A proper RAW sync will be automatically inserted
 //! when the fusion is lowered.
 TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
-    Fusion* fusion);
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -32,3 +32,4 @@ nvfuser/lib
 *.swp
 *~
 .~lock.*
+.vscode

@@ -56,7 +56,15 @@ class FusionDefinition(_C._FusionDefinition):
             self.schedule()
             self._finalize_schedule(inputs)
 
-        return self._execute(inputs, override_user_schedule)
+        result = None
+        try:
+            result = self._execute(inputs, override_user_schedule)
+        except Exception as err:
+            print("\nError executing nvFuser FusionDefinition:")
+            print(self)
+            raise RuntimeError(err)
+
+        return result
 
     def from_pytorch(self, tensor) :
         """

@@ -103,6 +103,8 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
 
 bool isScalarOp(const Expr*);
 
+bool isIterDomainOp(const Expr*);
+
 //! Get TensorView potentially via kir::TensorIndex. Returns nullptr if
 //! cast fails.
 TensorView* getTv(Val*);
