@@ -100,6 +100,10 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::AggregateVal:
       ptr(handler)->handle(val->as<AggregateVal>());
       return;
+    case ValType::Attribute:
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
       break;
   }
