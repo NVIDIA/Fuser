@@ -30,7 +30,6 @@ if(NOT MSVC)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
-
 # --- build nvfuser_codegen library
 
 set(NVFUSER_SRCS)
@@ -173,7 +172,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 if(NOT USE_ROCM)
-	target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
   target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 else()
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${ROCM_HIPRTC_LIB})
