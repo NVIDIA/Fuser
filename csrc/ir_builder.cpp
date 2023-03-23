@@ -197,7 +197,9 @@ Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
-  if (auto int_val = dynamic_cast<Int*>(val)) {
+  if (val->isZeroInt()) {
+    return val->container()->zeroVal();
+  } else if (auto int_val = dynamic_cast<Int*>(val)) {
     if (int_val->isConst()) {
       return IrBuilder::create<Int>(-int_val->value().value());
     }
