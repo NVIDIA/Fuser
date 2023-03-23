@@ -1759,16 +1759,16 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
   i111 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b243;
-  b243 = i111 < i7;
+  bool b241;
+  b241 = i111 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b243) {
+  if (b241) {
     T1[0]
        = sinf(T0[i111]);
   }
-  if (b243) {
+  if (b241) {
     T2[i111]
       = T1[0]
       + f8;
