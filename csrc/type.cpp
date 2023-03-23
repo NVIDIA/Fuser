@@ -32,58 +32,6 @@ KernelIndexMode indexTypeToMode(DataType index_type) {
       : KernelIndexMode::INT64;
 }
 
-bool isFloatingPointType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isFloatingPointType");
-  return dtype == DataType::Double || dtype == DataType::Float ||
-      dtype == DataType::Half || dtype == DataType::BFloat16;
-}
-
-bool isBooleanType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isBooleanType");
-  return dtype == DataType::Bool;
-}
-
-bool isIntegralType(DataType dtype) {
-  return std::visit(
-      [](auto&& dtype) {
-        using T = std::decay_t<decltype(dtype)>;
-        if constexpr (std::is_same_v<T, PrimDataType>) {
-          switch (dtype) {
-            case DataType::Index:
-            case DataType::Int:
-            case DataType::Int32:
-            case DataType::SMemAddress:
-              return true;
-            case DataType::Null:
-              TORCH_CHECK(
-                  false, "Null type is not a valid argument to isIntegralType");
-            default:
-              return false;
-          }
-        } else if constexpr (std::is_same_v<T, PointerOf>) {
-          return true;
-        }
-        return false;
-      },
-      dtype.type);
-}
-
-bool isPointerType(DataType dtype) {
-  return std::holds_alternative<PointerOf>(dtype.type) ||
-      dtype == DataType::SMemAddress;
-}
-
-bool isComplexType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isComplexType");
-  return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
-}
-
 DataType getTypeFromComplexType(DataType dtype) {
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::ComplexFloat:
@@ -121,19 +69,7 @@ bool alsoBooleanOperator(const UnaryOpType uopt) {
 }
 
 // Return highest on list (smallest enum val)
-DataType promote_type(const DataType& t1, const DataType& t2) {
-  TORCH_CHECK(
-      DataType::Null != t1 && DataType::Null != t2,
-      "Expected promotable DataTypes but got: ",
-      t1,
-      " and ",
-      t2);
-  return aten_to_data_type(
-      c10::promoteTypes(data_type_to_aten(t1), data_type_to_aten(t2)));
-}
-
-// Return highest on list (smallest enum val)
-ValType promote_type(const ValType& t1, const ValType& t2) {
+ValType promoteType(const ValType& t1, const ValType& t2) {
   if (t1 == ValType::TensorView || t2 == ValType::TensorView) {
     return ValType::TensorView;
   }
@@ -157,6 +93,10 @@ static std::string data_type2string(DataType t) {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
           switch (dtype) {
+            case DataType::Null:
+              // This is not a real C++ type, but being able to print a string
+              // for it is convenient for debugging.
+              return "null_type";
             case DataType::Bool:
               return "bool";
             case DataType::Double:
@@ -213,6 +153,8 @@ static const char* val_type2string(ValType t) {
       return "TensorIndex";
     case ValType::AggregateVal:
       return "AggregateVal";
+    case ValType::Attribute:
+      return "Attribute";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
   }

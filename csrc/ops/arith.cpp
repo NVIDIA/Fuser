@@ -777,7 +777,7 @@ DataType getOutputType(
   if (isLogicalOp(op_type)) {
     return DataType::Bool;
   } else if (common_dtype == DataType::Null) {
-    return promote_type(v1->getDataType().value(), v2->getDataType().value());
+    return promoteType(v1->getDataType().value(), v2->getDataType().value());
   } else {
     return common_dtype;
   }
@@ -788,7 +788,7 @@ DataType getOutputType(
 Val* binaryOp(BinaryOpType type, Val* v1, Val* v2, DataType common_dtype) {
   const auto out_dtype = getOutputType(type, v1, v2, common_dtype);
   const auto out_vtype =
-      promote_type(v1->getValType().value(), v2->getValType().value());
+      promoteType(v1->getValType().value(), v2->getValType().value());
   auto vals = ops::maybeBroadcast({v1, v2});
   Val* out = nullptr;
   if (out_vtype == ValType::TensorView) {
@@ -1844,9 +1844,9 @@ Val* lerp(Val* start, Val* end, Val* weight) {
   weight = cast_values[2];
 
   auto out_dtype =
-      promote_type(start->getDataType().value(), end->getDataType().value());
+      promoteType(start->getDataType().value(), end->getDataType().value());
   auto out_vtype =
-      promote_type(start->getValType().value(), end->getValType().value());
+      promoteType(start->getValType().value(), end->getValType().value());
 
   auto vals = ops::maybeBroadcast({start, end, weight});
   Val* out = nullptr;
@@ -1937,7 +1937,7 @@ Val* where(Val* c, Val* v1, Val* v2) {
   TORCH_CHECK(c->getDataType().value() == DataType::Bool);
   auto out_dtype = common_dtype;
   auto out_vtype =
-      promote_type(v1->getValType().value(), v2->getValType().value());
+      promoteType(v1->getValType().value(), v2->getValType().value());
   // Even when v1 and v2 are scalar, the output is a tensor if the
   // conditional input is a tensor.
   if (c->getValType() == ValType::TensorView) {
