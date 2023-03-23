@@ -88,8 +88,6 @@ void DomainMap::eraseIfInputMappedThroughRFactorDomain(
         exact_set_ptr->front(), IdMappingMode::EXACT);
     eraseIfMapped(in_ids, exact_concrete_id);
   }
-
-  return;
 }
 
 // Find any id in domain that maps with target id
