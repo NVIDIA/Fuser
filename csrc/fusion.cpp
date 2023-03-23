@@ -418,7 +418,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
 
   // Convert TVs in kernel to TVs in fusion
   auto smem_tvs_in_kernel =
-      lower.fusion()->getManaged<std::vector<TensorView*>>("smem_tvs");
+      kernel->getManaged<std::vector<TensorView*>>("smem_tvs");
   TORCH_INTERNAL_ASSERT(smem_tvs_in_kernel.size() == smem_tvs.size());
   auto getSmemTvInFusion = [&](Val* v) -> TensorView* {
     auto ti = dynamic_cast<kir::TensorIndex*>(v);

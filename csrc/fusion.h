@@ -247,8 +247,60 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return io_alias_;
   }
 
+  // NOTE: [Fusion managed data]
+  //
   // Fusion-managed data is a mechanism to communicate data that survives fusion
-  // clone.
+  // clone. Managed data can be named or unnamed.
+  //
+  // For unnamed data, to let fusion manage that data, do the following：
+  //   size_t index = fusion.manage(data);  // or
+  //   size_t index = fusion.manage(data, clone_fn);
+  // This function returns an index which can be used to retrieve the data back.
+  // To retrieve the unnamed managed data, do
+  //   T data = fusion.getManaged<T>(index); // rvalue
+  //   T& data = fusion.getManaged<T>(index); // lvalue
+  // To test if fusion have managed data with the given index, do:
+  //   bool has_data = fusion.hasManaged(index);
+  //
+  // For named data, the usage is similar. To manage:
+  //   std::string name = "interesting_tvs";
+  //   fusion.manage(name, data);  // or
+  //   fusion.manage(name, data, clone_fn);
+  // To retrieve:
+  //   T data = fusion.getManaged<T>(name); // rvalue
+  //   T& data = fusion.getManaged<T>(name); // lvalue
+  // To check existence:
+  //   bool has_data = fusion.hasManaged(name);
+  // Note that special names, such as "loop_rotation", are reserved as lowering
+  // options.
+  //
+  // The managed data can be any type. To retrieve managed data, you always need
+  // to specify the actual type of the data. For the data whose type already
+  // have an overload of IrCloner::clone, fusion will automatically know how to
+  // modify it when a fusion clone happens. For these type of data, you can just
+  // use the overload of `manage` without the clone function. For example
+  //   std::vector<TensorView*> interested_tvs;
+  //   size_t index = fusion.manage(interested_tvs);
+  // For the data whose type does not have an overload of IrCloner::clone, you
+  // need to tell fusion how to transform the data to keep consistency during
+  // fusion clone. For example:
+  //   struct InputsOutputs {
+  //     TensorView* input;
+  //     TensorView* output;
+  //     bool some_flag;
+  //   };
+  //   auto clone_fn = [](IrCloner& cloner, std::any data) -> std::any {
+  //     InputsOutputs result;
+  //     auto d = std::any_cast<InputsOutputs>(data);
+  //     result.input = cloner.clone(d.input);
+  //     result.output = cloner.clone(d.output);
+  //     result.some_flag = d.some_flag;
+  //     return result;
+  //   };
+  //   InputsOutputs data{...};
+  //   size_t index = fusion.manage(data, clone_fn);
+  //
+  // See test FusionManagedData_CUDA for example use cases.
   using CloneFn = std::function<std::any(IrCloner&, std::any)>;
 
   inline size_t manage(std::any data, CloneFn clone) {
