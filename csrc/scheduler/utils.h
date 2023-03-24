@@ -11,6 +11,8 @@
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
+#include <ir_cloner.h>
+#include <lower_loop_rotation.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 
@@ -565,7 +567,12 @@ inline void rotateLoop(
     TensorView* loop_tv,
     int64_t axis,
     std::unordered_set<Statement*> selection) {
-  loop_tv->fusion()->rotateLoop(loop_tv, axis, std::move(selection));
+  auto fusion = loop_tv->fusion();
+  if (!fusion->hasManaged("loop_rotation")) {
+    fusion->manage("loop_rotation", LoopRotationParam{});
+  }
+  fusion->getManaged<LoopRotationParam>("loop_rotation")
+      .emplace_back(loop_tv, axis, std::move(selection));
 }
 
 //! Certain tensors may need to be placed on shared or global memory

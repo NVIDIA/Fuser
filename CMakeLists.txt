@@ -44,6 +44,11 @@ else() # PROJECT_IS_TOP_LEVEL
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 endif() # PROJECT_IS_TOP_LEVEL
 
+# TODO: fix MSVC
+if(NOT MSVC)
+  find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
+endif()
+
 # nvfuser test sources
 set(JIT_TEST_SRCS)
 set(JIT_TEST_CU_SRCS)
@@ -246,7 +251,7 @@ target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_L
 
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 # TODO: we should guard the include of gloo
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
@@ -322,7 +327,7 @@ if(BUILD_PYTHON)
       set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".pyd")
     endif()
 
-    target_link_libraries(${NVFUSER} PRIVATE torch::nvtoolsext)
+    target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
     target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
 
     target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
@@ -407,6 +412,7 @@ else() # PROJECT_IS_TOP_LEVEL
   # -- install nvfuser cmake config files and symlink to build binaries
   install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
+  file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)
 endif() # PROJECT_IS_TOP_LEVEL
 
 

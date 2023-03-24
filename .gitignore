@@ -1,7 +1,10 @@
 # binary reference
 bin
+
 # cmake build directory
 build
+.lintbin
+
 # pip wheel directory
 dist
 

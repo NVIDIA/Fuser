@@ -45,10 +45,10 @@ class DomainMap {
       std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
 
-  // Check if in_id is mapped to id through any rfactor domain
+  // Check if in_ids are mapped to ids through any rfactor domain.
   void eraseIfInputMappedThroughRFactorDomain(
-      std::unordered_set<IterDomain*>& in_concrete_ids,
-      IterDomain* id) const;
+      std::unordered_set<IterDomain*>& in_ids,
+      const std::vector<IterDomain*>& ids) const;
 
   // Find any id in domain that maps with target id
   IterDomain* anyMapped(
