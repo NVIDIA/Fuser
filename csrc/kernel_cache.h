@@ -76,7 +76,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder&& args);
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);
@@ -141,6 +141,15 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
  private:
+  //! Runs each fusion segment given arguments. The outputs for a fusion are
+  //! added back to the arguments, so they can be used as inputs to successive
+  //! segments. Returns a map that links each NvFuser Val to its corresponding
+  //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
+  //! real PyTorch tensor or a fake MetaData tensor.
+  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+      KernelArgumentHolder& args,
+      bool is_dry_run);
+
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
@@ -167,15 +176,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::pair<LaunchParams, CompileParams> compileKernel(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
-
-  //! Runs each fusion segment given arguments. The outputs for a fusion are
-  //! added back to the arguments, so they can be used as inputs to successive
-  //! segments. Returns a map that links each NvFuser Val to its corresponding
-  //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
-  //! real PyTorch tensor or a fake MetaData tensor.
-  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
-      KernelArgumentHolder& args,
-      bool is_dry_run);
 
   //! Access the list of schedulers maintained in this runtime instance
   const std::vector<SchedulerEntryPtr>& schedulers();

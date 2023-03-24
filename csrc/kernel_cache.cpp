@@ -210,7 +210,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       "run_fused_kernel",
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
-  auto outputs = kernel_runtime->runWithInputs(args);
+  auto outputs = kernel_runtime->runWithInputs(std::move(args));
   RECORD_OUTPUTS(outputs);
 
   // Permute output tensor returned by kernel execution.
@@ -352,8 +352,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   TORCH_INTERNAL_ASSERT(sg, "runKernelWithInput: need valid group to run");
   auto [launch_params, compile_params] = compileKernel(args, sg);
   auto group_id = sg->groupId();
-  auto scheduler_entry = schedulers()[group_id].get();
-  auto& executor = executors_[group_id];
+  auto scheduler_entry = schedulers().at(group_id).get();
+  auto& executor = executors_.at(group_id);
 
   if (profiling_) {
     most_recent_executor_log_.fusion_executor = &executor;
@@ -468,6 +468,10 @@ void FusionKernelRuntime::startAsyncCompile(
       " started a compilation thread is not supported.",
       " - unique_lock2");
 
+  // TODO: Compilation can happen in parallel! We can infer the output sizes
+  // on the non-compiled kernel and build the entire tensor_map prior to
+  // asyc compilation.
+
   // PyTorch's threadpool uses std::function, which requires the target to be
   // copy-constructible. Adding a std::unique_lock to the lambda's capture list
   // prevents it from being copyable. The std::unique_lock can be moved, but it
@@ -558,7 +562,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    KernelArgumentHolder&& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
