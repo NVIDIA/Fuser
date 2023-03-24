@@ -34,10 +34,10 @@ std::vector<c10::optional<bool>> computeContiguity(
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
-  if (contiguity.size() == 0) {
+  if (contiguity.empty()) {
     return contiguity;
   }
-  int64_t last = sizes.size() - 1;
+  int64_t last = (int64_t)sizes.size() - 1;
   for (; last >= 0; --last) {
     if (not_broadcast(last)) {
       contiguity[last] = (strides.at(last) == 1);
@@ -2345,10 +2345,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         TORCH_CHECK(
-            tensors.size() > 0,
-            "Attempting to concatenate empty list of tensors")
+            !tensors.empty(), "Attempting to concatenate empty list of tensors")
         Tensor output = fd->defineTensor(tensors[0].dims);
         std::vector<State> tensor_states;
+        tensor_states.reserve(tensors.size());
         for (auto& t : tensors) {
           tensor_states.push_back(fd->recordingState(t()));
         }
