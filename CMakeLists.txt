@@ -356,17 +356,18 @@ if(BUILD_TEST)
              ${JIT_TEST_SRCS}
              ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
-
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main)
+  target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if (PROJECT_IS_TOP_LEVEL)
     message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
-    target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${TORCH_LIBRARIES})
+    target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER_TESTS})
-    target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}" "${TORCH_ROOT}/torch/csrc/api/include/")
-    target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} torch ${TORCHLIB_FLAVOR} gtest_main gmock_main)
+    target_include_directories(${NVFUSER_TESTS} PRIVATE "${TORCH_ROOT}/torch/csrc/api/include/")
+    target_link_libraries(${NVFUSER_TESTS} PRIVATE torch ${TORCHLIB_FLAVOR})
   endif() # PROJECT_IS_TOP_LEVEL
 
   if(NOT MSVC)
@@ -411,7 +412,7 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
-  set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD 17)
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
