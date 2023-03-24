@@ -210,7 +210,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       "run_fused_kernel",
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
-  auto outputs = kernel_runtime->runWithInput(args);
+  auto outputs = kernel_runtime->runWithInputs(args);
   RECORD_OUTPUTS(outputs);
 
   // Permute output tensor returned by kernel execution.
@@ -344,11 +344,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
   // This function will be called once on un-segmented fusion,
-  //  for segmented fusion, this function will be called on each segment
-  //  In the case of segmented fusion, segmented group needs to be given so
-  //   a kernel is compiled and run for a segmented group
-  //  In the case of complete fusion, sg = nullptr, and the original fusion
-  //   is complied and run
+  // for segmented fusion, this function will be called on each segment
+  // In the case of segmented fusion, segmented group needs to be given so
+  // a kernel is compiled and run for a segmented group
+  // In the case of complete fusion, sg = nullptr, and the original fusion
+  // is complied and run.
   TORCH_INTERNAL_ASSERT(sg, "runKernelWithInput: need valid group to run");
   auto [launch_params, compile_params] = compileKernel(args, sg);
   auto group_id = sg->groupId();
@@ -470,7 +470,8 @@ void FusionKernelRuntime::startAsyncCompile(
 
   // PyTorch's threadpool uses std::function, which requires the target to be
   // copy-constructible. Adding a std::unique_lock to the lambda's capture list
-  // prevents it from being copyable. Therefore, we need the second mutex.
+  // prevents it from being copyable. The std::unique_lock can be moved, but it
+  // cannot be copied. Thus, we need the second mutex.
   auto compile_fusion = [args = input_args, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 
@@ -479,8 +480,7 @@ void FusionKernelRuntime::startAsyncCompile(
     c10::cuda::CUDAGuard dg((int8_t)args.getDeviceIndex());
 
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-    std::unordered_map<Val*, const ArgAbstract*> tensor_map =
-        runSegmentsWithInputs(args, true /* is_dry_run */);
+    runSegmentsWithInputs(args, true /* is_dry_run */);
   };
 
   getThreadPool()->run(compile_fusion);
@@ -500,12 +500,12 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
-  auto scheduler_entry = schedulers()[group_id].get();
+  auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
   TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
 
-  if (!executors_[group_id].compiled()) {
+  if (!executors_.at(group_id).compiled()) {
     FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel::Compile");
     // Running a segment group as a single kernel,
     // make a fusion to run from segmented fusion
@@ -514,22 +514,23 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
 
     scheduler_entry->schedule(fusion_to_run.get());
 
-    auto launch_params = scheduler_entry->params()->lparams;
-    auto compile_params = scheduler_entry->params()->cparams;
     TORCH_INTERNAL_ASSERT(
-        compile_params.index_type.has_value(), "Kernel index type not defined");
-    executors_[group_id].compileFusion(
-        fusion_to_run.get(), args, launch_params, compile_params);
-    return std::make_pair(launch_params, compile_params);
+        scheduler_entry->params()->cparams.index_type.has_value(),
+        "Kernel index type is not defined.");
+    executors_.at(group_id).compileFusion(
+        fusion_to_run.get(),
+        args,
+        scheduler_entry->params()->lparams,
+        scheduler_entry->params()->cparams);
   }
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
 }
 
-void FusionKernelRuntime::mapFusionInputsToArgs(
-    std::unordered_map<Val*, const ArgAbstract*>& tensor_map,
-    KernelArgumentHolder& args) {
+std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
+    mapFusionInputsToArgs(KernelArgumentHolder& args) {
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map;
   int extent_index = 0;
   auto original_args_size = args.size();
   // Bind args in the tensor_map
@@ -553,11 +554,12 @@ void FusionKernelRuntime::mapFusionInputsToArgs(
       }
     }
   }
+  return tensor_map;
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
+std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInput");
+  FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "=================RUNNING FUSION SEGMENTS================="
@@ -640,14 +642,11 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
       args.size(),
-      " inputs but expecting ",
+      " inputs but expected ",
       segmented_fusion_->inputs().size());
 
-  std::unordered_map<Val*, const ArgAbstract*> tensor_map;
-  mapFusionInputsToArgs(tensor_map, args);
-
-  // group should share cache id.
-  auto group_cache_id = args.getCacheId();
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map =
+      mapFusionInputsToArgs(args);
 
   auto update_outputs = [&args, &tensor_map](
                             auto group_outputs, auto group_runtime_outputs) {
@@ -667,6 +666,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     }
   };
 
+  // group should share cache id.
+  auto group_cache_id = args.getCacheId();
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector

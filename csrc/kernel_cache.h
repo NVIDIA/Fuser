@@ -76,18 +76,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
+  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);
-
-  //! maps entries in `args` to fusion inputs.
-  //! Note that this function also pushes extra bits like dimension extent into
-  //! `args` for expression evaluator binding. So consider your `args` polluted
-  //! after this function and use it with caution.
-  void mapFusionInputsToArgs(
-      std::unordered_map<Val*, const ArgAbstract*>& tensor_map,
-      KernelArgumentHolder& args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -161,6 +153,13 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   KernelArgumentHolder dryRunKernelWithInput(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
+
+  //! Maps entries in `args` to fusion inputs.
+  //! Note that this function also pushes extra bits like dimension extent into
+  //! `args` for expression evaluator binding. So consider your `args` polluted
+  //! after this function and use it with caution.
+  std::unordered_map<Val*, const ArgAbstract*> mapFusionInputsToArgs(
+      KernelArgumentHolder& args);
 
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
