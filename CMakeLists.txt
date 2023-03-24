@@ -361,7 +361,7 @@ if(BUILD_TEST)
 
   if (PROJECT_IS_TOP_LEVEL)
     message(STATUS "skipping the rest of the libs")
-    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${TORCH_LIBRARIES})
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER_TESTS})
