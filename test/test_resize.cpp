@@ -1928,8 +1928,10 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto kernel =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto kernel = runtime->executors().at(0).kernel();
   TORCH_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
