@@ -22,6 +22,10 @@ if (PROJECT_IS_TOP_LEVEL)
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
   set(BUILD_PYTHON ON)
+  set(BUILD_NVFUSER_BENCHMARK ON)
+  if(BUILD_NVFUSER_BENCHMARK)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/benchmark)
+  endif()
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
   file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})
 else() # PROJECT_IS_TOP_LEVEL
@@ -85,37 +89,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
 )
 list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
-
-# nvfuser benchmark sources
-set(BENCHMARK_SRCS)
-list(APPEND BENCHMARK_SRCS
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last.cpp
-  ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/bert.cpp
-  ${NVFUSER_ROOT}/benchmark/broadcast.cpp
-  ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
-  ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
-  ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
-  ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
-  ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
-  ${NVFUSER_ROOT}/benchmark/reduction.cpp
-  ${NVFUSER_ROOT}/benchmark/softmax.cpp
-  ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
-  ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
-  ${NVFUSER_ROOT}/benchmark/transpose.cpp
-  ${NVFUSER_ROOT}/benchmark/matmul.cpp
-  ${NVFUSER_ROOT}/benchmark/timm.cpp
-  ${NVFUSER_ROOT}/benchmark/indexselect.cpp
-  ${NVFUSER_ROOT}/benchmark/utils.cpp
-  ${NVFUSER_ROOT}/benchmark/main.cpp
-)
 
 #------------------------------
 # build nvfuser_codegen library
@@ -393,28 +366,59 @@ else() # PROJECT_IS_TOP_LEVEL
     install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
   endif()
   
-  # -- build benchmark
-  if(BUILD_NVFUSER_BENCHMARK)
-    set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
-  
-    add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
-    torch_compile_options(${NVFUSER_BENCHMARK})
-    install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
-    target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark ${NVFUSER_CODEGEN})
-    target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
-    if(NOT MSVC)
-      target_compile_options_if_supported(nvfuser_bench -Werror)
-      target_compile_options_if_supported(nvfuser_bench -Wno-deprecated-copy)
-    endif()
-  
-  endif()
-  
-  # -- install nvfuser cmake config files and symlink to build binaries
-  install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
-  file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
-  file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)
 endif() # PROJECT_IS_TOP_LEVEL
 
+# -- build benchmark
+if(BUILD_NVFUSER_BENCHMARK)
+  # nvfuser benchmark sources
+  set(BENCHMARK_SRCS)
+  list(APPEND BENCHMARK_SRCS
+    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first.cpp
+    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_first_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last.cpp
+    ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/bert.cpp
+    ${NVFUSER_ROOT}/benchmark/broadcast.cpp
+    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
+    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
+    ${NVFUSER_ROOT}/benchmark/reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
+    ${NVFUSER_ROOT}/benchmark/transpose.cpp
+    ${NVFUSER_ROOT}/benchmark/matmul.cpp
+    ${NVFUSER_ROOT}/benchmark/timm.cpp
+    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
+    ${NVFUSER_ROOT}/benchmark/utils.cpp
+    ${NVFUSER_ROOT}/benchmark/main.cpp
+  )
+
+  set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
+  add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
+  if(PROJECT_IS_TOP_LEVEL)
+    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
+    target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
+    target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
+  else()
+    torch_compile_options(${NVFUSER_BENCHMARK})
+    target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
+  endif()
+  if(NOT MSVC)
+    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
+  endif()
+  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
+  install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
+  target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
+
+endif()
 
 # --- generate runtime files
 # nvfuser runtime files
@@ -476,3 +480,10 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
 endforeach()
 
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
+
+# -- install nvfuser cmake config files and symlink to build binaries
+install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
+file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
+if (NOT PROJECT_IS_TOP_LEVEL)
+  file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)
+endif()
