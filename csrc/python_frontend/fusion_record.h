@@ -398,13 +398,23 @@ struct PadOpRecord : RecordFunctor {
     return new PadOpRecord(*this);
   }
 
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ------------------------------ 0 |
+  //! |          pad_widths                 |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t widths_hash = 0;
-    for (auto w : pad_widths_) {
-      widths_hash ^= w;
+    for (size_t i = 0; i < pad_widths_.size(); ++i) {
+      auto w = pad_widths_.at(i);
+      // Circular shift the lower 32 bits of w by 4 * i
+      // This reduces collisions by only directly xor-ing every 8th argument.
+      // Since many shifts will occupy less than 4 bits, we will have no
+      // collisions for most pads of up to 4 trailing dimensions.
+      size_t shift = (i * 4) % 32;
+      w = w << shift | w >> (32 - shift);
+      widths_hash ^= w << i;
     }
-    return result | (widths_hash & 0xffff);
+    return result | (widths_hash & 0xffffffff);
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
