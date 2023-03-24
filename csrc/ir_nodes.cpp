@@ -776,7 +776,11 @@ BroadcastOp::BroadcastOp(
       auto in_id = in_dom[i - num_new_broadcasts];
       auto out_id = out_dom[i];
       TORCH_INTERNAL_ASSERT(
-          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+          in_id->sameAs(out_id),
+          "IterDomain does not match in BroadcastOp: ",
+          in_id->toString(),
+          ", ",
+          out_id->toString());
     }
   }
   TORCH_INTERNAL_ASSERT(
@@ -1858,19 +1862,34 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   const IterDomain* other_id = other->as<IterDomain>();
 
-  bool is_same = isReduction() == other_id->isReduction() &&
-      getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
-  is_same =
-      is_same && ScalarCheck::sameAs(stopOffset(), other_id->stopOffset());
-  is_same = is_same && (hasExpandedExtent() == other_id->hasExpandedExtent());
-  if (is_same && hasExpandedExtent()) {
-    is_same = ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent());
-  }
+  // Here're the data fields of IterDomain:
+  // start_
+  // extent_
+  // expanded_extent_
+  // stop_offset_
+  // parallel_type_
+  // iter_type_
+  // is_rfactor_domain_
+  // is_padded_dimension_
+  // padded_to_size_
+  // is_mma_swizzled_
 
-  return is_same;
+  // Do not take is_rfactor_domain_ into account. IterDomain's are
+  // considered the same if they are rfactor or not.
+
+  // TODO: Consider managing them as attributes
+
+  return ScalarCheck::sameAs(start(), other_id->start()) &&
+      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+      hasExpandedExtent() == other_id->hasExpandedExtent() &&
+      (!hasExpandedExtent() ||
+       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
+      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+      getParallelType() == other_id->getParallelType() &&
+      getIterType() == other_id->getIterType() &&
+      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
+      isMmaSwizzled() == other_id->isMmaSwizzled();
 }
 
 std::string IterDomain::toString(int indent_size) const {
