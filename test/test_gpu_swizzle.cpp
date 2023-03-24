@@ -428,16 +428,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle1_CUDA) {
 
     // 32-way bank confliction
     auto bank_conflict_info = fusion.bankConflictInfo();
-    TORCH_CHECK(!bank_conflict_info.empty());
-    for (auto info : bank_conflict_info) {
-      std::pair<int, int> expect{32, 0};
-      TORCH_CHECK(
-          info.second == expect,
-          "Expecting 32-way bank conflict, but got ",
-          info.second,
-          ". Something in our lowering or bank conflict checker must have changed, ",
-          "please update them or this test consistently.");
-    }
+    ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 
     // no bank confliction after swizzle
     tv1->swizzle(swizzle_type, 0, 1);
@@ -475,30 +466,12 @@ TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle2_CUDA) {
 
   // 32-way bank confliction
   auto bank_conflict_info = fusion.bankConflictInfo();
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{32, 0};
-    TORCH_CHECK(
-        info.second == expect,
-        "Expecting 32-way bank conflict, but got ",
-        info.second,
-        ". Something in our lowering or bank conflict checker must have changed, ",
-        "please update them or this test consistently.");
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 
-  // no bank confliction after swizzle
+  // 16-way bank confliction
   tv1->swizzle(Swizzle2DType::ZShape, 0, 1);
   bank_conflict_info = fusion.bankConflictInfo();
-  TORCH_CHECK(!bank_conflict_info.empty());
-  for (auto info : bank_conflict_info) {
-    std::pair<int, int> expect{16, 0};
-    TORCH_CHECK(
-        info.second == expect,
-        "Expecting 16-way bank conflict, but got ",
-        info.second,
-        ". Something in our lowering or bank conflict checker must have changed, ",
-        "please update them or this test consistently.");
-  }
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
 }
 
 TEST_F(NVFuserTest, FusionDataSwizzleGlobal_CUDA) {
