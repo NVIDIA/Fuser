@@ -1,4 +1,6 @@
 bin
+build
+.lintbin
 python/version.py
 __pycache__
 build
