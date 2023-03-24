@@ -79,7 +79,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
 
   //! starts compilation async
-  void startAsyncCompile(KernelArgumentHolder& args);
+  void startAsyncCompile(const KernelArgumentHolder& input_args);
 
   //! maps entries in `args` to fusion inputs.
   //! Note that this function also pushes extra bits like dimension extent into

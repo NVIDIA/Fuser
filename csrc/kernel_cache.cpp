@@ -376,7 +376,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     }
     std::cout << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[i]->toString() << std::endl;
+      std::cout << "  " << args[(int)i]->toString() << std::endl;
     }
     std::cout << "Compiler log: " << executor.compilerLog() << "\n";
     std::cout << scheduler_entry->params()->toString() << "\n";
@@ -452,7 +452,8 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 }
 
 // passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
+void FusionKernelRuntime::startAsyncCompile(
+    const KernelArgumentHolder& input_args) {
   // only single compilation is supported at this moment.
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
@@ -466,16 +467,16 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
   // for some reason I can't seem to move unique_lock and it keeps using copy.
   // auto compile_fusion = [args = std::move(args_old), lock =
   // std::move(unique_lock), this] () mutable {
-  auto compile_fusion = [args = std::move(args_old), this]() mutable {
+  auto compile_fusion = [args = input_args, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 
     // locking mutex_ since we are touching executors_ during compilation.
     // CUDAGuard uses runtime API directly, which is thread safe.
-    c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+    c10::cuda::CUDAGuard dg((int8_t)args.getDeviceIndex());
 
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
     std::unordered_map<Val*, const ArgAbstract*> tensor_map =
-      runSegmentsWithInputs(args, true /* is_dry_run */);
+        runSegmentsWithInputs(args, true /* is_dry_run */);
   };
 
   getThreadPool()->run(compile_fusion);
@@ -519,9 +520,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
   }
 
   return std::make_pair(
-    scheduler_entry->params()->lparams,
-    scheduler_entry->params()->cparams
-  );
+      scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
 }
 
 void FusionKernelRuntime::mapFusionInputsToArgs(
@@ -531,19 +530,19 @@ void FusionKernelRuntime::mapFusionInputsToArgs(
   auto original_args_size = args.size();
   // Bind args in the tensor_map
   for (const auto i : c10::irange(original_args_size)) {
-    tensor_map.emplace(segmented_fusion_->inputs()[i], args[i]);
+    tensor_map.emplace(segmented_fusion_->inputs()[i], args[(int)i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     // TODO: we probably have done this already up to this point
     //      should consider caching the expression evaluators, both
     //      more convenient and safer than replication
     if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[i])) {
+            dynamic_cast<const TensorArgAbstract*>(args[(int)i])) {
       // Note this is very ugly way. We are pushing every single extent to args,
       // because we don't have a better place to hold them.
       auto rank = tensor_arg_abstract->getRank();
       for (const auto dim : c10::irange(rank)) {
-        args.push(tensor_arg_abstract->getSize(dim));
+        args.push(tensor_arg_abstract->getSize((int)dim));
         tensor_map.emplace(
             runtime_workspace_.group_extent_binding_order[extent_index++],
             args.back());
@@ -561,9 +560,9 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
               << std::endl;
   }
 
-  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
-    runSegmentsWithInputs(args, false /* is_dry_run */);
+      runSegmentsWithInputs(args, false /* is_dry_run */);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -631,9 +630,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
   return fusion_outputs;
 }
 
-std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::runSegmentsWithInputs(
-    KernelArgumentHolder& args,
-    bool is_dry_run) {
+std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
+    runSegmentsWithInputs(KernelArgumentHolder& args, bool is_dry_run) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -647,7 +645,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::runSegmentsWit
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
 
-  auto update_outputs = [&args, &tensor_map] (auto group_outputs, auto group_runtime_outputs) {
+  auto update_outputs = [&args, &tensor_map](
+                            auto group_outputs, auto group_runtime_outputs) {
     // Insert graph segment output to tensor map
     TORCH_INTERNAL_ASSERT(
         group_outputs.size() == group_runtime_outputs.size(),
@@ -682,11 +681,11 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::runSegmentsWit
     // Run graph segment
     if (is_dry_run) {
       KernelArgumentHolder group_runtime_outputs =
-        dryRunKernelWithInput(group_runtime_inputs, group_to_run);
+          dryRunKernelWithInput(group_runtime_inputs, group_to_run);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     } else {
       std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run);
+          runKernelWithInput(group_runtime_inputs, group_to_run);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     }
   }
