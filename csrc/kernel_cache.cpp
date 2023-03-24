@@ -458,15 +458,19 @@ void FusionKernelRuntime::startAsyncCompile(
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
       unique_lock.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that's already starting a compilation thread is not supported");
+      "Calling startAsyncCompile on a FusionKernelRuntime that has already",
+      " started a compilation thread is not supported.",
+      " - unique_lock");
   std::unique_lock<std::mutex> unique_lock2(compiling_, std::try_to_lock);
   TORCH_CHECK(
       unique_lock2.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that's already starting a compilation thread is not supported 2");
+      "Calling startAsyncCompile on a FusionKernelRuntime that has already",
+      " started a compilation thread is not supported.",
+      " - unique_lock2");
 
-  // for some reason I can't seem to move unique_lock and it keeps using copy.
-  // auto compile_fusion = [args = std::move(args_old), lock =
-  // std::move(unique_lock), this] () mutable {
+  // PyTorch's threadpool uses std::function, which requires the target to be
+  // copy-constructible. Adding a std::unique_lock to the lambda's capture list
+  // prevents it from being copyable. Therefore, we need the second mutex.
   auto compile_fusion = [args = input_args, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 

@@ -214,9 +214,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   bool profiling_ = false;
 
   std::mutex mutex_;
-  // TODO: remove `compiling_` mutex and rely on `mutex_` only.
-  // we don't need the second mutex, if only I could figure out how to pass
-  // unique_lock into lambda
+
+  //! A second mutex used in startAsyncCompile
   std::mutex compiling_;
 
   // The heuristics and executor for most recent kernel launch
