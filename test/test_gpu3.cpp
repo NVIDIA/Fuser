@@ -7945,6 +7945,10 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
 //! Test whether we can create and use BFloat16 scalars
 TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping BFloat16Scalars test on pre-AMPERE GPUs";
+  }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
