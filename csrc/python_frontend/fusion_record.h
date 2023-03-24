@@ -408,17 +408,21 @@ struct PadOpRecord : RecordFunctor {
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
     if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
+      if (!RecordFunctor::operator==(other)) {
+        return false;
+      }
       if (pad_widths_.size() != child_ptr->pad_widths_.size()) {
         return false;
       }
       for (size_t i = 0; i < pad_widths_.size(); ++i) {
-        result &= pad_widths_.at(i) == child_ptr->pad_widths_.at(i);
+        if (pad_widths_.at(i) != child_ptr->pad_widths_.at(i)) {
+          return false;
+        }
       }
+      return true;
     }
-    return result;
+    return false;
   }
 
   void operator()(FusionState& fd) final {
