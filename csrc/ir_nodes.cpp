@@ -1860,7 +1860,8 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   bool is_same = isReduction() == other_id->isReduction() &&
       getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
+      isVectorComponent() == other_id->isVectorComponent() &&
+      getIterType() == other_id->getIterType();
   is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
   is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
   is_same =

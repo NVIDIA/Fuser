@@ -106,6 +106,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, domain, td->contiguity());
+  std::cerr << "Mutated new TD: " << mutated_val->toString() << std::endl;
   registerMutation(td, mutated_val);
 }
 
