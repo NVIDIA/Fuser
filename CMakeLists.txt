@@ -22,8 +22,11 @@ if (PROJECT_IS_TOP_LEVEL)
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
   set(BUILD_PYTHON ON)
+  set(BUILD_TEST ON)
   set(BUILD_NVFUSER_BENCHMARK ON)
   if(BUILD_NVFUSER_BENCHMARK)
+    # need this to download googletest
+    set(BENCHMARK_DOWNLOAD_DEPENDENCIES ON)
     add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/benchmark)
   endif()
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
@@ -52,43 +55,6 @@ endif() # PROJECT_IS_TOP_LEVEL
 if(NOT MSVC)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
-
-# nvfuser test sources
-set(JIT_TEST_SRCS)
-set(JIT_TEST_CU_SRCS)
-list(APPEND JIT_TEST_SRCS
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
-  ${NVFUSER_ROOT}/test/test_utils.cpp
-  ${NVFUSER_ROOT}/test/test_gpu1.cpp
-  ${NVFUSER_ROOT}/test/test_gpu2.cpp
-  ${NVFUSER_ROOT}/test/test_gpu3.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
-  ${NVFUSER_ROOT}/test/test_resize.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_view.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
-  ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
-)
-list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
 #------------------------------
 # build nvfuser_codegen library
@@ -340,33 +306,75 @@ if(BUILD_PYTHON)
   endif()
 endif()
 
-if (PROJECT_IS_TOP_LEVEL)
-  message(STATUS "skipping the rest of the libs")
 
-else() # PROJECT_IS_TOP_LEVEL
-  
-  # -- build tests
-  if(BUILD_TEST)
-    set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
-  
-    add_executable(${NVFUSER_TESTS}
-               ${TORCH_ROOT}/test/cpp/common/main.cpp
-               ${TORCH_ROOT}/test/cpp/jit/test_utils.cpp
-               ${JIT_TEST_SRCS}
-               ${JIT_TEST_CU_SRCS})
+# -- build tests
+
+if(BUILD_TEST)
+  # nvfuser test sources
+  set(JIT_TEST_SRCS)
+  set(JIT_TEST_CU_SRCS)
+  list(APPEND JIT_TEST_SRCS
+    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
+    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
+    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
+    ${NVFUSER_ROOT}/test/main.cpp
+    ${NVFUSER_ROOT}/test/test_utils.cpp
+    ${NVFUSER_ROOT}/test/test_gpu1.cpp
+    ${NVFUSER_ROOT}/test/test_gpu2.cpp
+    ${NVFUSER_ROOT}/test/test_gpu3.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
+    ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
+    ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
+    ${NVFUSER_ROOT}/test/test_resize.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_view.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
+  )
+  list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
+
+  set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
+
+  add_executable(${NVFUSER_TESTS}
+	     #${TORCH_ROOT}/test/cpp/common/main.cpp
+	     #${TORCH_ROOT}/test/cpp/jit/test_utils.cpp
+             ${JIT_TEST_SRCS}
+             ${JIT_TEST_CU_SRCS})
+  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
+
+  target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
+
+  if (PROJECT_IS_TOP_LEVEL)
+    message(STATUS "skipping the rest of the libs")
+    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
+    target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${TORCH_LIBRARIES})
+  else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER_TESTS})
-  
-    target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
     target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}" "${TORCH_ROOT}/torch/csrc/api/include/")
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} torch ${TORCHLIB_FLAVOR} gtest_main gmock_main)
-    if(NOT MSVC)
-      set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
-    endif()
-  
-    install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
+  endif() # PROJECT_IS_TOP_LEVEL
+
+  if(NOT MSVC)
+    set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
   endif()
-  
-endif() # PROJECT_IS_TOP_LEVEL
+
+  install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
+endif()
 
 # -- build benchmark
 if(BUILD_NVFUSER_BENCHMARK)
@@ -403,6 +411,7 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
+  set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
