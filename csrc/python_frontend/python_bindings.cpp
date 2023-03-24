@@ -34,10 +34,10 @@ std::vector<c10::optional<bool>> computeContiguity(
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
-  if (contiguity.size() == 0) {
+  if (contiguity.empty()) {
     return contiguity;
   }
-  int64_t last = sizes.size() - 1;
+  int64_t last = (int64_t)sizes.size() - 1;
   for (; last >= 0; --last) {
     if (not_broadcast(last)) {
       contiguity[last] = (strides.at(last) == 1);
@@ -2345,10 +2345,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         TORCH_CHECK(
-            tensors.size() > 0,
-            "Attempting to concatenate empty list of tensors")
+            !tensors.empty(), "Attempting to concatenate empty list of tensors")
         Tensor output = fd->defineTensor(tensors[0].dims);
         std::vector<State> tensor_states;
+        tensor_states.reserve(tensors.size());
         for (auto& t : tensors) {
           tensor_states.push_back(fd->recordingState(t()));
         }
@@ -2424,6 +2424,55 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("index"),
       py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.pad");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            pad_widths.size() <= 2 * arg.dims,
+            "Number of pad widths must be at most twice the input dimension");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, StateType::None);
+        fd->defineRecord(new PadOpRecord(
+            {fd->recordingState(arg()), value_state},
+            {fd->recordingState(output())},
+            pad_widths));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  tensor_class.def(
+      "pad",
+      [](Tensor arg,
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.pad");
+        FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
+        Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, StateType::None);
+        fd->defineRecord(new PadOpRecord(
+            {fd->recordingState(arg()), value_state},
+            {fd->recordingState(output())},
+            pad_widths));
+        return output;
+      },
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "permute",
@@ -2617,6 +2666,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& dims) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims - 1);
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
