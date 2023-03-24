@@ -138,8 +138,15 @@ namespace nvfuser {
 //       T2[j] = cos(T1[j]);
 //     }
 //   }
+
+// vector of (tv, dim, selection)
+// For each entry in the vector, the selected tv/expr in loop tv->axis(dim)
+// will be rotated
+using LoopRotationParam = std::vector<
+    std::tuple<TensorView*, int64_t, std::unordered_set<Statement*>>>;
+
 std::vector<Expr*> rotateLoops(
     const std::vector<Expr*>& exprs,
-    const Fusion::LoopRotationParam& params);
+    const LoopRotationParam& params);
 
 } // namespace nvfuser

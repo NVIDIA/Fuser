@@ -1663,6 +1663,24 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T2_slice2)
             fd.add_output(T2_slice3)
 
+        def torch_def_0(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            k = k.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            q = q.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            v = v.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            return (
+                q,
+                k,
+                v,
+            )
+
         def nvfuser_fusion_1(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1],
@@ -1692,18 +1710,6 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T2)
             fd.add_output(T3)
 
-        def torch_def_0(acts, n_embd, n_head):
-            B, T, C = acts.size()
-            q, k, v = acts.split(n_embd, dim=2)
-            k = k.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
-            q = q.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
-            v = v.view(B, T, n_head, C // n_head).transpose(1, 2)  # (B, nh, T, hs)
-            return (
-                q,
-                k,
-                v,
-            )
-
         def torch_def_1(acts, n_embd, n_head):
             B, T, C = acts.size()
             q, k, v = acts.split(n_embd, dim=2)
@@ -1713,50 +1719,79 @@ class TestNvFuserFrontend(TestCase):
                 v,
             )
 
-        # TODO: Remove try/catches for excepted errors
-        try:
-            nvf_out0, _ = self.exec_nvfuser(nvfuser_fusion_0, inputs)
-        except RuntimeError as err:
-            print("Expected error test_nanogpt_split_mha_linears check 0: ", err)
-        try:
-            nvf_out1, _ = self.exec_nvfuser(nvfuser_fusion_1, inputs)
-        except RuntimeError as err:
-            print("Expected error test_nanogpt_split_mha_linears check 1: ", err)
+        tests = [
+            (nvfuser_fusion_0, torch_def_0),
+            (nvfuser_fusion_1, torch_def_1),
+        ]
 
-        # TODO: Enable eager mode checks once fusions are fixed!
-        """
-        eager_out0 = torch_def_0(inputs, 1024, 16)
-        eager_out1 = torch_def_1(inputs, 1024, 16)
-
-        for idx in range(len(eager_out0)):
-            self.assertEqual(eager_out0[idx], nvf_out0[idx])
-        for idx in range(len(eager_out1)):
-            self.assertEqual(eager_out1[idx], nvf_out1[idx])
-        """
+        for nvf_func, torch_func in tests:
+            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs)
+            eager_out = torch_func(*inputs, 1024, 16)
+            for idx in range(len(eager_out)):
+                self.assertEqual(eager_out[idx], nvf_out[idx])
 
     def test_slice_error_checks(self):
         inputs = [
-            torch.randn(10, 10, device="cuda"),
+            [torch.randn(10, 10, device="cuda")],
+            [torch.randn(5, 5, device="cuda")],
         ]
 
-        def check_start_indices(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
+        def check_start_indices(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(
-                T0, start_indices=[-1, -2], end_indices=[10, 10], strides=[1, 1]
+                T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[1, 1]
             )
             fd.add_output(T1)
 
-        def check_end_indices(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
+        def check_end_indices(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(
                 T0, start_indices=[3, 4], end_indices=[1, 2], strides=[1, 1]
             )
             fd.add_output(T1)
 
-        def check_strides(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
+        def check_strides(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(
-                T0, start_indices=[0, 0], end_indices=[10, 10], strides=[5, 5]
+                T0, start_indices=[0, 0], end_indices=[5, 5], strides=[5, 5]
+            )
+            fd.add_output(T1)
+
+        def check_tensor_dims(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[4, 4, 4], strides=[1, 1, 1]
+            )
+            fd.add_output(T1)
+
+        def check_slice_dims_start(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[4, 4], strides=[1, 1]
+            )
+            fd.add_output(T1)
+
+        def check_slice_dims_end(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0], end_indices=[4, 4, 4], strides=[1, 1]
+            )
+            fd.add_output(T1)
+
+        def check_slice_dims_stride(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0], end_indices=[4, 4], strides=[1, 1, 1]
+            )
+            fd.add_output(T1)
+
+        # TODO: Currently, this check fails to produce a zero-element tensor whne the tensor
+        # is smaller than the index range of the slize.  Therefore, it is disabled.
+        # Issue: https://github.com/NVIDIA/Fuser/issues/52
+        def legal(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(
+                T0, start_indices=[6, 6], end_indices=[8, 8], strides=[1, 1]
             )
             fd.add_output(T1)
 
@@ -1773,12 +1808,36 @@ class TestNvFuserFrontend(TestCase):
                 check_strides,
                 "nvFuser Limitation: All slice operation strides must be of size 1. .*",
             ),
+            (
+                check_tensor_dims,
+                "Number of tensor dimensions does not match slice dimensions! .*",
+            ),
+            (
+                check_slice_dims_start,
+                "Number of tensor dimensions does not match slice dimensions! .*",
+            ),
+            (
+                check_slice_dims_end,
+                "Slice indexing attribute dimensions don't match! .*",
+            ),
+            (
+                check_slice_dims_stride,
+                "Slice indexing attribute dimensions don't match! .*",
+            ),
+            # (legal, None),
         ]
 
-        for check, error in checks:
-            self.assertRaisesRegex(
-                RuntimeError, error, partial(self.exec_nvfuser, check), inputs
-            )
+        for inp in inputs:
+            for check, error in checks:
+                if error is None:
+                    out = self.exec_nvfuser(partial(check, acts=inp), inp)
+                else:
+                    self.assertRaisesRegex(
+                        RuntimeError,
+                        error,
+                        partial(self.exec_nvfuser, partial(check, acts=inp)),
+                        inp,
+                    )
 
 
 if __name__ == "__main__":
