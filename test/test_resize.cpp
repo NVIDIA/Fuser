@@ -1928,8 +1928,10 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto kernel =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto kernel = runtime->executors().at(0).kernel();
   TORCH_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
@@ -1954,6 +1956,98 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   TORCH_CHECK(cg_outputs.at(0).equal(at_t4));
   TORCH_CHECK(cg_outputs.at(1).equal(at_t5));
   TORCH_CHECK(cg_outputs.at(2).equal(at_t6));
+}
+
+TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {4, 8}, {8, 4});
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)},
+       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)}});
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({4, 8});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.reshape({8, 4}).index(
+      {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+// Make sure resize works with the transpose scheduler
+TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Set the problem size so that it can trigger the transpose
+  // scheduler. The scheduler selection is validated below.
+  auto num_sms =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  std::vector<int64_t> shape({num_sms + 2, 32 * 32 + 10});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Int>(1), IrBuilder::create<Int>(shape.at(0) - 1)},
+       {IrBuilder::create<Int>(2), IrBuilder::create<Int>(shape.at(1) - 2)}});
+  auto tv3 = transpose(tv2, 0, 1);
+  fusion->addOutput(tv3);
+  auto tv4 = add(tv2, IrBuilder::create<Double>(1));
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto ref_t2 = (t0 + 1).index(
+      {at::indexing::Slice(1, shape.at(0) - 1),
+       at::indexing::Slice(2, shape.at(1) - 2)});
+  auto ref_t3 = ref_t2.transpose(0, 1);
+  auto ref_t4 = ref_t2 + 1;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref_t3, ref_t4},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
