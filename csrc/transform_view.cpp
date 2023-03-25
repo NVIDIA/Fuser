@@ -786,8 +786,6 @@ AnalyzeViewResult analyzeView(
   // other values
   auto sizes = inferViewShapes(original_sizes, new_sizes);
 
-  std::cerr << "New size: " << sizes.second << std::endl;
-
   // Analysize the transformations required to go from original_sizes to
   // new_sizes
   AnalyzeViewTransformation analyzer(
@@ -833,55 +831,7 @@ std::string AnalyzeViewResult::toString() const {
   return ss.str();
 }
 
-AnalyzeViewConstraint::AnalyzeViewConstraint(
-    const AnalyzeViewResult& view_result,
-    const std::vector<int64_t>& original_view,
-    const std::vector<int64_t>& new_view) {
-  original_constraint =
-      std::vector<int64_t>(original_view.begin(), original_view.end());
-  for (auto i : c10::irange(original_constraint.size())) {
-    if (original_constraint[i] != 1) {
-      original_constraint[i] = 0;
-    }
-  }
-
-  new_constraint = std::vector<int64_t>(new_view.begin(), new_view.end());
-  for (auto i : c10::irange(new_constraint.size())) {
-    if (new_constraint[i] != 1) {
-      new_constraint[i] = 0;
-    }
-  }
-
-#if 0
-  for (auto squeeze : squeeze_transforms_) {
-    squeeze_string.push_back(squeeze->index());
-  }
-
-  for (auto broadcast : broadcast_transforms_) {
-    broadcast_string.push_back(broadcast->index());
-  }
-#endif
-
-  // Dilimeter for split/merge transforms is -2
-  for (auto split_merge : view_result.transforms) {
-    if (split_merge->isA<SplitTransform>()) {
-      split_merge_string.push_back(split_merge->index());
-      split_merge_string.push_back(
-          split_merge->as<SplitTransform>()->split_factor());
-      split_merge_string.push_back(-2);
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          split_merge->isA<MergeTransform>(),
-          "Unrecognized transformation found.");
-      split_merge_string.push_back(split_merge->index());
-      split_merge_string.push_back(-2);
-    }
-  }
-}
-
 bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
-  std::cerr << "Comparing " << toString() << " and " << other.toString()
-            << std::endl;
   if (this == &other) {
     return true;
   }
@@ -891,24 +841,17 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
     return false;
   }
 
-  std::cerr << "DEBUG1\n";
-
   if (transforms.size() != other.transforms.size()) {
     return false;
   }
 
-  std::cerr << "DEBUG2\n";
-
   for (const auto i : c10::irange(transforms.size())) {
     auto transform = transforms.at(i);
     auto other_transform = other.transforms.at(i);
-    std::cerr << "Comparing " << transform->toString() << ", "
-              << other_transform->toString() << std::endl;
     if (transform->isA<SplitTransform>()) {
       if (!other_transform->isA<SplitTransform>() ||
           *transform->as<SplitTransform>() !=
               *other_transform->as<SplitTransform>()) {
-        std::cerr << "DEBUG3\n";
         return false;
       }
     } else {
@@ -918,7 +861,6 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
       if (!other_transform->isA<MergeTransform>() ||
           *transform->as<MergeTransform>() !=
               *other_transform->as<MergeTransform>()) {
-        std::cerr << "DEBUG4\n";
         return false;
       }
     }

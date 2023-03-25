@@ -230,15 +230,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     std::cerr << info.toString() << std::endl;
 
-    std::cout << "Before fusion concretization\n";
-    fusion.printMath();
-    std::cout << std::endl;
-
     DynamicTransform::concretizeFusion(&fusion, info);
-
-    std::cout << "After fusion concretization\n";
-    fusion.printMath();
-    std::cout << std::endl;
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -263,24 +255,22 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
 
     auto tv0 = makeSymbolicTensor(2);
     fusion.addInput(tv0);
-    auto tv1 = makeSymbolicTensor(2);
-    fusion.addInput(tv1);
 
     auto reshape_shape0 = IrBuilder::create<Int>();
     fusion.addInput(reshape_shape0);
     auto reshape_shape1 = IrBuilder::create<Int>();
     fusion.addInput(reshape_shape1);
 
-    auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
-    auto tv3 =
-        pad(tv2,
+    auto tv1 = reshape(tv0, {reshape_shape0, reshape_shape1});
+    auto tv2 =
+        pad(tv1,
             {IrBuilder::create<Int>(1),
              IrBuilder::create<Int>(1),
              IrBuilder::create<Int>(1),
              IrBuilder::create<Int>(1)});
-    auto tv4 = set(tv3);
+    auto tv3 = set(tv2);
 
-    fusion.addOutput(tv4);
+    fusion.addOutput(tv3);
 
     fusion.printMath();
 
@@ -288,8 +278,8 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
 
     expr_eval.bind(tv0->axis(0)->extent(), before_after.first.at(0));
     expr_eval.bind(tv0->axis(1)->extent(), before_after.first.at(1));
-    expr_eval.bind(tv2->axis(0)->extent(), before_after.second.at(0));
-    expr_eval.bind(tv2->axis(1)->extent(), before_after.second.at(1));
+    expr_eval.bind(tv1->axis(0)->extent(), before_after.second.at(0));
+    expr_eval.bind(tv1->axis(1)->extent(), before_after.second.at(1));
 
     auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 

@@ -62,13 +62,6 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
   // A stringified version of the transformations:
   std::vector<int64_t> split_merge_string;
 
-  AnalyzeViewConstraint() = default;
-
-  AnalyzeViewConstraint(
-      const AnalyzeViewResult& view_result,
-      const std::vector<int64_t>& original_view,
-      const std::vector<int64_t>& new_view);
-
   std::vector<int64_t> conglomerateString() const {
     // Don't think this is necessary but just being safe. Using
     // -3 as a dilimeter between value groups.
@@ -136,8 +129,6 @@ TORCH_CUDA_CU_API AnalyzeViewConstraint analyzeViewConstraint(
 TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);
-
-TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
 
 TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
 
