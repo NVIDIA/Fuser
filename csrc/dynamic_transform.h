@@ -33,10 +33,6 @@ class TORCH_CUDA_CU_API DynamicTransformInfo {
 
   std::string toString() const;
 
-  static DynamicTransformInfo get(
-      Fusion* fusion,
-      ExpressionEvaluator* expr_eval);
-
   DynamicTransformInfo(Fusion* fusion) : fusion_(fusion) {}
 
   Fusion* fusion() const {
@@ -58,39 +54,13 @@ class TORCH_CUDA_CU_API DynamicTransformInfo {
   friend class DynamicTransformInfoBuilder;
 };
 
-//! Concretize dynamic transforms in
-void concretizeDynamicTransform(
-    Fusion* fusion,
-    const DynamicTransformInfo& info);
-
-class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
+class TORCH_CUDA_CU_API DynamicTransform {
  public:
-  static void concretizeFusion(
-      Fusion* fusion,
-      const DynamicTransformInfo& info);
+  static DynamicTransformInfo getConcretizationInfo(
+      Fusion*,
+      ExpressionEvaluator* expr_eval);
 
- private:
-  DynamicTransformConcretizer(Fusion* fusion, const DynamicTransformInfo& info)
-      : info_(info) {
-    TORCH_INTERNAL_ASSERT(
-        fusion == info.fusion(),
-        "Invalid DynamicTransformInfo. The associated Fusion is different from the given Fusion");
-  }
-
-  void concretize();
-  void concretizeReshape();
-
- private:
-  using OptOutMutator::mutate;
-
-  void mutate(TensorView* tv) final;
-  void mutate(TensorDomain* td) final;
-
-  bool propagateFromProducerToConsumer(TensorView* consumer);
-
- private:
-  const DynamicTransformInfo& info_;
-  std::unordered_map<IterDomain*, IterDomain*> update_map_;
+  static void concretizeFusion(Fusion*, const DynamicTransformInfo& info);
 };
 
 } // namespace nvfuser

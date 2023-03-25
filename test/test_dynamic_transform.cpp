@@ -62,7 +62,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, 4);
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
   }
@@ -77,7 +77,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, -1);
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
   }
@@ -94,7 +94,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // This should fail as (4 * 3) is not evenly divisible by 5
     EXPECT_THAT(
-        [&]() { DynamicTransformInfo::get(&fusion, &expr_eval); },
+        [&]() { DynamicTransform::getConcretizationInfo(&fusion, &expr_eval); },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Cannot infer")));
   }
@@ -133,7 +133,7 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     expr_eval.bind(tv2->axis(0)->extent(), 3);
     expr_eval.bind(tv2->axis(1)->extent(), 4);
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
   }
@@ -169,11 +169,11 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(reshape_shape0, 3);
   expr_eval.bind(reshape_shape1, 4);
 
-  auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
   std::cerr << info.toString() << std::endl;
 
-  DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+  DynamicTransform::concretizeFusion(&fusion, info);
 
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -226,7 +226,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     expr_eval.bind(tv2->axis(0)->extent(), before_after.second.at(0));
     expr_eval.bind(tv2->axis(1)->extent(), before_after.second.at(1));
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
 
@@ -234,7 +234,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     fusion.printMath();
     std::cout << std::endl;
 
-    DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, info);
 
     std::cout << "After fusion concretization\n";
     fusion.printMath();
@@ -291,7 +291,7 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     expr_eval.bind(tv2->axis(0)->extent(), before_after.second.at(0));
     expr_eval.bind(tv2->axis(1)->extent(), before_after.second.at(1));
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
 
@@ -299,7 +299,7 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     fusion.printMath();
     std::cout << std::endl;
 
-    DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, info);
 
     std::cout << "After fusion concretization\n";
     fusion.printMath();
@@ -358,7 +358,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
       }
     }
 
-    auto info = DynamicTransformInfo::get(&fusion, &expr_eval);
+    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
     std::cerr << info.toString() << std::endl;
 
@@ -366,7 +366,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     fusion.printMath();
     std::cout << std::endl;
 
-    DynamicTransformConcretizer::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, info);
 
     std::cout << "After fusion concretization\n";
     fusion.printMath();

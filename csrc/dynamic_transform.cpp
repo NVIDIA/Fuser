@@ -67,13 +67,6 @@ std::string DynamicTransformInfo::toString() const {
   return ss.str();
 }
 
-DynamicTransformInfo DynamicTransformInfo::get(
-    Fusion* fusion,
-    ExpressionEvaluator* expr_eval) {
-  DynamicTransformInfoBuilder builder(fusion, expr_eval);
-  return builder.getInfo();
-}
-
 void DynamicTransformInfoBuilder::augmentExprEvaluator() {
   const auto mapped_sets = ExactRootDomainMap(info_.fusion()).getMappedSets();
 
@@ -201,15 +194,33 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
-void DynamicTransformConcretizer::concretizeFusion(
-    Fusion* fusion,
-    const DynamicTransformInfo& info) {
-  DEBUG_PRINT_SCOPE();
+class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
+ public:
+  DynamicTransformConcretizer(Fusion* fusion, const DynamicTransformInfo& info)
+      : info_(info) {
+    TORCH_INTERNAL_ASSERT(
+        fusion == info.fusion(),
+        "Invalid DynamicTransformInfo. The associated Fusion is different from the given Fusion");
+    concretize();
+  }
 
-  DynamicTransformConcretizer concretizer(fusion, info);
+ private:
+  void concretize();
 
-  concretizer.concretize();
-}
+  void concretizeReshape();
+
+ private:
+  using OptOutMutator::mutate;
+
+  void mutate(TensorView* tv) final;
+  void mutate(TensorDomain* td) final;
+
+  bool propagateFromProducerToConsumer(TensorView* consumer);
+
+ private:
+  const DynamicTransformInfo& info_;
+  std::unordered_map<IterDomain*, IterDomain*> update_map_;
+};
 
 void DynamicTransformConcretizer::concretize() {
   DEBUG_PRINT_SCOPE();
@@ -230,8 +241,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
   DEBUG_PRINT_SCOPE();
 
   // Concretize each reshape op.
-  // Can there be a reshape op that can't be concretized with input
-  // sizes only?
   for (const auto& kv : info_.getReshapeTransforms()) {
     auto incomplete_out_tv = kv.first;
     const auto view_analysis = kv.second;
@@ -460,6 +469,19 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   }
 
   return true;
+}
+
+DynamicTransformInfo DynamicTransform::getConcretizationInfo(
+    Fusion* fusion,
+    ExpressionEvaluator* expr_eval) {
+  DynamicTransformInfoBuilder builder(fusion, expr_eval);
+  return builder.getInfo();
+}
+
+void DynamicTransform::concretizeFusion(
+    Fusion* fusion,
+    const DynamicTransformInfo& info) {
+  DynamicTransformConcretizer concretizer(fusion, info);
 }
 
 } // namespace nvfuser
