@@ -277,6 +277,8 @@ class IdGraphStmtSort : public IdGraphVisitor {
   IdGroups sorted_ids;
 };
 
+// TODO: Comment is stale, update.
+//
 // There's three modes of these iter domain mappings all uniquely important in
 // the lowering process.
 //
@@ -380,6 +382,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(const std::vector<IterDomain*>& new_inputs, Expr* expr);
 
+  // TODO: Should this not be private?
  protected:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
