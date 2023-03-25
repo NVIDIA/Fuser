@@ -43,6 +43,12 @@ struct AnalyzeViewResult {
   std::vector<std::shared_ptr<ViewTransform>> transforms;
 
   std::string toString() const;
+
+  bool operator==(const AnalyzeViewResult& other) const;
+
+  bool operator!=(const AnalyzeViewResult& other) const {
+    return !(*this == other);
+  }
 };
 
 struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
@@ -55,6 +61,13 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
   std::vector<int64_t> broadcast_string;
   // A stringified version of the transformations:
   std::vector<int64_t> split_merge_string;
+
+  AnalyzeViewConstraint() = default;
+
+  AnalyzeViewConstraint(
+      const AnalyzeViewResult& view_result,
+      const std::vector<int64_t>& original_view,
+      const std::vector<int64_t>& new_view);
 
   std::vector<int64_t> conglomerateString() const {
     // Don't think this is necessary but just being safe. Using

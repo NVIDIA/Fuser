@@ -379,4 +379,117 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
   }
 }
 
+// Test equality of DynamicTransformInfo
+TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
+  // Represents a series of reshapes
+  struct TransformList {
+    std::vector<std::vector<int64_t>> shapes;
+  };
+
+  struct ShapeInfo {
+    TransformList ref_transform;
+    std::vector<TransformList> equal_transforms;
+    std::vector<TransformList> different_transforms;
+  };
+
+  std::vector<ShapeInfo> patterns;
+
+  patterns.push_back(ShapeInfo{
+      .ref_transform = {{{3, 4}, {4, 3}}},
+      .equal_transforms =
+          {{{{3, 4}, {4, 3}}}, {{{2, 8}, {4, 4}}}, {{{3, 8}, {4, 6}}}},
+      .different_transforms = {{{{3, 4}, {2, 6}}}}});
+
+  patterns.push_back(ShapeInfo{
+      .ref_transform = {{{3, 4}, {12}, {1, 4, 3}}},
+      .equal_transforms =
+          {
+              {{{3, 4}, {12}, {1, 4, 3}}},
+              {{{5, 8}, {40}, {1, 4, 10}}},
+          },
+      .different_transforms = {
+          {{{3, 4}, {12}, {4, 1, 3}}},
+          {{{3, 4}, {12}, {4, 3, 1}}},
+      }});
+
+  for (const auto& pattern : patterns) {
+    const auto& ref_transform = pattern.ref_transform;
+    std::vector<TensorView*> reshape_tvs;
+
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(ref_transform.shapes.at(0).size());
+    fusion.addInput(tv0);
+
+    reshape_tvs.push_back(tv0);
+
+    for (auto it = ref_transform.shapes.begin() + 1;
+         it != ref_transform.shapes.end();
+         ++it) {
+      auto shape = *it;
+      std::vector<Val*> shape_arg;
+      for (const auto i : c10::irange(shape.size())) {
+        (void)i;
+        shape_arg.push_back(IrBuilder::create<Int>());
+      }
+
+      auto tv = reshape(reshape_tvs.back(), shape_arg);
+      reshape_tvs.push_back(tv);
+    }
+    fusion.addOutput(reshape_tvs.back());
+
+    fusion.printMath();
+
+    ExpressionEvaluator ref_expr_eval;
+
+    for (const auto i : c10::irange(ref_transform.shapes.size())) {
+      const auto& shape = ref_transform.shapes.at(i);
+      for (const auto j : c10::irange(shape.size())) {
+        std::cerr << "Binding "
+                  << reshape_tvs.at(i)->axis(j)->extent()->toString() << " to "
+                  << shape.at(j) << std::endl;
+        ref_expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
+      }
+    }
+
+    auto ref_info =
+        DynamicTransform::getConcretizationInfo(&fusion, &ref_expr_eval);
+
+    std::cerr << "Ref info: " << ref_info.toString() << std::endl;
+
+    for (const auto& transform : pattern.equal_transforms) {
+      TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
+      ExpressionEvaluator expr_eval;
+      for (const auto i : c10::irange(transform.shapes.size())) {
+        const auto& shape = transform.shapes.at(i);
+        for (const auto j : c10::irange(shape.size())) {
+          expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
+        }
+      }
+
+      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+
+      std::cerr << "Trial info: " << info.toString() << std::endl;
+      TORCH_CHECK(ref_info == info);
+    }
+
+    for (const auto& transform : pattern.different_transforms) {
+      TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
+      ExpressionEvaluator expr_eval;
+      for (const auto i : c10::irange(transform.shapes.size())) {
+        const auto& shape = transform.shapes.at(i);
+        for (const auto j : c10::irange(shape.size())) {
+          expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
+        }
+      }
+
+      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+
+      std::cerr << "Trial info: " << info.toString() << std::endl;
+      TORCH_CHECK(ref_info != info);
+    }
+  }
+}
+
 } // namespace nvfuser

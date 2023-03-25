@@ -49,9 +49,32 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
   DynamicTransformInfo info_;
 };
 
-// TODO
 bool DynamicTransformInfo::operator==(const DynamicTransformInfo& other) const {
-  return false;
+  if (this == &other) {
+    return true;
+  }
+
+  if (fusion_ != other.fusion_) {
+    return false;
+  }
+
+  if (reshape_transforms_.size() != other.reshape_transforms_.size()) {
+    return false;
+  }
+
+  for (const auto i : c10::irange(reshape_transforms_.size())) {
+    const auto& transform = reshape_transforms_.at(i);
+    const auto& other_transform = other.reshape_transforms_.at(i);
+    std::cerr << "This Transform: " << transform.first->toString() << ", "
+              << transform.second.toString() << std::endl;
+    std::cerr << "Other Transform: " << other_transform.first->toString()
+              << ", " << other_transform.second.toString() << std::endl;
+    if (transform != other_transform) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // TODO
