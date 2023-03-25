@@ -26,6 +26,7 @@ _torch_dtype_to_nvfuser_dtype_map = {
     bool: DataType.Bool,
 }
 
+
 def torch_dtype_to_nvfuser_dtype(dtype: Union[torch.dtype, NumberTypeType]):
     """
     Translates from torch.dtype to nvFuser's DataType enum

@@ -25,6 +25,11 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
 set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 
+# TODO: fix MSVC
+if(NOT MSVC)
+  find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
+endif()
+
 # --- build nvfuser_codegen library
 set(NVFUSER_SRCS)
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
@@ -171,7 +176,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 
 if(NOT USE_ROCM)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} torch::nvtoolsext)
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
   target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 else()
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${ROCM_HIPRTC_LIB})
@@ -218,7 +223,7 @@ if(BUILD_PYTHON)
     # NB: This must be target_compile_definitions, not target_compile_options,
     # as the latter is not respected by nvcc
     target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-    target_link_libraries(${NVFUSER} PRIVATE torch::nvtoolsext)
+    target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
   else()
     target_compile_options(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
     target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
@@ -444,3 +449,4 @@ endif()
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
+file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)

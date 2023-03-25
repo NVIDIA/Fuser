@@ -362,9 +362,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   auto t0_non_divisible = at::randn({8}, options);
   // Since ceilDiv(8, 8) is not divisible by 4, the vectorization is
@@ -1043,9 +1041,7 @@ TEST_F(NVFuserTest, FusionIntermediateTensorVectorize_CUDA) {
     auto t1 = at::randn({16}, options);
     auto cg_outputs = fe.runFusion({t1});
 
-    auto ref = t1;
-
-    testValidate(&fusion, cg_outputs, {t1}, {ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t1}, {t1}, __LINE__, __FILE__);
   }
 }
 
@@ -1340,8 +1336,8 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
   for (auto tv : ir_utils::allTvs(&fusion)) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
-        if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
-          tv->axis(i)->parallelize(ParallelType::Serial);
+        if (isParallelTypeVectorize(tv->axis((int)i)->getParallelType())) {
+          tv->axis((int)i)->parallelize(ParallelType::Serial);
         }
       }
     }
@@ -1670,9 +1666,7 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 // Hoist indices for vectorized tensors
@@ -1755,21 +1749,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i39;
-  i39 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i111;
+  i111 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b86;
-  b86 = i39 < i7;
+  bool b241;
+  b241 = i111 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b86) {
+  if (b241) {
     T1[0]
-       = sinf(T0[i39]);
+       = sinf(T0[i111]);
   }
-  if (b86) {
-    T2[i39]
+  if (b241) {
+    T2[i111]
       = T1[0]
       + f8;
   }
@@ -1944,7 +1938,7 @@ TEST_F(NVFuserTest, FusionLargeSmem_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::manual_seed(0);
-  auto t0 = at::randn({12288 * 4}, options);
+  auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
@@ -1960,7 +1954,7 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
 
   auto properties = at::cuda::getDeviceProperties(
       c10::Device(c10::DeviceType::CUDA, 0).index());
-  int device_limit = properties->sharedMemPerBlockOptin;
+  int device_limit = (int)properties->sharedMemPerBlockOptin;
 
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
@@ -1981,7 +1975,7 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::manual_seed(0);
-  auto t0 = at::randn({12288 * 4}, options);
+  auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
   // First compile gets a compiled kernel
@@ -4149,8 +4143,9 @@ TEST_F(NVFuserTest, FusionTransformPropagateSibling_CUDA) {
 
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
-  std::vector<TensorView*> siblings[] = {{tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
-  for (auto tensors : siblings) {
+  std::vector<std::vector<TensorView*>> siblings = {
+      {tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
+  for (const auto& tensors : siblings) {
     for (auto t1 : tensors) {
       for (auto t2 : tensors) {
         TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
@@ -4183,20 +4178,20 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
 
   struct DisableTv0 : public MaxInfoSpanningTree::Selector {
     TensorView* tv0;
-    virtual bool allowC2P(TensorView* from, TensorView* to) override {
+    bool allowC2P(TensorView* from, TensorView* to) override {
       return from != tv0 && to != tv0;
     };
-    virtual bool allowP2C(TensorView* from, TensorView* to) override {
+    bool allowP2C(TensorView* from, TensorView* to) override {
       return from != tv0 && to != tv0;
     };
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return true;
     }
     DisableTv0(TensorView* tv0) : tv0(tv0) {}
   } selector1(tv0);
 
   struct DisableTv0AndSibling : public DisableTv0 {
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return false;
     }
     using DisableTv0::DisableTv0;
@@ -4209,9 +4204,9 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
   auto check = [&]() {
-    std::vector<TensorView*> siblings[] = {
+    std::vector<std::vector<TensorView*>> siblings = {
         {tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
-    for (auto tensors : siblings) {
+    for (const auto& tensors : siblings) {
       for (auto t1 : tensors) {
         for (auto t2 : tensors) {
           TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
@@ -4345,13 +4340,13 @@ TEST_F(NVFuserTest, FusionTransformPropagatorSelector_CUDA) {
   struct Selector : public MaxInfoSpanningTree::Selector {
     TensorView* tv0;
     TensorView* tv3;
-    virtual bool allowC2P(TensorView* from, TensorView* to) override {
+    bool allowC2P(TensorView* from, TensorView* to) override {
       return to == tv0;
     }
-    virtual bool allowP2C(TensorView* from, TensorView* to) override {
+    bool allowP2C(TensorView* from, TensorView* to) override {
       return to == tv3;
     }
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return false;
     }
     Selector(TensorView* tv0, TensorView* tv3) : tv0(tv0), tv3(tv3) {}
@@ -4405,17 +4400,17 @@ TEST_F(NVFuserTest, FusionMaxRootDomainInfoSpanningTreePrintTwice_CUDA) {
 
   struct Printer : public MaxInfoSpanningTree::Propagator {
     std::stringstream ss;
-    virtual void propagateC2P(TensorView* from, TensorView* to) override {
+    void propagateC2P(TensorView* from, TensorView* to) override {
       ss << "propagateC2P" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
     }
-    virtual void propagateP2C(TensorView* from, TensorView* to) override {
+    void propagateP2C(TensorView* from, TensorView* to) override {
       ss << "propagateP2C" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
     }
-    virtual void propagateSibling(TensorView* from, TensorView* to) override {
+    void propagateSibling(TensorView* from, TensorView* to) override {
       ss << "propagateSibling" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
@@ -5888,7 +5883,8 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguitySelfOverlapping_CUDA) {
     auto stride2 = std::get<2>(tup);
     auto vec = std::get<3>(tup);
     std::vector<int64_t> shape = {4, 4, 12345, size, 3};
-    std::vector<int64_t> stride = {stride1, stride2 * 12345, stride2, 3, 1};
+    std::vector<int64_t> stride = {
+        stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
     at::Tensor t0 = at::empty_strided(shape, stride, options);
     t0.random_();
     auto cg_outputs = fec.runFusionWithInputs({t0});
@@ -6149,11 +6145,11 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
 
   {
     auto t0 = at::randn({768}, options);
-    inputs.push_back(t0);
+    inputs.push_back((c10::IValue)t0);
     auto t1 = at::randn({768}, options);
-    inputs.push_back(t1);
+    inputs.push_back((c10::IValue)t1);
     auto t2 = at::randn({1024, 768}, options).to(at::ScalarType::Half);
-    inputs.push_back(t2);
+    inputs.push_back((c10::IValue)t2);
     auto t3 = t0.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t4 = t1.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t5 = t2.view({1, 1024, 768});
@@ -6168,7 +6164,8 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
     auto t14 = at::mul(t8, t13);
     auto t15 = t14.to(at::ScalarType::Half);
     auto t16 = t15.to(at::ScalarType::Float);
-    auto t17_t18 = at::var_mean(t16, {2}, 0, false);
+    auto t17_t18 =
+        at::var_mean(t16, {2}, /*unbiased*/ false, /*keepdim*/ false);
     auto t17 = std::get<0>(t17_t18);
     auto t18 = std::get<1>(t17_t18);
     auto t19 = t17.unsqueeze(2).expand({1, 1024, 1});
@@ -6272,7 +6269,6 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
   auto t7 = t1.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand({w, x, y, -1});
   auto t8 = t2.unsqueeze(-1);
   auto t10 = t3.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand({w, x, y, -1});
-  auto t9 = t4;
 
   auto t13 = t8 + 1.e-6;
   auto t14 = t4 - t12;
@@ -6495,10 +6491,10 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
-  for (auto input_type : data_types) {
+  for (const auto& input_type : data_types) {
     auto tv_in = makeContigTensor(2, input_type);
     fusion.addInput(tv_in);
-    for (auto output_type : data_types) {
+    for (const auto& output_type : data_types) {
       auto tv_out = castOp(output_type, tv_in);
       fusion.addOutput(tv_out);
     }
@@ -6508,10 +6504,10 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
 
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
-  for (auto input_type : data_types) {
+  for (const auto& input_type : data_types) {
     at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
     inputs.emplace_back(t);
-    for (auto output_type : data_types) {
+    for (const auto& output_type : data_types) {
       outputs.emplace_back(t.to(data_type_to_aten(output_type)));
     }
   }
@@ -7395,10 +7391,11 @@ TEST_F(NVFuserTest, FusionExprSortMatmulLikeSchedule_CUDA) {
 
   at::Tensor t0 = at::randn({M1, M2, K1, K2}, options);
   at::Tensor t1 = at::randn({N1, N2, K1, K2}, options);
-  auto expect =
-      at::mm(t0.view({M1 * M2, K1 * K2}), t1.view({N1 * N2, K1 * K2}).t())
-          .view({M1, M2, N1, N2})
-          .transpose(1, 2);
+  auto expect = at::mm(
+                    t0.view({(int64_t)(M1 * M2), (int64_t)(K1 * K2)}),
+                    t1.view({(int64_t)(N1 * N2), (int64_t)(K1 * K2)}).t())
+                    .view({M1, M2, N1, N2})
+                    .transpose(1, 2);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -7725,132 +7722,288 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
       fe.kernel(), cg_outputs, inputs, {ref_t1, ref_t3}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionTypePromotionATenConsistency_CUDA) {
+  auto convertible_to_aten = {
+      DataType::Bool,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::BFloat16,
+      DataType::Int,
+      DataType::Int32,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+  for (auto t1 : convertible_to_aten) {
+    for (auto t2 : convertible_to_aten) {
+      auto t1_aten = data_type_to_aten(t1);
+      auto t2_aten = data_type_to_aten(t2);
+      auto result_aten = c10::promoteTypes(t1_aten, t2_aten);
+      auto result = promoteType(t1, t2);
+      ASSERT_EQ(data_type_to_aten(result), result_aten);
+    }
+  }
+}
+
 // Make sure invalid usage of index type is detected
 TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(1, DataType::Bool);
-  fusion.addInput(tv0);
+    auto tv0 = makeSymbolicTensor(1, DataType::Bool);
+    fusion.addInput(tv0);
 
-  auto tv2 = neg(tv0);
-  fusion.addOutput(tv2);
+    auto tv2 = neg(tv0);
+    fusion.addOutput(tv2);
 
-  tv2->split(0, 256);
-  tv2->split(0, 1024);
+    tv2->split(0, 256);
+    tv2->split(0, 1024);
 
-  MaxRootDomainInfoSpanningTree tree(tv2);
-  TransformPropagator tp(tv2);
-  tree.traverse(&tp);
+    MaxRootDomainInfoSpanningTree tree(tv2);
+    TransformPropagator tp(tv2);
+    tree.traverse(&tp);
 
-  inlineMost();
+    inlineMost();
 
-  tv2->axis(1)->parallelize(ParallelType::BIDx);
-  tv2->axis(2)->parallelize(ParallelType::TIDx);
+    tv2->axis(1)->parallelize(ParallelType::BIDx);
+    tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({999}, options).ge(0);
+    std::vector<c10::IValue> small_inputs = {t0};
+
+    at::Tensor t0_large =
+        at::randn({std::numeric_limits<int>::max()}, options).ge(0);
+    std::vector<c10::IValue> large_inputs = {t0_large};
+
+    TORCH_CHECK(
+        KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
+            .getIndexMode() == KernelIndexMode::INT64);
+    TORCH_CHECK(
+        KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
+            .getIndexMode() == KernelIndexMode::INT32);
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with large inputs and int64 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
+
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // Since the index type is int64, both small and large inputs
+      // should work fine
+      fe.runFusion(small_inputs);
+      fe.runFusion(large_inputs);
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with small inputs and int64 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int};
+      fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
+
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // Since the index type is int64, both small and large inputs
+      // should work fine
+      fe.runFusion(small_inputs);
+      fe.runFusion(large_inputs);
+    }
+
+    {
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, small_inputs);
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int32,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // This should complete successfully as the arguments are small
+      // enough to use the int32 index type
+      fe.runFusion(small_inputs);
+
+      // This should fail as the Kernel is already compiled for Int32, but
+      // the arguments are too large
+      EXPECT_THAT(
+          [&]() { fe.runFusion(large_inputs); },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Given index mode and argument index mode don't match")));
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with int32 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+
+      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int32,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      fe.runFusion(small_inputs);
+
+      // This should fail as the Kernel is already compiled for Int32, but
+      // the arguments are too large
+      EXPECT_THAT(
+          [&]() { fe.runFusion(large_inputs); },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Given index mode and argument index mode don't match")));
+    }
+
+    {
+      FusionExecutor fe;
+      // Lower the kernel with large inputs and int32 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      // This should fail due to the conflict
+      EXPECT_THAT(
+          [&]() {
+            fe.compileFusion(
+                &fusion, large_inputs, LaunchParams(), compile_opts);
+          },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Compilation with int32 is requested but int64 is required for the arguments")));
+    }
+  }
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+//! Test whether we can create and use float16 scalars
+TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Half);
+  fusion->addInput(tv0);
+
+  auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::Half));
+  fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::manual_seed(0);
-  at::Tensor t0 = at::randn({999}, options).ge(0);
-  std::vector<c10::IValue> small_inputs = {t0};
+  at::Tensor t0 = at::zeros({5}, options);
 
-  at::Tensor t0_large =
-      at::randn({std::numeric_limits<int>::max()}, options).ge(0);
-  std::vector<c10::IValue> large_inputs = {t0_large};
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0},
+      {at::ones_like(t0) * 1.5},
+      __LINE__,
+      __FILE__);
+}
+
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+//! Test whether we can create and use BFloat16 scalars
+TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping BFloat16Scalars test on pre-AMPERE GPUs";
+  }
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion->addInput(tv0);
+
+  auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::BFloat16));
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::zeros({5}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0},
+      {at::ones_like(t0) * 1.5},
+      __LINE__,
+      __FILE__);
+}
+#endif
+
+// Quick test of traversing attributes with IterVisitor
+TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Int>(1))}});
+  fusion.addOutput(tv1);
+
+  auto tv1_resize = tv1->axis(0)->definition()->as<Resize>();
+
+  auto stmts = StmtSort::getStmts(&fusion, true, true);
+
+  // Make sure the expansion parameters of tv1_resize are visited
   TORCH_CHECK(
-      KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-          .getIndexMode() == KernelIndexMode::INT64);
+      std::find(stmts.begin(), stmts.end(), tv1_resize->leftExpand()) !=
+          stmts.end(),
+      "Resize left expand parameter not found");
   TORCH_CHECK(
-      KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-          .getIndexMode() == KernelIndexMode::INT32);
+      std::find(stmts.begin(), stmts.end(), tv1_resize->rightExpand()) !=
+          stmts.end(),
+      "Resize right expand parameter not found");
+}
 
-  {
-    FusionExecutor fe;
-    // Lower the kernel with large inputs and int64 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int};
-    fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
+TEST_F(NVFuserTest, FusionManagedData_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
+  auto tv0 = makeConcreteTensor({2});
+  auto tv1 = set(set(set(set(set(set(set(set(set(set(set(set(tv0))))))))))));
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
 
-    // Since the index type is int64, both small and large inputs
-    // should work fine
-    fe.runFusion(small_inputs);
-    fe.runFusion(large_inputs);
-  }
+  using T1 = std::vector<Val*>;
+  T1 data1 = {tv0, tv1};
 
-  {
-    FusionExecutor fe;
-    // Lower the kernel with small inputs and int64 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int};
-    fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
+  struct T2 {
+    Val* input;
+    Val* output;
+    size_t magic_number;
+  } data2{tv0, tv1, 0x123456789abcdef};
+  auto clone_fn = [](IrCloner& cloner, std::any data) -> std::any {
+    auto d = std::any_cast<T2>(data);
+    return T2{cloner.clone(d.input), cloner.clone(d.output), d.magic_number};
+  };
 
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
+  auto i1 = fusion.manage(data1);
+  auto i2 = fusion.manage(data2, clone_fn);
+  fusion.manage("data1", data1);
+  fusion.manage("data2", data2, clone_fn);
 
-    // Since the index type is int64, both small and large inputs
-    // should work fine
-    fe.runFusion(small_inputs);
-    fe.runFusion(large_inputs);
-  }
+  GpuLower lower(&fusion);
+  auto kernel = lower.kernel();
 
-  {
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, small_inputs);
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int32,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
-
-    // This should complete successfully as the arguments are small
-    // enough to use the int32 index type
-    fe.runFusion(small_inputs);
-
-    // This should fail as the Kernel is already compiled for Int32, but
-    // the arguments are too large
-    EXPECT_THAT(
-        [&]() { fe.runFusion(large_inputs); },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Given index mode and argument index mode don't match")));
-  }
-
-  {
-    FusionExecutor fe;
-    // Lower the kernel with int32 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-    fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-    TORCH_CHECK(
-        fe.kernel()->indexType() == PrimDataType::Int32,
-        "Unexpected kernel index type: ",
-        fe.kernel()->indexType());
-
-    fe.runFusion(small_inputs);
-
-    // This should fail as the Kernel is already compiled for Int32, but
-    // the arguments are too large
-    EXPECT_THAT(
-        [&]() { fe.runFusion(large_inputs); },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Given index mode and argument index mode don't match")));
-  }
-
-  {
-    FusionExecutor fe;
-    // Lower the kernel with large inputs and int32 index type.
-    CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-    // This should fail due to the conflict
-    EXPECT_THAT(
-        [&]() {
-          fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
-        },
-        testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-            "Compilation with int32 is requested but int64 is required for the arguments")));
-  }
+  T1 expect1{kernel->inputs().at(0), kernel->outputs().at(0)};
+  ASSERT_EQ(kernel->getManaged<T1>(i1), expect1);
+  ASSERT_EQ(kernel->getManaged<T1>("data1"), expect1);
+  ASSERT_EQ(kernel->getManaged<T2>(i2).input, kernel->inputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>(i2).output, kernel->outputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").input, kernel->inputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").output, kernel->outputs().at(0));
+  ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

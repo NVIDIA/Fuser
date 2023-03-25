@@ -1546,7 +1546,8 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
 ComputeAtMap::getAllDisjointSetProducers(
     const VectorOfUniqueEntries<
-        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets) {
+        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+    const {
   // This deque could be VectorOfUniqueEntries
   std::deque<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>> to_visit(
       {exact_sets.vector().begin(), exact_sets.vector().end()});
@@ -1593,7 +1594,8 @@ ComputeAtMap::getAllDisjointSetProducers(
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
 ComputeAtMap::getAllDisjointSetConsumers(
     const VectorOfUniqueEntries<
-        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets) {
+        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+    const {
   // This deque could be VectorOfUniqueEntries
   std::deque<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>> to_visit(
       {exact_sets.vector().begin(), exact_sets.vector().end()});

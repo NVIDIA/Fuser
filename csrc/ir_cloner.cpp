@@ -57,7 +57,7 @@ TensorView* RecomputeTv::recompute(TensorView* tv) {
       "Cannot recompute buffers that are inputs of the fusion.");
 
   // Grab all the expressions used to generate the TensorView
-  auto exprs = StmtSort::getExprs(tv->fusion(), {tv}, false);
+  auto exprs = StmtSort::getExprs(tv->fusion(), {tv}, false, false);
 
   // Run the replicator
   RecomputeTv replicator(tv->fusion(), exprs);
