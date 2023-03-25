@@ -83,18 +83,9 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
  private:
   using OptOutMutator::mutate;
 
-  // void mutate(IterDomain* id) final {
-  // std::cerr << "ID: " << id->toString() << std::endl;
-  // OptOutMutator::mutate(id);
-  // }
-
   void mutate(TensorView* tv) final;
   void mutate(TensorDomain* td) final;
 
-  // void mutate(Expr* expr) final;
-
-  void handleTensorViewExpr(Expr* expr);
-  void handleIterDomainExpr(Expr* expr);
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
  private:

@@ -11,6 +11,7 @@
 #include <lower_utils.h>
 #include <ops/utils.h>
 #include <root_domain_map.h>
+#include <transform_iter.h>
 #include <transform_view.h>
 #include <utils.h>
 
@@ -114,8 +115,6 @@ void DynamicTransformInfoBuilder::augmentExprEvaluator() {
       expr_eval_->bind(unknown_val, known_size);
     }
   }
-
-  // std::cerr << "Augment done\n";
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
@@ -217,7 +216,8 @@ void DynamicTransformConcretizer::concretize() {
 
   concretizeReshape();
 
-  auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
+  // auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
+  auto all_stmts = StmtSort::getStmts(info_.fusion(), false);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
       std::cerr << "mutate: " << stmt->toString() << std::endl;
@@ -229,7 +229,9 @@ void DynamicTransformConcretizer::concretize() {
 void DynamicTransformConcretizer::concretizeReshape() {
   DEBUG_PRINT_SCOPE();
 
-  // Concretize each reshape op
+  // Concretize each reshape op.
+  // Can there be a reshape op that can't be concretized with input
+  // sizes only?
   for (const auto& kv : info_.getReshapeTransforms()) {
     auto incomplete_out_tv = kv.first;
     const auto view_analysis = kv.second;
@@ -259,18 +261,15 @@ void DynamicTransformConcretizer::concretizeReshape() {
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
       std::cerr << "After replacement: " << new_use->toString();
     }
+
+    if (incomplete_out_tv->isFusionOutput()) {
+      incomplete_out_tv->fusion()->removeOutput(incomplete_out_tv);
+      incomplete_out_tv->fusion()->addOutput(concrete_reshape_out_tv);
+      incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
+    }
   }
 }
-#if 0
-void DynamicTransformConcretizer::mutate(Expr* expr) {
-  if (ir_utils::isTvOp(expr)) {
-    handleTensorViewExpr(expr);
-  } else if (ir_utils::isIterDomainOp(expr)) {
-    handleIterDomainExpr(expr);
-  }
-  OptOutMutator::mutate(expr);
-}
-#endif
+
 namespace {
 
 bool hasSymbolicAxis(const std::vector<IterDomain*>& ids) {
@@ -280,75 +279,59 @@ bool hasSymbolicAxis(const std::vector<IterDomain*>& ids) {
 }
 
 } // namespace
-#if 0
-void DynamicTransformConcretizer::handleTensorViewExpr(Expr* expr) {
-  std::cerr << "TV expr: " << expr->toString();
 
-  for (auto output_tv: ir_utils::filterByType<TensorView>(expr->outputs())) {
-
-    if (std::none_of(output_tv->domain()->domain().begin(),
-                     output_tv->domain()->domain().end(),
-                     [](IterDomain* id) {
-                       return id->getIterType() == IterType::Symbolic;
-                     })) {
-      continue;
-    }
-
-    auto output_root_domain = output_tv->domain()->domain();
-
-    std::vector<IterType> output_domain_types;
-    std::transform(output_tv->domain()->domain().begin(),
-                   output_tv->domain()->domain().end(),
-                   std::back_inserter(output_domain_types),
-                   [](auto id) {
-                     return id->getIterType();
-                   });
-
-    for (const auto i: c10::irange(output_root_domain.size())) {
-      auto output_id = output_root_domain.at(i);
-      if (output_id->getIterType() != IterType::Symbolic) {
-        continue;
-      }
-
-      auto output_type = IterType::Symbolic;
-
-      for (auto input_tv: ir_utils::filterByType<TensorView>(expr->inputs())) {
-        PairwiseRootDomainMap root_map(input_tv, output_tv);
-        auto c2p = root_map.mapConsumerToProducer(output_tv->domain(), input_tv->domain());
-
-        TORCH_INTERNAL_ASSERT(c2p.find(output_id) != c2p.end(),
-                              "No input ID found to map with output ID: ", output_id->toString());
-        auto input_id = c2p.at(output_id);
-
-        output_type = ops::promoteIterType(output_type, input_id->getIterType());
-      }
-
-      TORCH_INTERNAL_ASSERT(output_type != IterType::Symbolic,
-                            "Failed to concretize ", output_id->toString(), " of ",
-                            output_tv->toString());
-
-      auto concretized_output_id = IterDomainBuilder(output_id).iter_type(output_type).build();
-      std::cerr << output_id->toString() << ", new type: " << output_type
-                << ", new ID: " << concretized_output_id->toString()
-                << std::endl;
-
-      output_root_domain.at(i) = concretized_output_id;
-      //update_map_.emplace(output_id, concretized_output_id);
-      registerMutation(output_id, concretized_output_id);
-    }
-  }
-}
-#endif
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
   auto propagated = propagateFromProducerToConsumer(tv);
 
-  if (propagated) {
-    // Root domain IDs are updated. First mutate the TensorDomain and
-    // then TensorView
-    mutate(tv->domain());
-    OptOutMutator::mutate(tv);
-    std::cerr << "After mutate: " << tv->toString() << std::endl;
+  if (!propagated) {
+    return;
   }
+
+  // At this point, there should be no expr beyond rfactor root
+  TORCH_INTERNAL_ASSERT(
+      tv->domain()->domain() == tv->getMaybeRFactorDomain(),
+      "Invalid tensor: ",
+      tv->toString());
+
+  // If it has a rfactor root domain, instead of using the
+  // OptOutMutator interface, replay the exprs with the mutated root
+  // IDs and then register the mutated rf domain IDs. This simplifies
+  // the logic as new IterDomains are automatically generated by the
+  // replay.
+  if (tv->hasRFactor()) {
+    std::unordered_map<IterDomain*, IterDomain*> replacement_map;
+    for (auto root_id : tv->getRootDomain()) {
+      auto mutated = maybeMutated(root_id)->as<IterDomain>();
+      TORCH_INTERNAL_ASSERT(mutated != root_id);
+      replacement_map.emplace(root_id, mutated);
+      std::cerr << "Initial replay map: " << root_id->toString() << " -> "
+                << mutated->toString() << std::endl;
+    }
+    auto replay =
+        ReplayTransformations(tv->getMaybeRFactorDomain(), replacement_map)
+            .setReplayResize(true)
+            .getReplay();
+    std::vector<IterDomain*> updated_rf_domain;
+    for (auto rf_id : tv->getMaybeRFactorDomain()) {
+      auto it = replay.find(rf_id);
+      if (it == replay.end()) {
+        for (auto kv : replay) {
+          std::cerr << "Replay: " << kv.first->toString() << ", "
+                    << kv.second->toString() << std::endl;
+        }
+      }
+      TORCH_INTERNAL_ASSERT(
+          it != replay.end(), "Replay of ", rf_id->toString(), " not found");
+      auto updated_rf_id = replay.at(rf_id);
+      registerMutation(rf_id, updated_rf_id);
+    }
+  }
+
+  // Root and rfactor domains are updated. First mutate the
+  // TensorDomain and then TensorView
+  mutate(tv->domain());
+  OptOutMutator::mutate(tv);
+  std::cerr << "After mutate: " << tv->toString() << std::endl;
 }
 
 // Almost an exact copy of OptOutMutator::mutate(TensorDomain*), but
@@ -479,60 +462,4 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   return true;
 }
 
-void DynamicTransformConcretizer::handleIterDomainExpr(Expr* expr) {
-  std::cerr << "ID expr: " << expr->toString();
-}
-
-#if 0
-void DynamicTransformConcretizer::handle(TensorView* tv) {
-  std::cerr << "TV: " << tv->toString() << std::endl;
-
-  IterVisitor::handle(tv);
-
-  if (!tv->domain()->hasSymbolicAxis()) {
-    return;
-  }
-
-  auto root_domain = tv->getRootDomain();
-
-  if (hasSymbolicAxis(tv->getRootDomain())) {
-    for (auto& id: root_domain) {
-      if (id->getIterType() != IterType::Symbolic) {
-        continue;
-      }
-      auto it = update_map_.find(id);
-      TORCH_INTERNAL_ASSERT(it != update_map_.end(), "Symbolic ID not concretized: ", id->toString(),
-                            " of ", tv->toString());
-      id = it->second;
-    }
-
-    std::cerr << "New root domain: " << toDelimitedString(root_domain.begin(), root_domain.end()) << std::endl;
-  }
-
-  auto rf_domain = tv->getMaybeRFactorDomain();
-
-  if (tv->hasRFactor() && hasSymbolicAxis(rf_domain)) {
-    // TODO: refactor
-    for (auto& id: rf_domain) {
-      if (id->getIterType() != IterType::Symbolic) {
-        continue;
-      }
-      auto it = update_map_.find(id);
-      TORCH_INTERNAL_ASSERT(it != update_map_.end(), "Symbolic ID not concretized: ", id->toString(),
-                            " of ", tv->toString());
-      id = it->second;
-    }
-
-    std::cerr << "New root domain: " << toDelimitedString(rf_domain.begin(), rf_domain.end()) << std::endl;
-  }
-
-  // At this point, no IterDomain expr should appear beyond the rfactor domain
-  TORCH_INTERNAL_ASSERT(tv->domain()->domain() == tv->getMaybeRFactorDomain(),
-                        "Unexpected tensor leaf domain: ", tv->toString());
-
-  auto concretized_td = IrBuilder::create<TensorDomain>(
-      root_domain, rf_domain, rf_domain, tv->domain()->contiguity());
-
-}
-#endif
 } // namespace nvfuser
