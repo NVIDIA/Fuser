@@ -30,6 +30,13 @@
 
 namespace nvfuser {
 
+// Make s Stack used for TorchScript execution
+inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
+  return Stack(
+      std::make_move_iterator(list.begin()),
+      std::make_move_iterator(list.end()));
+}
+
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
 inline TensorView* makeContigTensor(

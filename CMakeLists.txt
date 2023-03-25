@@ -351,8 +351,6 @@ if(BUILD_TEST)
   set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
 
   add_executable(${NVFUSER_TESTS}
-	     #${TORCH_ROOT}/test/cpp/common/main.cpp
-	     #${TORCH_ROOT}/test/cpp/jit/test_utils.cpp
              ${JIT_TEST_SRCS}
              ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
