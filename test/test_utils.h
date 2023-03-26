@@ -32,7 +32,7 @@ namespace nvfuser {
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
-  return Stack(
+  return torch::jit::Stack(
       std::make_move_iterator(list.begin()),
       std::make_move_iterator(list.end()));
 }
