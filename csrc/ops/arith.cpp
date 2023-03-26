@@ -657,6 +657,29 @@ TensorView* imag(TensorView* tv) {
   return imag(tv->as<Val>())->as<TensorView>();
 }
 
+// construct complex tensor from real and imag tensors
+Val* complex(Val* r, Val* i) {
+  DataType dtype = r->getDataType().value();
+  TORCH_CHECK(
+      dtype == i->getDataType().value(),
+      "real and imag data type should be same in complex().");
+  DataType complex_dtype = getComplexTypeFromType(dtype);
+  BinaryOpType complex_op;
+  if (dtype == DataType::Double) {
+    complex_op = BinaryOpType::ComplexDouble;
+  } else if (dtype == DataType::Float) {
+    complex_op = BinaryOpType::ComplexFloat;
+  } else {
+    TORCH_CHECK(false, "complex() only supports float and double types");
+  }
+  Val* out = ops::newValLike(r, complex_dtype);
+  IrBuilder::create<BinaryOp>(complex_op, out, r, i);
+  return out;
+}
+
+TensorView* complex(TensorView* tv_r, TensorView* tv_i) {
+  return complex(tv_r->as<Val>(), tv_i->as<Val>())->as<TensorView>();
+}
 // UNARY FLOAT CAST OPERATIONS
 
 #define NVFUSER_DEFINE_UNARY_FLOAT_OP(op_name, op_type)                       \
@@ -1662,9 +1685,29 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
+<<<<<<< HEAD
   std::vector<unsigned int> uint_axes =
       canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
+=======
+  std::vector<unsigned int> uint_axes;
+  const int ndims = tv->domain()->noReductions().size();
+  for (int axis : axes) {
+    if (axis < 0) {
+      axis += ndims;
+    }
+
+    TORCH_CHECK(
+        axis >= 0 && axis < ndims,
+        "Reduction on invalid axis, received: ",
+        axis,
+        " however tensor view only has ",
+        ndims,
+        " non-reduction dims.");
+
+    uint_axes.push_back((unsigned int)axis);
+  }
+>>>>>>> 2242f28... complex number welford
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
@@ -1680,7 +1723,6 @@ WelfordResult WelfordRaw(
       init_avg_val,
       init_var_val,
       init_N); /*init avg/var/count */
-
   return WelfordResult(out_avg, out_var, out_N);
 }
 
@@ -1728,7 +1770,21 @@ WelfordResult Welford(
   }
 
   if (!reduction_axes.empty()) {
-    return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    DataType dtype = tv->getDataType().value();
+    if (isComplexType(dtype)) {
+      // var of complex number is a real number, calculate real part and image
+      // part
+      WelfordResult real_part =
+          Welford(real(squeezed), reduction_axes, init_avg, init_var, init_N);
+      WelfordResult imag_part =
+          Welford(imag(squeezed), reduction_axes, init_avg, init_var, init_N);
+      TensorView* out_avg = complex(real_part.avg, imag_part.avg);
+      TensorView* out_var = add(real_part.var_sum, imag_part.var_sum);
+      TensorView* out_N = real_part.n;
+      return WelfordResult(out_avg, out_var, out_N, false);
+    } else {
+      return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    }
   }
 
   // if squeeze only
@@ -1760,9 +1816,10 @@ WelfordResult Welford(
 WelfordResult::WelfordResult(
     TensorView* in_avg,
     TensorView* in_var_sum,
-    TensorView* in_n)
+    TensorView* in_n,
+    const bool check_definition)
     : avg(in_avg), var_sum(in_var_sum), n(in_n) {
-  if (avg->definition()->isA<SqueezeOp>()) {
+  if (!check_definition || avg->definition()->isA<SqueezeOp>()) {
     // For a squeeze-only welford, the definition of outputs does not have to be
     // the same.
     return;

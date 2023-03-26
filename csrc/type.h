@@ -198,6 +198,8 @@ TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
 
 // Return the corresponding scalar of a complex type
 DataType getTypeFromComplexType(DataType dtype);
+// Return the corresponding complex type of a scalar
+DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 
@@ -409,7 +411,11 @@ enum class BinaryOpType {
   // is boolean op. These ops also don't work on floating point inputs.
   And,
   Or,
-  Xor
+  Xor,
+
+  // generate complex from real and imaginary parts
+  ComplexFloat,
+  ComplexDouble
 };
 
 enum class ScatterOpType { Set };
