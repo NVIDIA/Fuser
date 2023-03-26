@@ -146,4 +146,20 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 template <typename T>
 NVFUSER_DEFINE_CLONE(Attribute<T>)
 
+template <typename T>
+size_t Fusion::manage(T data) {
+  std::any a = data;
+  return manage(a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
+
+template <typename T>
+void Fusion::manage(std::string key, T data) {
+  std::any a = data;
+  manage(key, a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
+
 } // namespace nvfuser

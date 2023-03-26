@@ -151,15 +151,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
   void setPrecision(std::stringstream& ss, DataType dtype) {
     TORCH_INTERNAL_ASSERT(isFloatingPointType(dtype));
-    int digits = 0;
-    if (dtype == DataType::Float) {
-      digits = std::numeric_limits<float>::max_digits10;
-    } else if (dtype == DataType::Double) {
-      digits = std::numeric_limits<double>::max_digits10;
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "Unexpected floating point type: ", dtype);
-    }
-    ss << std::setprecision(digits);
+    ss << std::setprecision(max_digits10(dtype));
   }
 
   std::string getLiteralSuffix(DataType dtype) {
