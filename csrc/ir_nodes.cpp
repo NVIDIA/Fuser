@@ -2167,9 +2167,23 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  Val* resized_id_size = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
-      right_expansion);
+  // The overall extent is (in->extent() + left_expansion +
+  // right_expansion). This can be simplified for a slice op as
+  // the right expansion should look like (slice_end_offset -
+  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  Val* resized_id_size = nullptr;
+  if (right_expansion->definition() != nullptr &&
+      right_expansion->definition()->isA<BinaryOp>() &&
+      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  } else {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        right_expansion);
+  }
 
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
@@ -3117,7 +3131,8 @@ PadOp::PadOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
-    const std::vector<Val*>& pad_widths)
+    const std::vector<Val*>& pad_widths,
+    Val* value)
     : Expr(passkey) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
@@ -3133,6 +3148,7 @@ PadOp::PadOp(
       ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
   addOutput(out);
   addInput(inp);
+  addInput(value);
   for (auto width : pad_widths) {
     TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);

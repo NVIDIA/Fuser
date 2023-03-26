@@ -540,9 +540,6 @@ namespace nvfuser {
 //   for variable in range(start, stop, step)
 struct VarInfo {
   Val* variable = nullptr;
-  Val* start = nullptr;
-  Val* stop = nullptr;
-  Val* step = nullptr;
   // If this variable is an unrolled loop index. It is important to know this
   // because unrolled loop index is compile constant to nvRTC. Note that a
   // constant to nvRTC might not be a constant to nvFuser. For example, if I
@@ -582,6 +579,7 @@ RegisterType getRegisterType(Val* value);
 TORCH_CUDA_CU_API Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
+    std::vector<Bool*> assumptions = {},
     bool preserve_error = false);
 
 } // namespace nvfuser

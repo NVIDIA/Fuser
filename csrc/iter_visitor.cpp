@@ -141,7 +141,8 @@ void IterVisitor::traverseBetween(
     const std::unordered_set<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_all_paths,
-    bool traverse_into_members) {
+    bool traverse_into_members,
+    bool traverse_attributes) {
   FusionGuard fg(fusion);
 
   std::unordered_set<Statement*> visited;
@@ -192,6 +193,23 @@ void IterVisitor::traverseBetween(
         next_stmts = next(stmt);
       }
 
+      // If stmt is an expression, traverse attributes as well
+      if (traverse_attributes && stmt->isExpr()) {
+        for (Statement* x : stmt->as<Expr>()->attributes()) {
+          // There can be nullptr attributes, e.g., philox_index of
+          // RngOp. Don't traverse into them
+          if (x == nullptr) {
+            continue;
+          }
+          // Note that attributes of type Attribute is not possible to
+          // dispatch as it's a template type.
+          if (x->getValType() == ValType::Attribute) {
+            continue;
+          }
+          next_stmts.push_back(x);
+        }
+      }
+
       if (traverse_into_members) {
         auto members = MemberStatements::next(stmt);
         next_stmts.insert(next_stmts.end(), members.begin(), members.end());
@@ -220,8 +238,15 @@ void IterVisitor::traverseTo(
     Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_all_paths,
-    bool traverse_into_members) {
-  traverseBetween(fusion, {}, to, traverse_all_paths, traverse_into_members);
+    bool traverse_into_members,
+    bool traverse_attributes) {
+  traverseBetween(
+      fusion,
+      {},
+      to,
+      traverse_all_paths,
+      traverse_into_members,
+      traverse_attributes);
 }
 
 void IterVisitor::traverseHelper(Fusion* fusion, bool traverse_all_paths) {
@@ -794,16 +819,22 @@ void StmtSort::handle(Statement* stmt) {
   stmts.push_back(stmt);
 }
 
-std::vector<Expr*> StmtSort::getExprs(Fusion* fusion, bool traverse_members) {
+std::vector<Expr*> StmtSort::getExprs(
+    Fusion* fusion,
+    bool traverse_members,
+    bool traverse_attributes) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getExprs(fusion, terminating_outputs, traverse_members);
+  return StmtSort::getExprs(
+      fusion, terminating_outputs, traverse_members, traverse_attributes);
 }
 
 std::vector<Expr*> StmtSort::getExprs(
     Fusion* fusion,
     const std::vector<Val*>& to,
-    bool traverse_members) {
-  auto stmts = StmtSort::getStmts(fusion, to, traverse_members);
+    bool traverse_members,
+    bool traverse_attributes) {
+  auto stmts =
+      StmtSort::getStmts(fusion, to, traverse_members, traverse_attributes);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
@@ -813,8 +844,10 @@ std::vector<Expr*> StmtSort::getExprsBetween(
     Fusion* fusion,
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
-    bool traverse_members) {
-  auto stmts = StmtSort::getStmtsBetween(fusion, from, to, traverse_members);
+    bool traverse_members,
+    bool traverse_attributes) {
+  auto stmts = StmtSort::getStmtsBetween(
+      fusion, from, to, traverse_members, traverse_attributes);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
@@ -822,17 +855,20 @@ std::vector<Expr*> StmtSort::getExprsBetween(
 
 std::vector<Statement*> StmtSort::getStmts(
     Fusion* fusion,
-    bool traverse_members) {
+    bool traverse_members,
+    bool traverse_attributes) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getStmts(fusion, terminating_outputs, traverse_members);
+  return StmtSort::getStmts(
+      fusion, terminating_outputs, traverse_members, traverse_attributes);
 }
 
 std::vector<Statement*> StmtSort::getStmts(
     Fusion* fusion,
     const std::vector<Val*>& to,
-    bool traverse_members) {
+    bool traverse_members,
+    bool traverse_attributes) {
   StmtSort es;
-  es.traverseTo(fusion, to, false, traverse_members);
+  es.traverseTo(fusion, to, false, traverse_members, traverse_attributes);
   return es.stmts;
 }
 
@@ -840,10 +876,16 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
     Fusion* fusion,
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
-    bool traverse_members) {
+    bool traverse_members,
+    bool traverse_attributes) {
   StmtSort es;
   es.traverseBetween(
-      fusion, {from.begin(), from.end()}, to, false, traverse_members);
+      fusion,
+      {from.begin(), from.end()},
+      to,
+      false,
+      traverse_members,
+      traverse_attributes);
   return es.stmts;
 }
 

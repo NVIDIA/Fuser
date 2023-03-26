@@ -277,14 +277,6 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   // Update the LOOP map with resolved computeWith
   void updateComputeWith(TensorView* compute_with_tv);
 
- private:
-  // Traverses through definitions of exact maps (unique_exact_definitions_) to
-  // input ID's from provided ID. Returns all the exact map concrete IDs of the
-  // exact sets that are inputs required to construct the exact concrete id of
-  // of_id.
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor = true);
-
   // Traverses through definitions of exact maps (unique_exact_definitions_) to
   // all input ID's from provided exact_sets. Returns all the exact map concrete
   // IDs of all the exact sets that on the path to and including the inputs
@@ -292,7 +284,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
   getAllDisjointSetProducers(
       const VectorOfUniqueEntries<
-          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets);
+          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+      const;
 
   // Traverses through uses of exact maps (unique_exact_uses_) to
   // all input ID's from provided exact_sets. Returns all the exact map concrete
@@ -301,7 +294,16 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
   getAllDisjointSetConsumers(
       const VectorOfUniqueEntries<
-          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets);
+          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+      const;
+
+ private:
+  // Traverses through definitions of exact maps (unique_exact_definitions_) to
+  // input ID's from provided ID. Returns all the exact map concrete IDs of the
+  // exact sets that are inputs required to construct the exact concrete id of
+  // of_id.
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor = true);
 
   // Build id_graph_
   void build(Fusion* fusion);

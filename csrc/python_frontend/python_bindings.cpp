@@ -34,10 +34,10 @@ std::vector<c10::optional<bool>> computeContiguity(
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
-  if (contiguity.size() == 0) {
+  if (contiguity.empty()) {
     return contiguity;
   }
-  int64_t last = sizes.size() - 1;
+  int64_t last = (int64_t)sizes.size() - 1;
   for (; last >= 0; --last) {
     if (not_broadcast(last)) {
       contiguity[last] = (strides.at(last) == 1);
@@ -2393,6 +2393,29 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("is_broadcast_dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "cat",
+      [](FusionDefinition::Operators& self,
+         std::vector<Tensor> tensors,
+         int64_t dim) -> Tensor {
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TORCH_CHECK(
+            !tensors.empty(), "Attempting to concatenate empty list of tensors")
+        Tensor output = fd->defineTensor(tensors[0].dims);
+        std::vector<State> tensor_states;
+        tensor_states.reserve(tensors.size());
+        for (auto& t : tensors) {
+          tensor_states.push_back(fd->recordingState(t()));
+        }
+        self.fusion_definition->defineRecord(new CatOpRecord(
+            tensor_states, {fd->recordingState(output())}, dim));
+        return output;
+      },
+      py::arg("tensors"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "index_select",
       [](FusionDefinition::Operators& self,
          Tensor arg,
@@ -2459,6 +2482,55 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "pad",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.pad");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            pad_widths.size() <= 2 * arg.dims,
+            "Number of pad widths must be at most twice the input dimension");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, serde::StateType_None);
+        fd->defineRecord(new PadOpRecord(
+            {fd->recordingState(arg()), value_state},
+            {fd->recordingState(output())},
+            std::move(pad_widths)));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  tensor_class.def(
+      "pad",
+      [](Tensor arg,
+         std::vector<int64_t>& pad_widths,
+         c10::optional<Scalar> value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.pad");
+        FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
+        Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, serde::StateType_None);
+        fd->defineRecord(new PadOpRecord(
+            {fd->recordingState(arg()), value_state},
+            {fd->recordingState(output())},
+            std::move(pad_widths)));
+        return output;
+      },
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "permute",
       [](FusionDefinition::Operators& self,
          Tensor arg,
@@ -2486,6 +2558,142 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("dims"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& start_indices,
+         std::vector<int64_t>& end_indices,
+         std::vector<int64_t>& strides) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.slice");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
+            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+            arg.dims,
+            " Slice-dims: ",
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
+            "Slice indexing attribute dimensions don't match! Start Indices: ",
+            start_indices.size(),
+            " End Indices: ",
+            end_indices.size(),
+            " Strides: ",
+            strides.size());
+        for (const auto i : c10::irange(arg.dims)) {
+          auto start_idx = start_indices[i];
+          auto end_idx = end_indices[i];
+          auto stride = strides[i];
+          TORCH_CHECK(
+              start_idx >= 0,
+              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              end_idx >= start_idx,
+              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              stride == 1,
+              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+        }
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SliceOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            start_indices,
+            end_indices,
+            strides));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides"),
+      py::return_value_policy::reference);
+  tensor_class.def(
+      "slice",
+      [](Tensor arg,
+         std::vector<int64_t>& start_indices,
+         std::vector<int64_t>& end_indices,
+         std::vector<int64_t>& strides) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.slice");
+        FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            fd->ops.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg.dims == start_indices.size(),
+            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+            arg.dims,
+            " Slice-dims: ",
+            start_indices.size());
+        TORCH_CHECK(
+            (start_indices.size() == end_indices.size()) &&
+                (end_indices.size() == strides.size()),
+            "Slice indexing attribute dimensions don't match! Start Indices: ",
+            start_indices.size(),
+            " End Indices: ",
+            end_indices.size(),
+            " Strides: ",
+            strides.size());
+        for (const auto i : c10::irange(arg.dims)) {
+          auto start_idx = start_indices[i];
+          auto end_idx = end_indices[i];
+          auto stride = strides[i];
+          TORCH_CHECK(
+              start_idx >= 0,
+              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              end_idx >= start_idx,
+              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+          TORCH_CHECK(
+              stride == 1,
+              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+              start_indices,
+              " End Indices: ",
+              end_indices,
+              " Strides: ",
+              strides);
+        }
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SliceOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            start_indices,
+            end_indices,
+            strides));
+        return output;
+      },
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "squeeze",
@@ -2516,6 +2724,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& dims) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         FusionDefinition* fd = arg.fusion_definition;
+        TORCH_CHECK(
+            !fd->completed(), "Attempting to add to a completed definition!");
         Tensor output = fd->defineTensor(arg.dims - 1);
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},

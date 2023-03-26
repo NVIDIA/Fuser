@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <python_frontend/fusion_cache.h>
-#include <python_frontend/fusion_record_serde.h>
+#include <serde/fusion_record_serde.h>
 #include <mutex>
 
 namespace nvfuser::python_frontend {
@@ -371,7 +371,7 @@ void FusionCache::deserialize(std::string filename) {
   // 2. Deserialize fusions: (Fusion) and structure: (TrieNode) fields
   fusions_.resize(fusion_cache_buffer->terminal_nodes()->size());
 
-  RecordFunctorFactory record_functor_factory;
+  serde::RecordFunctorFactory record_functor_factory;
 
   std::vector<TrieNode*> bfs_order;
   std::deque<BfsState> queue = {

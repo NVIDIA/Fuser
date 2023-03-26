@@ -2408,4 +2408,34 @@ TEST_F(NVFuserTest, FusionReshapeZeroDimInputOutput_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {at_prod}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {4, 8}, {8, 4});
+  auto tv2 = reshape(tv1, {8, 4}, {32});
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({4, 8});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.reshape({8, 4}).reshape({32});
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
 } // namespace nvfuser

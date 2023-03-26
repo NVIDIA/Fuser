@@ -774,6 +774,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
   std::vector<TensorView*> input_tvs;
   {
     auto filtered_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -1151,6 +1153,9 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // Inline
   inlineMost();
+
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
+      fusion, cached_inputs);
 }
 
 } // namespace nvfuser

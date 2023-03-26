@@ -21,6 +21,8 @@
 #include <lower_bank_conflict.h>
 #include <ops/arith.h>
 
+#include <iterator>
+
 namespace nvfuser {
 
 static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
@@ -87,14 +89,22 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->io_alias_[copied_output] = copied_input;
   }
 
-  to->loop_rotation_param_ = ir_cloner.clone(from->loop_rotation_param_);
-
   to->permuted_input_map_ = from->permuted_input_map_;
   to->permuted_output_map_ = from->permuted_output_map_;
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
   to->is_during_update_uses_ = from->is_during_update_uses_;
+
+  for (auto i : from->managed_data_) {
+    to->managed_data_.push_back(
+        std::make_pair(i.second(ir_cloner, i.first), i.second));
+  }
+
+  for (auto [k, v] : from->managed_named_data_) {
+    to->managed_named_data_.insert(std::make_pair(
+        k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+  }
 
   return ir_cloner;
 }
@@ -147,7 +157,8 @@ void Fusion::clear() noexcept {
 
   permuted_input_map_.clear();
   permuted_output_map_.clear();
-  loop_rotation_param_.clear();
+  managed_data_.clear();
+  managed_named_data_.clear();
 
   all_tv_uses_valid_ = false;
   is_during_update_uses_ = false;
@@ -210,8 +221,18 @@ void Fusion::addInput(Val* input) {
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
     TORCH_CHECK(
-        !(input->isA<Double>() && input->getDataType() == DataType::Float),
-        "Using Double with DataType::Float as an input is not supported as there is no scalar float type in PyTorch.");
+        !(input->isA<Double>() && input->getDataType() != DataType::Double),
+        "Found ",
+        input->getDataType().value(),
+        ". Using a Double scalar as an input with dtype other than DataType::Double is not supported ",
+        "as double is the only floating-point type in Python.");
+    TORCH_CHECK(
+        !(input->isA<ComplexDouble>() &&
+          input->getDataType() != DataType::ComplexDouble),
+        "Found ",
+        input->getDataType().value(),
+        ". Using a ComplexDouble scalar as an input with dtype other than DataType::ComplexDouble ",
+        "is not supported as complex double is the only complex type in Python.");
   }
 
   inputs_.push_back(input);
@@ -374,16 +395,70 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       GpuLower(this, compile_params).kernel());
 }
 
-std::unordered_map<std::string, std::pair<int, int>> Fusion::bankConflictInfo(
-    const CompileParams& compile_params) {
+std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+Fusion::bankConflictInfo(const CompileParams& compile_params) {
+  std::vector<TensorView*> smem_tvs;
+  for (auto v : usedMathVals()) {
+    auto tv = dynamic_cast<TensorView*>(v);
+    if (tv == nullptr) {
+      continue;
+    }
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      smem_tvs.push_back(tv);
+    }
+  }
+  if (smem_tvs.size() == 0) {
+    return {};
+  }
+  manage("smem_tvs", smem_tvs);
+
   GpuLower lower(this, compile_params);
   auto kernel = lower.kernel();
   auto info = getBankConflictInfo(kernel);
-  // The container of exprs goes out of scope, so we return a map of string here
-  std::unordered_map<std::string, std::pair<int, int>> result;
+
+  // Convert TVs in kernel to TVs in fusion
+  auto smem_tvs_in_kernel =
+      kernel->getManaged<std::vector<TensorView*>>("smem_tvs");
+  TORCH_INTERNAL_ASSERT(smem_tvs_in_kernel.size() == smem_tvs.size());
+  auto getSmemTvInFusion = [&](Val* v) -> TensorView* {
+    auto ti = dynamic_cast<kir::TensorIndex*>(v);
+    if (ti == nullptr) {
+      return nullptr;
+    }
+    auto tv = ti->view();
+    auto it =
+        std::find(smem_tvs_in_kernel.begin(), smem_tvs_in_kernel.end(), tv);
+    if (it == smem_tvs_in_kernel.end()) {
+      return nullptr;
+    }
+    auto index = std::distance(smem_tvs_in_kernel.begin(), it);
+    return smem_tvs.at(index);
+  };
+
+  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+      result;
   result.reserve(info.size());
   for (auto i : info) {
-    result[i.first->toString()] = i.second;
+    auto expr = i.first;
+
+    // Currently only set and load store op are supported
+    TORCH_INTERNAL_ASSERT(expr->inputs().size() == 1);
+    TORCH_INTERNAL_ASSERT(expr->outputs().size() == 1);
+
+    auto input = getSmemTvInFusion(expr->input(0));
+    auto output = getSmemTvInFusion(expr->output(0));
+    if (input == nullptr) {
+      TORCH_INTERNAL_ASSERT(i.second.first == 0);
+    } else {
+      TORCH_INTERNAL_ASSERT(i.second.first != 0);
+      result[input].first.push_back(i.second.first);
+    }
+    if (output == nullptr) {
+      TORCH_INTERNAL_ASSERT(i.second.second == 0);
+    } else {
+      TORCH_INTERNAL_ASSERT(i.second.second != 0);
+      result[output].second.push_back(i.second.second);
+    }
   }
   return result;
 }

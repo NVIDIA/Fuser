@@ -7,15 +7,16 @@
 // clang-format on
 #include <ops/arith.h>
 #include <ops/composite.h>
-#include <python_frontend/fusion_record_serde.h>
+#include <python_frontend/fusion_record.h>
+#include <serde/fusion_record_serde.h>
 #include <serde/python_fusion_cache_generated.h>
 #include <functional>
 
-namespace nvfuser::python_frontend {
+namespace nvfuser::serde {
 
-std::vector<State> parseStateArgs(
-    const flatbuffers::Vector<const nvfuser::serde::State*>* args) {
-  std::vector<State> result;
+std::vector<python_frontend::State> parseStateArgs(
+    const flatbuffers::Vector<const serde::State*>* args) {
+  std::vector<python_frontend::State> result;
   for (auto s : *args) {
     result.emplace_back(s->index(), s->type());
   }
@@ -66,20 +67,22 @@ static PrimDataType mapToNvfuserDtype(serde::DataType t) {
 
 // START deserialize functions
 
-RecordFunctor* deserializeStartRecord(const serde::RecordFunctor* buffer) {
-  return new StartRecord();
+python_frontend::RecordFunctor* deserializeStartRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::StartRecord();
 }
 
-RecordFunctor* deserializeEndRecord(const serde::RecordFunctor* buffer) {
-  return new EndRecord();
+python_frontend::RecordFunctor* deserializeEndRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::EndRecord();
 }
 
 template <class fn_type, class... Signature>
-RecordFunctor* deserializeOpRecord(
+python_frontend::RecordFunctor* deserializeOpRecord(
     const std::unordered_map<std::string, fn_type>& str_to_func_map,
     serde::RecordType record_type,
     const serde::RecordFunctor* buffer) {
-  return new OpRecord<Signature...>(
+  return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -87,27 +90,29 @@ RecordFunctor* deserializeOpRecord(
       str_to_func_map.at(buffer->name()->str()));
 }
 
-RecordFunctor* deserializeBatchNormRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeBatchNormRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_BatchNorm();
-  return new BatchNormOpRecord(
+  return new python_frontend::BatchNormOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       data->training(),
       data->channels_last());
 }
 
-RecordFunctor* deserializeBroadcastRecord(const serde::RecordFunctor* buffer) {
-  return new BroadcastOpRecord(
+python_frontend::RecordFunctor* deserializeBroadcastRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::BroadcastOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
       parseBoolVector(buffer->data_as_Broadcast()->broadcast_dims()));
 }
 
-RecordFunctor* deserializeBroadcastInDimRecord(
+python_frontend::RecordFunctor* deserializeBroadcastInDimRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_BroadcastInDim();
-  return new BroadcastInDimOpRecord<int64_t>(
+  return new python_frontend::BroadcastInDimOpRecord<int64_t>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -116,10 +121,10 @@ RecordFunctor* deserializeBroadcastInDimRecord(
       parseVector(data->broadcast_dims()));
 }
 
-RecordFunctor* deserializeBroadcastInDimSymbolicRecord(
+python_frontend::RecordFunctor* deserializeBroadcastInDimSymbolicRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_BroadcastInDimSymbolic();
-  return new BroadcastInDimOpRecord<State>(
+  return new python_frontend::BroadcastInDimOpRecord<python_frontend::State>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -128,10 +133,19 @@ RecordFunctor* deserializeBroadcastInDimSymbolicRecord(
       parseVector(data->broadcast_dims()));
 }
 
-RecordFunctor* deserializeCastTvRecord(const serde::RecordFunctor* buffer) {
-  std::function<TensorView*(DataType, TensorView*)> fusion_op =
-      static_cast<TensorView* (*)(DataType, TensorView*)>(castOp);
-  return new CastOpRecord<TensorView*, TensorView*>(
+python_frontend::RecordFunctor* deserializeCatRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::CatOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      buffer->data_as_Dimension()->dim());
+}
+
+python_frontend::RecordFunctor* deserializeCastTvRecord(
+    const serde::RecordFunctor* buffer) {
+  std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
+      static_cast<TensorView* (*)(nvfuser::DataType, TensorView*)>(castOp);
+  return new python_frontend::CastOpRecord<TensorView*, TensorView*>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -140,10 +154,11 @@ RecordFunctor* deserializeCastTvRecord(const serde::RecordFunctor* buffer) {
       mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
 }
 
-RecordFunctor* deserializeCastValRecord(const serde::RecordFunctor* buffer) {
-  std::function<Val*(DataType, Val*)> fusion_op =
-      static_cast<Val* (*)(DataType, Val*)>(castOp);
-  return new CastOpRecord<Val*, Val*>(
+python_frontend::RecordFunctor* deserializeCastValRecord(
+    const serde::RecordFunctor* buffer) {
+  std::function<Val*(nvfuser::DataType, Val*)> fusion_op =
+      static_cast<Val* (*)(nvfuser::DataType, Val*)>(castOp);
+  return new python_frontend::CastOpRecord<Val*, Val*>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -152,69 +167,74 @@ RecordFunctor* deserializeCastValRecord(const serde::RecordFunctor* buffer) {
       mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
 }
 
-RecordFunctor* deserializeConstantBoolRecord(
+python_frontend::RecordFunctor* deserializeConstantBoolRecord(
     const serde::RecordFunctor* buffer) {
-  return new ConstantRecord<Bool, bool>(
+  return new python_frontend::ConstantRecord<nvfuser::Bool, bool>(
       parseStateArgs(buffer->outputs()),
       serde::RecordType_ConstantBool,
       buffer->data_as_Bool()->bool_val(),
-      DataType::Bool);
+      nvfuser::DataType::Bool);
 }
 
-RecordFunctor* deserializeConstantDoubleRecord(
+python_frontend::RecordFunctor* deserializeConstantDoubleRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Double();
-  return new ConstantRecord<Double, double>(
+  return new python_frontend::ConstantRecord<nvfuser::Double, double>(
       parseStateArgs(buffer->outputs()),
       serde::RecordType_ConstantDouble,
       data->double_val(),
       mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeConstantComplexDoubleRecord(
+python_frontend::RecordFunctor* deserializeConstantComplexDoubleRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_ComplexDouble();
-  return new ConstantRecord<ComplexDouble, std::complex<double>>(
-      parseStateArgs(buffer->outputs()),
-      serde::RecordType_ConstantComplexDouble,
-      std::complex<double>(data->real(), data->imag()),
-      mapToNvfuserDtype(data->dtype()));
+  return new python_frontend::
+      ConstantRecord<nvfuser::ComplexDouble, std::complex<double>>(
+          parseStateArgs(buffer->outputs()),
+          serde::RecordType_ConstantComplexDouble,
+          std::complex<double>(data->real(), data->imag()),
+          mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeConstantIntRecord(
+python_frontend::RecordFunctor* deserializeConstantIntRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Int();
-  return new ConstantRecord<Int, int64_t>(
+  return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
       parseStateArgs(buffer->outputs()),
       serde::RecordType_ConstantInt,
       data->int_val(),
       mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeOutputValRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeOutputValRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Output();
-  return new OutputRecord<Val>(
+  return new python_frontend::OutputRecord<Val>(
       parseStateArgs(buffer->args()),
       serde::RecordType_OutputVal,
       parseVector(data->stride_order()));
 }
 
-RecordFunctor* deserializeOutputTvRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeOutputTvRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Output();
-  return new OutputRecord<TensorView>(
+  return new python_frontend::OutputRecord<TensorView>(
       parseStateArgs(buffer->args()),
       serde::RecordType_OutputTv,
       parseVector(data->stride_order()));
 }
 
-RecordFunctor* deserializeReductionRecord(
-    std::function<
-        TensorView*(TensorView*, const std::vector<int>&, bool, DataType)>
-        fusion_op,
+python_frontend::RecordFunctor* deserializeReductionRecord(
+    std::function<TensorView*(
+        TensorView*,
+        const std::vector<int>&,
+        bool,
+        nvfuser::DataType)> fusion_op,
     serde::RecordType record_type,
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Reduction();
-  return new ReductionOpRecord(
+  return new python_frontend::ReductionOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->name()->str(),
@@ -225,48 +245,60 @@ RecordFunctor* deserializeReductionRecord(
       mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeFullRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeFullRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_TensorCreation();
-  return new FullOpRecord(
+  return new python_frontend::FullOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseVector(data->shape()),
       mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeIotaRecord(const serde::RecordFunctor* buffer) {
-  return new IotaOpRecord(
+python_frontend::RecordFunctor* deserializeIotaRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::IotaOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
 }
 
-RecordFunctor* deserializeTorchGatherRecord(
+python_frontend::RecordFunctor* deserializeTorchGatherRecord(
     const serde::RecordFunctor* buffer) {
-  return new TorchGatherOpRecord(
+  return new python_frontend::TorchGatherOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->data_as_Dimension()->dim());
 }
 
-RecordFunctor* deserializeIndexSelectRecord(
+python_frontend::RecordFunctor* deserializeIndexSelectRecord(
     const serde::RecordFunctor* buffer) {
-  return new IndexSelectOpRecord(
+  return new python_frontend::IndexSelectOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       buffer->data_as_Dimension()->dim());
 }
 
-RecordFunctor* deserializePermuteRecord(const serde::RecordFunctor* buffer) {
-  return new PermuteOpRecord(
+python_frontend::RecordFunctor* deserializePadRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::PadOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      parseVector(buffer->data_as_Pad()->pad_widths()));
+}
+
+python_frontend::RecordFunctor* deserializePermuteRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::PermuteOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseVector(buffer->data_as_Permute()->dims()));
 }
 
-RecordFunctor* deserializeRandomRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeRandomRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_TensorCreationSymbolic();
-  return new RandomOpRecord(
+  return new python_frontend::RandomOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseStateArgs(data->shape()),
@@ -274,31 +306,46 @@ RecordFunctor* deserializeRandomRecord(const serde::RecordFunctor* buffer) {
       mapToNvfuserDtype(data->dtype()));
 }
 
-RecordFunctor* deserializeReshapeRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeReshapeRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Reshape();
-  return new ReshapeOpRecord(
+  return new python_frontend::ReshapeOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseVector(data->original_shape()),
       parseVector(data->new_shape()));
 }
 
-RecordFunctor* deserializeScalarRecord(const serde::RecordFunctor* buffer) {
-  return new ScalarRecord(
+python_frontend::RecordFunctor* deserializeScalarRecord(
+    const serde::RecordFunctor* buffer) {
+  return new python_frontend::ScalarRecord(
       parseStateArgs(buffer->outputs()),
       mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
 }
 
-RecordFunctor* deserializeSqueezeRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeSliceRecord(
+    const serde::RecordFunctor* buffer) {
+  auto data = buffer->data_as_Slice();
+  return new python_frontend::SliceOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      parseVector(data->start_indices()),
+      parseVector(data->end_indices()),
+      parseVector(data->strides()));
+}
+
+python_frontend::RecordFunctor* deserializeSqueezeRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Squeeze();
-  return new SqueezeOpRecord(
+  return new python_frontend::SqueezeOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseVector(data->original_shape()),
       parseVector(data->squeeze_dims()));
 }
 
-RecordFunctor* deserializeTensorRecord(const serde::RecordFunctor* buffer) {
+python_frontend::RecordFunctor* deserializeTensorRecord(
+    const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Tensor();
 
   auto mapEnumToOptional = [](int v) -> c10::optional<bool> {
@@ -321,7 +368,7 @@ RecordFunctor* deserializeTensorRecord(const serde::RecordFunctor* buffer) {
       std::back_inserter(contiguous_info),
       mapEnumToOptional);
 
-  return new TensorRecord(
+  return new python_frontend::TensorRecord(
       parseStateArgs(buffer->outputs()),
       parseVector(data->sizes()),
       contiguous_info,
@@ -329,26 +376,16 @@ RecordFunctor* deserializeTensorRecord(const serde::RecordFunctor* buffer) {
       data->is_cpu());
 }
 
-RecordFunctor* deserializeTensorSizesRecord(
+python_frontend::RecordFunctor* deserializeTensorSizesRecord(
     const serde::RecordFunctor* buffer) {
-  return new TensorSizesRecord(
+  return new python_frontend::TensorSizesRecord(
       parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
 }
 
-RecordFunctor* deserializeVarianceRecord(const serde::RecordFunctor* buffer) {
-  auto data = buffer->data_as_Norm();
-  return new VarianceOpRecord(
-      parseStateArgs(buffer->args()),
-      parseStateArgs(buffer->outputs()),
-      parseVector(data->axes()),
-      data->correction(),
-      data->keep_dim());
-}
-
-RecordFunctor* deserializeVarianceMeanRecord(
+python_frontend::RecordFunctor* deserializeVarianceRecord(
     const serde::RecordFunctor* buffer) {
   auto data = buffer->data_as_Norm();
-  return new VarianceMeanOpRecord(
+  return new python_frontend::VarianceOpRecord(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
       parseVector(data->axes()),
@@ -356,12 +393,22 @@ RecordFunctor* deserializeVarianceMeanRecord(
       data->keep_dim());
 }
 
-// End deserialize functions
+python_frontend::RecordFunctor* deserializeVarianceMeanRecord(
+    const serde::RecordFunctor* buffer) {
+  auto data = buffer->data_as_Norm();
+  return new python_frontend::VarianceMeanOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      parseVector(data->axes()),
+      data->correction(),
+      data->keep_dim());
+}
 
 void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_Start, deserializeStartRecord);
   registerParser(serde::RecordType_End, deserializeEndRecord);
 
+  // START OpRecord Parser Registration
   // Unary Ops
   auto unary_tv_parser = [&](const serde::RecordFunctor* buffer) {
     return deserializeOpRecord<unary_tv_fn, TensorView*, TensorView*>(
@@ -616,49 +663,9 @@ void RecordFunctorFactory::registerAllParsers() {
         Val*>(ternary_alpha_val, serde::RecordType_Ternary_Alpha_VAL, buffer);
   };
   registerParser(serde::RecordType_Ternary_Alpha_VAL, ternary_alpha_val_parser);
+  // END OpRecord Parsers
 
-  registerParser(serde::RecordType_BatchNormOp, deserializeBatchNormRecord);
-
-  registerParser(serde::RecordType_BroadcastOp, deserializeBroadcastRecord);
-
-  registerParser(
-      serde::RecordType_BroadcastInDim, deserializeBroadcastInDimRecord);
-
-  registerParser(
-      serde::RecordType_BroadcastInDimSymbolic,
-      deserializeBroadcastInDimSymbolicRecord);
-
-  registerParser(serde::RecordType_CastTv, deserializeCastTvRecord);
-
-  registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
-
-  registerParser(serde::RecordType_ConstantBool, deserializeConstantBoolRecord);
-
-  registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
-
-  registerParser(
-      serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
-
-  registerParser(
-      serde::RecordType_ConstantComplexDouble,
-      deserializeConstantComplexDoubleRecord);
-
-  registerParser(serde::RecordType_FullOp, deserializeFullRecord);
-
-  registerParser(serde::RecordType_IotaOp, deserializeIotaRecord);
-
-  registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
-
-  registerParser(serde::RecordType_IndexSelectOp, deserializeIndexSelectRecord);
-
-  registerParser(serde::RecordType_OutputTv, deserializeOutputTvRecord);
-
-  registerParser(serde::RecordType_OutputVal, deserializeOutputValRecord);
-
-  registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
-
-  registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
-
+  // START Reduction Parsers
   auto reduction_max_parser = [](const serde::RecordFunctor* buffer) {
     return deserializeReductionRecord(
         max, serde::RecordType_ReductionMax, buffer);
@@ -682,19 +689,41 @@ void RecordFunctorFactory::registerAllParsers() {
         sum, serde::RecordType_ReductionSum, buffer);
   };
   registerParser(serde::RecordType_ReductionSum, reduction_sum_parser);
+  // END Reduction Parsers
 
+  registerParser(serde::RecordType_BatchNormOp, deserializeBatchNormRecord);
+  registerParser(serde::RecordType_BroadcastOp, deserializeBroadcastRecord);
+  registerParser(serde::RecordType_CatOp, deserializeCatRecord);
+  registerParser(
+      serde::RecordType_BroadcastInDim, deserializeBroadcastInDimRecord);
+  registerParser(
+      serde::RecordType_BroadcastInDimSymbolic,
+      deserializeBroadcastInDimSymbolicRecord);
+  registerParser(serde::RecordType_CastTv, deserializeCastTvRecord);
+  registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
+  registerParser(serde::RecordType_ConstantBool, deserializeConstantBoolRecord);
+  registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
+  registerParser(
+      serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
+  registerParser(
+      serde::RecordType_ConstantComplexDouble,
+      deserializeConstantComplexDoubleRecord);
+  registerParser(serde::RecordType_FullOp, deserializeFullRecord);
+  registerParser(serde::RecordType_IotaOp, deserializeIotaRecord);
+  registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
+  registerParser(serde::RecordType_IndexSelectOp, deserializeIndexSelectRecord);
+  registerParser(serde::RecordType_OutputTv, deserializeOutputTvRecord);
+  registerParser(serde::RecordType_OutputVal, deserializeOutputValRecord);
+  registerParser(serde::RecordType_PadOp, deserializePadRecord);
+  registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
+  registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
-
   registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
-
+  registerParser(serde::RecordType_SliceOp, deserializeSliceRecord);
   registerParser(serde::RecordType_SqueezeOp, deserializeSqueezeRecord);
-
   registerParser(serde::RecordType_Tensor, deserializeTensorRecord);
-
   registerParser(serde::RecordType_TensorSizes, deserializeTensorSizesRecord);
-
   registerParser(serde::RecordType_VarianceOp, deserializeVarianceRecord);
-
   registerParser(
       serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
 }
@@ -898,4 +927,4 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_TERNARY_TV_ALPHA_OP("addcmul", addcmul)
 }
 
-} // namespace nvfuser::python_frontend
+} // namespace nvfuser::serde
