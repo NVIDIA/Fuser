@@ -129,11 +129,15 @@ struct RecordFunctor {
   //! piece if the recording has a cache miss.
   virtual void operator()(FusionState& fd) = 0;
 
+  //! Abstraction for storing data specific to a record functor.
   virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const {
     return {serde::RecordData_NONE, flatbuffers::Offset<void>()};
   }
 
+  //! The base serialize function that handles args, outputs, name and
+  //! recordType. Child recordFunctors should overload the recordData function
+  //! if has supplementary attributes.
   virtual flatbuffers::Offset<serde::RecordFunctor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const {
     // table RecordFunctor {
@@ -158,7 +162,7 @@ struct RecordFunctor {
     auto outputs_fb =
         builder.CreateVectorOfStructs(fb_outputs.data(), fb_outputs.size());
 
-    auto record_data = recordData(builder);
+    auto&& [record_data_type, record_data] = recordData(builder);
 
     return serde::CreateRecordFunctor(
         builder,
@@ -166,8 +170,8 @@ struct RecordFunctor {
         outputs_fb,
         builder.CreateString(name_),
         recordType(),
-        record_data.first,
-        record_data.second);
+        record_data_type,
+        record_data);
   }
 
   //! The base print function when printing Record for a given FusionState
@@ -2363,8 +2367,8 @@ struct RandomOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto arg2 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg1 = fd.getFusionState(args_.at(0).index);
+    auto arg2 = fd.getFusionState(args_.at(1).index);
 
     std::vector<Val*> output_shape(output_shape_.size(), nullptr);
     std::transform(
