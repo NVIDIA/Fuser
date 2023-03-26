@@ -26,6 +26,19 @@ struct UserSchedule;
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
+struct TORCH_CUDA_CU_API State {
+  State(size_t _index, serde::StateType _stype)
+      : index(_index), stype(_stype) {}
+
+  bool operator==(const State& other) const;
+  bool operator!=(const State& other) const;
+
+  //! A unique index to identifiy each recorded state item.
+  size_t index;
+  //! StateType is either: Tensor or Scalar
+  serde::StateType stype;
+};
+
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream& os,
     const State& state);

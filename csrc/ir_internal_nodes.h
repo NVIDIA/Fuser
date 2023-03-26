@@ -2238,7 +2238,8 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
       IrBuilderPasskey passkey,
       TensorView* out,
       TensorView* inp,
-      const std::vector<Val*>& pad_widths);
+      const std::vector<Val*>& pad_widths,
+      Val* value);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2257,6 +2258,10 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
     return input(0);
   }
 
+  Val* value() const {
+    return input(1);
+  }
+
   //! Return axes that are actually paded, i.e., those that have
   //! non-zero pad widths
   std::vector<int> getPaddedAxes() const;
@@ -2271,7 +2276,7 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
  private:
   //! Offset of pad_width inputs in the input vector
   int getPadWidthInputOffset() const {
-    return 1;
+    return 2;
   }
 
   //! Iterator to the first pad_width input

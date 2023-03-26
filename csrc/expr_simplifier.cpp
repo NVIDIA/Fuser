@@ -140,59 +140,120 @@ std::unique_ptr<debug_print::NoOpLogger> createLogger(Val* value) {
 
 namespace {
 
+std::vector<Bool*> getAxioms() {
+  std::vector<Bool*> axioms;
+  axioms.reserve(kParallelTypeThreads.size() * 3);
+  for (auto p : kParallelTypeThreads) {
+    auto pidx = NamedScalar::getParallelIndex(p);
+    auto pdim = NamedScalar::getParallelDim(p);
+    auto zero = pidx->container()->zeroVal();
+    axioms.push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+    axioms.push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+    axioms.push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+  }
+  return axioms;
+}
+
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
   Context() = default;
 
-  Context(const std::list<VarInfo>& variables, bool preserve_error)
+  Context(
+      const std::list<VarInfo>& variables,
+      std::vector<Bool*> assumptions,
+      bool preserve_error)
       : preserve_error_(preserve_error) {
-    var_info_map_.reserve(variables.size());
     var_order_.reserve(variables.size());
-    set_.reserve(variables.size());
+    var_set_.reserve(variables.size());
+    less_than_.reserve(assumptions.size());
+    less_equal_.reserve(assumptions.size());
     for (const auto& info : variables) {
-      var_order_.emplace_back(info.variable);
-      set_.emplace(info.variable);
-      var_info_map_[info.variable] = info;
+      auto var = info.variable;
+      if (info.is_unrolled_loop_index) {
+        unrolled_loop_index_.insert(var);
+      }
+      var_order_.emplace_back(var);
+      var_set_.emplace(var);
+    }
+    // decompose a && b in assumptions as a and b
+    auto axioms = getAxioms();
+    assumptions.insert(assumptions.end(), axioms.begin(), axioms.end());
+    while (!assumptions.empty()) {
+      auto back = assumptions.back();
+      assumptions.pop_back();
+      auto bop = dynamic_cast<BinaryOp*>(back->definition());
+      if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
+        assume(back);
+      } else {
+        assumptions.push_back(bop->lhs()->as<Bool>());
+        assumptions.push_back(bop->rhs()->as<Bool>());
+      }
     }
   }
 
-  // Get the order of variables
-  const std::vector<Val*>& order() const {
+  const std::vector<Val*>& variableOrder() const {
     return var_order_;
   }
 
-  // Get the info of a variable
-  const VarInfo& info(Val* var) const {
-    return var_info_map_.at(var);
-  }
-
-  // Check if this mapping has information about the given variable
-  bool has(Val* var) const {
-    return set_.count(var);
-  }
-
-  // Get the set of variables that has information
-  const std::unordered_set<Val*>& set() const {
-    return set_;
+  const std::unordered_set<Val*>& variableSet() const {
+    return var_set_;
   }
 
   bool preserveError() const {
     return preserve_error_;
   }
 
+  bool isUnrolledLoopIndex(Val* x) const {
+    return unrolled_loop_index_.count(x) > 0;
+  }
+
+  const std::vector<std::pair<Val*, Val*>>& getKnownLessThan() const {
+    return less_than_;
+  }
+
+  const std::vector<std::pair<Val*, Val*>>& getKnownLessEqual() const {
+    return less_equal_;
+  }
+
  private:
-  std::unordered_map<Val*, VarInfo> var_info_map_;
-  std::vector<Val*> var_order_;
-  std::unordered_set<Val*> set_;
+  void assume(Bool* a) {
+    auto def = a->definition();
+    if (auto bop = dynamic_cast<BinaryOp*>(def)) {
+      switch (bop->getBinaryOpType()) {
+        case BinaryOpType::LT:
+          less_than_.emplace_back(bop->lhs(), bop->rhs());
+          break;
+        case BinaryOpType::LE:
+          less_equal_.emplace_back(bop->lhs(), bop->rhs());
+          break;
+        case BinaryOpType::GT:
+          less_than_.emplace_back(bop->rhs(), bop->lhs());
+          break;
+        case BinaryOpType::GE:
+          less_equal_.emplace_back(bop->rhs(), bop->lhs());
+          break;
+        default:
+          TORCH_INTERNAL_ASSERT(
+              false, "Unknown operator type ", bop->getBinaryOpType());
+      }
+    }
+  }
+
+ private:
   bool preserve_error_ = false;
+  std::vector<Val*> var_order_;
+  std::unordered_set<Val*> var_set_;
+  std::unordered_set<Val*> unrolled_loop_index_;
+  std::vector<std::pair<Val*, Val*>> less_than_;
+  std::vector<std::pair<Val*, Val*>> less_equal_;
 };
 
 bool hasSimilarType(DataType t1, DataType t2) {
   if (t1 == t2) {
     return true;
   }
-  if (isIntegralType(t1) && isIntegralType(t2)) {
+  if (isIntegralOrPointerType(t1) && isIntegralOrPointerType(t2)) {
     return true;
   }
   if (isFloatingPointType(t1) && isFloatingPointType(t2)) {
@@ -317,7 +378,7 @@ RegisterType getRegisterType(Val* value, const Context& context) {
   if (value->isConstScalar()) {
     return RegisterType::Immediate;
   }
-  if (context.has(value) && context.info(value).is_unrolled_loop_index) {
+  if (context.isUnrolledLoopIndex(value)) {
     return RegisterType::Immediate;
   }
   if (auto def = value->definition()) {
@@ -332,7 +393,7 @@ RegisterType getRegisterType(Val* value, const Context& context) {
 }
 
 bool hasUnrolledLoopIndex(Val* value, const Context& context) {
-  if (context.has(value) && context.info(value).is_unrolled_loop_index) {
+  if (context.isUnrolledLoopIndex(value)) {
     return true;
   }
   auto def = value->definition();
@@ -345,6 +406,14 @@ bool hasUnrolledLoopIndex(Val* value, const Context& context) {
     }
   }
   return false;
+}
+
+inline DataType inferDtypes(const std::vector<Val*>& vals) {
+  auto dtype = *vals.at(0)->getDataType();
+  for (auto v : vals) {
+    dtype = promoteType(dtype, *v->getDataType());
+  }
+  return dtype;
 }
 
 } // namespace
@@ -577,7 +646,7 @@ class FlattenedAssocCommOp : public Expr {
     std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
     dependency.reserve(sorted_inputs.size());
     for (auto v : sorted_inputs) {
-      dependency[v] = getSubexprDependency(v, context.set());
+      dependency[v] = getSubexprDependency(v, context.variableSet());
     }
     auto compare = [&](Val* v1, Val* v2) {
       // Find all variables in context that v1 and v2 depends on. The input (v1
@@ -597,7 +666,7 @@ class FlattenedAssocCommOp : public Expr {
       if (hasTensorIndex(deps1)) {
         return false;
       }
-      for (auto v : context.order()) {
+      for (auto v : context.variableOrder()) {
         if (deps1.count(v) > 0 && deps2.count(v) == 0) {
           v1_is_left_of_v2 = false;
         } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
@@ -735,7 +804,7 @@ Val* flattenRule(Val* value) {
       return inputs.at(0);
     }
 
-    auto output = IrBuilder::newScalar(*value->getDataType());
+    auto output = IrBuilder::newScalar(inferDtypes(inputs));
     IrBuilder::create<FlattenedAssocCommOp>(op, output, std::move(inputs));
     return output;
   }
@@ -779,11 +848,7 @@ Val* unflattenRule(Val* value, const Context& context) {
     while (next < (int64_t)sorted_inputs.size()) {
       auto rhs = unflatten(sorted_inputs.at(next), context);
       if (fop->getOpType() == BinaryOpType::Add) {
-        // For binary add/sub op, we need to correctly handle the promotion rule
-        // ptr + int -> ptr and ptr - int -> ptr, so we use IrBuilder::addExpr
-        // and IrBuilder::subExpr here.
-        // Also, convert a + (-b) to a - b here for better readibility on
-        // generated code
+        // Convert a + (-b) to a - b for better readibility on generated code
         auto uop = dynamic_cast<UnaryOp*>(rhs->definition());
         if (uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg) {
           lhs = IrBuilder::subExpr(lhs, uop->in());
@@ -791,7 +856,8 @@ Val* unflattenRule(Val* value, const Context& context) {
           lhs = IrBuilder::addExpr(lhs, rhs);
         }
       } else {
-        auto output = IrBuilder::newScalar(*value->getDataType());
+        auto output = IrBuilder::newScalar(
+            promoteType(*lhs->getDataType(), *rhs->getDataType()));
         IrBuilder::create<BinaryOp>(fop->getOpType(), output, lhs, rhs);
         lhs = output;
       }
@@ -861,40 +927,47 @@ BinaryOp* toDivModOp(Expr* expr) {
 // a * b --> (1, {a, b})
 // 3 * 5 --> (15, {})
 // If the given Val `x` is not a flattened mul, then return (1, {x})
-std::pair<int64_t, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
+std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   std::vector<Val*> factors;
   if (auto fop = toFlattenedMul(x->definition())) {
     factors = fop->inputs();
   } else {
     factors.emplace_back(x);
   }
+  DataType const_dtype = DataType::Null;
   int64_t const_factor = 1;
   std::list<Val*> symbolic_factors;
   for (auto f : factors) {
     f = foldConstants(f);
     if (f->getInt().has_value()) {
+      if (const_dtype == DataType::Null) {
+        const_dtype = *f->getDataType();
+      } else {
+        const_dtype = promoteType(const_dtype, *f->getDataType());
+      }
       const_factor *= *f->getInt();
     } else {
       symbolic_factors.emplace_back(f);
     }
   }
-  return {const_factor, symbolic_factors};
+  if (const_dtype == DataType::Null) {
+    // If there is no constant factors, use the dtype of x
+    const_dtype = *x->getDataType();
+  }
+  return {IrBuilder::newConstant(const_factor, const_dtype), symbolic_factors};
 }
 
-Val* productOfFactors(
-    int64_t const_factor,
-    std::vector<Val*> symbolic_factors,
-    DataType dtype) {
-  if (const_factor != 1) {
-    symbolic_factors.emplace_back(IrBuilder::newConstant(const_factor, dtype));
+Val* productOfFactors(Val* const_factor, std::vector<Val*> symbolic_factors) {
+  if (*const_factor->getInt() != 1) {
+    symbolic_factors.emplace_back(const_factor);
   }
   if (symbolic_factors.size() == 1) {
     return symbolic_factors.at(0);
   }
   if (symbolic_factors.empty()) {
-    return IrBuilder::newConstant(1, dtype);
+    return IrBuilder::newConstant(1, *const_factor->getDataType());
   }
-  auto output = IrBuilder::newScalar(dtype);
+  auto output = IrBuilder::newScalar(inferDtypes(symbolic_factors));
   IrBuilder::create<FOp>(
       BinaryOpType::Mul, output, std::move(symbolic_factors));
   return output;
@@ -922,11 +995,12 @@ Val* divideFactorized(Val* x, Val* y) {
   int64_t quoient_const_factor;
   std::vector<Val*> quoient_symbolic_factors;
 
-  if (x_factors.first % y_factors.first != 0) {
+  if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
     // not divisible
     return nullptr;
   } else {
-    quoient_const_factor = x_factors.first / y_factors.first;
+    quoient_const_factor =
+        *x_factors.first->getInt() / *y_factors.first->getInt();
   }
 
   for (auto yf : y_factors.second) {
@@ -945,9 +1019,12 @@ Val* divideFactorized(Val* x, Val* y) {
       x_factors.second.begin(),
       x_factors.second.end());
   return productOfFactors(
-      quoient_const_factor,
-      std::move(quoient_symbolic_factors),
-      *x->getDataType());
+      IrBuilder::newConstant(
+          quoient_const_factor,
+          promoteType(
+              *x_factors.first->getDataType(),
+              *y_factors.first->getDataType())),
+      std::move(quoient_symbolic_factors));
 }
 
 // Symbolic gcd, for example: greatestCommonDivisor({6*a*b, 9*b*c}) -> 3*b
@@ -958,9 +1035,18 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
   // The gcd of the symbolic part. nullptr serve as 0, empty vector serve as 1.
   std::unique_ptr<std::vector<Val*>> common_symbolic_factors = nullptr;
 
+  DataType const_factor_dtype = DataType::Null;
+
   for (auto inp : inputs) {
     auto factors = getConstAndSymbolicFactors(inp);
-    common_const_factor = std::gcd(common_const_factor, factors.first);
+    if (const_factor_dtype == DataType::Null) {
+      const_factor_dtype = *factors.first->getDataType();
+    } else {
+      const_factor_dtype =
+          promoteType(const_factor_dtype, *factors.first->getDataType());
+    }
+    common_const_factor =
+        std::gcd(common_const_factor, *factors.first->getInt());
     std::vector<Val*> new_common_symbolic_factors;
     if (common_symbolic_factors == nullptr) {
       // gcd(0, x) -> x
@@ -987,9 +1073,8 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
   TORCH_INTERNAL_ASSERT(common_const_factor != 0);
   TORCH_INTERNAL_ASSERT(common_symbolic_factors != nullptr);
   return productOfFactors(
-      common_const_factor,
-      std::move(*common_symbolic_factors),
-      *inputs[0]->getDataType());
+      IrBuilder::newConstant(common_const_factor, const_factor_dtype),
+      std::move(*common_symbolic_factors));
 }
 
 namespace {
@@ -1000,11 +1085,18 @@ Val* factorizeFlattenedMul(Val* x) {
   // Recursively factorize all its inputs, and combine their terms
   int64_t const_factor = 1;
   std::vector<Val*> symbolic_factors;
+  DataType const_factor_dtype = DataType::Null;
   bool changed = false;
   for (auto inp : fop->inputs()) {
     auto factorized_inp = factorize(inp);
     auto factors = getConstAndSymbolicFactors(factorized_inp);
-    const_factor *= factors.first;
+    if (const_factor_dtype == DataType::Null) {
+      const_factor_dtype = *factors.first->getDataType();
+    } else {
+      const_factor_dtype =
+          promoteType(const_factor_dtype, *factors.first->getDataType());
+    }
+    const_factor *= *factors.first->getInt();
     symbolic_factors.insert(
         symbolic_factors.end(), factors.second.begin(), factors.second.end());
     if (factors.second != std::list<Val*>{inp}) {
@@ -1016,7 +1108,8 @@ Val* factorizeFlattenedMul(Val* x) {
     return x;
   }
   return productOfFactors(
-      const_factor, std::move(symbolic_factors), *x->getDataType());
+      IrBuilder::newConstant(const_factor, const_factor_dtype),
+      std::move(symbolic_factors));
 }
 
 Val* factorizeFlattenedAdd(Val* x) {
@@ -1042,10 +1135,11 @@ Val* factorizeFlattenedAdd(Val* x) {
     TORCH_INTERNAL_ASSERT(quotient != nullptr);
     quotient_inputs.emplace_back(quotient);
   }
-  auto quotient = IrBuilder::newScalar(*x->getDataType());
+  auto quotient = IrBuilder::newScalar(inferDtypes(quotient_inputs));
   IrBuilder::create<FOp>(
       BinaryOpType::Add, quotient, std::move(quotient_inputs));
-  auto product = IrBuilder::newScalar(*x->getDataType());
+  auto product = IrBuilder::newScalar(
+      promoteType(*quotient->getDataType(), *gcd->getDataType()));
   IrBuilder::create<FOp>(
       BinaryOpType::Mul, product, std::vector<Val*>{quotient, gcd});
   // Quotient might contain nested FlattenedAdd, for example, if we have:
@@ -1054,6 +1148,26 @@ Val* factorizeFlattenedAdd(Val* x) {
   //   FlattenedAdd(FlattenedAdd(b, c), FlattenedAdd(d, e))
   // So we need to reflatten to get rid of this nested FlattenedAdd.
   return assoc_comm::flatten(product);
+}
+
+// Rule O
+Val* factorizeMod(Val* x) {
+  auto bop = dynamic_cast<BinaryOp*>(x->definition());
+  TORCH_INTERNAL_ASSERT(bop->getBinaryOpType() == BinaryOpType::Mod);
+  auto flhs = factorize(bop->lhs());
+  auto frhs = factorize(bop->rhs());
+  auto gcd = greatestCommonDivisor({flhs, frhs});
+  if (gcd->isOne()) {
+    return x;
+  }
+  auto qlhs = divideFactorized(flhs, gcd);
+  auto qrhs = divideFactorized(frhs, gcd);
+  auto mod = IrBuilder::newScalar(*x->getDataType());
+  IrBuilder::create<BinaryOp>(BinaryOpType::Mod, mod, qlhs, qrhs);
+  auto product = IrBuilder::newScalar(*x->getDataType());
+  IrBuilder::create<FOp>(
+      BinaryOpType::Mul, product, std::vector<Val*>{mod, gcd});
+  return product;
 }
 
 } // namespace
@@ -1072,11 +1186,20 @@ Val* factorize(Val* x) {
   if (isFlattenedAdd(x)) {
     return factorizeFlattenedAdd(x);
   }
-  // TODO: handle other operators, for example, rule M, O
+  if (auto bop = dynamic_cast<BinaryOp*>(x->definition())) {
+    if (bop->getBinaryOpType() == BinaryOpType::Mod) {
+      // Rule O
+      return factorizeMod(x);
+    }
+  }
   return x;
 }
 
 } // namespace sym_algebra
+
+namespace {
+bool isValidDenominator(Val* denominator, const Context& context);
+}
 
 namespace prove {
 
@@ -1091,30 +1214,33 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool isPositive(Val* value, const Context& context);
+bool lessThan(Val* x, Val* y, const Context& context);
+bool lessEqual(Val* x, Val* y, const Context& context);
+
+bool greaterThan(Val* x, Val* y, const Context& context) {
+  return lessThan(y, x, context);
+}
+
+bool greaterEqual(Val* x, Val* y, const Context& context) {
+  return lessEqual(y, x, context);
+}
+
+bool isPositive(Val* value, const Context& context) {
+  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  return greaterThan(value, zero, context);
+}
 
 bool isNonNegative(Val* value, const Context& context) {
-  value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() >= 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() >= 0.0) {
-    return true;
-  }
-  if (isPositive(value, context)) {
-    return true;
-  }
+  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  return greaterEqual(value, zero, context);
+}
+
+bool isNonNegativeHelper(Val* value, const Context& context) {
   if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    if (ns->getParallelDim().has_value() ||
-        ns->getParallelIndex().has_value() || ns->isTensorSize() ||
-        ns->isTensorStride()) {
+    // TODO: make tensor size and tensor stride an expr
+    if (ns->isTensorSize() || ns->isTensorStride()) {
       return true;
     }
-  }
-  value = maybeUnwrapMagicZero(value);
-  if (context.has(value)) {
-    return isNonNegative(context.info(value).start, context) &&
-        isNonNegative(context.info(value).step, context);
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
@@ -1131,25 +1257,14 @@ bool isNonNegative(Val* value, const Context& context) {
     if (op == BinaryOpType::Mod || op == BinaryOpType::Div ||
         op == BinaryOpType::CeilDiv) {
       return isNonNegative(bop->lhs(), context) &&
-          isPositive(bop->rhs(), context);
+          isValidDenominator(bop->rhs(), context) &&
+          isNonNegative(bop->rhs(), context);
     }
   }
   return false;
 }
 
-bool isPositive(Val* value, const Context& context) {
-  value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() > 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() > 0.0) {
-    return true;
-  }
-  if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    if (ns->getParallelDim().has_value()) {
-      return true;
-    }
-  }
+bool isPositiveHelper(Val* value, const Context& context) {
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
     if (op == BinaryOpType::Add) {
@@ -1208,6 +1323,73 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
+bool lessThan(Val* x, Val* y, const Context& context) {
+  x = foldConstants(x);
+  y = foldConstants(y);
+  if (x->getInt().has_value() && y->getInt().has_value()) {
+    return *x->getInt() < *y->getInt();
+  }
+  if (x->getDouble().has_value() && y->getDouble().has_value()) {
+    return *x->getDouble() < *y->getDouble();
+  }
+  x = maybeUnwrapMagicZero(x);
+  y = maybeUnwrapMagicZero(y);
+  if (x->isZero() && isPositiveHelper(y, context)) {
+    return true;
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x <= a & a < b & b <= y  -->  x < y
+    if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool lessEqual(Val* x, Val* y, const Context& context) {
+  x = foldConstants(x);
+  y = foldConstants(y);
+  if (x->getInt().has_value() && y->getInt().has_value()) {
+    return *x->getInt() <= *y->getInt();
+  }
+  if (x->getDouble().has_value() && y->getDouble().has_value()) {
+    return *x->getDouble() <= *y->getDouble();
+  }
+  x = maybeUnwrapMagicZero(x);
+  y = maybeUnwrapMagicZero(y);
+  // x == y -> x <= y
+  if (x->sameAs(y)) {
+    return true;
+  }
+  if (x->isZero() && isNonNegativeHelper(y, context)) {
+    return true;
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x < y  -->  x <= y
+    if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    if (a->sameAs(x) && b->sameAs(y)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    // x < b & b <= y  -->  x <= y
+    if (a->sameAs(x) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    // x <= b & b <= y  -->  x <= y
+    if (a->sameAs(x) && lessEqual(b, y, context)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace prove
 
 namespace {
@@ -1245,7 +1427,7 @@ bool isValidDenominator(Val* denominator, const Context& context) {
     return false;
   }
   if (isDebugDumpEnabled(DebugDumpOption::ExprSimplification)) {
-    TORCH_WARN(
+    TORCH_WARN_ONCE(
         "Assuming ",
         denominator->toInlineString(),
         " to be non-zero does not perserve division-by-zero error");
@@ -1263,7 +1445,7 @@ namespace rules {
 // context. This canonicalization is important, because some passes use set of
 // pointers to find variables, without canonicalization, this finding will fail.
 Val* canonicalizeVariables(Val* value, const Context& context) {
-  for (auto v : context.order()) {
+  for (auto v : context.variableOrder()) {
     if (v->sameAs(value)) {
       return v;
     }
@@ -1305,7 +1487,8 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           if (const_term == nullptr) {
             const_term = inp;
           } else {
-            auto out = IrBuilder::newScalar(*const_term->getDataType());
+            auto out = IrBuilder::newScalar(
+                promoteType(*const_term->getDataType(), *inp->getDataType()));
             IrBuilder::create<BinaryOp>(op, out, const_term, inp);
             const_term = out;
             changed = true;
@@ -1337,7 +1520,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         if (new_inputs.size() == 1) {
           return new_inputs.at(0);
         }
-        auto output = IrBuilder::newScalar(*value->getDataType());
+        auto output = IrBuilder::newScalar(inferDtypes(new_inputs));
         IrBuilder::create<FOp>(op, output, std::move(new_inputs));
         return output;
       }
@@ -1361,7 +1544,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           if (dedup_input.size() == 1) {
             return dedup_input.at(0);
           } else {
-            auto output = IrBuilder::newScalar(*value->getDataType());
+            auto output = IrBuilder::newScalar(inferDtypes(dedup_input));
             IrBuilder::create<FOp>(op, output, std::move(dedup_input));
             return output;
           }
@@ -1369,9 +1552,10 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
   } else if (auto bop = dynamic_cast<BinaryOp*>(value->definition())) {
+    auto lhs = foldConstants(bop->lhs());
+    auto rhs = foldConstants(bop->rhs());
     if (bop->getBinaryOpType() == BinaryOpType::Mod) {
       // a % 1 -> 0
-      auto rhs = foldConstants(bop->rhs());
       if (rhs->isOneInt()) {
         return IrBuilder::newConstant(0, *value->getDataType());
       }
@@ -1380,15 +1564,11 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // a / 1 -> a
       // 0 / a -> 0
-      auto lhs = foldConstants(bop->lhs());
-      auto rhs = foldConstants(bop->rhs());
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->getInt() == 0)) {
         return lhs;
       }
     } else if (bop->getBinaryOpType() == BinaryOpType::Sub) {
-      auto lhs = foldConstants(bop->lhs());
-      auto rhs = foldConstants(bop->rhs());
       if (lhs->sameAs(rhs)) {
         return IrBuilder::newConstant(0, *value->getDataType());
       }
@@ -1425,49 +1605,45 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
     return value;
   }
   auto op = bop->getBinaryOpType();
-  if (bop->lhs()->sameAs(bop->rhs())) {
-    if (op == BinaryOpType::Eq) {
+  auto lhs = bop->lhs();
+  auto rhs = bop->rhs();
+  if (op == BinaryOpType::Eq) {
+    if (lhs->sameAs(rhs)) {
       return value->fusion()->trueVal();
-    } else if (op == BinaryOpType::NE) {
+    } else if (
+        (lhs->isZero() && prove::isNonZero(rhs, context)) ||
+        (rhs->isZero() && prove::isNonZero(lhs, context))) {
       return value->fusion()->falseVal();
     }
-  }
-  if (bop->rhs()->isZero()) {
-    if (op == BinaryOpType::GE && prove::isNonNegative(bop->lhs(), context)) {
+  } else if (op == BinaryOpType::NE) {
+    if ((lhs->isZero() && prove::isNonZero(rhs, context)) ||
+        (rhs->isZero() && prove::isNonZero(lhs, context))) {
       return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::GT && prove::isPositive(bop->lhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::NE && prove::isNonZero(bop->lhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::LT && prove::isNonNegative(bop->lhs(), context)) {
-      return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::LE && prove::isPositive(bop->lhs(), context)) {
-      return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::Eq && prove::isNonZero(bop->lhs(), context)) {
+    } else if (lhs->sameAs(rhs)) {
       return value->fusion()->falseVal();
     }
-  } else if (bop->lhs()->isZero()) {
-    if (op == BinaryOpType::LE && prove::isNonNegative(bop->rhs(), context)) {
+  } else if (op == BinaryOpType::GE) {
+    if (prove::greaterEqual(lhs, rhs, context)) {
       return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::LT && prove::isPositive(bop->rhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::NE && prove::isNonZero(bop->rhs(), context)) {
-      return value->fusion()->trueVal();
-    } else if (
-        op == BinaryOpType::GT && prove::isNonNegative(bop->rhs(), context)) {
+    } else if (prove::lessThan(lhs, rhs, context)) {
       return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::GE && prove::isPositive(bop->rhs(), context)) {
+    }
+  } else if (op == BinaryOpType::GT) {
+    if (prove::greaterThan(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::lessEqual(lhs, rhs, context)) {
       return value->fusion()->falseVal();
-    } else if (
-        op == BinaryOpType::Eq && prove::isNonZero(bop->rhs(), context)) {
+    }
+  } else if (op == BinaryOpType::LE) {
+    if (prove::lessEqual(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::greaterThan(lhs, rhs, context)) {
+      return value->fusion()->falseVal();
+    }
+  } else if (op == BinaryOpType::LT) {
+    if (prove::lessThan(lhs, rhs, context)) {
+      return value->fusion()->trueVal();
+    } else if (prove::greaterEqual(lhs, rhs, context)) {
       return value->fusion()->falseVal();
     }
   }
@@ -1542,10 +1718,10 @@ Val* cancelDivMod(Val* value, const Context& context) {
 // J) Distributivity of % over +:
 //    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
 // Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a+b)/c = a/c + b/c
+//    (a + b) / c = a/c + b/c
 // In this pass we distribute div and mod for a special case:
 // If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a+b)/c = a/c + b/c
+//  (a + b) / c = a/c + b/c
 //  (a + b) % c = b % c
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
@@ -1554,7 +1730,8 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   }
   auto lhs = divmod->lhs();
   auto rhs = divmod->rhs();
-  if (!isValidDenominator(rhs, context)) {
+  if (!lhs->isIntegralScalar() || !rhs->isIntegralScalar() ||
+      !isValidDenominator(rhs, context)) {
     return value;
   }
   auto fop = toFlattenedAdd(lhs->definition());
@@ -1578,22 +1755,211 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
     if (other_terms.size() == 1) {
       sum_of_other_terms = other_terms.at(0);
     } else {
-      sum_of_other_terms = IrBuilder::newScalar(*value->getDataType());
+      sum_of_other_terms = IrBuilder::newScalar(inferDtypes(other_terms));
       IrBuilder::create<FOp>(
           BinaryOpType::Add, sum_of_other_terms, std::move(other_terms));
     }
     if (prove::hasCompatibleSign(divisible_term, sum_of_other_terms, context)) {
       std::vector<Val*> new_inputs;
-      auto term1 = IrBuilder::newScalar(*value->getDataType());
+      auto term1 = IrBuilder::newScalar(
+          promoteType(*divisible_term->getDataType(), *rhs->getDataType()));
       IrBuilder::create<BinaryOp>(
           divmod->getBinaryOpType(), term1, divisible_term, rhs);
       new_inputs.emplace_back(simplifyDivisibleDivMod(term1, context));
-      new_inputs.emplace_back(IrBuilder::newScalar(*value->getDataType()));
+      new_inputs.emplace_back(IrBuilder::newScalar(promoteType(
+          *sum_of_other_terms->getDataType(), *rhs->getDataType())));
       IrBuilder::create<BinaryOp>(
           divmod->getBinaryOpType(), new_inputs[1], sum_of_other_terms, rhs);
-      auto output = IrBuilder::newScalar(*value->getDataType());
+      auto output = IrBuilder::newScalar(inferDtypes(new_inputs));
       IrBuilder::create<FOp>(BinaryOpType::Add, output, std::move(new_inputs));
       return output;
+    }
+  }
+  return value;
+}
+
+// Use the following rule to simplify div and mod:
+// J) Distributivity of % over +:
+//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
+// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
+//    (a + b) / c = a/c + b/c
+// In this pass we distribute div and mod for a special case:
+// Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|, then:
+//  (a + b) / c = a/c
+//  (a + b) % c = a % c + b
+// Proof:
+//  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
+//  Theorem 6.5, we have b % c = b.
+//  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
+//  So, a % c + b % c = ((a/g) % (c/g)) * g + b
+//  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
+//  -|c/g| + 1 <= (a/g) % (c/g) <= |c/g| - 1
+//  So, -(|c/g| - 1) * |g| <= a % c <= (|c/g| - 1) * |g|
+//  Therefore, we have
+//  -(|c/g| - 1) * |g| - |g| < a % c + b % c < (|c/g| - 1) * |g| + |g|
+// That is: -|c| < a % c + b % c < |c|
+// Therefore:
+// (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
+// (a + b) / c = a/c + b/c = a / c
+Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
+  auto divmod = toDivModOp(value->definition());
+  if (!divmod) {
+    return value;
+  }
+  auto lhs = divmod->lhs();
+  auto rhs = divmod->rhs();
+  if (!lhs->isIntegralScalar() || !rhs->isIntegralScalar() ||
+      !isValidDenominator(rhs, context)) {
+    return value;
+  }
+  auto fop = toFlattenedAdd(lhs->definition());
+  if (!fop) {
+    return value;
+  }
+  auto fdivisor = sym_algebra::factorize(rhs);
+  // We should partition fop->inputs() into two parts. And we need to try all
+  // possible partitions to check if we can find a pattern matching the
+  // condition. However, trying all partition can be slow. So we take advantage
+  // of our knowledge of our prover:
+  // 1. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
+  //    able to prove -|gcd(c,...)| < x < |gcd(c,...)|
+  // 2. If we can not prove -|c| < x < |c|, then it is unlikely for us to be
+  //    able to prove -|c| < x + y < |c|
+  // Note that the above observation is just an approximation, it is not
+  // guaranteed. So if we use any of the above assumptions, we might lose
+  // simplifying opportunities. But in practice, this should be fine.
+  //
+  // Taking advantage of the above two points, we come up with the following
+  // algorithm:
+  // We begin by xs = fop->inputs() and g = c; We dynamically update xs and g:
+  // if we find an x in xs that we can not prove -|g| < x < |g|, we remove this
+  // x from xs and update g = gcd(g, x). We repeat this process until converge.
+  // After convergence, we will try all combinations of xs to find matching
+  // pattern that satisfy -|gcd(...)| < x1 + x2 + ... < |gcd(...)|.
+
+  // Step 1: find xs
+  std::deque<Val*> xs;
+  for (auto x : fop->inputs()) {
+    xs.push_back(sym_algebra::factorize(x));
+  }
+  std::vector<Val*> other_terms;
+  bool changed = true;
+  Val* front = nullptr;
+  Val* g = fdivisor;
+  Val* abs_g = IrBuilder::absExpr(g);
+  Val* neg_abs_g = IrBuilder::negExpr(abs_g);
+  while (front != nullptr || changed) {
+    if (front == nullptr) {
+      changed = false;
+      xs.push_back(nullptr);
+    } else {
+      bool in_range = prove::lessThan(front, abs_g, context) &&
+          prove::greaterThan(front, neg_abs_g, context);
+      if (in_range) {
+        xs.push_back(front);
+      } else {
+        changed = true;
+        other_terms.push_back(front);
+        g = sym_algebra::greatestCommonDivisor({g, front});
+        abs_g = IrBuilder::absExpr(g);
+        neg_abs_g = IrBuilder::negExpr(abs_g);
+      }
+    }
+    front = xs.front();
+    xs.pop_front();
+  }
+  if (xs.empty()) {
+    return value;
+  }
+
+  // Step 2: try all combinations of xs
+  // The number of combinations of xs is exponential to the size of xs, so we
+  // limit the maximum size of xs. If xs is larger, then we make another
+  // assumptions that split xs into batches and only consider 1 batch each time.
+  // In practice, I expect the size of xs to be just one or two elements, so I
+  // don't think this approximation makes any trouble. I add this max size just
+  // to make the algorithm more robust.
+  constexpr size_t max_size_xs = 10;
+  static_assert(
+      max_size_xs < sizeof(size_t) * 8,
+      "max_size_xs can not be larger than the number of bits in size_t, "
+      "otherwise num_combinations will overflow");
+  for (size_t batch = 0; batch * max_size_xs < xs.size(); batch++) {
+    size_t start = batch * max_size_xs;
+    size_t end = std::min(xs.size(), (batch + 1) * max_size_xs);
+    size_t batch_size = end - start;
+    size_t num_combinations = 1 << batch_size;
+    for (size_t combo_id = 1; combo_id < num_combinations; combo_id++) {
+      std::vector<Val*> combo_xs;
+      std::vector<Val*> combo_other = other_terms;
+      // dispatch xs into combo_xs and combo_other
+      for (size_t i = 0; i < xs.size(); i++) {
+        if (i < start || i >= end) {
+          combo_other.push_back(xs[i]);
+        } else {
+          size_t batch_i = i - start;
+          if (((combo_id >> batch_i) & size_t(1)) == 1) {
+            combo_xs.push_back(xs[i]);
+          } else {
+            combo_other.push_back(xs[i]);
+          }
+        }
+      }
+      // compute sum of combo_xs and sum of combo_other
+      Val* sum_xs = nullptr;
+      if (combo_xs.size() == 1) {
+        sum_xs = combo_xs.at(0);
+      } else {
+        sum_xs = IrBuilder::newScalar(inferDtypes(combo_xs));
+        IrBuilder::create<FOp>(BinaryOpType::Add, sum_xs, combo_xs);
+      }
+      Val* sum_other = nullptr;
+      if (combo_other.size() == 1) {
+        sum_other = combo_other.at(0);
+        // sum_other is already factorized
+      } else {
+        sum_other = IrBuilder::newScalar(inferDtypes(combo_other));
+        IrBuilder::create<FOp>(BinaryOpType::Add, sum_other, combo_other);
+        sum_other = sym_algebra::factorize(sum_other);
+      }
+      // prove -|g| < sum_xs < |g|
+      bool allowed_to_simplify =
+          prove::hasCompatibleSign(sum_other, sum_xs, context);
+      if (allowed_to_simplify) {
+        Val* g = sym_algebra::greatestCommonDivisor({fdivisor, sum_other});
+        Val* abs_g = IrBuilder::absExpr(g);
+        Val* neg_abs_g = IrBuilder::negExpr(abs_g);
+        allowed_to_simplify = prove::lessThan(sum_xs, abs_g, context) &&
+            prove::greaterThan(sum_xs, neg_abs_g, context);
+      }
+      if (!allowed_to_simplify) {
+        continue;
+      }
+      // allowed to simplify
+      switch (divmod->getBinaryOpType()) {
+        case BinaryOpType::Div: {
+          // (a + b) / c = a / c
+          auto result = IrBuilder::newScalar(
+              promoteType(*sum_other->getDataType(), *fdivisor->getDataType()));
+          IrBuilder::create<BinaryOp>(
+              BinaryOpType::Div, result, sum_other, fdivisor);
+          return result;
+        }
+        case BinaryOpType::Mod: {
+          // (a + b) % c = a % c + b
+          auto term1 = IrBuilder::newScalar(
+              promoteType(*sum_other->getDataType(), *fdivisor->getDataType()));
+          IrBuilder::create<BinaryOp>(
+              BinaryOpType::Mod, term1, sum_other, fdivisor);
+          auto result = IrBuilder::newScalar(
+              promoteType(*term1->getDataType(), *sum_xs->getDataType()));
+          IrBuilder::create<FOp>(
+              BinaryOpType::Add, result, std::vector<Val*>{term1, sum_xs});
+          return assoc_comm::flatten(result);
+        }
+        default:
+          TORCH_INTERNAL_ASSERT(false);
+      }
     }
   }
   return value;
@@ -1622,11 +1988,11 @@ Val* distributeMul(Val* value, const Context& context) {
   for (auto inp : fadd_op->inputs()) {
     std::vector<Val*> inputs = other_terms;
     inputs.emplace_back(inp);
-    add_terms.emplace_back(IrBuilder::newScalar(*value->getDataType()));
+    add_terms.emplace_back(IrBuilder::newScalar(inferDtypes(inputs)));
     IrBuilder::create<FOp>(
         BinaryOpType::Mul, add_terms.back(), std::move(inputs));
   }
-  auto output = IrBuilder::newScalar(*value->getDataType());
+  auto output = IrBuilder::newScalar(inferDtypes(add_terms));
   IrBuilder::create<FOp>(BinaryOpType::Add, output, std::move(add_terms));
   return output;
 }
@@ -1805,7 +2171,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         } else if (other_terms.size() == 1) {
           c = other_terms.at(0);
         } else {
-          c = IrBuilder::newScalar(*vmul->getDataType());
+          c = IrBuilder::newScalar(inferDtypes(other_terms));
           IrBuilder::create<FOp>(BinaryOpType::Mul, c, std::move(other_terms));
         }
         if (!isIntegralType(*a->getDataType()) ||
@@ -1872,7 +2238,8 @@ Val* fundamentalDivisionWithRemainderProperty(
         // Found match!
         // Simplify [1] + [2] + ... + [i] + ... + [j] + ...
         // As: [1] + [2] + a * c ... + ...  + ...
-        Val* ac = IrBuilder::newScalar(*value->getDataType());
+        Val* ac = IrBuilder::newScalar(
+            promoteType(*a1->getDataType(), *c->getDataType()));
         IrBuilder::create<FOp>(BinaryOpType::Mul, ac, std::vector<Val*>{a1, c});
         std::vector<Val*> terms{ac};
         for (auto k : c10::irange(fadd->inputs().size())) {
@@ -1884,7 +2251,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         if (terms.size() == 1) {
           return terms.at(0);
         } else {
-          Val* result = IrBuilder::newScalar(*value->getDataType());
+          Val* result = IrBuilder::newScalar(inferDtypes(terms));
           IrBuilder::create<FOp>(BinaryOpType::Add, result, terms);
           return result;
         }
@@ -1915,9 +2282,10 @@ Val* fundamentalDivisionWithRemainderProperty(
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
+    std::vector<Bool*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, preserve_error);
+  const Context context(variables, assumptions, preserve_error);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
@@ -1955,6 +2323,7 @@ Val* simplifyExpr(
     RUN_PASS(fundamentalDivisionWithRemainderProperty);
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
+    RUN_PASS(distributeGcdRemainderDivMod);
     PASS_BARRIER;
     RUN_PASS(distributeMul);
     PASS_BARRIER;

@@ -588,11 +588,12 @@ class DoubleBufferInserter : private kir::ExprMutator {
         main_loop->body().insert(last_double_buffer_load + 1, cp_async_commit);
 
     // Check if a sync has been inserted by WAR sync pass.
-    auto block_sync_it = std::find_if(
-        exprs.rbegin(),
-        std::make_reverse_iterator(commit_it),
-        [](const Expr* expr) { return expr->isA<kir::BlockSync>(); });
-    if (block_sync_it == exprs.rend()) {
+    auto rend = std::make_reverse_iterator(commit_it);
+    auto block_sync_it =
+        std::find_if(exprs.rbegin(), rend, [](const Expr* expr) {
+          return expr->isA<kir::BlockSync>();
+        });
+    if (block_sync_it == rend) {
       // If there's no sync, i.e. no tensor needs cross thread communication. We
       // still need a wait but it can just be anywhere after the cp.async.commit
       // in the loop. Chose to place at the end arbitrarily.

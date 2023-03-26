@@ -58,7 +58,8 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
       : Val(passkey, ValType::Scalar, dtype), maybe_value_{c10::nullopt} {
     TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value && isIntegralType(dtype)) ||
+        (std::is_integral<UnderlyingType>::value &&
+         isIntegralOrPointerType(dtype)) ||
             (std::is_same<UnderlyingType, bool>::value &&
              isBooleanType(dtype)) ||
             (std::is_floating_point<UnderlyingType>::value &&
@@ -95,36 +96,16 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       ss << ir_utils::varName(this);
       return ss.str();
     }
-    if (*getDataType() == DataType::Bool) {
+    auto dtype = getDataType().value();
+    if (dtype == DataType::Bool) {
       ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
-    } else if (isIntegralType(*getDataType())) {
+    } else if (isIntegralType(dtype)) {
       ss << *(value());
-    } else if (isFloatingPointType(*getDataType())) {
-      ss << getDataType().value() << "(";
-      if (getDataType() == DataType::Double) {
-        ss << std::setprecision(std::numeric_limits<double>::max_digits10)
-           << *(value()) << ")";
-      } else if (getDataType() == DataType::Float) {
-        ss << std::setprecision(std::numeric_limits<float>::max_digits10)
-           << *(value()) << ")";
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "Invalid data type: ", getDataType().value());
-      }
-    } else if (isComplexType(*getDataType())) {
-      ss << getDataType().value() << "(";
-      if (getDataType() == DataType::ComplexDouble) {
-        ss << std::setprecision(std::numeric_limits<double>::max_digits10)
-           << *(value()) << ")";
-      } else if (getDataType() == DataType::ComplexFloat) {
-        ss << std::setprecision(std::numeric_limits<float>::max_digits10)
-           << *(value()) << ")";
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "Invalid data type: ", getDataType().value());
-      }
+    } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
+      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << *(value())
+         << ")";
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", *getDataType());
+      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
     }
     return ss.str();
   }
