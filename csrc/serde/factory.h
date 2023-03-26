@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-namespace nvfuser::python_frontend {
+namespace nvfuser::serde {
 
 // Flatbuffer enum are represented as an unscoped enumeration, so we can map
 // them to an Integer type. This Factory class contains a vector that maps from
@@ -44,4 +44,4 @@ class Factory {
   std::vector<SerdeParser> parsers_;
 };
 
-} // namespace nvfuser::python_frontend
+} // namespace nvfuser::serde

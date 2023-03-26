@@ -2487,7 +2487,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
-            pad_widths));
+            std::move(pad_widths)));
         return output;
       },
       py::arg("arg"),
@@ -2510,7 +2510,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
-            pad_widths));
+            std::move(pad_widths)));
         return output;
       },
       py::arg("pad_widths"),

@@ -439,7 +439,7 @@ struct PadOpRecord : RecordFunctor {
   PadOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t>& pad_widths)
+      std::vector<int64_t>&& pad_widths)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
