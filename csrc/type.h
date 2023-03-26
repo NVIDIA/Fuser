@@ -341,7 +341,11 @@ enum class BinaryOpType {
   // is boolean op. These ops also don't work on floating point inputs.
   And,
   Or,
-  Xor
+  Xor,
+
+  // generate complex from real and imaginary parts
+  ComplexFloat,
+  ComplexDouble
 };
 
 enum class ScatterOpType { Set };
