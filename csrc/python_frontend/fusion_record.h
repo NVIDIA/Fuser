@@ -2188,7 +2188,9 @@ struct SliceOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Slice,
-        serde::CreateSliceDirect(builder, &start_indices_, &end_indices_, &strides_).Union()};
+        serde::CreateSliceDirect(
+            builder, &start_indices_, &end_indices_, &strides_)
+            .Union()};
   }
 
  private:
@@ -2427,8 +2429,7 @@ struct BatchNormOpRecord : RecordFunctor {
     auto bias = (args_.at(2).stype == serde::StateType_Tensor)
         ? fd.getFusionState(args_.at(2).index)->as<TensorView>()
         : nullptr;
-    auto running_mean =
-        (args_.at(3).stype == serde::StateType_Tensor)
+    auto running_mean = (args_.at(3).stype == serde::StateType_Tensor)
         ? fd.getFusionState(args_.at(3).index)->as<TensorView>()
         : nullptr;
     auto running_var = (args_.at(4).stype == serde::StateType_Tensor)

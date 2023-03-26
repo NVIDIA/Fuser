@@ -27,7 +27,8 @@ struct UserSchedule;
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, serde::StateType _stype) : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype)
+      : index(_index), stype(_stype) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
