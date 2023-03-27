@@ -1876,7 +1876,7 @@ class TestNvFuserFrontend(TestCase):
                 T0, start_indices=[0, 0], end_indices=[4, 4], strides=[1, 1, 1]
             )
             fd.add_output(T1)
-        
+
         def check_nostrides(fd: FusionDefinition, acts) -> None:
             T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(T0, start_indices=[2, 2], end_indices=[4, 4])
@@ -1936,7 +1936,8 @@ class TestNvFuserFrontend(TestCase):
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
-                        self.exec_nvfuser, partial(check, acts=inp),
+                        self.exec_nvfuser,
+                        partial(check, acts=inp),
                         inp,
                     )
             first_check = False
