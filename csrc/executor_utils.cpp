@@ -19,7 +19,6 @@
 #include <ir_utils.h>
 #include <kernel_db/kernel_db.h>
 #include <torch/csrc/jit/resource_guard.h>
-#include <macro.h>
 
 #include <cuda_occupancy.h>
 #include <nvfuser_resources/PhiloxCudaStateRaw.h>
