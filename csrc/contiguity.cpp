@@ -17,7 +17,7 @@ OrderedIdInformation::OrderedIdInformation(
     const std::vector<IterDomain*>& ids,
     const std::vector<IterDomain*>& root_domain,
     std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
-    : active_ids_(root_domain), concrete_info_(concrete_info) {
+    : active_ids_(root_domain), concrete_info_(std::move(concrete_info)) {
   if (ids.empty() || root_domain.empty()) {
     return;
   }
@@ -451,7 +451,7 @@ ContigIDs::ContigIDs(
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
       non_divisible_id_info_(ids, root_domain_, divisible_splits_) {
-  if (ids.size() > 0) {
+  if (!ids.empty()) {
     // This constructor doesn't provide the following information so it needs to
     // be built.
     ca_map_ = std::make_shared<ComputeAtMap>(ids[0]->fusion());
@@ -483,9 +483,9 @@ ContigIDs::ContigIDs(
       final_ids_(final_ids),
       index_map_(index_map),
       divisible_splits_(divisible_splits),
-      ca_map_(ca_map),
-      halo_info_(halo_info),
-      concrete_info_(concrete_info),
+      ca_map_(std::move(ca_map)),
+      halo_info_(std::move(halo_info)),
+      concrete_info_(std::move(concrete_info)),
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
