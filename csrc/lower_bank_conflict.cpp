@@ -50,13 +50,32 @@ inline int64_t getPhaseSize(int64_t word_size_bytes) {
   return 32;
 }
 
+ParallelType getParallelType(const std::string& name) {
+  if (name == "threadIdx.x") {
+    return ParallelType::TIDx;
+  } else if (name == "threadIdx.y") {
+    return ParallelType::TIDy;
+  } else if (name == "threadIdx.z") {
+    return ParallelType::TIDz;
+  } else if (name == "getBlockIdX()") {
+    return ParallelType::BIDx;
+  } else if (name == "getBlockIdY()") {
+    return ParallelType::BIDy;
+  } else if (name == "getBlockIdZ()") {
+    return ParallelType::BIDz;
+  }
+  TORCH_INTERNAL_ASSERT(false, "Not a parallel type");
+}
+
 bool isThreadIdx(const std::string& name) {
   return name == "threadIdx.x" || name == "threadIdx.y" ||
       name == "threadIdx.z";
 }
 
 bool isBlockIdx(const std::string& name) {
-  return name == "blockIdx.x" || name == "blockIdx.y" || name == "blockIdx.z";
+  auto parallelType = getParallelType(name);
+  return parallelType == ParallelType::BIDx ||
+      parallelType == ParallelType::BIDy || parallelType == ParallelType::BIDz;
 }
 
 bool isBlockDim(const std::string& name) {
@@ -65,23 +84,6 @@ bool isBlockDim(const std::string& name) {
 
 bool isGridDim(const std::string& name) {
   return name == "gridDim.x" && name == "gridDim.y" && name == "gridDim.z";
-}
-
-ParallelType getParallelType(const std::string& name) {
-  if (name == "threadIdx.x") {
-    return ParallelType::TIDx;
-  } else if (name == "threadIdx.y") {
-    return ParallelType::TIDy;
-  } else if (name == "threadIdx.z") {
-    return ParallelType::TIDz;
-  } else if (name == "blockIdx.x") {
-    return ParallelType::BIDx;
-  } else if (name == "blockIdx.y") {
-    return ParallelType::BIDy;
-  } else if (name == "blockIdx.z") {
-    return ParallelType::BIDz;
-  }
-  TORCH_INTERNAL_ASSERT(false, "Not a parallel type");
 }
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(

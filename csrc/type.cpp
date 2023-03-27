@@ -607,11 +607,11 @@ static const char* rng_op_type2string(RNGOpType t) {
 static const char* parallel_type2string(ParallelType t) {
   switch (t) {
     case ParallelType::BIDz:
-      return "blockIdx.z";
+      return "getBlockIdZ()";
     case ParallelType::BIDy:
-      return "blockIdx.y";
+      return "getBlockIdY()";
     case ParallelType::BIDx:
-      return "blockIdx.x";
+      return "getBlockIdX()";
     case ParallelType::TIDz:
       return "threadIdx.z";
     case ParallelType::TIDy:

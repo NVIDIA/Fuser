@@ -33,25 +33,25 @@ void LaunchParams::assertValid() {
       gdimz());
 }
 
-void LaunchParams::bind(int64_t val, ParallelType p_type) {
+void LaunchParams::bind(int64_t val, ParallelType p_type, bool allow_rebind) {
   switch (p_type) {
     case ParallelType::TIDx:
-      checkAndSet(val, bdimx_, "blockDim.x");
+      checkAndSet(val, bdimx_, "blockDim.x", allow_rebind);
       break;
     case ParallelType::BIDx:
-      checkAndSet(val, gdimx_, "gridDim.x");
+      checkAndSet(val, gdimx_, "gridDim.x", allow_rebind);
       break;
     case ParallelType::TIDy:
-      checkAndSet(val, bdimy_, "blockDim.y");
+      checkAndSet(val, bdimy_, "blockDim.y", allow_rebind);
       break;
     case ParallelType::BIDy:
-      checkAndSet(val, gdimy_, "gridDim.y");
+      checkAndSet(val, gdimy_, "gridDim.y", allow_rebind);
       break;
     case ParallelType::TIDz:
-      checkAndSet(val, bdimz_, "blockdim.z");
+      checkAndSet(val, bdimz_, "blockdim.z", allow_rebind);
       break;
     case ParallelType::BIDz:
-      checkAndSet(val, gdimz_, "gridDim.z");
+      checkAndSet(val, gdimz_, "gridDim.z", allow_rebind);
       break;
     default:
       TORCH_INTERNAL_ASSERT(

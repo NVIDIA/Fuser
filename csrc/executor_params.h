@@ -16,18 +16,20 @@ struct TORCH_CUDA_CU_API CompileParams {
   std::optional<PrimDataType> index_type = std::nullopt;
   int maxrregcount = 255;
   bool enable_magic_zero = true;
+  std::optional<int> swizzle_factor = std::nullopt;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
     TORCH_INTERNAL_ASSERT(
-        index_type.has_value(),
+        index_type && swizzle_factor,
         "cannot compare as the index type is not defined");
     TORCH_INTERNAL_ASSERT(
-        other.index_type.has_value(),
+        other.index_type && other.swizzle_factor,
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
-        enable_magic_zero == other.enable_magic_zero;
+        enable_magic_zero == other.enable_magic_zero &&
+        swizzle_factor == other.swizzle_factor;
   }
 
   bool operator!=(const CompileParams& other) const {
@@ -100,17 +102,20 @@ class TORCH_CUDA_CU_API LaunchParams {
   void checkAndSet(
       const int64_t incoming_val,
       int64_t& class_val,
-      std::string val) {
-    TORCH_INTERNAL_ASSERT(
-        class_val == UNINITIALIZED_VAL || incoming_val == class_val,
-        "Tried to set ",
-        val,
-        " from ",
-        class_val,
-        " to ",
-        incoming_val,
-        ", but it was already set and new value does not match.",
-        " Thread dims all have to be bound to the same value.");
+      std::string val,
+      bool allow_rebind = false) {
+    if (!allow_rebind) {
+      TORCH_INTERNAL_ASSERT(
+          class_val == UNINITIALIZED_VAL || incoming_val == class_val,
+          "Tried to set ",
+          val,
+          " from ",
+          class_val,
+          " to ",
+          incoming_val,
+          ", but it was already set and new value does not match.",
+          " Thread dims all have to be bound to the same value.");
+    }
     TORCH_CHECK(
         incoming_val > 0,
         "Received a thread binding on ",
@@ -118,14 +123,14 @@ class TORCH_CUDA_CU_API LaunchParams {
         " that is ",
         incoming_val,
         ". Cannot create negative threads.");
-    if (class_val == UNINITIALIZED_VAL) {
+    if (class_val == UNINITIALIZED_VAL || allow_rebind) {
       class_val = incoming_val;
     }
     assertValid();
   }
 
   // Binds dim assocaited with p_type to val
-  void bind(int64_t val, ParallelType p_type);
+  void bind(int64_t val, ParallelType p_type, bool allow_rebind = false);
 
   // Adjusted value based on get functions above for each value
   int64_t getDim(ParallelType p_type) const;

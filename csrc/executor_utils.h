@@ -63,6 +63,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     const std::string& code,
     const std::string& func_name,
     int id,
+    const int swizzle_factor,
     c10::optional<int> opt_block_size = c10::nullopt,
     const int max_register_heuristic = 255,
     bool return_compiled_binary = false);

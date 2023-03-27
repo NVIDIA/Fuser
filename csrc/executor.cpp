@@ -177,7 +177,8 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::nvrtcCompile(c10::nullopt, code, name, fusion_id_);
+      executor_utils::nvrtcCompile(
+          c10::nullopt, code, name, fusion_id_, swizzle_factor);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
@@ -235,6 +236,11 @@ void FusionExecutor::compileFusion(
 
   // TODO: refactor the options_ passed through
   options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
+  // Set if before compilation and launchParams
+  if (compile_params.swizzle_factor) {
+    swizzle_factor = std::max(1, *compile_params.swizzle_factor);
+  }
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -362,6 +368,7 @@ void FusionExecutor::compileFusion(
           structured_code,
           (kernelNamespace() + "::" + kernelName()).c_str(),
           fusion_id_,
+          swizzle_factor,
           block_size,
           maxrregcount_high_water_mark,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
@@ -778,6 +785,12 @@ LaunchParams FusionExecutor::computeLaunchParams(
 
   launch_params.setSmem(dynamic_smem_size);
 
+  const int gdimx = launch_params.gdimx();
+  const int gdimy = launch_params.gdimy();
+
+  launch_params.bind(gdimx * swizzle_factor, ParallelType::BIDx, true);
+  launch_params.bind(
+      (gdimy + swizzle_factor - 1) / swizzle_factor, ParallelType::BIDy, true);
   return launch_params;
 }
 
@@ -1161,8 +1174,21 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     // Recompile the kernel if the number of threads in the block has increased
     // or maxrregcount has changed
-    if (launch_params_.nThreads() > block_size_high_water_mark ||
-        compile_params.maxrregcount != maxrregcount_high_water_mark) {
+
+    bool need_to_recompile = false;
+
+    need_to_recompile |= launch_params_.nThreads() > block_size_high_water_mark;
+
+    need_to_recompile |=
+        compile_params.maxrregcount != maxrregcount_high_water_mark;
+
+    if (compile_params.swizzle_factor) {
+      need_to_recompile |=
+          swizzle_factor != std::max(1, *compile_params.swizzle_factor);
+      swizzle_factor = std::max(1, *compile_params.swizzle_factor);
+    }
+
+    if (need_to_recompile) {
       const auto kernel = lowered_->kernel();
       kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
       const auto structured_code =
@@ -1176,6 +1202,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               structured_code,
               (kernelNamespace() + "::" + kernelName()).c_str(),
               fusion_id_,
+              swizzle_factor,
               block_size_high_water_mark,
               maxrregcount_high_water_mark,
               save_compiled_binary_);
@@ -1446,7 +1473,8 @@ void FusionExecutor::compileRtc(
   fusion_id_ = 1;
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::nvrtcCompile(c10::nullopt, scode, name, fusion_id_);
+      executor_utils::nvrtcCompile(
+          c10::nullopt, scode, name, fusion_id_, swizzle_factor);
 }
 
 float FusionExecutor::runRtc(

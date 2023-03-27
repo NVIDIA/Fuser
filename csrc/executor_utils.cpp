@@ -1028,6 +1028,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     const std::string& code,
     const std::string& func_name,
     int id,
+    const int swizzle_factor,
     c10::optional<int> opt_block_size,
     const int max_register_heuristic,
     bool return_compiled_binary) {
@@ -1091,6 +1092,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     args.push_back("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
   }
+
+  const std::string swizzle_factor_str =
+      "-DSWIZZLE_FACTOR=" + std::to_string(std::max(swizzle_factor, 1));
+  args.push_back(swizzle_factor_str.c_str());
 
   const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
   std::string jit_opt_level = "-O";

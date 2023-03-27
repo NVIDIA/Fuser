@@ -377,6 +377,17 @@ void scheduleMatmul(
   // [... M,N,K]
   scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
 
+  // int factor =
+  //     getenv("SWIZZLE_FACTOR") != nullptr ?
+  //     std::atoi(getenv("SWIZZLE_FACTOR")) : 1;
+  // if (factor != 1) {
+  //   cc->split(1, factor, false); // outer split
+  //   cc->split(0, factor, true); // inner
+  //   // Mo, Mi, Ni, Mo
+  //   cc->merge(1, 2);
+  //   cc->merge(2, 1);
+  // }
+
   // [Mo, No, Ko, Mi, Ni, Ki]
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(cc, -1);

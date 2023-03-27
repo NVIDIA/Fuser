@@ -22,6 +22,31 @@
 #include <assert.h>
 #endif // __NVCC__
 
+
+constexpr unsigned swizzle_factor = SWIZZLE_FACTOR;
+
+__device__ unsigned getBlockIdX() {
+  static_assert(swizzle_factor >= 1);
+  if constexpr (swizzle_factor == 1) {
+    return blockIdx.x;
+  } else {
+    return blockIdx.x / swizzle_factor;
+  }
+}
+
+__device__ unsigned getBlockIdY() {
+  static_assert(swizzle_factor >= 1);
+  if constexpr (swizzle_factor == 1) {
+    return blockIdx.y;
+  } else {
+    return blockIdx.y * swizzle_factor + (blockIdx.x % swizzle_factor);
+  }
+}
+
+__device__ unsigned getBlockIdZ() {
+  return blockIdx.z;
+}
+
 __device__ constexpr int ceilDiv(int a, int b) {
   return (a + b - 1) / b;
 }
