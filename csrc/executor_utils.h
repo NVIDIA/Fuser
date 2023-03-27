@@ -56,7 +56,7 @@ namespace nvfuser {
     if (_result != cudaSuccess) {                                 \
       const char *msg;                                            \
       std::cerr << "\nerror: " <<                                 \
-      cudaGetErrorName(_result, &msg) <<                               \
+      cudaGetErrorName(_result) <<                               \
        " failed with error " <<          \
       cudaGetErrorString(_result) << '\n';                                   \
       exit(1);                                                    \
