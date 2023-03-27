@@ -22,7 +22,6 @@
 #include <assert.h>
 #endif // __NVCC__
 
-
 constexpr unsigned swizzle_factor = SWIZZLE_FACTOR;
 
 __device__ unsigned getBlockIdX() {
