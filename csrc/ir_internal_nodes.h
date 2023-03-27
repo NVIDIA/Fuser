@@ -1632,11 +1632,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! domain.
   std::pair<IterDomain*, IterDomain*> stridedSplit(int factor);
 
-  // TODO: Remove
-  bool isSimple() const {
-    return definition() == nullptr;
-  }
-
   //! Marks that this id represents a
   //!  instruction loop, mma use only.
   //!
@@ -1719,10 +1714,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   c10::optional<int64_t> padded_to_size_ = c10::nullopt;
-
-  // TODO: Remove only used in kernel IR because IterDomains don't maintain
-  // definitions of split/merge.
-  bool is_simple_ = true;
 
   //! Tracks if this id represents a thread swizzled loop or
   //!   models an implicit loop within instructions. Should not make
