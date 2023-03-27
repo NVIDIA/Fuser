@@ -810,51 +810,50 @@ SqueezeOp::SqueezeOp(
   auto in_type = in->getValType().value();
 
   TORCH_INTERNAL_ASSERT(
-      (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
-          (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
-      "Cannot squeeze a non-tensor object.");
+      in_type == ValType::TensorView,
+      "Squeeze input must be a TensorView: ",
+      in->toString());
+
+  TORCH_INTERNAL_ASSERT(
+      out_type == ValType::TensorView,
+      "Squeeze output must be a TensorView: ",
+      in->toString());
 
   addOutput(out);
   addInput(in);
 
-  // Validate the squeeze flags when this expr is created with
-  // TensorView. Broadcast with TensorIndex only appears after
-  // lowering, so it should have already been validated.
-  if (out->isA<TensorView>()) {
-    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
-    auto in_tv = in->as<TensorView>();
-    auto out_tv = out->as<TensorView>();
-    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-    auto& out_dom = out_tv->getRootDomain();
-    TORCH_INTERNAL_ASSERT(
-        is_squeeze_dims.size() == in_dom.size(),
-        "The dimensions of input tensor and does not match with is_squeeze_dims");
+  // Validate the squeeze flags
+  auto in_tv = in->as<TensorView>();
+  auto out_tv = out->as<TensorView>();
+  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+  auto& out_dom = out_tv->getRootDomain();
+  TORCH_INTERNAL_ASSERT(
+      is_squeeze_dims.size() == in_dom.size(),
+      "The dimensions of input tensor and does not match with is_squeeze_dims");
 
-    auto in_size = is_squeeze_dims.size();
-    auto num_removed_broadcasts = 0;
-    for (const auto i : c10::irange(is_squeeze_dims.size())) {
-      if (is_squeeze_dims[i]) {
-        num_removed_broadcasts++;
-        auto id = in_dom[i];
-        TORCH_INTERNAL_ASSERT(
-            id->isBroadcast(),
-            "Can not squeeze non-broadcasting dimension(s).");
-        TORCH_INTERNAL_ASSERT(
-            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-        TORCH_INTERNAL_ASSERT(
-            id->extent()->isOneInt(),
-            "Can not squeeze dimension(s) with size != 1.");
-      } else {
-        auto in_id = in_dom[i];
-        auto out_id = out_dom[i - num_removed_broadcasts];
-        TORCH_INTERNAL_ASSERT(
-            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
-      }
+  auto in_size = is_squeeze_dims.size();
+  auto num_removed_broadcasts = 0;
+  for (const auto i : c10::irange(is_squeeze_dims.size())) {
+    if (is_squeeze_dims[i]) {
+      num_removed_broadcasts++;
+      auto id = in_dom[i];
+      TORCH_INTERNAL_ASSERT(
+          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
+      TORCH_INTERNAL_ASSERT(
+          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+      TORCH_INTERNAL_ASSERT(
+          id->extent()->isOneInt(),
+          "Can not squeeze dimension(s) with size != 1.");
+    } else {
+      auto in_id = in_dom[i];
+      auto out_id = out_dom[i - num_removed_broadcasts];
+      TORCH_INTERNAL_ASSERT(
+          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
     }
-    TORCH_INTERNAL_ASSERT(
-        in_size == out_tv->nDims() + num_removed_broadcasts,
-        "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
   }
+  TORCH_INTERNAL_ASSERT(
+      in_size == out_tv->nDims() + num_removed_broadcasts,
+      "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
 
   addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
       passkey.ir_container_, std::move(is_squeeze_dims)));
