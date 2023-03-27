@@ -203,6 +203,9 @@ def main():
         },
     )
 
+    if BUILD_SETUP:
+        subprocess.check_call(['patch-nvfuser'])
+
 
 if __name__ == "__main__":
     main()

@@ -24,8 +24,19 @@ def get_version() -> str:
     return version
 
 def get_pytorch_cmake_prefix():
-    import torch.utils
-    return torch.utils.cmake_prefix_path
+    from subprocess import Popen, PIPE
+
+    # need to do this in a separate process so we are not going to delete nvfuser library while it's loaded by torch
+    process_torch_prefix = Popen(
+        [
+            "python",
+            "-c",
+            "import torch.utils; print(torch.utils.cmake_prefix_path)",
+        ],
+        stdout=PIPE,
+    )
+    stdout_msg, error_msg = process_torch_prefix.communicate()
+    return stdout_msg.decode("utf-8").rstrip("\n")
 
 if __name__ == "__main__":
     version_file = nvfuser_root / "nvfuser" / "version.py"
