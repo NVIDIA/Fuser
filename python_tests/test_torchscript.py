@@ -4387,7 +4387,7 @@ class TestCudaFuser(JitTestCase):
         self.assertGraphContainsExactly(graph, "aten::view_copy", 0)
 
     # generate random view given original view
-    def _random_view(self, original_view, max_len=8, max_views=10000):
+    def _random_view(self, original_view: List[int], max_len=8, max_views=10000):
         class Moves(enum.Enum):
             Merge = 0
             Split = 1
@@ -4409,7 +4409,8 @@ class TestCudaFuser(JitTestCase):
                 result += 1
             return result
 
-        complete_views = set(original_view)
+        tuple_original_view = [tuple(original_view)]
+        complete_views = set(tuple_original_view)
 
         to_visit = []
         # empty new view, curent originaal view, start pos=0, move count = 0, last_move
