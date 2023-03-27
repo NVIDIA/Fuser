@@ -1017,8 +1017,8 @@ c10::optional<int> getMaxRegCount(
     int reg_allocation_granularity = 0;
     const auto prop = at::cuda::getCurrentDeviceProperties();
     cudaOccDeviceProp occ_prop(*prop);
-    CUDA_RT_SAFE_CALL(cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop));
-    CUDA_RT_SAFE_CALL(cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop));
+    cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
+    cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
     int warp_size = prop->warpSize;
     int num_warps = ceilDiv(opt_block_size.value(), warp_size);
 
