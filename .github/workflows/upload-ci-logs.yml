@@ -15,6 +15,9 @@ on:
       job_name:
         description: 'name of the job'
         required: true
+      descr:
+        description: 'description of the job'
+        required: true
       commit_sha:
         description: 'SHA of the commit that was tested.'
         required: true
@@ -50,4 +53,4 @@ jobs:
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           https://api.github.com/repos/${{ github.repository }}/statuses/${{ inputs.commit_sha }} \
-          -d "{\"state\":\"${{ inputs.result }}\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",\"description\":\"\",\"context\":\"nvfuser-ci/${{ inputs.job_name }}\"}"
+          -d "{\"state\":\"${{ inputs.result }}\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",\"description\":\"${{ inputs.descr }}\",\"context\":\"nvfuser-ci/${{ inputs.job_name }}\"}"
