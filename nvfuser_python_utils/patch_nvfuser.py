@@ -1,5 +1,5 @@
 import os
-import sys
+
 
 def patch_pytorch_nvfuser_binaries(torch_lib):
     nvfuser_lib = os.path.join(
@@ -13,15 +13,21 @@ def patch_pytorch_nvfuser_binaries(torch_lib):
             os.path.join(torch_lib, f_name),
         )
 
+
 def remove_nvfuser_python_module(installed_nvfuser_dir):
     # only remove if installed nvfuser is in a different path
-    if installed_nvfuser_dir != os.path.join(os.path.dirname(os.path.dirname(__file__)), "nvfuser"):
+    if installed_nvfuser_dir != os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "nvfuser"
+    ):
         import shutil
+
         shutil.rmtree(installed_nvfuser_dir)
+
 
 def patch_installation():
     import importlib
-    torch_dir = os.path.dirname(importlib.util.find_spec('torch').origin)
+
+    torch_dir = os.path.dirname(importlib.util.find_spec("torch").origin)
     torch_lib = os.path.join(torch_dir, "lib")
 
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
@@ -29,6 +35,7 @@ def patch_installation():
     patch_pytorch_nvfuser_binaries(torch_lib)
     if os.path.exists(installed_nvfuser_dir):
         remove_nvfuser_python_module(installed_nvfuser_dir)
+
 
 if __name__ == "__main__":
     patch_installation()

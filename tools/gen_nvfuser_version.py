@@ -18,10 +18,14 @@ def get_sha() -> str:
     except Exception:
         return UNKNOWN
 
+
 def get_version() -> str:
     sha = get_sha()
-    version = open((nvfuser_root / "version.txt"), "r").read().strip() + "+git" + sha[:7]
+    version = (
+        open((nvfuser_root / "version.txt"), "r").read().strip() + "+git" + sha[:7]
+    )
     return version
+
 
 def get_pytorch_cmake_prefix():
     from subprocess import Popen, PIPE
@@ -37,6 +41,7 @@ def get_pytorch_cmake_prefix():
     )
     stdout_msg, error_msg = process_torch_prefix.communicate()
     return stdout_msg.decode("utf-8").rstrip("\n")
+
 
 if __name__ == "__main__":
     version_file = nvfuser_root / "nvfuser" / "version.py"

@@ -146,8 +146,7 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(
-      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -187,7 +186,6 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     compile_to_sass = true;
   }
 }
-
 
 // return false if arg's type, number of dimensions, and device, doesn't match
 // param and provided c10:device
@@ -970,11 +968,8 @@ namespace {
 std::vector<char> dumpCompiledCode(
     const nvrtcProgram& program,
     bool dump_cubin) {
-  const auto getSize = dump_cubin
-      ? nvrtcGetCUBINSize
-      : nvrtcGetPTXSize;
-  const auto getCode = dump_cubin ? nvrtcGetCUBIN
-                                  : nvrtcGetPTX;
+  const auto getSize = dump_cubin ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
+  const auto getCode = dump_cubin ? nvrtcGetCUBIN : nvrtcGetPTX;
   size_t size = 0;
   NVRTC_SAFE_CALL(getSize(program, &size));
   std::vector<char> code(size);
@@ -1084,8 +1079,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 
   int major = 0, minor = 0;
   bool compile_to_sass = false;
-  queryTargetGPUVersion(
-      prop, major, minor, compile_to_sass);
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
 #if CUDA_VERSION < 11010
   // compile to sass is not allowed prior to CUDA 11.1
@@ -1240,8 +1234,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
     torch::jit::ResourceGuard holdProgram([&] {
       FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-      NVRTC_SAFE_CALL(
-          nvrtcDestroyProgram(&program));
+      NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
     });
 
     {
@@ -1255,11 +1248,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
             &program, code.c_str(), name.c_str(), 0, nullptr, nullptr));
       }
 
-      nvrtcAddNameExpression(
-          program, func_name.c_str());
+      nvrtcAddNameExpression(program, func_name.c_str());
 
-      const auto result = nvrtcCompileProgram(
-          program, args.size(), args.data());
+      const auto result =
+          nvrtcCompileProgram(program, args.size(), args.data());
 
       size_t logsize = 0;
       nvrtcGetProgramLogSize(program, &logsize);
@@ -1320,8 +1312,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     }
 
     const char* lowered_kernel_name = nullptr;
-    nvrtcGetLoweredName(
-        program, func_name.c_str(), &lowered_kernel_name);
+    nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name);
     lowered_kernel_name_str.assign(lowered_kernel_name);
 
     size_t ptx_size = 0;
@@ -1331,12 +1322,9 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 #if CUDA_VERSION >= 11010
       // compile_to_sass determines whether we are generating SASS or PTX, hence
       // the different API.
-      const auto getSize = compile_to_sass
-          ? nvrtcGetCUBINSize
-          : nvrtcGetPTXSize;
-      const auto getFunc = compile_to_sass
-          ? nvrtcGetCUBIN
-          : nvrtcGetPTX;
+      const auto getSize =
+          compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
+      const auto getFunc = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
 #else
       const auto getSize = nvrtcGetPTXSize;
       const auto getFunc = nvrtcGetPTX;

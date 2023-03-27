@@ -1368,17 +1368,17 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-          CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-              compiled_kernel_.function,
-              launch_params_.gdimx(),
-              launch_params_.gdimy(),
-              launch_params_.gdimz(),
-              launch_params_.bdimx(),
-              launch_params_.bdimy(),
-              launch_params_.bdimz(),
-              launch_params_.smem(),
-              stream,
-              args.getBuffer()));
+      CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
+          compiled_kernel_.function,
+          launch_params_.gdimx(),
+          launch_params_.gdimy(),
+          launch_params_.gdimz(),
+          launch_params_.bdimx(),
+          launch_params_.bdimy(),
+          launch_params_.bdimz(),
+          launch_params_.smem(),
+          stream,
+          args.getBuffer()));
     }
   }
 
@@ -1483,7 +1483,8 @@ float FusionExecutor::runRtc(
   CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
 
   float kernel_time_ms = 0;
-  CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event));
+  CUDA_RT_SAFE_CALL(
+      cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event));
   CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
   CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 

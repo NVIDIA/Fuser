@@ -6,7 +6,6 @@ import shutil
 
 import setuptools
 from setuptools import setup
-from distutils.version import LooseVersion
 from distutils.file_util import copy_file
 
 # pick args used by this script
@@ -40,7 +39,6 @@ class clean(setuptools.Command):
 
     def run(self):
         import glob
-        import re
 
         with open(".gitignore", "r") as f:
             ignores = f.read()
@@ -134,6 +132,7 @@ else:
                 # generate whl before we restore LICENSE
                 super().run()
 
+
 def cmake():
     # make build directories
     build_dir_name = "build"
@@ -143,6 +142,7 @@ def cmake():
         os.makedirs(cmake_build_dir)
 
     from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     # generate cmake directory
@@ -197,14 +197,14 @@ def main():
             "nvfuser": nvfuser_package_data,
         },
         entry_points={
-            'console_scripts': [
-                'patch-nvfuser = nvfuser_python_utils:patch_installation',
+            "console_scripts": [
+                "patch-nvfuser = nvfuser_python_utils:patch_installation",
             ],
         },
     )
 
     if BUILD_SETUP:
-        subprocess.check_call(['patch-nvfuser'])
+        subprocess.check_call(["patch-nvfuser"])
 
 
 if __name__ == "__main__":
