@@ -251,7 +251,7 @@ if(BUILD_PYTHON)
       DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
     )
     add_dependencies(${NVFUSER} gen_nvfuser_version)
-  
+
     target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
     # NB: This must be target_compile_definitions, not target_compile_options,
     # as the latter is not respected by nvcc
@@ -267,7 +267,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
 
     target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
-  
+
   if (PROJECT_IS_TOP_LEVEL)
     message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
@@ -284,7 +284,7 @@ if(BUILD_PYTHON)
 
     target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
     target_compile_options(${NVFUSER} PRIVATE ${TORCH_PYTHON_COMPILE_OPTIONS})
-  
+
     # avoid using Python3_add_library, copied from functorch
     set_target_properties(${NVFUSER} PROPERTIES PREFIX "" DEBUG_POSTFIX "")
     set_target_properties(${NVFUSER} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
@@ -294,7 +294,7 @@ if(BUILD_PYTHON)
       set_target_properties(${NVFUSER} PROPERTIES LINK_FLAGS ${TORCH_PYTHON_LINK_FLAGS})
     endif()
     install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${TORCH_ROOT}/nvfuser/)
-  
+
     # install nvfuser python files
     install(DIRECTORY "${NVFUSER_ROOT}/nvfuser/"
             DESTINATION "${TORCH_ROOT}/nvfuser"

@@ -26,7 +26,7 @@ for i, arg in enumerate(sys.argv):
         NO_TEST = True
         continue
     if arg == "--no-benchmark":
-        NO_BENCHMARK= True
+        NO_BENCHMARK = True
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
