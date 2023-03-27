@@ -199,61 +199,6 @@ const auto& getEnableOptions() {
 
 } // namespace
 
-// query codegen output arch and target
-void codegenOutputQuery(
-    const cudaDeviceProp* const prop,
-    int& major,
-    int& minor,
-    bool& compile_to_sass) {
-#ifdef USE_ROCM
-  NVRTC_SAFE_CALL(nvrtcVersion(&major, &minor));
-  compile_to_sass = false;
-#else
-  using CudaVersion = std::pair<int, int>;
-  CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(
-      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
-
-  TORCH_CHECK(
-      nvrtc_version.first >= 6,
-      "NVRTC versions less than 6 are not supported. Is: ",
-      nvrtc_version.first);
-
-  // Version supported by device
-  // Usually any lower version works too but is less efficient
-  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
-  // Maximum version supported by the driver, cap dev_version to this
-  CudaVersion max_dev_version;
-  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
-    max_dev_version = CudaVersion(5, 0);
-  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
-    max_dev_version = CudaVersion(6, 0);
-  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
-    max_dev_version = CudaVersion(7, 2);
-  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
-    max_dev_version = CudaVersion(7, 5);
-  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
-    max_dev_version = CudaVersion(8, 0);
-  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
-    max_dev_version = CudaVersion(8, 6);
-  } else {
-    // If the driver version is unknown (i.e. newer than this code)
-    // assume the driver supports this device
-    max_dev_version = dev_version;
-  }
-  if (dev_version > max_dev_version) {
-    major = max_dev_version.first;
-    minor = max_dev_version.second;
-    // if we are clamping major/minor, sass is not compatible
-    compile_to_sass = false;
-  } else {
-    major = dev_version.first;
-    minor = dev_version.second;
-    compile_to_sass = true;
-  }
-#endif
-}
-
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
 void debugPrint(const c10::TensorTypePtr& type) {
   std::stringstream sizes_s;

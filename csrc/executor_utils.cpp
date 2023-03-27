@@ -139,6 +139,57 @@ std::string kernelPreamble() {
 
 namespace {
 
+// Query the target GPU version number NVRTC compiles CUDA kernels for
+TORCH_CUDA_CU_API void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int& major,
+    int& minor,
+    bool& compile_to_sass) {
+  using CudaVersion = std::pair<int, int>;
+  CudaVersion nvrtc_version;
+  NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+
+  TORCH_CHECK(
+      nvrtc_version.first >= 6,
+      "NVRTC versions less than 6 are not supported. Is: ",
+      nvrtc_version.first);
+
+  // Version supported by device
+  // Usually any lower version works too but is less efficient
+  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
+  // Maximum version supported by the driver, cap dev_version to this
+  CudaVersion max_dev_version;
+  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
+    max_dev_version = CudaVersion(5, 0);
+  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
+    max_dev_version = CudaVersion(6, 0);
+  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
+    max_dev_version = CudaVersion(7, 2);
+  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
+    max_dev_version = CudaVersion(7, 5);
+  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
+    max_dev_version = CudaVersion(8, 0);
+  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
+    max_dev_version = CudaVersion(8, 6);
+  } else {
+    // If the driver version is unknown (i.e. newer than this code)
+    // assume the driver supports this device
+    max_dev_version = dev_version;
+  }
+  if (dev_version > max_dev_version) {
+    major = max_dev_version.first;
+    minor = max_dev_version.second;
+    // if we are clamping major/minor, sass is not compatible
+    compile_to_sass = false;
+  } else {
+    major = dev_version.first;
+    minor = dev_version.second;
+    compile_to_sass = true;
+  }
+}
+
+
 // return false if arg's type, number of dimensions, and device, doesn't match
 // param and provided c10:device
 bool validateKernelArgTensor(
@@ -913,18 +964,6 @@ ExpressionEvaluator bindInputs(
   return expr_eval;
 }
 
-void initializeCudaContext() {
-  // lazily construct context if non-existing yet;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  CUcontext pctx = nullptr;
-  cuCtxGetCurrent(&pctx);
-  if (!pctx) {
-    std::unique_lock<std::mutex> cudaFreeMutexLock(
-        *(c10::cuda::getFreeMutex()));
-    C10_CUDA_CHECK(cudaFree(nullptr));
-  }
-}
-
 namespace {
 
 // Dump PTX or CUBIN to a file
@@ -979,8 +1018,8 @@ c10::optional<int> getMaxRegCount(
     int reg_allocation_granularity = 0;
     const auto prop = at::cuda::getCurrentDeviceProperties();
     cudaOccDeviceProp occ_prop(*prop);
-    cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
-    cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
+    CUDA_RT_SAFE_CALL(cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop));
+    CUDA_RT_SAFE_CALL(cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop));
     int warp_size = prop->warpSize;
     int num_warps = ceilDiv(opt_block_size.value(), warp_size);
 
@@ -1046,7 +1085,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 
   int major = 0, minor = 0;
   bool compile_to_sass = false;
-  codegenOutputQuery(
+  queryTargetGPUVersion(
       prop, major, minor, compile_to_sass);
 
 #if CUDA_VERSION < 11010
@@ -1337,12 +1376,12 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
 
     // load ptx or cubin directly
-    cuModuleLoadDataEx(
+    CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &(compiled_kernel_.module),
         ptx.data(),
         options.size(),
         options.data(),
-        option_vals.data());
+        option_vals.data()));
 
     if (!compile_to_sass &&
         isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
@@ -1350,10 +1389,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     }
   }
 
-  cuModuleGetFunction(
+  CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel_.function),
       compiled_kernel_.module,
-      lowered_kernel_name_str.c_str());
+      lowered_kernel_name_str.c_str()));
 
   TORCH_CHECK(
       !isOptionDisabled(DisableOption::ArchCheck),

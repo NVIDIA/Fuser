@@ -27,6 +27,42 @@
 #include <vector>
 
 namespace nvfuser {
+
+#define NVRTC_SAFE_CALL(x)                                        \
+  do {                                                            \
+    nvrtcResult _result = x;                                       \
+    if (_result != NVRTC_SUCCESS) {                                \
+      std::cerr << "\nerror: " #x " failed with error "           \
+                << nvrtcGetErrorString(_result) << '\n';           \
+      exit(1);                                                    \
+    }                                                             \
+  } while(0)
+
+#define CUDA_SAFE_CALL(x)                                         \
+  do {                                                            \
+    CUresult _result = x;                                          \
+    if (_result != CUDA_SUCCESS) {                                 \
+      const char *msg;                                            \
+      cuGetErrorName(_result, &msg);                               \
+      std::cerr << "\nerror: " #x " failed with error "           \
+                << msg << '\n';                                   \
+      exit(1);                                                    \
+    }                                                             \
+  } while(0)
+
+#define CUDA_RT_SAFE_CALL(x)                                         \
+  do {                                                            \
+    cudaError_t _result = x;                                          \
+    if (_result != cudaSuccess) {                                 \
+      const char *msg;                                            \
+      std::cerr << "\nerror: " <<                                 \
+      cudaGetErrorName(_result, &msg) <<                               \
+       " failed with error " <<          \
+      cudaGetErrorString(_result) << '\n';                                   \
+      exit(1);                                                    \
+    }                                                             \
+  } while(0)
+
 namespace executor_utils {
 
 // Include all the functions we might need in generated code
