@@ -32,7 +32,7 @@ struct id_int_lt {
 
 } // namespace
 
-class ReplayTransform : OptOutConstDispatch {
+class ReplayTransform : OptInConstDispatch {
  public:
   // Replays expression_to_match with the provided ordered_inputs. Inputs should
   // be ordered as they would be used in provided expression. Returns new
@@ -48,7 +48,7 @@ class ReplayTransform : OptOutConstDispatch {
       const std::vector<IterDomain*>& ordered_inputs,
       const Expr* expression_to_match);
 
-  using OptOutConstDispatch::handle;
+  using OptInConstDispatch::handle;
 
   // We're going to replay this split operation on the corresponding ID
   void handle(const Split* split) override;
@@ -60,13 +60,47 @@ class ReplayTransform : OptOutConstDispatch {
   //  if replaying swizzle is enabled.
   void handle(const Swizzle2D* swizzle_2d) override;
 
-
   // We're going to replay this resize operation on the corresponding IDs
   //  if replaying resize is enabled.
   void handle(const Resize* resize) override;
 
   Expr* replayed_expr_ = nullptr;
   const std::vector<IterDomain*>& input_ids_;
+};
+
+class BackwardTransformCloner : OptInConstDispatch {
+ public:
+  // Generates a copy of expression_to_match with provided output
+  // IterDomains, cloning the inputs in expression_to_match.
+  static Expr* clone(
+      const std::vector<IterDomain*>& ordered_outputs,
+      const Expr* expression_to_match);
+
+ private:
+  BackwardTransformCloner() = delete;
+
+  BackwardTransformCloner(
+      const std::vector<IterDomain*>& ordered_outputs,
+      const Expr* expression_to_match);
+
+  using OptInConstDispatch::handle;
+
+  // We're going to replay this split operation on the corresponding ID
+  void handle(const Split* split) override;
+
+  // We're going to replay this merge operation on the corresponding IDs
+  void handle(const Merge* merge) override;
+
+  // We're going to replay this swizzle operation on the corresponding IDs
+  //  if replaying swizzle is enabled.
+  void handle(const Swizzle2D* swizzle_2d) override;
+
+  // We're going to replay this resize operation on the corresponding IDs
+  //  if replaying resize is enabled.
+  void handle(const Resize* resize) override;
+
+  Expr* new_expr_ = nullptr;
+  const std::vector<IterDomain*>& output_ids_;
 };
 
 // Uses the history of _target_domain, and replays that history using the

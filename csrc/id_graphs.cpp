@@ -47,7 +47,7 @@ std::string idGroupStringShort(const IdGroup& id_group) {
   return ss.str();
 }
 
-std::string idGroupsStringShortInline(const IdGroups& id_groups) {
+std::string idGroupsStringShortInline(const std::vector<IdGroup>& id_groups) {
   // Track position in id_groups and its min iter domain name in the set
   std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
 
@@ -76,14 +76,18 @@ std::string idGroupsStringShortInline(const IdGroups& id_groups) {
       ss << ", ";
     }
     auto pos = group_name_info[i].second;
-    ss << idGroupStringShort(id_groups.vector()[pos]);
+    ss << idGroupStringShort(id_groups[pos]);
   }
 
   ss << "}";
   return ss.str();
 }
 
-std::string idGroupsStringShort(const IdGroups& id_groups) {
+std::string idGroupsStringShortInline(const IdGroups& id_groups) {
+  return idGroupsStringShortInline(id_groups.vector());
+}
+
+std::string idGroupsStringShort(const std::vector<IdGroup>& id_groups) {
   std::stringstream ss;
 
   // Track position in id_groups and its min iter domain name in the set
@@ -108,11 +112,15 @@ std::string idGroupsStringShort(const IdGroups& id_groups) {
 
   for (auto i : c10::irange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
-    ss << "  " << idGroupStringShort(id_groups.vector()[pos]) << "\n";
+    ss << "  " << idGroupStringShort(id_groups[pos]) << "\n";
   }
 
   ss << "}";
   return ss.str();
+}
+
+std::string idGroupsStringShort(const IdGroups& id_groups) {
+  return idGroupsStringShort(id_groups.vector());
 }
 
 std::string exprGroupStringShort(ExprGroup expr_group) {
@@ -1644,6 +1652,143 @@ Expr* IterDomainGraphs::addReplayAs(
   return replay;
 }
 
+// Generate a new expr with the IterDomain outputs provided and IterDomain
+// inputs that exactly match expr->inputs
+Expr* IterDomainGraphs::addReplayAsBackward(
+    const std::vector<IterDomain*>& new_outputs,
+    Expr* expr) {
+  // Figure out which graphs are already initialized to make sure we add the new
+  // expression to them.
+  std::vector<IdMappingMode> initialized_modes;
+  for (auto mode : kIdMappingModes) {
+    auto graph_it = id_graphs_.find(mode);
+    if (graph_it == id_graphs_.end()) {
+      continue;
+    }
+
+    auto& graph = graph_it->second;
+    if (graph.disjointIdSets().disjointSetMap().empty()) {
+      continue;
+    }
+
+    initialized_modes.push_back(mode);
+  }
+
+  auto orig_outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+  std::vector<IterDomain*> orig_output_ids(
+      orig_outputs.begin(), orig_outputs.end());
+
+  {
+    TORCH_INTERNAL_ASSERT(
+        new_outputs.size() == orig_output_ids.size(),
+        "Invalid number of outputs: ",
+        new_outputs.size(),
+        " does not match number of iter domain outputs for ",
+        expr->toString());
+
+    VectorOfUniqueEntries<IterDomain*> all_outputs{
+        orig_output_ids.begin(), orig_output_ids.end()};
+
+    all_outputs.pushBack(VectorOfUniqueEntries<IterDomain*>{
+        new_outputs.begin(), new_outputs.end()});
+
+    for (auto mode : initialized_modes) {
+      for (auto inp : all_outputs) {
+        TORCH_INTERNAL_ASSERT(
+            idGraph(mode).disjointIdSet(inp).second,
+            "All outputs for replay need to be initialized in all graphs, ",
+            inp->toString(),
+            " was not found in mode: ",
+            mode);
+      }
+    }
+  }
+
+  // Create the new expression with provided outputs
+  auto replay = BackwardTransformCloner::clone(new_outputs, expr);
+
+  for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+    id_definitions_[out_id].pushBack(replay);
+  }
+
+  // Add the expression to the uses of the inputs
+  for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
+    id_definitions_[inp_id] = {};
+    id_uses_[inp_id] = {replay};
+  }
+
+  // Initialize output iter domains in the graphs
+  for (auto mode : initialized_modes) {
+    idGraph(mode).disjointExprSets().initializeSet(replay);
+    auto replay_group = idGraph(mode).disjointExprSet(replay).first;
+
+    // Initialize input ids in map
+    for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
+      idGraph(mode).initializeId(inp_id, {}, {replay});
+    }
+
+    // Update definitions in the graph of the outputs
+    for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+      auto out_group = idGraph(mode).disjointIdSet(out_id).first;
+      idGraph(mode).uniqueDefinitions().at(out_group).pushBack(replay_group);
+    }
+
+    // Propagate through all the defintions of the iter domain groups of the
+    // outputs with the new expression.
+    auto& graph = idGraph(mode);
+    // Gather all use expressions from inputs
+    VectorOfUniqueEntries<Expr*> representative_defs;
+    for (auto out : new_outputs) {
+      auto defs_pair =
+          graph.iterDomainGroupDefinitions(graph.disjointIdSet(out).first);
+      if (defs_pair.second) {
+        for (auto def_group : defs_pair.first) {
+          representative_defs.pushBack(def_group->front());
+        }
+      }
+    }
+
+    for (auto expr : representative_defs) {
+      if (graph.exprsMap(expr, replay, false)) {
+        graph.mapExprs(expr, replay);
+        graph.mapThroughExpr(expr, replay, false);
+      }
+    }
+  }
+
+  return replay;
+}
+
+// Clone provided iter domain and return the new copy. Map that copy in relevant
+// maps.
+IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
+  // Figure out which graphs are already initialized to make sure we add the new
+  // expression to them.
+  std::vector<IdMappingMode> initialized_modes;
+  for (auto mode : kIdMappingModes) {
+    auto graph_it = id_graphs_.find(mode);
+    if (graph_it == id_graphs_.end()) {
+      continue;
+    }
+
+    auto& graph = graph_it->second;
+    if (graph.disjointIdSets().disjointSetMap().empty()) {
+      continue;
+    }
+
+    initialized_modes.push_back(mode);
+  }
+
+  auto id_copy = id->cloneWithoutRFactor();
+
+  for (auto mode : initialized_modes) {
+    idGraph(mode).initializeId(id_copy, {}, {});
+    idGraph(mode).mapIds(id, id_copy);
+  }
+
+  return id_copy;
+}
+
 IdGraph IterDomainGraphs::initializeIdGraph() {
   IdGraph id_graph;
 
@@ -3097,6 +3242,50 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     std::cout << debug_print::idGroupStringShort(group) << " -> "
               << loop_graph_copy_promotion_map.at(group)->toString()
               << std::endl;
+  }
+
+  // Mark all iter domains that should share a loop nest, ignoring promotion for
+  // now
+  auto original_loop_graph = initializeIdGraph();
+
+  for (auto expr : exprs) {
+    std::vector<IterDomain*> producer_leaves;
+    VectorOfUniqueEntries<IterDomain*> all_p_ids;
+    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      all_p_ids.insert(
+          producer->domain()->domain().begin(),
+          producer->domain()->domain().begin() +
+              producer->getComputeAtPosition());
+      producer_leaves.insert(
+          producer_leaves.end(),
+          producer->domain()->domain().begin(),
+          producer->domain()->domain().begin() +
+              producer->getComputeAtPosition());
+    }
+
+    std::vector<IterDomain*> consumer_leaves;
+    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      consumer_leaves.insert(
+          consumer_leaves.end(),
+          consumer->domain()->domain().begin(),
+          consumer->domain()->domain().begin() +
+              consumer->getMaxProducerPosition());
+    }
+
+    auto p2c_loop_map = idGraph(IdMappingMode::LOOP)
+                            .buildMapBetween(producer_leaves, consumer_leaves);
+    // Make sure we call mapIds deterministically
+    for (auto p_id : all_p_ids) {
+      auto p2c_loop_map_it = p2c_loop_map.find(p_id);
+      if (p2c_loop_map_it == p2c_loop_map.end()) {
+        continue;
+      }
+      auto c_ids = p2c_loop_map_it->second;
+
+      for (auto c_id : c_ids) {
+        original_loop_graph.mapIds(p_id, c_id);
+      }
+    }
   }
 
   auto index_graph = initializeIdGraph();

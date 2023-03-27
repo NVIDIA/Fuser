@@ -382,6 +382,30 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(const std::vector<IterDomain*>& new_inputs, Expr* expr);
 
+  // Similar to addReplayAs, but in the reverse direction. Also addReplayAs can
+  // generate output ids by using the IterDomain::transform functions. For
+  // backwards because of merge the input iter domains of the transform are just
+  // cloned with IterDomain::cloneWithoutRFactor, and the transform Expr is
+  // generated with IrBuilder copying over all the attributes.
+  Expr* addReplayAsBackward(
+      const std::vector<IterDomain*>& new_outputs,
+      Expr* expr);
+
+  // Make a new expr matching that provided but using the outputs provided.
+  // IterDomainGraphss will be updated for all maps that have entries. Adding
+  // the input iter domains of the replayed expression and adding potential
+  // mappings through the expressions. Input domains will match exactly in all
+  // properties as those in expr. This is unlike addReplayAs which will produce
+  // new outputs using transformations directly.
+  Expr* addBackwardsReplayAs(
+      const std::vector<IterDomain*>& new_outputs,
+      Expr* expr);
+
+  // Make an exact copy of provided IterDomain (without rfactor set), and map
+  // the copy to the original in all registered IdGraphs. IterDomain copy will
+  // not have any registered uses or definitions.
+  IterDomain* cloneIterDomain(IterDomain* id);
+
   // TODO: Should this not be private?
  protected:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in

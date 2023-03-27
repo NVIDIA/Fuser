@@ -7,6 +7,8 @@
 // clang-format on
 #include <transform_iter.h>
 
+#include <ir_builder.h>
+
 #include <c10/util/irange.h>
 #include <ir_utils.h>
 
@@ -68,16 +70,95 @@ void ReplayTransform::handle(const Swizzle2D* swizzle_2d) {
                        .first->definition();
 }
 
-
 void ReplayTransform::handle(const Resize* resize) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  TORCH_INTERNAL_ASSERT(
+      input_ids_.size() == 1,
+      "Expected one input to match resize: ",
+      resize->toString());
+  replayed_expr_ =
+      IterDomain::resize(
+          input_ids_[0], resize->leftExpand(), resize->rightExpand())
+          ->definition();
 }
+
 // Transform dispatch
 void ReplayTransformations::handle(Expr* e) {
   auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::handle(e);
+}
+
+Expr* BackwardTransformCloner::clone(
+    const std::vector<IterDomain*>& ordered_outputs,
+    const Expr* expression_to_match) {
+  BackwardTransformCloner replay(ordered_outputs, expression_to_match);
+  return replay.new_expr_;
+}
+
+BackwardTransformCloner::BackwardTransformCloner(
+    const std::vector<IterDomain*>& ordered_outputs,
+    const Expr* expression_to_match)
+    : output_ids_(ordered_outputs) {
+  OptOutConstDispatch::handle(expression_to_match);
+}
+
+// We're going to replay this split operation on the corresponding ID
+void BackwardTransformCloner::handle(const Split* split) {
+  TORCH_INTERNAL_ASSERT(
+      output_ids_.size() == 2,
+      "Expected two outputs to match split: ",
+      split->toString());
+
+  new_expr_ = IrBuilder::create<Split>(
+      output_ids_[0],
+      output_ids_[1],
+      split->in()->cloneWithoutRFactor(),
+      split->factor(),
+      split->innerSplit(),
+      split->startOffset(),
+      split->stopOffset());
+}
+
+// We're going to replay this merge operation on the corresponding IDs
+void BackwardTransformCloner::handle(const Merge* merge) {
+  TORCH_INTERNAL_ASSERT(
+      output_ids_.size() == 1,
+      "Expected one output to match merge: ",
+      merge->toString());
+
+  new_expr_ = IrBuilder::create<Merge>(
+      output_ids_[0],
+      merge->outer()->cloneWithoutRFactor(),
+      merge->inner()->cloneWithoutRFactor());
+}
+
+// We're going to replay this swizzle operation on the corresponding IDs
+//  if replaying swizzle is enabled.
+void BackwardTransformCloner::handle(const Swizzle2D* swizzle_2d) {
+  TORCH_INTERNAL_ASSERT(
+      output_ids_.size() == 2,
+      "Expected two outputs to match swizzle: ",
+      swizzle_2d->toString());
+  new_expr_ = IrBuilder::create<Swizzle2D>(
+      output_ids_[0],
+      output_ids_[1],
+      swizzle_2d->inX()->cloneWithoutRFactor(),
+      swizzle_2d->inY()->cloneWithoutRFactor(),
+      swizzle_2d->swizzleType(),
+      swizzle_2d->swizzleMode());
+}
+
+void BackwardTransformCloner::handle(const Resize* resize) {
+  TORCH_INTERNAL_ASSERT(
+      output_ids_.size() == 1,
+      "Expected one output to match resize: ",
+      resize->toString());
+  new_expr_ = IrBuilder::create<Resize>(
+      output_ids_[0],
+      resize->in()->cloneWithoutRFactor(),
+      resize->leftExpand(),
+      resize->rightExpand());
 }
 
 // We're going to replay this split operation on the corresponding ID
