@@ -21,9 +21,6 @@ if (PROJECT_IS_TOP_LEVEL)
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
-  set(BUILD_PYTHON ON)
-  set(BUILD_TEST ON)
-  set(BUILD_NVFUSER_BENCHMARK ON)
   if(BUILD_NVFUSER_BENCHMARK)
     # need this to download googletest
     set(BENCHMARK_DOWNLOAD_DEPENDENCIES ON)

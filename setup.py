@@ -11,10 +11,22 @@ from distutils.file_util import copy_file
 # pick args used by this script
 CMAKE_ONLY = False
 BUILD_SETUP = True
+NO_PYTHON = False
+NO_TEST = False
+NO_BENCHMARK = False
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
         CMAKE_ONLY = True
+        continue
+    if arg == "--no-python":
+        NO_PYTHON = True
+        continue
+    if arg == "--no-test":
+        NO_TEST = True
+        continue
+    if arg == "--no-benchmark":
+        NO_BENCHMARK= True
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -147,6 +159,13 @@ def cmake():
 
     # generate cmake directory
     cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
+    if not NO_TEST:
+        cmd_str.append("-DBUILD_TEST=ON")
+    if not NO_PYTHON:
+        cmd_str.append("-DBUILD_PYTHON=ON")
+    if not NO_BENCHMARK:
+        cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+
     subprocess.check_call(cmd_str)
 
     if not CMAKE_ONLY:
@@ -171,40 +190,41 @@ def cmake():
 
 
 def main():
-    # NOTE: package include files for cmake
-    nvfuser_package_data = [
-        "*.so",
-        "lib/*.so",
-    ]
-
     if BUILD_SETUP:
         cmake()
 
-    from tools.gen_nvfuser_version import get_version
+    if not CMAKE_ONLY:
+        # NOTE: package include files for cmake
+        nvfuser_package_data = [
+            "*.so",
+            "lib/*.so",
+        ]
 
-    setup(
-        name="nvfuser",
-        # query nvfuser version
-        version=get_version(),
-        description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-        packages=["nvfuser", "nvfuser_python_utils"],
-        license_files=("LICENSE",),
-        cmdclass={
-            "bdist_wheel": build_whl,
-            "clean": clean,
-        },
-        package_data={
-            "nvfuser": nvfuser_package_data,
-        },
-        entry_points={
-            "console_scripts": [
-                "patch-nvfuser = nvfuser_python_utils:patch_installation",
-            ],
-        },
-    )
+        from tools.gen_nvfuser_version import get_version
 
-    if BUILD_SETUP:
-        subprocess.check_call(["patch-nvfuser"])
+        setup(
+            name="nvfuser",
+            # query nvfuser version
+            version=get_version(),
+            description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
+            packages=["nvfuser", "nvfuser_python_utils"],
+            license_files=("LICENSE",),
+            cmdclass={
+                "bdist_wheel": build_whl,
+                "clean": clean,
+            },
+            package_data={
+                "nvfuser": nvfuser_package_data,
+            },
+            entry_points={
+                "console_scripts": [
+                    "patch-nvfuser = nvfuser_python_utils:patch_installation",
+                ],
+            },
+        )
+
+        if BUILD_SETUP:
+            subprocess.check_call(["patch-nvfuser"])
 
 
 if __name__ == "__main__":
