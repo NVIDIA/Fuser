@@ -153,6 +153,8 @@ static const char* val_type2string(ValType t) {
       return "TensorIndex";
     case ValType::AggregateVal:
       return "AggregateVal";
+    case ValType::Attribute:
+      return "Attribute";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
   }

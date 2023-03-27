@@ -40,9 +40,11 @@ enum class RecordType {
   TorchGatherOp,
   Op,
   Output,
+  PadOp,
   PermuteOp,
   ReductionOp,
   Scalar,
+  SliceOp,
   SqueezeOp,
   Start,
   Tensor,
@@ -378,6 +380,110 @@ struct ReshapeOpRecord : RecordFunctor {
   std::vector<int64_t> original_shape_;
   //! Represents the tensor dimensions of the output tensor.
   std::vector<int64_t> new_shape_;
+};
+
+struct PadOpRecord : RecordFunctor {
+  PadOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::vector<int64_t>& pad_widths)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.pad",
+            RecordType::PadOp),
+        pad_widths_(std::move(pad_widths)) {}
+  virtual ~PadOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new PadOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ------------------------------ 0 |
+  //! |          pad_widths                 |
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t widths_hash = 0;
+    for (size_t i = 0; i < pad_widths_.size(); ++i) {
+      auto w = pad_widths_.at(i);
+      // Circular shift the lower 32 bits of w by 4 * i
+      // This reduces collisions by only directly xor-ing every 8th argument.
+      // Since many shifts will occupy less than 4 bits, we will have no
+      // collisions for most pads of up to 4 trailing dimensions.
+      size_t shift = (i * 4) % 32;
+      w = w << shift | w >> (32 - shift);
+      widths_hash ^= w << i;
+    }
+    return result | (widths_hash & 0xffffffff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
+      if (!RecordFunctor::operator==(other)) {
+        return false;
+      }
+      if (pad_widths_.size() != child_ptr->pad_widths_.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < pad_widths_.size(); ++i) {
+        if (pad_widths_.at(i) != child_ptr->pad_widths_.at(i)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    std::vector<Val*> val_widths;
+    val_widths.reserve(pad_widths_.size());
+    for (auto p : pad_widths_) {
+      auto pval = IrBuilder::create<Int>(p);
+      val_widths.push_back(pval);
+    }
+
+    TensorView* output;
+    if (args_.at(1).stype == StateType::Scalar) {
+      output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
+    } else { // default: None
+      output = pad(arg, val_widths);
+    }
+
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    // pad_widths is the second (required) argument, but the fill value is a
+    // Scalar, so it would be printed first by the default printer, so we
+    // implement our own print() here
+    os << outputs_.at(0);
+    os << " = "
+       << "fd." << name_ << "(";
+    os << args_.at(0); // unpadded tensor
+    os << ", [";
+    bool first_arg = true;
+    for (auto w : pad_widths_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << w;
+    }
+    os << "]";
+    if (args_.at(1).stype == StateType::Scalar) {
+      // fill value was given
+      os << ", " << args_.at(1);
+    }
+    os << ")";
+  }
+
+ private:
+  //! Pairs of non-negative integers indicating the amount to pad the front and
+  //! back of each dimension.
+  std::vector<int64_t> pad_widths_;
 };
 
 struct PermuteOpRecord : RecordFunctor {
@@ -1055,14 +1161,25 @@ struct ConstantRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    if (std::is_same<ValueType, bool>::value) {
+    if constexpr (std::is_same_v<ValueType, bool>) {
       bool value = __toBool(value_);
       os << (value ? "True" : "False");
-    } else if (
-        std::is_same<ValueType, std::complex<float>>::value ||
-        std::is_same<ValueType, std::complex<double>>::value) {
+    } else if constexpr (
+        std::is_same_v<ValueType, std::complex<float>> ||
+        std::is_same_v<ValueType, std::complex<double>>) {
       os << std::showpoint << std::real(value_) << "+" << std::showpoint
          << std::imag(value_) << "j";
+    } else if constexpr (
+        std::is_same_v<ValueType, float> || std::is_same_v<ValueType, double>) {
+      if (std::isinf(value_)) {
+        if (std::signbit(value_)) {
+          os << "float(\"-inf\")";
+        } else {
+          os << "float(\"inf\")";
+        }
+      } else {
+        os << std::showpoint << value_;
+      }
     } else {
       os << std::showpoint << value_;
     }
@@ -1685,6 +1802,130 @@ struct ScalarRecord : RecordFunctor {
  private:
   //! Scalar data type.
   PrimDataType dtype_;
+};
+
+//! Specialized Record Functor for the slice operation.
+//! Note: the python API is significantly different from the Codegen function.
+
+struct SliceOpRecord : RecordFunctor {
+  SliceOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::vector<int64_t> start_indices,
+      std::vector<int64_t> end_indices,
+      std::vector<int64_t> strides)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.slice",
+            RecordType::SliceOp),
+        start_indices_(start_indices),
+        end_indices_(end_indices),
+        strides_(strides) {}
+  virtual ~SliceOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new SliceOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
+  //! | start_indices  | end_indices    | strides      |
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t start_idx_hash = 0;
+    for (auto i : start_indices_) {
+      start_idx_hash ^= static_cast<size_t>(i);
+    }
+    size_t end_idx_hash = 0;
+    for (auto i : end_indices_) {
+      end_idx_hash ^= static_cast<size_t>(i);
+    }
+    size_t stride_hash = 0;
+    for (auto i : strides_) {
+      stride_hash ^= static_cast<size_t>(i);
+    }
+
+    result |= (start_idx_hash & 0xfff) << 20;
+    result |= (end_idx_hash & 0xfff) << 8;
+    return result | (stride_hash & 0xff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) &&
+          (start_indices_ == child_ptr->start_indices_) &&
+          (end_indices_ == child_ptr->end_indices_) &&
+          (strides_ == child_ptr->strides_);
+    }
+    return result;
+  }
+
+  virtual void operator()(FusionState& fd) final {
+    auto ndims = start_indices_.size();
+    std::vector<Slice> ranges;
+    ranges.reserve(ndims);
+    for (const auto i : c10::irange(ndims)) {
+      Slice tmp;
+      tmp.start = IrBuilder::create<Int>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<Int>(end_indices_[i]);
+      tmp.step = IrBuilder::create<Int>(strides_[i]);
+      ranges.emplace_back(tmp);
+    }
+
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto output = slice(arg, ranges);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", start_indices=[";
+    bool first_arg = true;
+    for (auto idx : start_indices_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << idx;
+    }
+    os << "], end_indices=[";
+    first_arg = true;
+    for (auto idx : end_indices_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << idx;
+    }
+    os << "], strides=[";
+    first_arg = true;
+    for (auto stride : strides_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << stride;
+    }
+    os << "]";
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  //! A slices beginning index for each dimension
+  //! Values must be greater-than or equal to 0
+  std::vector<int64_t> start_indices_;
+  //! A slices end index for each dimension (excluded from the slice)
+  //! Values are greater than or equal to the start index for a dimension
+  std::vector<int64_t> end_indices_;
+  //! For a dim, the step between start and end.
+  //! NOTE: Strides are currently limited to steps of 1
+  std::vector<int64_t> strides_;
 };
 
 //! Specialized Record Functor for recording FusionDefinition Start.

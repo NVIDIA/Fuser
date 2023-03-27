@@ -104,6 +104,13 @@ Val* IrBuilder::notExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::absExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  auto result = newScalar(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
+  return result;
+}
+
 Val* IrBuilder::setExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExpr.");
   auto result = newScalar(val->dtype());
@@ -190,7 +197,9 @@ Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
-  if (auto int_val = dynamic_cast<Int*>(val)) {
+  if (val->isZeroInt()) {
+    return val->container()->zeroVal();
+  } else if (auto int_val = dynamic_cast<Int*>(val)) {
     if (int_val->isConst()) {
       return IrBuilder::create<Int>(-int_val->value().value());
     }
