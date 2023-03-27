@@ -198,7 +198,7 @@ def main():
         },
         entry_points={
             'console_scripts': [
-                'patch-nvfuser = nvfuser_python_utils:patch_pytorch_nvfuser_binaries',
+                'patch-nvfuser = nvfuser_python_utils:patch_installation',
             ],
         },
     )
