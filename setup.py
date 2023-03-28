@@ -1,3 +1,23 @@
+# Environment variables used during build:
+#
+#   MAX_JOBS
+#     maximum number of compile jobs we should use to compile your code
+#
+# build argument:
+#
+#   --cmake-only
+#     Only generate ./build directory with cmake setup
+#
+#   --no-python
+#     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
+#
+#   --no-test
+#     Skips cpp tests `nvfuser_tests`
+#
+#   --no-benchmark
+#     Skips benchmark target `nvfuser_bench`
+#
+
 import sys
 import subprocess
 import os
@@ -170,7 +190,7 @@ def cmake():
 
     if not CMAKE_ONLY:
         # build binary
-        max_jobs = str(multiprocessing.cpu_count())
+        max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
         cmd_str = [
             get_cmake_bin(),
             "--build",
