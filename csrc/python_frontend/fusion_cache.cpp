@@ -60,7 +60,7 @@ size_t FusionCache::numFusions() const {
   return fusions_.size();
 }
 
-void FusionCache::print(std::ostream& os) {
+void FusionCache::print(std::ostream& os) const {
   os << "Fusions by id:" << std::endl;
   std::vector<TrieNode*> stack;
   stack.push_back(root_.get());
@@ -96,7 +96,7 @@ void FusionCache::print(std::ostream& os) {
   }
 }
 
-void FusionCache::stats(std::ostream& os) {
+void FusionCache::stats(std::ostream& os) const {
   os << "Total Fusions: " << fusions_.size() << "\n";
 
   // Does not make sense to print stats if the cache is disabled.
@@ -155,7 +155,7 @@ c10::optional<TrieNode*> FusionCache::queryChildren(
     return c10::optional<TrieNode*>(trie_node->second.get());
   }
 }
-FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) {
+FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   TORCH_CHECK(
       fusion_id < fusions_.size(),
       "Invalid scheduler query for id:",
@@ -183,7 +183,7 @@ c10::optional<size_t> FusionCache::queryUserScheduleId(
 const UserSchedule& FusionCache::queryUserSchedule(
     const FusionSchedules* scheds,
     size_t id,
-    int device) {
+    int device) const {
   auto& user_scheds = scheds->user_def_schedules;
   TORCH_CHECK(
       user_scheds.size() > 0,

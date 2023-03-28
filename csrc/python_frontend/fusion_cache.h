@@ -116,9 +116,9 @@ class TORCH_CUDA_CU_API FusionCache {
   //! Number of fusions cached
   size_t numFusions() const;
   //! print cache contents
-  void print(std::ostream& os);
+  void print(std::ostream& os) const;
   //! print cache stats
-  void stats(std::ostream& os);
+  void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
   static void reset();
 
@@ -129,8 +129,10 @@ class TORCH_CUDA_CU_API FusionCache {
   c10::optional<TrieNode*> queryChildren(TrieNode* node, RecordFunctor* rec)
       const;
   //! Query a Fusion's Schedules based on fusion id or cache id
-  FusionSchedules* queryFusionSchedules(size_t fusion_id);
+  FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
   //! Lookup the User Schedule Id and return null if one does not exist.
+  //! NOTE: this method cannot be const because the InputsIdLookup can
+  //! cause a modification to that data member for cache eviction.
   c10::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
@@ -139,7 +141,7 @@ class TORCH_CUDA_CU_API FusionCache {
   const UserSchedule& queryUserSchedule(
       const FusionSchedules* scheds,
       size_t id,
-      int device);
+      int device) const;
   //! Thread-Safe: Creates a child node for the current cache entry and an
   //! optional fusion_id is returned if the new entry is terminal
   TrieNode* createChild(TrieNode* node, RecordFunctor* rec);
