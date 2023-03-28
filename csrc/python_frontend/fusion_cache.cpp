@@ -118,8 +118,7 @@ FusionSchedules& FusionCache::queryFusionSchedules(size_t fusion_id) {
 }
 c10::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules& scheds,
-    const at::ArrayRef<c10::IValue>& inputs,
-    int device) {
+    const at::ArrayRef<c10::IValue>& inputs) {
   c10::optional<size_t> result = c10::nullopt;
 
   auto& user_scheds = scheds.user_def_schedules;
@@ -135,7 +134,7 @@ c10::optional<size_t> FusionCache::queryUserScheduleId(
 const UserSchedule& FusionCache::queryUserSchedule(
     const FusionSchedules& scheds,
     size_t id,
-    int device) {
+    int8_t device) {
   auto& user_scheds = scheds.user_def_schedules;
   TORCH_CHECK(
       user_scheds.size() > 0,

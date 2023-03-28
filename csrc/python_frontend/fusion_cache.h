@@ -112,13 +112,12 @@ class TORCH_CUDA_CU_API FusionCache {
   //! Lookup the User Schedule Id and return null if one does not exist.
   c10::optional<size_t> queryUserScheduleId(
       const FusionSchedules& scheds,
-      const at::ArrayRef<c10::IValue>& inputs,
-      int device);
+      const at::ArrayRef<c10::IValue>& inputs);
   //! Lookup the User Schedule based on Id
   const UserSchedule& queryUserSchedule(
       const FusionSchedules& scheds,
       size_t id,
-      int device);
+      int8_t device);
   //! Creates a child node for the current cache entry and an optional
   //! fusion_id is returned if the new entry is terminal
   c10::optional<size_t> createChild(RecordFunctor* rec);
