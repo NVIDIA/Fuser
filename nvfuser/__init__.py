@@ -6,6 +6,7 @@ import os
 import sys
 
 import torch
+
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
 sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
 
