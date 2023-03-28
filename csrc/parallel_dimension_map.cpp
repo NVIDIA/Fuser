@@ -65,17 +65,12 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
                            dim_map_.at(ptype), concrete_id->extent()))
               ->getBool() != true) {
-        std::cout << dim_map_.at(ptype)->toInlineString()
-                  << " != " << concrete_id->extent()->toInlineString()
-                  << std::endl;
         exact_types_.erase(ptype);
       }
     }
   }
 
   adjustMappingsForWarpPadding();
-
-  // std::cout << toString() << std::endl;
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
