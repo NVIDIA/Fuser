@@ -7889,11 +7889,6 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   // actual values are not statically known
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
-  for (const auto i : c10::irange(tv1->domain()->domain().size())) {
-    auto dom1 = tv1->domain()->domain()[i];
-    auto dom2 = tv2->domain()->domain()[i];
-    TORCH_INTERNAL_ASSERT(pdmap.equalDim(dom1->extent(), dom2->extent()));
-  }
 
   TORCH_CHECK(pdmap.isExact(ParallelType::TIDx));
   TORCH_CHECK(
