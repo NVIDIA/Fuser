@@ -9,15 +9,16 @@
 
 #if defined(__linux__)
 
+#include <array>
 #include <filesystem>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cstdio>
+#include <cstdlib>
 
 namespace nvfuser::executor_utils {
 
@@ -29,18 +30,18 @@ std::string disassembleBinary(
   // Reference:
   // https://stackoverflow.com/a/3469651
   // https://linuxhint.com/dup2_system_call_c/
-  pid_t pid;
+  pid_t pid = fork();
+  TORCH_INTERNAL_ASSERT(pid != -1, err);
 
   constexpr int READ = 0, WRITE = 1;
-  int cubin_pipe[2];
-  int disasm_pipe[2];
-  int err_pipe[2];
+  std::array<int, 2> cubin_pipe{-1, -1};
+  std::array<int, 2> disasm_pipe = {-1, -1};
+  std::array<int, 2> err_pipe = {-1, -1};
 
   TORCH_INTERNAL_ASSERT(
-      pipe(cubin_pipe) == 0 && pipe(disasm_pipe) == 0 && pipe(err_pipe) == 0,
+      pipe(cubin_pipe.data()) == 0 && pipe(disasm_pipe.data()) == 0 &&
+          pipe(err_pipe.data()) == 0,
       err);
-
-  TORCH_INTERNAL_ASSERT((pid = fork()) != -1, err);
 
   if (pid) { // I am the parent
     // Parent only write cubin and read disasm, close unused pipe end
@@ -61,23 +62,23 @@ std::string disassembleBinary(
     TORCH_INTERNAL_ASSERT(written == cubin.size(), err);
     fclose(cubin_fp);
 
-    int ch;
+    int ch = -1;
 
     // read disassembly result
     std::string result;
     result.reserve(cubin.size());
     while ((ch = fgetc(disasm_fp)) != EOF) {
-      result.push_back(ch);
+      result.push_back((char)ch);
     }
     fclose(disasm_fp);
 
     // read error message
     std::string error;
     while ((ch = fgetc(err_fp)) != EOF) {
-      error.push_back(ch);
+      error.push_back((char)ch);
     }
     fclose(err_fp);
-    TORCH_CHECK(error.size() == 0, error);
+    TORCH_CHECK(error.empty(), error);
 
     return result;
   } else { // I am the child

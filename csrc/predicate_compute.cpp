@@ -24,7 +24,7 @@ namespace {
 
 bool isTensorIndexOp(Expr* expr) {
   const auto& outputs = expr->outputs();
-  return outputs.size() >= 1 && outputs[0]->isA<kir::TensorIndex>();
+  return !outputs.empty() && outputs[0]->isA<kir::TensorIndex>();
 }
 
 bool isOutputLocal(const Expr* expr) {
@@ -75,7 +75,7 @@ std::unordered_set<Val*> getNonUnswitchedRootDomains(
   std::vector<Val*> non_unswited_leaf_domains;
   std::transform(
       loops.begin(),
-      loops.begin() + unswitched_loop_index,
+      loops.begin() + (int64_t)unswitched_loop_index,
       std::back_inserter(non_unswited_leaf_domains),
       [&](kir::ForLoop* loop) { return loop->iter_domain(); });
 
@@ -535,7 +535,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
       pending_predicates_.push_back(merged_pred);
 
       merged_pred_it =
-          pending_predicates_.begin() + pending_predicates_.size() - 1;
+          pending_predicates_.begin() + (int64_t)pending_predicates_.size() - 1;
     } else if (root_ids.size() == 1) {
       // If not new, try to find a corresponding MergedPredicates.
       merged_pred_it = std::find_if(

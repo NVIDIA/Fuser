@@ -81,7 +81,7 @@ auto parseEnvOptions(
           options_view = options_view.substr(end_pos + 1);
           closed = (rparentheses_pos < comma_pos);
         }
-        if (options_view.size() > 0) {
+        if (!options_view.empty()) {
           TORCH_CHECK(
               options_view[0] == ',',
               "Parsing ",

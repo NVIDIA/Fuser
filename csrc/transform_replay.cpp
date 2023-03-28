@@ -989,7 +989,7 @@ bool validateDomain(TensorView* tv, TensorDomain* new_td) {
 } // namespace
 
 void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int pos = (int)replayed_pos_.at(from);
   // Note: [Using multiple TransformPropagators]
   // There are cases that we use multiple TransformPropagators along different
   // spanning trees with different references in the same fusion. Some of these
@@ -1019,7 +1019,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = replay.second;
+    new_pos = (int)replay.second;
     if (debug) {
       std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
@@ -1030,7 +1030,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int pos = (int)replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   int new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
@@ -1050,7 +1050,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = replay.second;
+    new_pos = (int)replay.second;
     if (debug) {
       std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
@@ -1061,7 +1061,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int pos = (int)replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1101,7 +1101,7 @@ TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
 void MostInlinedTransformPropagator::propagateC2P(
     TensorView* from,
     TensorView* to) {
-  int pos = from->nDims();
+  int pos = (int)from->nDims();
   // See note [Using multiple TransformPropagators]
   int new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
@@ -1132,7 +1132,7 @@ void MostInlinedTransformPropagator::propagateC2P(
 void MostInlinedTransformPropagator::propagateP2C(
     TensorView* from,
     TensorView* to) {
-  int pos = from->nDims();
+  int pos = (int)from->nDims();
   // See note [Using multiple TransformPropagators]
   int new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
