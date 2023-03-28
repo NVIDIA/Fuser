@@ -72,6 +72,7 @@ FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
       max_length_(max_length),
       fusion_id_(id),
       fusion_cache_(FusionCache::get()),
+      trie_node_(nullptr),
       recording_state_(),
       prev_fusion_(nullptr),
       user_sched_(nullptr),

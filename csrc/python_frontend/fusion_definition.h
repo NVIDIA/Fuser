@@ -53,7 +53,7 @@ TORCH_CUDA_CU_API std::ostream& operator<<(
     const State& state);
 
 //! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefintion to identify the appropriate Operator function.
+//! in the FusionDefinition to identify the appropriate Operator function.
 //!
 //! Example:
 //!
