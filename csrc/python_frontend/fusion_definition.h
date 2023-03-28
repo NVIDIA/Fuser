@@ -11,7 +11,6 @@
 #include <c10/macros/Export.h>
 #include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
-#include <serde/python_fusion_cache_generated.h>
 
 namespace nvfuser::python_frontend {
 

@@ -21,9 +21,6 @@
 #include <complex>
 #include <variant>
 
-#include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
-
 namespace nvfuser::python_frontend {
 
 //! RecordFunctor is the base class record for operations recorded by

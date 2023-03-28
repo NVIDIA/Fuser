@@ -9,6 +9,9 @@
 #include <python_frontend/fusion_cache.h>
 #include <serde/fusion_record_serde.h>
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 namespace nvfuser::python_frontend {
 
 // FusionCache static data member definitions for singleton usage

@@ -11,11 +11,8 @@
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
 
-#include <filesystem>
 #include <memory>
 #include <mutex>
-
-namespace fs = std::filesystem;
 
 namespace nvfuser::python_frontend {
 
