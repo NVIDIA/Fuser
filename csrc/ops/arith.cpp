@@ -663,17 +663,8 @@ Val* complex(Val* r, Val* i) {
   TORCH_CHECK(
       dtype == i->getDataType().value(),
       "real and imag data type should be same in complex().");
-  DataType complex_dtype = getComplexTypeFromType(dtype);
-  BinaryOpType complex_op;
-  if (dtype == DataType::Double) {
-    complex_op = BinaryOpType::ComplexDouble;
-  } else if (dtype == DataType::Float) {
-    complex_op = BinaryOpType::ComplexFloat;
-  } else {
-    TORCH_CHECK(false, "complex() only supports float and double types");
-  }
-  Val* out = ops::newValLike(r, complex_dtype);
-  IrBuilder::create<BinaryOp>(complex_op, out, r, i);
+  Val* out = ops::newValLike(r, getComplexTypeFromType(dtype));
+  IrBuilder::create<BinaryOp>(BinaryOpType::Complex, out, r, i);
   return out;
 }
 

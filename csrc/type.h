@@ -346,8 +346,7 @@ enum class BinaryOpType {
   Xor,
 
   // generate complex from real and imaginary parts
-  ComplexFloat,
-  ComplexDouble
+  Complex
 };
 
 enum class ScatterOpType { Set };

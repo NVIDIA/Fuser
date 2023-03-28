@@ -517,6 +517,8 @@ TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, TensorView* v2);
 
 // complex
 TORCH_CUDA_CU_API Val* complex(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS

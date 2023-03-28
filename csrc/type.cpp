@@ -390,10 +390,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "remainder";
     case BinaryOpType::Sub:
       return "sub";
-    case BinaryOpType::ComplexFloat:
-      return "std::complex<float>";
-    case BinaryOpType::ComplexDouble:
-      return "std::complex<double>";
+    case BinaryOpType::Complex:
+      return "std::complex";
 
     // Integer Ops
     case BinaryOpType::Mod:
