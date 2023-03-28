@@ -7950,7 +7950,6 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
       fusion.get(), outputs, {input1, input2}, {ref}, __LINE__, __FILE__);
 }
 
-// Mix symbolic and concrete tensors
 TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -7983,14 +7982,10 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
 
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
-  TORCH_CHECK(!pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(
-      pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
-      pdmap.get(ParallelType::TIDx)->as<NamedScalar>()->name() == "blockDim.x");
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDy));
-  TORCH_CHECK(
-      pdmap.get(ParallelType::TIDy)->isConst() &&
-      pdmap.get(ParallelType::TIDy)->as<Int>()->value().value() == 10);
+  ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
+  ASSERT_EQ(pdmap.get(ParallelType::TIDx)->getInt(), 20);
+  ASSERT_TRUE(pdmap.isExact(ParallelType::TIDy));
+  ASSERT_EQ(pdmap.get(ParallelType::TIDy)->getInt(), 10);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input1 = at::randn({13}, options);
@@ -9035,27 +9030,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i1307;
-  i1307 = T0.size[2] * T0.size[1];
-  int64_t i1310;
-  i1310 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1312;
-  i1312 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i1344;
-  i1344 = i1310 % i1312;
-  int64_t i1321;
-  i1321 = T0.size[2] * T0.size[3];
-  int64_t i1345;
-  i1345 = i1344 % i1321;
-  if ((i1310 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i1829;
+  i1829 = T0.size[2] * T0.size[1];
+  int64_t i1832;
+  i1832 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1834;
+  i1834 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i1866;
+  i1866 = i1832 % i1834;
+  int64_t i1843;
+  i1843 = T0.size[2] * T0.size[3];
+  int64_t i1867;
+  i1867 = i1866 % i1843;
+  if ((i1832 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1307 * T0.size[3]) * (i1310 / i1312)) + (i1307 * (i1345 % T0.size[3]))) + (T0.size[2] * (i1344 / i1321))) + (i1345 / T0.size[3]))];
+       = T2[(((((i1829 * T0.size[3]) * (i1832 / i1834)) + (i1829 * (i1867 % T0.size[3]))) + (T0.size[2] * (i1866 / i1843))) + (i1867 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1310];
+       = T0[i1832];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9075,7 +9070,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1310]
+    T7[i1832]
        = T10[0];
   }
 }
