@@ -89,9 +89,20 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("max_fusions") = int(8192),
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
-      .def("print_stats", [](FusionCache& self) { self.print(std::cout); })
       .def_static(
-          "reset", &FusionCache::reset, py::return_value_policy::reference);
+          "reset", &FusionCache::reset, py::return_value_policy::reference)
+      .def(
+          "__repr__",
+          [](FusionCache& self) {
+            std::stringstream ss;
+            self.print(ss);
+            return ss.str();
+          })
+      .def("stats", [](FusionCache& self) {
+        std::stringstream ss;
+        self.stats(ss);
+        return ss.str();
+      });
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
@@ -144,8 +155,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_setup_definition",
           [](FusionDefinition& self) -> FusionDefinition* {
             // Instrumentation to mark the beginning of a FusionDefinition
-            inst::Trace::instance()->beginEvent(
-                "FusionDefinition setupDefinition");
+            inst::Trace::instance()->beginEvent("FusionDefinition Definition");
             return self.setupDefinition();
           })
       .def(
@@ -159,7 +169,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_setup_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of a schedule
-            inst::Trace::instance()->beginEvent("FusionDefinition schedule");
+            inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
@@ -2551,10 +2561,27 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& start_indices,
          std::vector<int64_t>& end_indices,
-         std::vector<int64_t>& strides) -> Tensor {
+         // NOTE: Tried to use std::reference_wrapper to a vector and during
+         // testing, I was not getting the proper value back.  It was like
+         // like the code was referencing the strides vector that holds the
+         // default value.
+         std::optional<std::vector<int64_t>> opt_strides =
+             std::nullopt) -> Tensor {
         FUSER_PERF_SCOPE("Operators.slice");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+
+        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+        if (opt_strides.has_value()) {
+          TORCH_CHECK(
+              start_indices.size() == opt_strides.value().size(),
+              "Slice start_indices and strides don't match! Start Indices: ",
+              start_indices.size(),
+              " Strides: ",
+              opt_strides.value().size());
+          strides.assign(
+              opt_strides.value().begin(), opt_strides.value().end());
+        }
         TORCH_CHECK(
             arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
@@ -2562,8 +2589,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             " Slice-dims: ",
             start_indices.size());
         TORCH_CHECK(
-            (start_indices.size() == end_indices.size()) &&
-                (end_indices.size() == strides.size()),
+            start_indices.size() == end_indices.size(),
             "Slice indexing attribute dimensions don't match! Start Indices: ",
             start_indices.size(),
             " End Indices: ",
@@ -2612,18 +2638,35 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides"),
+      py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   tensor_class.def(
       "slice",
       [](Tensor arg,
          std::vector<int64_t>& start_indices,
          std::vector<int64_t>& end_indices,
-         std::vector<int64_t>& strides) -> Tensor {
+         // NOTE: Tried to use std::reference_wrapper to a vector and during
+         // testing, I was not getting the proper value back.  It was like
+         // like the code was referencing the strides vector that holds the
+         // default value.
+         std::optional<std::vector<int64_t>> opt_strides =
+             std::nullopt) -> Tensor {
         FUSER_PERF_SCOPE("Operators.slice");
         FusionDefinition* fd = arg.fusion_definition;
         TORCH_CHECK(
             fd->ops.validUse(), "Attempting to add to a completed definition!");
+
+        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+        if (opt_strides.has_value()) {
+          TORCH_CHECK(
+              start_indices.size() == opt_strides.value().size(),
+              "Slice start_indices and strides don't match! Start Indices: ",
+              start_indices.size(),
+              " Strides: ",
+              opt_strides.value().size());
+          strides.assign(
+              opt_strides.value().begin(), opt_strides.value().end());
+        }
         TORCH_CHECK(
             arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
@@ -2631,8 +2674,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             " Slice-dims: ",
             start_indices.size());
         TORCH_CHECK(
-            (start_indices.size() == end_indices.size()) &&
-                (end_indices.size() == strides.size()),
+            start_indices.size() == end_indices.size(),
             "Slice indexing attribute dimensions don't match! Start Indices: ",
             start_indices.size(),
             " End Indices: ",
@@ -2679,7 +2721,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides"),
+      py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "squeeze",

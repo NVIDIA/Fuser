@@ -20,6 +20,7 @@ class FusionInterface;
 class FusionState;
 struct RecordFunctor;
 struct UserSchedule;
+struct TrieNode;
 
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
@@ -44,7 +45,7 @@ TORCH_CUDA_CU_API std::ostream& operator<<(
     const State& state);
 
 //! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefintion to identify the appropriate Operator function.
+//! in the FusionDefinition to identify the appropriate Operator function.
 //!
 //! Example:
 //!
@@ -157,6 +158,8 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   c10::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
+  //! Current pointer to node in FusionCache.
+  TrieNode* trie_node_;
 
   //! A vector of state recorded in the FusionDefinition
   std::vector<State> recording_state_;
