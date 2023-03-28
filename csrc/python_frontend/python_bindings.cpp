@@ -747,6 +747,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
   NVFUSER_PYTHON_BINDING_BINARY_OP("pow", pow)
   NVFUSER_PYTHON_BINDING_BINARY_OP("remainder", remainder)
   NVFUSER_PYTHON_BINDING_BINARY_OP("sub", sub)
@@ -762,7 +763,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \

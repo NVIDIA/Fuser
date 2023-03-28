@@ -315,10 +315,10 @@ enum class BinaryOpType {
   Max,
   Min,
   Mul,
+  Nextafter,
   Pow,
   Remainder,
   Sub,
-  Nextafter,
   // TypeAs,
 
   // Integer output ops. If changing modify isIntegerOp

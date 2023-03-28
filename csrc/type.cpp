@@ -373,14 +373,14 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "fmin";
     case BinaryOpType::Mul:
       return "mul";
+    case BinaryOpType::Nextafter:
+      return "nextafter";
     case BinaryOpType::Pow:
       return "pow";
     case BinaryOpType::Remainder:
       return "remainder";
     case BinaryOpType::Sub:
       return "sub";
-    case BinaryOpType::Nextafter:
-      return "nextafter";
 
     // Integer Ops
     case BinaryOpType::Mod:
