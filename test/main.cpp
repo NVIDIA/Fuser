@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <torch/cuda.h>
+#include <torch/torch.h>
 
 #include <iostream>
 #include <string>
@@ -18,7 +19,7 @@ std::string add_negative_flag(const std::string& flag) {
 
 int main(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
-  TORCH_INTERNAL_ASSERT(
+  TORCH_CHECK(
       torch::cuda::is_available(),
       "nvfuser_tests requires CUDA device being available");
 

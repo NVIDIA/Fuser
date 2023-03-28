@@ -30,7 +30,7 @@ if (PROJECT_IS_TOP_LEVEL)
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
-  if (BUILD_NVFUSER)
+  if (NOT BUILD_NVFUSER)
     return()
   endif()
 
@@ -43,7 +43,7 @@ else() # PROJECT_IS_TOP_LEVEL
   # TODO: have TORCH_ROOT setup as a variable instead
   # currently we are expecting nvfuser to be added from the pytorch root cmake file.
   set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
-  set(ATEN_CUDA_ROOT "${TORCH_ROOT}/ATen")
+  set(ATEN_CUDA_ROOT "${TORCH_ROOT}/aten/src/ATen")
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
 endif() # PROJECT_IS_TOP_LEVEL
 
