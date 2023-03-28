@@ -88,16 +88,25 @@ class clean(setuptools.Command):
 
 class build_ext(setuptools.command.build_ext.build_ext):
     def build_extensions(self):
-        # Copy nvfuser extension
-        fullname = self.get_ext_fullname("nvfuser._C")
-        filename = self.get_ext_filename(fullname)
-        fileext = os.path.splitext(filename)[1]
-        cwd = os.path.dirname(os.path.abspath(__file__))
-        src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
-        dst = os.path.join(cwd, filename)
-        if os.path.exists(src):
-            print("handling nvfuser pybind API, copying from {} to {}".format(src, dst))
-            self.copy_file(src, dst)
+        for i, ext in enumerate(self.extensions):
+            if ext.name == "nvfuser._C":
+                # NOTE: nvfuser pybind target is built with cmake, we remove the entry for ext_modules
+                del self.extensions[i]
+
+                # Copy nvfuser extension to proper file name
+                fullname = self.get_ext_fullname("nvfuser._C")
+                filename = self.get_ext_filename(fullname)
+                fileext = os.path.splitext(filename)[1]
+                cwd = os.path.dirname(os.path.abspath(__file__))
+                src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
+                dst = os.path.join(cwd, filename)
+                if os.path.exists(src):
+                    print(
+                        "handling nvfuser pybind API, copying from {} to {}".format(
+                            src, dst
+                        )
+                    )
+                    self.copy_file(src, dst)
 
         setuptools.command.build_ext.build_ext.build_extensions(self)
 
