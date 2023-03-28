@@ -378,8 +378,8 @@ void scheduleMatmul(
   scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
 
   // Applies swizzle factor on C
-  if (params.swizzle_factor != 1) {
-    int factor = std::max(1, params.swizzle_factor); // must be >=1
+  if (params.grid_swizzle_factor != 1) {
+    int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.rasterization_order ==
         MatmulParam::TileRasterizationOrder::RowMajor) {
       cc->split(1, factor);

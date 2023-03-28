@@ -72,12 +72,12 @@ class MatmulParam {
   //! will more likely be forming sub-tiles of the C matrix. This will increase
   //! L2 hit rate/data reuse of A and B.
   //!
-  //! Eg for swizzle_factor=2:
+  //! Eg for grid_swizzle_factor=2:
   //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
   //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
-  int swizzle_factor = 1;
+  int grid_swizzle_factor = 1;
 
   //! Enables predicate peeling mainloop:
   bool peel_main_loop = true;

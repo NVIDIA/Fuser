@@ -773,7 +773,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
 
     params.rasterization_order = order;
-    params.swizzle_factor = swizzle;
+    params.grid_swizzle_factor = swizzle;
 
     scheduleMatmul(tv2, tv0, tv1, params);
 

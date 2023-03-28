@@ -217,7 +217,7 @@ Bool* ParallelizedDomainPredicate::getPredicate(
 
   Val* pred = GpuLower::current()->kernel()->trueVal();
 
-    // TODO: this is a temporary hacking. I don't think it is generally correct.
+  // TODO: this is a temporary hacking. I don't think it is generally correct.
   // Find a way to eliminate it for MMA.
   return pred->as<Bool>();
 
