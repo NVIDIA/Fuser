@@ -25,6 +25,7 @@ import multiprocessing
 import shutil
 
 import setuptools
+import setuptools.command.build_ext
 from setuptools import setup
 from distutils.file_util import copy_file
 
@@ -83,6 +84,22 @@ class clean(setuptools.Command):
                             os.remove(filename)
                         except OSError:
                             shutil.rmtree(filename, ignore_errors=True)
+
+
+class build_ext(setuptools.command.build_ext.build_ext):
+    def build_extensions(self):
+        # Copy nvfuser extension
+        fullname = self.get_ext_fullname("nvfuser._C")
+        filename = self.get_ext_filename(fullname)
+        fileext = os.path.splitext(filename)[1]
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
+        dst = os.path.join(cwd, filename)
+        if os.path.exists(src):
+            report("Copying {} from {} to {}".format(ext.name, src, dst))
+            self.copy_file(src, dst)
+
+        setuptools.command.build_ext.build_ext.build_extensions(self)
 
 
 class concat_third_party_license:
@@ -203,11 +220,6 @@ def cmake():
         ]
         subprocess.check_call(cmd_str)
 
-        # copy nvfuser pybind extension
-        src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser.so")
-        dst = os.path.join(cwd, "nvfuser", "_C.cpython-310-x86_64-linux-gnu.so")
-        copy_file(src, dst)
-
 
 def main():
     if BUILD_SETUP:
@@ -228,9 +240,11 @@ def main():
             version=get_version(),
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser", "nvfuser_python_utils"],
+            ext_modules=[Extension(name=str("nvfuser._C"), sources=[])],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
+                "build_ext": build_ext,
                 "clean": clean,
             },
             package_data={
