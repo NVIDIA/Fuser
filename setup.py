@@ -96,7 +96,7 @@ class build_ext(setuptools.command.build_ext.build_ext):
         src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
         dst = os.path.join(cwd, filename)
         if os.path.exists(src):
-            report("Copying {} from {} to {}".format(ext.name, src, dst))
+            print("Copying {} from {} to {}".format(ext.name, src, dst))
             self.copy_file(src, dst)
 
         setuptools.command.build_ext.build_ext.build_extensions(self)
