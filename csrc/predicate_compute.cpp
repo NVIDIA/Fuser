@@ -217,6 +217,10 @@ Bool* ParallelizedDomainPredicate::getPredicate(
 
   Val* pred = GpuLower::current()->kernel()->trueVal();
 
+    // TODO: this is a temporary hacking. I don't think it is generally correct.
+  // Find a way to eliminate it for MMA.
+  return pred->as<Bool>();
+
   for (auto pt : kParallelTypeThreads) {
     auto pred_info_it = pred_map.find(pt);
     if (pred_info_it != pred_map.end()) {
