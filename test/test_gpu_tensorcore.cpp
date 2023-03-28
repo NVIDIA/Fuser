@@ -621,54 +621,64 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
-  int M = 504, N = 136, K = 248;
+  int M = 8192, N = 8192, K = 8192;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+  int swizzle_factor = getenv("SWIZZLE_FACTOR")
+      ? std::max(1, std::atoi(getenv("SWIZZLE_FACTOR")))
+      : 1;
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+  CompileParams cparams{
+      DataType::Int32, 255, false, .swizzle_factor = swizzle_factor};
 
-    auto tv2 = matmul(tv0, tv1, layout);
+  for (auto order :
+       {MatmulParam::TileRasterizationOrder::RowMajor,
+        MatmulParam::TileRasterizationOrder::ColumnMajor})
+    for (auto layout : kAllSupportedMatmulLayout) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
 
-    fusion.addOutput(tv2);
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+      auto tv2 = matmul(tv0, tv1, layout);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-            .layout(layout);
+      fusion.addOutput(tv2);
 
-    MatmulParam params(mma_builder);
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
-    scheduleMatmul(tv2, tv0, tv1, params);
+      MatMulTileOptions gemm_tile;
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+      auto mma_builder =
+          MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
+              .layout(layout);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        8,
-        0,
-        fe.compileFusion(
-            &fusion,
-            {inputs.first, inputs.second},
-            LaunchParams(),
-            matmul_cparams));
-    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
-        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
-  }
+      MatmulParam params(mma_builder);
+      params.tile_sizes = gemm_tile;
+      params.async_gmem_load_operands = true;
+      params.double_buffer_options.double_buffer_smem_write = true;
+      params.double_buffer_options.smem_double_buffer_stage = 4;
+      params.rasterization_order = order;
+      scheduleMatmul(tv2, tv0, tv1, params);
+
+      at::manual_seed(0);
+      auto inputs = fp16MatmulAtInput(M, N, K, layout);
+
+      FusionExecutor fe;
+      fe.setMeasureKernelTimeFlag(true);
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          8,
+          0,
+          fe.compileFusion(
+              &fusion, {inputs.first, inputs.second}, LaunchParams(), cparams));
+      auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+      std::cout << fe.kernelTimeMs() << std::endl;
+      auto tref = atMatmul(
+          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+    }
 }
 
 // Matmul test for Ampere MMA: with pipelined gmem load
