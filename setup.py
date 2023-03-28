@@ -27,7 +27,6 @@ import shutil
 import setuptools
 import setuptools.command.build_ext
 from setuptools import setup, Extension
-from distutils.file_util import copy_file
 
 # pick args used by this script
 CMAKE_ONLY = False
