@@ -39,7 +39,18 @@ DataType getTypeFromComplexType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::Double;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Not a complex type:", dtype);
+      TORCH_INTERNAL_ASSERT(false, "Only support ComplexFloat and ComplexDouble, current type:", dtype);
+  }
+}
+
+DataType getComplexTypeFromType(DataType dtype) {
+  switch (std::get<PrimDataType>(dtype.type)) {
+    case DataType::Float:
+      return DataType::ComplexFloat;
+    case DataType::Double:
+      return DataType::ComplexDouble;
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Only support Float and Double, current type:", dtype);
   }
 }
 

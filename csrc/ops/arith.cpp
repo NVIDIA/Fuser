@@ -663,13 +663,11 @@ Val* complex(Val* r, Val* i) {
   TORCH_CHECK(
       dtype == i->getDataType().value(),
       "real and imag data type should be same in complex().");
-  DataType complex_dtype;
+  DataType complex_dtype = getComplexTypeFromType(dtype);
   BinaryOpType complex_op;
   if (dtype == DataType::Double) {
-    complex_dtype = DataType::ComplexDouble;
     complex_op = BinaryOpType::ComplexDouble;
   } else if (dtype == DataType::Float) {
-    complex_dtype = DataType::ComplexFloat;
     complex_op = BinaryOpType::ComplexFloat;
   } else {
     TORCH_CHECK(false, "complex() only supports float and double types");
@@ -1768,7 +1766,7 @@ WelfordResult Welford(
 
   if (!reduction_axes.empty()) {
     DataType dtype = tv->getDataType().value();
-    if (dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble) {
+    if (isComplexType(dtype)) {
       // var of complex number is a real number, calculate real part and image
       // part
       WelfordResult real_part =
