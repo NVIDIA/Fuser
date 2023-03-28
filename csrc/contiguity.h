@@ -281,7 +281,7 @@ class ContigIDs : public OptInDispatch {
   const std::unordered_set<IterDomain*>& final_ids_;
   //! Mapping of concrete domains to indices. Just used to check if
   //! there's an index for an IterDomain.
-  const std::unordered_map<IterDomain*, Val*> index_map_;
+  const std::unordered_map<IterDomain*, Val*>& index_map_;
   // Divisible split information as we can still consider iter domains
   // contiguous through divisible splits.
   const std::unordered_set<Split*>& divisible_splits_;

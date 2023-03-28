@@ -239,7 +239,7 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
             " not currently supported in code generated kernels.");
     }
   } else {
-    int nDims = tensor.ndimension();
+    int nDims = (int)tensor.ndimension();
 
     c10::ScalarType dtype = tensor.scalar_type();
     std::unique_ptr<TensorArgAbstract> tensor_arg =
