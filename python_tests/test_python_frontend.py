@@ -45,7 +45,6 @@ def is_pre_volta():
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(TestCase):
-
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
@@ -1332,7 +1331,7 @@ class TestNvFuserFrontend(TestCase):
 
         assert len(nvf_out) == len(torch_out)
 
-        for (n, t) in zip(nvf_out, torch_out):
+        for n, t in zip(nvf_out, torch_out):
             self.assertEqual(n, t)
 
     def test_all_dim_var_mean(self):
@@ -1678,7 +1677,7 @@ class TestNvFuserFrontend(TestCase):
             n = nvf_out[i]
             i += 1
             torch_out = torch.nextafter(
-                torch.as_tensor(a, device='cuda'), torch.as_tensor(b, device='cuda')
+                torch.as_tensor(a, device="cuda"), torch.as_tensor(b, device="cuda")
             )
             self.assertEqual(n, torch_out)
 
