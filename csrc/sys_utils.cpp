@@ -30,8 +30,6 @@ std::string disassembleBinary(
   // Reference:
   // https://stackoverflow.com/a/3469651
   // https://linuxhint.com/dup2_system_call_c/
-  pid_t pid = fork();
-  TORCH_INTERNAL_ASSERT(pid != -1, err);
 
   constexpr int READ = 0, WRITE = 1;
   std::array<int, 2> cubin_pipe{-1, -1};
@@ -42,6 +40,9 @@ std::string disassembleBinary(
       pipe(cubin_pipe.data()) == 0 && pipe(disasm_pipe.data()) == 0 &&
           pipe(err_pipe.data()) == 0,
       err);
+
+  pid_t pid = fork();
+  TORCH_INTERNAL_ASSERT(pid != -1, err);
 
   if (pid) { // I am the parent
     // Parent only write cubin and read disasm, close unused pipe end

@@ -215,13 +215,13 @@ class TORCH_CUDA_CU_API TransformReplay {
 class TORCH_CUDA_CU_API TransformPropagator
     : public MaxRootDomainInfoSpanningTree::Propagator {
  protected:
-  std::unordered_map<TensorView*, size_t> replayed_pos_;
+  std::unordered_map<TensorView*, int> replayed_pos_;
 
  public:
   virtual void propagateC2P(TensorView* from, TensorView* to) override;
   virtual void propagateP2C(TensorView* from, TensorView* to) override;
   virtual void propagateSibling(TensorView* from, TensorView* to) override;
-  TransformPropagator(TensorView* from, int64_t pos = -1);
+  TransformPropagator(TensorView* from, int pos = -1);
 };
 
 struct TORCH_CUDA_CU_API MostInlinedTransformPropagator

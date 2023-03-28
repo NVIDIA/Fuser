@@ -989,7 +989,7 @@ bool validateDomain(TensorView* tv, TensorDomain* new_td) {
 } // namespace
 
 void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
-  int pos = (int)replayed_pos_.at(from);
+  int pos = replayed_pos_.at(from);
   // Note: [Using multiple TransformPropagators]
   // There are cases that we use multiple TransformPropagators along different
   // spanning trees with different references in the same fusion. Some of these
@@ -1030,7 +1030,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
-  int pos = (int)replayed_pos_.at(from);
+  int pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   int new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
@@ -1061,7 +1061,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
-  int pos = (int)replayed_pos_.at(from);
+  int pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1088,12 +1088,12 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   replayed_pos_[to] = pos;
 }
 
-TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
+TransformPropagator::TransformPropagator(TensorView* from, int pos) {
   if (pos < 0) {
-    pos += int64_t(from->nDims()) + 1;
+    pos += (int)from->nDims() + 1;
   }
   TORCH_CHECK(
-      pos >= 0 && pos <= (int64_t)from->nDims(),
+      pos >= 0 && pos <= (int)from->nDims(),
       "TransformPropagator called on an pos outside valid range.");
   replayed_pos_[from] = pos;
 }
