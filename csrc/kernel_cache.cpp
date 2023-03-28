@@ -472,7 +472,8 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 }
 
 // passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
+void FusionKernelRuntime::startAsyncCompile(
+    const KernelArgumentHolder& args_old) {
   // only single compilation is supported at this moment.
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
@@ -486,14 +487,17 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
   // for some reason I can't seem to move unique_lock and it keeps using copy.
   // auto compile_fusion = [args = std::move(args_old), lock =
   // std::move(unique_lock), this] () mutable {
-  auto compile_fusion = [args = std::move(args_old), this]() mutable {
+  //
+  // KernelArgumentHolder args_old is captured as const reference in lamda
+  // function
+  auto compile_fusion = [args = args_old, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 
     // locking mutex_ since we are touching executors_ during compilation.
     // c10::DeviceGuard dg(c10::Device(c10::DeviceType::CUDA,
     // args.getDeviceIndex())); CUDAGuard uses runtime API directly, which is
     // thread safe.
-    c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+    c10::cuda::CUDAGuard dg((int8_t)args.getDeviceIndex());
 
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
 
@@ -504,7 +508,7 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
         " inputs but expecting ",
         segmented_fusion_->inputs().size());
 
-    c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+    c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
     std::unordered_map<Val*, const ArgAbstract*> tensor_map;
     mapFusionInputsToArgs(tensor_map, args);
 
@@ -603,7 +607,7 @@ void FusionKernelRuntime::mapFusionInputsToArgs(
       // because we don't have a better place to hold them.
       auto rank = tensor_arg_abstract->getRank();
       for (const auto dim : c10::irange(rank)) {
-        args.push(tensor_arg_abstract->getSize(dim));
+        args.push(tensor_arg_abstract->getSize((int)dim));
         tensor_map.emplace(
             runtime_workspace_.group_extent_binding_order[extent_index++],
             args.back());
@@ -623,7 +627,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInput(
       " inputs but expecting ",
       segmented_fusion_->inputs().size());
 
-  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
 
   std::unordered_map<Val*, const ArgAbstract*> tensor_map;
   mapFusionInputsToArgs(tensor_map, args);
