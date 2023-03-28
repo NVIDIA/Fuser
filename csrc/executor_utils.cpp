@@ -447,7 +447,7 @@ void validateKernelOutputs(
   FUSER_PERF_SCOPE("executor_utils::ValidateKernelOutputs");
 
   TORCH_INTERNAL_ASSERT(
-      fusion->outputs().size() != 0,
+      !fusion->outputs().empty(),
       "Kernel should have at least one output tensor.");
 
   TORCH_INTERNAL_ASSERT(
@@ -778,7 +778,7 @@ void validateMisalignedVectorizedTensors(
 
   const auto& out_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (outputs.size() > 0) {
+  if (!outputs.empty()) {
     out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
     std::transform(
         out_misaligned_tensors_pos.begin(),
@@ -855,7 +855,7 @@ void bindInputForExprEvaluation(
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
-    if (root_domain.size() == 0) {
+    if (root_domain.empty()) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::CpuScalarTensor) ||
               (arg->isType(ArgType::Tensor) &&
@@ -873,8 +873,8 @@ void bindInputForExprEvaluation(
           "Something went wrong configuring launch. Inputs rank does not match.");
 
       for (const auto dim : c10::irange(root_domain.size())) {
-        const auto tensor_arg_size = tensor_arg_abstract->getSize(dim);
-        const auto tensor_arg_stride = tensor_arg_abstract->getStride(dim);
+        const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
+        const auto tensor_arg_stride = tensor_arg_abstract->getStride((int)dim);
         const auto extent = root_domain[dim]->extent();
         if (root_domain[dim]->hasExpandedExtent()) {
           TORCH_INTERNAL_ASSERT(
@@ -987,7 +987,7 @@ void dumpCompiledCodeToFile(
   std::cout << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
-  out.write(code.data(), code.size());
+  out.write(code.data(), (std::streamsize)code.size());
   out.close();
 }
 #endif
@@ -1015,14 +1015,14 @@ c10::optional<int> getMaxRegCount(
     cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
     cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
     int warp_size = prop->warpSize;
-    int num_warps = ceilDiv(opt_block_size.value(), warp_size);
+    int64_t num_warps = ceilDiv(opt_block_size.value(), warp_size);
 
     // warps could be distributed unevenly across partition
-    int max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
+    int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
     // registers are evenly distributed across partitions, partition with most
     // wraps determins the maximum register available per warp
     int max_reg_per_warp =
-        prop->regsPerBlock / num_partition / max_warps_per_sm_partition;
+        prop->regsPerBlock / num_partition / (int)max_warps_per_sm_partition;
     // clamp down to register allocation granularity at warp level
     int effective_max_reg_per_warp = max_reg_per_warp /
         reg_allocation_granularity * reg_allocation_granularity;
@@ -1102,7 +1102,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
   const std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<const char*> args = {
       "--std=c++17", compute.c_str(), "-default-device"};
 
@@ -1128,9 +1127,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
   const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
   std::string jit_opt_level = "-O";
 
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<CUjit_option> options;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<void*> option_vals;
   std::vector<char> info_log;
   unsigned int log_size = 8196;
@@ -1152,7 +1149,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
       option_vals.push_back((void*)info_log.data());
 
       options.push_back(CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES);
-      option_vals.push_back((void*)(long)log_size);
+      // NOLINTNEXTLINE(performance-no-int-to-ptr)
+      option_vals.push_back((void*)(intptr_t)log_size);
     }
   }
 
@@ -1171,6 +1169,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         args.push_back(jit_opt_level.c_str());
       } else {
         options.push_back(CU_JIT_OPTIMIZATION_LEVEL);
+        // NOLINTNEXTLINE(performance-no-int-to-ptr)
         option_vals.push_back((void*)(intptr_t)val);
       }
     } else {
@@ -1195,6 +1194,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     } else {
       // TODO: Why max register is set when compiled to PTX?
       options.push_back(CU_JIT_MAX_REGISTERS);
+      // NOLINTNEXTLINE(performance-no-int-to-ptr)
       option_vals.push_back((void*)(intptr_t)*max_register);
     }
   }
@@ -1251,7 +1251,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
       nvrtcAddNameExpression(program, func_name.c_str());
 
       const auto result =
-          nvrtcCompileProgram(program, args.size(), args.data());
+          nvrtcCompileProgram(program, (int)args.size(), args.data());
 
       size_t logsize = 0;
       nvrtcGetProgramLogSize(program, &logsize);
@@ -1296,7 +1296,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         auto optionArgs =
             getEnableOptionArguments(EnableOption::WarnRegisterSpill);
         int allowed_spill = 0;
-        if (optionArgs.size() > 0) {
+        if (!optionArgs.empty()) {
           try {
             allowed_spill = std::stoi(optionArgs[0]);
           } catch (const std::exception& e) {

@@ -354,7 +354,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
-  const ArgAbstract* operator[](int ind) const {
+  const ArgAbstract* operator[](size_t ind) const {
     return arguments_.at(ind).get();
   };
 

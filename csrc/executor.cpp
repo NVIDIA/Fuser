@@ -231,7 +231,8 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  options_.device =
+      c10::Device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -445,8 +446,8 @@ at::Tensor inferAndAlloc(
         ") for the buffer ",
         tv->toString());
     inferred_sizes.push_back(inferred_val->as<int64_t>());
-    if (expanded_map.count(expanded_sizes.size())) {
-      auto expanded_size = expanded_map.at(expanded_sizes.size());
+    if (expanded_map.count((int)expanded_sizes.size())) {
+      auto expanded_size = expanded_map.at((int)expanded_sizes.size());
       const auto inferred_expanded_size = expr_eval.evaluate(expanded_size);
       TORCH_INTERNAL_ASSERT(
           inferred_expanded_size.has_value(),
@@ -514,7 +515,7 @@ at::Tensor inferAndAllocOutput(
     }
     sizes.push_back(id->extent());
     if (id->isBroadcast() && id->hasExpandedExtent()) {
-      expand_map[sizes.size() - 1] = id->expandedExtent();
+      expand_map[(int)sizes.size() - 1] = id->expandedExtent();
     }
   }
   return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
@@ -542,7 +543,7 @@ uint64_t FusionExecutor::computeSharedMemory(
 #else
           const int align_size = 8; // see codegen.cpp for HIP
 #endif
-          total = ceilDiv(total, align_size) * align_size;
+          total = ceilDiv((int64_t)total, align_size) * align_size;
         }
         total += inferred_val->as<int64_t>() * data_size;
       } else {
@@ -773,7 +774,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
         device_smem_limit_);
   }
 
-  launch_params.setSmem(dynamic_smem_size);
+  launch_params.setSmem((int64_t)dynamic_smem_size);
 
   return launch_params;
 }
@@ -835,7 +836,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
     if (kernel->outputs()[out_i]->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
-      c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+      c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(at::empty({0}, tensor_options));
@@ -844,7 +845,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count(out_i) != 0) {
+      if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output, just push empty
         // tensor here.
         outputs.emplace_back();
@@ -901,7 +902,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count(out_i) != 0) {
+      if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output
         // but we still need to push an entry here.
         ret.push(int64_t(0));
@@ -1267,7 +1268,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // binded but is not generally how we handle that in scheduler.
       // Refer to `Philox` in generated kernel to understand how the mapping
       // works.
-      rand_offset = (kernel()->summary().max_rng_offsets + 1) * 4;
+      rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
     }
 
     // This is the entry when we have provided `opt_code` but the entry has not
@@ -1399,12 +1400,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       if (auto tensor_arg_abstract =
               dynamic_cast<const TensorArgAbstract*>(args[i])) {
         bytes_processed_ += tensor_arg_abstract->numel() *
-            dataTypeSize(tensor_arg_abstract->getDataType());
+            (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
       }
     }
     for (const auto& output : allocated_outputs) {
       bytes_processed_ += output.numel() *
-          dataTypeSize(aten_to_data_type(output.scalar_type()));
+          (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
     }
 
     if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
