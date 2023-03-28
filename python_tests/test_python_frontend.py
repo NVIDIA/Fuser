@@ -43,9 +43,10 @@ def is_pre_volta():
 
 def serde_check(test_fn: Callable):
     """
-        A decorator to verify that serialization works with the given exec_nvfuser function.
-        Currently, it uses serialization to rebuild the FusionCache structure.
+    A decorator to verify that serialization works with the given exec_nvfuser function.
+    Currently, it uses serialization to rebuild the FusionCache structure.
     """
+
     def inner(*args, **kwargs):
         self, fusion_func, inputs = args
         # Deep copy inputs because when a fusion output aliases an input, it will change the input value for the
@@ -72,6 +73,7 @@ def serde_check(test_fn: Callable):
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
         return test_fn(self, fusion_func, inputs_copy, **kwargs)
+
     return inner
 
 
@@ -1866,7 +1868,7 @@ class TestNvFuserFrontend(TestCase):
         def check_start_indices(fd: FusionDefinition, acts) -> None:
             T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(
-                T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[1, 1]
+                T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[7, 7]
             )
             fd.add_output(T1)
 
@@ -1912,6 +1914,11 @@ class TestNvFuserFrontend(TestCase):
             )
             fd.add_output(T1)
 
+        def check_nostrides(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(T0, start_indices=[2, 2], end_indices=[4, 4])
+            fd.add_output(T1)
+
         # TODO: Currently, this check fails to produce a zero-element tensor whne the tensor
         # is smaller than the index range of the slize.  Therefore, it is disabled.
         # Issue: https://github.com/NVIDIA/Fuser/issues/52
@@ -1941,7 +1948,7 @@ class TestNvFuserFrontend(TestCase):
             ),
             (
                 check_slice_dims_start,
-                "Number of tensor dimensions does not match slice dimensions! .*",
+                "Slice start_indices and strides don't match! .*",
             ),
             (
                 check_slice_dims_end,
@@ -1949,22 +1956,30 @@ class TestNvFuserFrontend(TestCase):
             ),
             (
                 check_slice_dims_stride,
-                "Slice indexing attribute dimensions don't match! .*",
+                "Slice start_indices and strides don't match! .*",
             ),
+            (check_nostrides, None),
             # (legal, None),
         ]
 
+        first_check = True
         for inp in inputs:
             for check, error in checks:
                 if error is None:
-                    out = self.exec_nvfuser(partial(check, acts=inp), inp)
+                    # First check is here on legel fusions since the second time
+                    # through they should already be cached
+                    out = self.exec_nvfuser(
+                        partial(check, acts=inp), inp, new_fusion_expected=first_check
+                    )
                 else:
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
-                        partial(self.exec_nvfuser, partial(check, acts=inp)),
+                        self.exec_nvfuser,
+                        partial(check, acts=inp),
                         inp,
                     )
+            first_check = False
 
 
 if __name__ == "__main__":

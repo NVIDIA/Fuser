@@ -53,7 +53,7 @@ struct Record {
 class NoOpLogger {
  public:
   NoOpLogger(Val*) {}
-  virtual ~NoOpLogger() {}
+  virtual ~NoOpLogger() = default;
   virtual void record(const char*, Val*) {}
 };
 
@@ -93,7 +93,7 @@ class Logger : public NoOpLogger {
   Logger(Val* value)
       : NoOpLogger(value), init_val_(value), current_val_(value) {}
 
-  virtual ~Logger() override {
+  ~Logger() override {
     if (!shouldPrint()) {
       return;
     }
@@ -113,7 +113,7 @@ class Logger : public NoOpLogger {
               << std::endl;
   }
 
-  virtual void record(const char* name, Val* value) override {
+  void record(const char* name, Val* value) override {
     if (value->sameAs(current_val_)) {
       return;
     } else {
@@ -478,7 +478,6 @@ bool isIdentity(Val* v, BinaryOpType type) {
     case BinaryOpType::And:
       return v->getBool() == true;
     case BinaryOpType::Or:
-      return v->getBool() == false;
     case BinaryOpType::Xor:
       return v->getBool() == false;
     default:
@@ -542,7 +541,7 @@ class FlattenedAssocCommOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     switch (getOpType()) {
       case BinaryOpType::Add:
         return "FlattenedAdd";
@@ -992,16 +991,14 @@ Val* divideFactorized(Val* x, Val* y) {
   auto x_factors = getConstAndSymbolicFactors(x);
   auto y_factors = getConstAndSymbolicFactors(y);
 
-  int64_t quoient_const_factor;
-  std::vector<Val*> quoient_symbolic_factors;
-
   if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
     // not divisible
     return nullptr;
-  } else {
-    quoient_const_factor =
-        *x_factors.first->getInt() / *y_factors.first->getInt();
   }
+  int64_t quoient_const_factor =
+      *x_factors.first->getInt() / *y_factors.first->getInt();
+
+  std::vector<Val*> quotient_symbolic_factors;
 
   for (auto yf : y_factors.second) {
     auto it = std::find_if(
@@ -1014,8 +1011,8 @@ Val* divideFactorized(Val* x, Val* y) {
     }
     x_factors.second.erase(it);
   }
-  quoient_symbolic_factors.insert(
-      quoient_symbolic_factors.end(),
+  quotient_symbolic_factors.insert(
+      quotient_symbolic_factors.end(),
       x_factors.second.begin(),
       x_factors.second.end());
   return productOfFactors(
@@ -1024,7 +1021,7 @@ Val* divideFactorized(Val* x, Val* y) {
           promoteType(
               *x_factors.first->getDataType(),
               *y_factors.first->getDataType())),
-      std::move(quoient_symbolic_factors));
+      std::move(quotient_symbolic_factors));
 }
 
 // Symbolic gcd, for example: greatestCommonDivisor({6*a*b, 9*b*c}) -> 3*b
@@ -1600,10 +1597,12 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   if (!value->isABool()) {
     return value;
   }
+
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
   if (!bop) {
     return value;
   }
+
   auto op = bop->getBinaryOpType();
   auto lhs = bop->lhs();
   auto rhs = bop->rhs();
@@ -2104,7 +2103,7 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
 
   Val* lhs = nullptr;
   Val* rhs = nullptr;
-  if (new_lhs.size() == 0) {
+  if (new_lhs.empty()) {
     lhs = IrBuilder::newConstant(0, ltype);
   } else if (new_lhs.size() == 1) {
     lhs = new_lhs.at(0);
@@ -2112,7 +2111,7 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
     lhs = IrBuilder::newScalar(ltype);
     IrBuilder::create<FOp>(BinaryOpType::Add, lhs, std::move(new_lhs));
   }
-  if (new_rhs.size() == 0) {
+  if (new_rhs.empty()) {
     rhs = IrBuilder::newConstant(0, rtype);
   } else if (new_rhs.size() == 1) {
     rhs = new_rhs.at(0);
@@ -2165,8 +2164,8 @@ Val* fundamentalDivisionWithRemainderProperty(
           }
           other_terms.emplace_back(fmul->input(k));
         }
-        Val* c;
-        if (other_terms.size() == 0) {
+        Val* c = nullptr;
+        if (other_terms.empty()) {
           continue;
         } else if (other_terms.size() == 1) {
           c = other_terms.at(0);
@@ -2179,7 +2178,7 @@ Val* fundamentalDivisionWithRemainderProperty(
             !isIntegralType(*c->getDataType())) {
           continue;
         }
-        result.push_back(std::make_tuple(a, b, c));
+        result.emplace_back(a, b, c);
       }
     }
     return result;
@@ -2192,7 +2191,7 @@ Val* fundamentalDivisionWithRemainderProperty(
       continue;
     }
     for (auto& [a, b, bc] : get_a_op_b_mul_c(BinaryOpType::Div, vadd)) {
-      divmuls.push_back(std::make_tuple(i, a, b, bc));
+      divmuls.emplace_back(i, a, b, bc);
     }
   }
   // Find a % b or a % b * c
@@ -2208,14 +2207,14 @@ Val* fundamentalDivisionWithRemainderProperty(
           !isIntegralType(*bop->rhs()->getDataType())) {
         continue;
       }
-      modmuls.push_back(std::make_tuple(
+      modmuls.emplace_back(
           i,
           bop->lhs(),
           bop->rhs(),
-          IrBuilder::newConstant(1, *vadd->getDataType())));
+          IrBuilder::newConstant(1, *vadd->getDataType()));
     }
     for (auto& [a, b, c] : get_a_op_b_mul_c(BinaryOpType::Mod, vadd)) {
-      modmuls.push_back(std::make_tuple(i, a, b, c));
+      modmuls.emplace_back(i, a, b, c);
     }
   }
   // Find matching divmul and modmul
