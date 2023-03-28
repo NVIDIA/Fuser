@@ -74,7 +74,7 @@ class MatmulParam {
   //!
   //! Eg for swizzle_factor=2:
   //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
-  //!    A2 A3 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
+  //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
   int swizzle_factor = 1;
