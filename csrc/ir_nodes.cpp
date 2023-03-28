@@ -976,7 +976,7 @@ std::string GroupedReductionOp::toInlineString(int indent_size) const {
 int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
   auto it = std::find(outputs().begin(), outputs().end(), output_val);
   if (it != outputs().end()) {
-    return std::distance(outputs().begin(), it);
+    return (int)std::distance(outputs().begin(), it);
   }
 
   TORCH_INTERNAL_ASSERT(
@@ -989,7 +989,7 @@ c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
-    return indexToValName(std::distance(begin(), it));
+    return indexToValName((int)std::distance(begin(), it));
   }
 
   return c10::optional<WelfordTriplet::ValName>();
@@ -1311,7 +1311,7 @@ std::string GroupedWelfordOp::toInlineString(int indent_size) const {
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
   for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
-      return expr_idx;
+      return (int)expr_idx;
     }
   }
 
@@ -1447,8 +1447,8 @@ std::string TransposeOp::toInlineString(int indent_size) const {
 std::vector<int64_t> TransposeOp::old2new() const {
   std::vector<int64_t> old2new(new2old().size());
   for (auto new_axis : c10::irange(new2old().size())) {
-    auto old_axis = new2old().at(new_axis);
-    old2new[old_axis] = new_axis;
+    int old_axis = (int)new2old().at(new_axis);
+    old2new[old_axis] = (int64_t)new_axis;
   }
   return old2new;
 }
@@ -1603,13 +1603,13 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int GatherOp::gatherAxis(int axis) const {
+size_t GatherOp::gatherAxis(size_t axis) const {
   if (axis < 0) {
     axis += out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int)windowShape().size(), "Invalid axis: ", axis);
-  return int(windowShape().size()) + axis;
+      axis >= 0 && axis < windowShape().size(), "Invalid axis: ", axis);
+  return windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
@@ -2466,7 +2466,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   }
 
   for (const auto i : c10::irange(nDims())) {
-    if (!(axis(i)->sameAs(other_td->axis(i)))) {
+    if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
       return false;
     }
   }
@@ -2593,7 +2593,7 @@ IterDomain* TensorDomain::axis(int i) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim domain");
   if (i < 0) {
-    i += nDims();
+    i += (int)nDims();
   }
   TORCH_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
@@ -2617,7 +2617,7 @@ size_t TensorDomain::posOf(IterDomain* id) const {
 
 size_t TensorDomain::rootPosOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(
-      root_domain_.size() > 0, "Tried to find an axis in a 0-dim root domain");
+      !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
   TORCH_INTERNAL_ASSERT(
       it != root_domain_.end(), "Provided id is not part of root domain.");
@@ -2631,7 +2631,7 @@ void TensorDomain::split(
     bool trim_out_of_bounds) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
-    axis_ += nDims();
+    axis_ += (int)nDims();
 
   TORCH_INTERNAL_ASSERT(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
@@ -2663,10 +2663,10 @@ void TensorDomain::split(
 void TensorDomain::merge(int axis_o, int axis_i) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
   if (axis_o < 0)
-    axis_o += nDims();
+    axis_o += (int)nDims();
 
   if (axis_i < 0)
-    axis_i += nDims();
+    axis_i += (int)nDims();
 
   TORCH_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
@@ -2701,8 +2701,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 // Reorder axes according to map[old_pos] = new_pos
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(nDims() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   domain_ = orderedAs(domain_, old2new_);
   resetDomains();
 }
@@ -2711,8 +2710,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
     const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(dom.size() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
@@ -2791,9 +2789,9 @@ std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.push_back(c10::nullopt);
+      contiguity.emplace_back(c10::nullopt);
     } else {
-      contiguity.push_back(fill_value);
+      contiguity.emplace_back(fill_value);
     }
   }
   return contiguity;
@@ -2826,10 +2824,10 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   auto inp_domain = noReductions(getMaybeRFactorDomain());
 
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
       start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
@@ -3196,12 +3194,12 @@ std::vector<int> PadOp::getPaddedAxes() const {
   auto num_dims = out()->as<TensorView>()->getRootDomain().size();
   std::vector<int> padded_axes;
   for (const auto i : c10::irange(num_dims)) {
-    auto [left_pad, right_pad] = getPadWidths(i);
+    auto [left_pad, right_pad] = getPadWidths((int)i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
       continue;
     }
-    padded_axes.push_back(i);
+    padded_axes.push_back((int)i);
   }
   return padded_axes;
 }
@@ -3210,9 +3208,8 @@ std::vector<Val*> PadOp::getPadWidths() const {
   return {getPadWidthInputBegin(), getPadWidthInputEnd()};
 }
 
-std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
-  const auto num_dims =
-      static_cast<int>(out()->as<TensorView>()->getRootDomain().size());
+std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
+  auto num_dims = (int64_t)out()->as<TensorView>()->getRootDomain().size();
 
   if (axis < 0) {
     axis += num_dims;
@@ -3359,7 +3356,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  TORCH_INTERNAL_ASSERT(attributes().size() > 0, "No attribute found");
+  TORCH_INTERNAL_ASSERT(!attributes().empty(), "No attribute found");
   TORCH_INTERNAL_ASSERT(
       attribute(1) != nullptr, "nulllptr attribute is invalid");
   auto idx = attribute(1)->as<Val>();

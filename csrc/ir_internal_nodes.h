@@ -1244,7 +1244,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
   }
 
   //! Returns the gather axis that corresponds to an input axis
-  int gatherAxis(int axis) const;
+  size_t gatherAxis(size_t axis) const;
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
@@ -2259,7 +2259,7 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int axis) const;
+  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
