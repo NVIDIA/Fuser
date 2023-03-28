@@ -425,9 +425,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   bool pad_bdimx = bdimx > 16 &&
       padded_bdimx * bdimy * bdimz < (int64_t)dev_prop->maxThreadsPerBlock;
 
-  pad_bdimx = pad_bdimx &&
-      bdimx * inner_reduction_unroll_factor != inner_most_dimension_numel;
-
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
   // usage register per thread is estimated as overhead + buffer_size /
@@ -1157,6 +1154,8 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
   TORCH_INTERNAL_ASSERT(reduction_tvs.size());
@@ -1226,6 +1225,9 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
       persistent_buffer->computeWith(-1, true);
     }
   }
+
+  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
+      fusion, cached_inputs);
 }
 
 } // namespace nvfuser

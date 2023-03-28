@@ -24,18 +24,27 @@
 namespace nvfuser {
 
 Val* castOp(DataType dtype, Val* v1) {
-  if (v1->getDataType().value() == dtype) {
+  auto orig_dtype = v1->getDataType().value();
+  if (dtype == orig_dtype) {
     return set(v1);
   }
 
-  if (cast_func_str(std::make_pair(v1->getDataType().value(), dtype)) ==
-      c10::nullopt) {
+  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == c10::nullopt) {
     TORCH_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
-        v1->getDataType().value(),
+        orig_dtype,
         " to DataType: ",
         dtype);
+  }
+
+  if (isComplexType(orig_dtype) && !isComplexType(dtype)) {
+    TORCH_WARN(
+        "Casting from ",
+        orig_dtype,
+        " to ",
+        dtype,
+        " discards the imaginary part.");
   }
 
   Val* out = ops::newValLike(v1, dtype);
@@ -552,10 +561,12 @@ TensorView* eye(Val* size, DataType dtype) {
 
 // UNARY OPERATIONS
 
-#define NVFUSER_DEFINE_UNARY_OP(op_name, op_type)                   \
-  Val* op_name(Val* v) { return unaryOp(UnaryOpType::op_type, v); } \
-  TensorView* op_name(TensorView* tv) {                             \
-    return unaryOp(UnaryOpType::op_type, tv);                       \
+#define NVFUSER_DEFINE_UNARY_OP(op_name, op_type) \
+  Val* op_name(Val* v) {                          \
+    return unaryOp(UnaryOpType::op_type, v);      \
+  }                                               \
+  TensorView* op_name(TensorView* tv) {           \
+    return unaryOp(UnaryOpType::op_type, tv);     \
   }
 
 NVFUSER_DEFINE_UNARY_OP(set, Set)
@@ -686,10 +697,12 @@ NVFUSER_DEFINE_UNARY_FLOAT_OP(tan, Tan)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(tanh, Tanh)
 #undef NVFUSER_DEFINE_UNARY_FLOAT_OP
 
-#define NVFUSER_DEFINE_UNARY_IS_OP(op_name, op_type)                  \
-  Val* op_name(Val* v) { return unaryIsOp(UnaryOpType::op_type, v); } \
-  TensorView* op_name(TensorView* tv) {                               \
-    return unaryIsOp(UnaryOpType::op_type, tv);                       \
+#define NVFUSER_DEFINE_UNARY_IS_OP(op_name, op_type) \
+  Val* op_name(Val* v) {                             \
+    return unaryIsOp(UnaryOpType::op_type, v);       \
+  }                                                  \
+  TensorView* op_name(TensorView* tv) {              \
+    return unaryIsOp(UnaryOpType::op_type, tv);      \
   }
 
 NVFUSER_DEFINE_UNARY_IS_OP(isfinite, IsFinite)
@@ -764,7 +777,7 @@ DataType getOutputType(
   if (isLogicalOp(op_type)) {
     return DataType::Bool;
   } else if (common_dtype == DataType::Null) {
-    return promote_type(v1->getDataType().value(), v2->getDataType().value());
+    return promoteType(v1->getDataType().value(), v2->getDataType().value());
   } else {
     return common_dtype;
   }
@@ -775,7 +788,7 @@ DataType getOutputType(
 Val* binaryOp(BinaryOpType type, Val* v1, Val* v2, DataType common_dtype) {
   const auto out_dtype = getOutputType(type, v1, v2, common_dtype);
   const auto out_vtype =
-      promote_type(v1->getValType().value(), v2->getValType().value());
+      promoteType(v1->getValType().value(), v2->getValType().value());
   auto vals = ops::maybeBroadcast({v1, v2});
   Val* out = nullptr;
   if (out_vtype == ValType::TensorView) {
@@ -1831,9 +1844,9 @@ Val* lerp(Val* start, Val* end, Val* weight) {
   weight = cast_values[2];
 
   auto out_dtype =
-      promote_type(start->getDataType().value(), end->getDataType().value());
+      promoteType(start->getDataType().value(), end->getDataType().value());
   auto out_vtype =
-      promote_type(start->getValType().value(), end->getValType().value());
+      promoteType(start->getValType().value(), end->getValType().value());
 
   auto vals = ops::maybeBroadcast({start, end, weight});
   Val* out = nullptr;
@@ -1924,7 +1937,7 @@ Val* where(Val* c, Val* v1, Val* v2) {
   TORCH_CHECK(c->getDataType().value() == DataType::Bool);
   auto out_dtype = common_dtype;
   auto out_vtype =
-      promote_type(v1->getValType().value(), v2->getValType().value());
+      promoteType(v1->getValType().value(), v2->getValType().value());
   // Even when v1 and v2 are scalar, the output is a tensor if the
   // conditional input is a tensor.
   if (c->getValType() == ValType::TensorView) {

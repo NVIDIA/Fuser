@@ -1472,6 +1472,23 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
       bool inner_split,
       bool trim_out_of_bounds);
 
+  //! Resize an IterDomain by expanding both the left and right sides
+  //! by given widths. The resulting IterDomain has an extent of
+  //! (left_expansion + in->extent() + right_expansion). Note that the
+  //! expansion factors can be negative, meaning the input IterDomain
+  //! is shrunk. This is the case when resize is used to represent
+  //! slice.
+  //!
+  //! When mark_as_rfactor is true, the output IterDomain
+  //! is marked as an rfactor domain. For example, expressions such as
+  //! PadOp and SliceOp resize IterDomains and generate rfactor
+  //! resized domains.
+  static IterDomain* resize(
+      IterDomain* in,
+      Val* left_expansion,
+      Val* right_expansion,
+      bool mark_as_rfactor = false);
+
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
   }
@@ -1615,11 +1632,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! domain.
   std::pair<IterDomain*, IterDomain*> stridedSplit(int factor);
 
-  // TODO: Remove
-  bool isSimple() const {
-    return definition() == nullptr;
-  }
-
   //! Marks that this id represents a
   //!  instruction loop, mma use only.
   //!
@@ -1702,10 +1714,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   c10::optional<int64_t> padded_to_size_ = c10::nullopt;
-
-  // TODO: Remove only used in kernel IR because IterDomains don't maintain
-  // definitions of split/merge.
-  bool is_simple_ = true;
 
   //! Tracks if this id represents a thread swizzled loop or
   //!   models an implicit loop within instructions. Should not make
@@ -2112,6 +2120,46 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
   }
 };
 
+//! IterDomain expression to resize
+class TORCH_CUDA_CU_API Resize : public Expr {
+ public:
+  using Expr::Expr;
+
+  // Expand the input domain by left_expand and right_expand for each
+  // of the start and end sides, respectively
+  Resize(
+      IrBuilderPasskey,
+      IterDomain* out,
+      IterDomain* in,
+      Val* left_expand,
+      Val* right_expand);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  virtual const char* getOpString() const override {
+    return "Resize";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  IterDomain* out() const {
+    return output(0)->as<IterDomain>();
+  }
+
+  IterDomain* in() const {
+    return input(0)->as<IterDomain>();
+  }
+
+  Val* leftExpand() const {
+    return attributeVal(0);
+  }
+
+  Val* rightExpand() const {
+    return attributeVal(1);
+  }
+};
+
 //! Integer value which has a special name
 //!
 //! These could be:
@@ -2166,6 +2214,168 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
  private:
   std::string name_;
+};
+
+class TORCH_CUDA_CU_API PadOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  //! Pad a tensor as specified by a vector of integer scalars. For
+  //! the actual semantics, see the torch.pad documentation. Note that
+  //! unlike torch.pad, the pad_widths vector parameter must contain
+  //! width vals for all dimensions. For non-padded dimensions, width
+  //! vals should be integer zero.
+  PadOp(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* inp,
+      const std::vector<Val*>& pad_widths,
+      Val* value);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  virtual const char* getOpString() const override {
+    return "PadOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  Val* value() const {
+    return input(1);
+  }
+
+  //! Return axes that are actually paded, i.e., those that have
+  //! non-zero pad widths
+  std::vector<int> getPaddedAxes() const;
+
+  //! Return pad widths of the given axis, which are just zero for non padded
+  //! dimensions
+  std::pair<Val*, Val*> getPadWidths(int axis) const;
+
+  //! Return the pad widths of all dimensions, including non-padded ones
+  std::vector<Val*> getPadWidths() const;
+
+ private:
+  //! Offset of pad_width inputs in the input vector
+  int getPadWidthInputOffset() const {
+    return 2;
+  }
+
+  //! Iterator to the first pad_width input
+  auto getPadWidthInputBegin() const {
+    return inputs().cbegin() + getPadWidthInputOffset();
+  }
+
+  //! Iterator to the end of the pad_width inputs
+  auto getPadWidthInputEnd() const {
+    return inputs().cend();
+  }
+};
+
+// Similar to at::indexing::Slice
+struct Slice {
+  Val* start = nullptr;
+  Val* stop = nullptr;
+  Val* step = nullptr;
+};
+
+class TORCH_CUDA_CU_API SliceOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SliceOp(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* inp,
+      const std::vector<Slice>& ranges);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  virtual const char* getOpString() const override {
+    return "SliceOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  std::vector<Slice> getRanges() const;
+
+ private:
+  //! Offset of ranges input in the input vector
+  int getRangeInputOffset() const {
+    return 1;
+  }
+
+  //! Iterator to the first range inputs
+  auto getRangeInputBegin() const {
+    return inputs().cbegin() + getRangeInputOffset();
+  }
+
+  //! Iterator to the end of the range inputs
+  auto getRangeInputEnd() const {
+    return inputs().cend();
+  }
+};
+
+class TORCH_CUDA_CU_API CatOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  CatOp(
+      IrBuilderPasskey passkey,
+      Val* out,
+      const std::vector<Val*>& inputs,
+      int concatenated_dim);
+
+  //! Create a cat op with the index and predicates for codegen. Only
+  //! used for the Kernel container
+  CatOp(
+      IrBuilderPasskey passkey,
+      Val* out,
+      const std::vector<Val*>& inputs,
+      int concatenated_dim,
+      Val* concatenated_domain_index,
+      const std::vector<Bool*>& preds);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  virtual const char* getOpString() const override {
+    return "CatOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  int concatenatedDim() const {
+    return attribute(0)->as<Attribute<int>>()->value;
+  }
+
+  //! The index val that determines which input tensor should be used
+  //! to fill the particular output position of this expression. Only
+  //! valid after indexing
+  Val* getConcatenatedDomainIndex() const;
+
+  //! Gets a Bool indicating if the input tensor specified by
+  //! tensor_idx should be used to fill the output tensor. Only valid
+  //! with the Kernel container
+  Bool* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser

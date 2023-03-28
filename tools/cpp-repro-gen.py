@@ -34,7 +34,7 @@ def replace_name(name: str):
     elif name.startswith("S"):
         return f"s{name[1:]}"
     elif name.startswith(ops_prefix):
-        op = name[len(ops_prefix):]
+        op = name[len(ops_prefix) :]
         if is_aten:
             return "at::" + op
         else:
@@ -159,17 +159,29 @@ def handle_call(l: ast.Call):
             result = ast.Call(ast.Name("at::randn"), [sizes, ast.Name("options")], [])
             if dtype != "DataType.Float":
                 to = ast.Attribute(result, "to")
-                result = ast.Call(to, [ast.Name(dtype.replace("DataType.", "ScalarType::"))], [])
+                result = ast.Call(
+                    to, [ast.Name(dtype.replace("DataType.", "ScalarType::"))], []
+                )
             if "false" in contiguous.id:
                 contig = ast.Attribute(result, "set_contiguous")
                 result = ast.Call(contig, [contiguous], [])
             return result
         else:
             builder = ast.Name("TensorViewBuilder()")
-            ndims_call = ast.Call(ast.Attribute(builder, "ndims"), [ast.Constant(ndims)], [])
-            shape_call = ast.Call(ast.Attribute(ndims_call, "shape"), [symbolic_sizes], [])
-            contig_call = ast.Call(ast.Attribute(shape_call, "contiguity"), [contiguous], [])
-            dtype_call = ast.Call(ast.Attribute(contig_call, "dtype"), [ast.Name(dtype.replace(".", "::"))], [])
+            ndims_call = ast.Call(
+                ast.Attribute(builder, "ndims"), [ast.Constant(ndims)], []
+            )
+            shape_call = ast.Call(
+                ast.Attribute(ndims_call, "shape"), [symbolic_sizes], []
+            )
+            contig_call = ast.Call(
+                ast.Attribute(shape_call, "contiguity"), [contiguous], []
+            )
+            dtype_call = ast.Call(
+                ast.Attribute(contig_call, "dtype"),
+                [ast.Name(dtype.replace(".", "::"))],
+                [],
+            )
             build_call = ast.Call(ast.Attribute(dtype_call, "build"), [], [])
             return build_call
     elif func.id == "broadcast_in_dim" or func.id == "at::broadcast_in_dim":
@@ -196,12 +208,24 @@ def handle_call(l: ast.Call):
             result = args[0]
             for i, b in enumerate(is_broadcast):
                 if b:
-                    result = ast.Call(ast.Attribute(result, "unsqueeze"), [ast.Constant(i)], [])
-            result = ast.Call(ast.Attribute(result, "expand"), [list2vector(output_shape)], [])
+                    result = ast.Call(
+                        ast.Attribute(result, "unsqueeze"), [ast.Constant(i)], []
+                    )
+            result = ast.Call(
+                ast.Attribute(result, "expand"), [list2vector(output_shape)], []
+            )
         else:
-            result = ast.Call(ast.Name("broadcast"), [args[0], list2vector(is_broadcast)], [])
-            result = ast.Call(ast.Name("expand"), [result, list2vector(
-                [f"IrBuilder::create<Int>({x})" for x in output_shape])], [])
+            result = ast.Call(
+                ast.Name("broadcast"), [args[0], list2vector(is_broadcast)], []
+            )
+            result = ast.Call(
+                ast.Name("expand"),
+                [
+                    result,
+                    list2vector([f"IrBuilder::create<Int>({x})" for x in output_shape]),
+                ],
+                [],
+            )
 
         return result
     elif func.id == "at::var_mean" or func.id == "variance_mean":
@@ -248,7 +272,10 @@ def handle(l):
                 value = ast.Call(ast.Name(f"std::get<{i}>"), [tuple_name], [])
                 result.append(ast.Assign([n], value))
             return result
-        is_define_tensor = isinstance(l.value, ast.Call) and ast.unparse(l.value.func) == "fd.define_tensor"
+        is_define_tensor = (
+            isinstance(l.value, ast.Call)
+            and ast.unparse(l.value.func) == "fd.define_tensor"
+        )
         if is_define_tensor:
             if is_aten:
                 func = "inputs.push_back"

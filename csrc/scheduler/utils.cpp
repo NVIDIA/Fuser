@@ -13,8 +13,10 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
+#include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
+#include <transform_iter.h>
 #include <transform_replay.h>
 
 #include <algorithm>
@@ -253,7 +255,8 @@ void parallelizeAllLike(
   const auto& reference_dom = reference_tv->domain()->domain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
-    auto ca_id = ca_map.getConcreteMappedID(*it, IdMappingMode::PERMISSIVE);
+    auto ca_id =
+        ca_map.getConcreteMappedID(*it, IdMappingMode::PERMISSIVE_RESIZE);
     concrete_to_reference_map[ca_id] = *it;
   }
 
@@ -265,8 +268,8 @@ void parallelizeAllLike(
       continue;
     }
     for (const auto i : c10::irange(tv->domain()->domain().size())) {
-      auto ca_id =
-          ca_map.getConcreteMappedID(tv->axis(i), IdMappingMode::PERMISSIVE);
+      auto ca_id = ca_map.getConcreteMappedID(
+          tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
@@ -953,6 +956,25 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
   return view_tvs;
 }
 
+std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
+  std::vector<TensorView*> tvs_with_rfactor;
+  auto fusion_vals = fusion->usedMathVals();
+  std::copy_if(
+      ir_utils::filterByType<TensorView>(fusion_vals).begin(),
+      ir_utils::filterByType<TensorView>(fusion_vals).end(),
+      std::back_inserter(tvs_with_rfactor),
+      [](TensorView* tv) {
+        return tv->hasRFactor() &&
+            std::none_of(
+                   tv->getMaybeRFactorDomain().begin(),
+                   tv->getMaybeRFactorDomain().end(),
+                   [](auto id) {
+                     return id->isReduction() && id->isRFactorProduct();
+                   });
+      });
+  return tvs_with_rfactor;
+}
+
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
@@ -1036,7 +1058,8 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprs(tv->fusion(), {reference_id}, false);
+  auto replay_exprs =
+      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1064,6 +1087,11 @@ IterDomain* projectIdToRoot(
         } else {
           projected_id = split->in();
         }
+      }
+    } else if (expr->isA<Resize>()) {
+      auto resize = expr->as<Resize>();
+      if (resize->out() == projected_id) {
+        projected_id = resize->in();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1118,6 +1146,11 @@ IterDomain* projectIdToRFactor(
       auto split = expr->as<Split>();
       if (split->in() == projected_id) {
         projected_id = split->inner();
+      }
+    } else if (expr->isA<Resize>()) {
+      auto resize = expr->as<Resize>();
+      if (resize->in() == projected_id) {
+        projected_id = resize->out();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1338,21 +1371,10 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   return vectorizable_tensors;
 }
 
-// Returns disjoint view sets mapped onto the given reference. Returns a pair
-// of vectors of size rfactorDomain of reference. Vector of
-// VectorOfUniqueEntries returns a const* to the disjoint set in
-// disjoint_view_set the iterdomain is mapped to. Integer vector represents
-// which disjoint view group the rfactor id belongs to. It's straight forward
-// to map from the former to the latter, but not the latter to former.
-//
-// Since we return a const* to entries in disjoint_view_set, it must be passed
-// in as a reference. Algorithm is N^2 based on number of dims in reference,
-// but generating the disjoint view set is likely the limiter on perf of this
-// function.
-DisjointViewSetInfo getDisjointViewSetsOf(
+DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_view_set) {
+    DisjointSets<IterDomain*>& disjoint_rfactor_set) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
   if (rfactor_dom.size() == 0) {
     return {};
@@ -1376,12 +1398,12 @@ DisjointViewSetInfo getDisjointViewSetsOf(
     }
 
     const auto& ref_group =
-        disjoint_view_set.getDisjointSetOf(rfactor_dom[ref_dim_i]);
+        disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[ref_dim_i]);
 
     int other_dim_i = ref_dim_i;
     while (other_dim_i >= 0) {
       const auto& other_group =
-          disjoint_view_set.getDisjointSetOf(rfactor_dom[other_dim_i]);
+          disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[other_dim_i]);
       if (&ref_group == &other_group) {
         disjoint_group_ids[other_dim_i] = current_group_id;
         disjoint_set_of_id[other_dim_i] = &ref_group;
@@ -1398,7 +1420,7 @@ DisjointViewSetInfo getDisjointViewSetsOf(
           disjoint_group_ids.begin(),
           disjoint_group_ids.end(),
           [](int i) { return i == -1; }),
-      "Failed to generate the view disjoint groups of the reference ",
+      "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
   TORCH_INTERNAL_ASSERT(
@@ -1408,10 +1430,10 @@ DisjointViewSetInfo getDisjointViewSetsOf(
           [](const VectorOfUniqueEntries<IterDomain*>* ptr) {
             return ptr == nullptr;
           }),
-      "Failed to generate the view disjoint groups of the reference ",
+      "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
-  DisjointViewSetInfo info;
+  DisjointRFactorSetInfo info;
   info.disjoint_sets_of_ref = disjoint_set_of_id;
   info.disjoint_set_ids = disjoint_group_ids;
   info.ref = of;
@@ -1432,9 +1454,9 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
-  auto disjoint_view_sets = disjointViewSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointViewSetsOf(
-      fusion, reference_tv, disjoint_view_sets);
+  auto disjoint_rfactor_sets = disjointRFactorSets(fusion);
+  auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
+      fusion, reference_tv, disjoint_rfactor_sets);
 
   auto ref_disjoint_sets = disjoint_set_information.disjoint_sets_of_ref;
   auto ref_disjoint_set_ids = disjoint_set_information.disjoint_set_ids;
@@ -2100,10 +2122,10 @@ void BoundedDirectionalTransformPropagator::bothWays(
   propagate(from, pos, included_tvs, *options);
 }
 
-DisjointSets<IterDomain*> disjointViewSets(Fusion* fusion) {
+DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(fusion);
-  auto disjoint_view_ids = id_graph.exactNodes();
+  auto disjoint_rfactor_ids = id_graph.exactNodes();
 
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
@@ -2114,19 +2136,22 @@ DisjointSets<IterDomain*> disjointViewSets(Fusion* fusion) {
               tv->getMaybeRFactorDomain().end()})) {
       if (expr->isA<Merge>()) {
         auto merge = expr->as<Merge>();
-        disjoint_view_ids.mapEntries(merge->inner(), merge->out());
-        disjoint_view_ids.mapEntries(merge->outer(), merge->out());
+        disjoint_rfactor_ids.mapEntries(merge->inner(), merge->out());
+        disjoint_rfactor_ids.mapEntries(merge->outer(), merge->out());
       } else if (expr->isA<Split>()) {
         auto split = expr->as<Split>();
-        disjoint_view_ids.mapEntries(split->in(), split->inner());
-        disjoint_view_ids.mapEntries(split->in(), split->outer());
+        disjoint_rfactor_ids.mapEntries(split->in(), split->inner());
+        disjoint_rfactor_ids.mapEntries(split->in(), split->outer());
+      } else if (expr->isA<Resize>()) {
+        auto resize = expr->as<Resize>();
+        disjoint_rfactor_ids.mapEntries(resize->in(), resize->out());
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "Expression type: ", expr->toString(), " not supported.");
       }
     }
   }
-  return disjoint_view_ids;
+  return disjoint_rfactor_ids;
 }
 
 bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
@@ -2203,6 +2228,16 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
 
       reordered_ids.erase(reordered_ids.begin() + pos0);
       reordered_ids[--pos1] = merge->out();
+    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+      auto find_it =
+          std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
+      if (find_it == reordered_ids.end()) {
+        // Transformations before rfactor, ignore those.
+        continue;
+      }
+      *find_it = resize->out();
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "Unexpected expression: ", expr->toString());
     }
   }
 
@@ -2319,6 +2354,244 @@ bool isFastestDimReduction(TensorView* tv) {
   }
 
   return false;
+}
+
+namespace {
+
+std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
+  std::vector<TensorView*> resized_tensors;
+
+  auto fusion_vals = fusion->usedMathVals();
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
+    if (ir_utils::hasResizedRfactor(tv)) {
+      resized_tensors.push_back(tv);
+    }
+  }
+
+  return resized_tensors;
+}
+
+// If the producer of a resized tensor is an input cache and we need to promote
+// it to global memory, just do not cache the input but directly read from the
+// global memory input. It doesn't make any sense to cache a global memory input
+// in global memory. Note that a copy of an input cache is inserted by
+// prepareForMemoryTypePromotion, so grab the producer of the
+// producer and see if it's included in input_caches.
+bool revertUseOfInputCacheInResize(
+    TensorView* resized_tensor,
+    TensorView* producer_of_resize,
+    MemoryType promoted_memory_type,
+    const std::vector<TensorView*>& input_caches) {
+  auto get_copy_src = [](TensorView* tv) -> TensorView* {
+    if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+      if (uop->getUnaryOpType() == UnaryOpType::Set) {
+        return uop->in()->as<TensorView>();
+      }
+    }
+    return nullptr;
+  };
+
+  // Only applies if the promoted new type is Global
+  if (promoted_memory_type != MemoryType::Global) {
+    return false;
+  }
+
+  // To see if the producer is a cache of an input, need to look at
+  // its producer as a copy is inserted
+  auto producer_of_producer = get_copy_src(producer_of_resize);
+  if (producer_of_producer == nullptr) {
+    // No copy is detected. This must mean the producer is not a copy
+    // of any input cache
+    return false;
+  }
+
+  auto cache_it =
+      std::find(input_caches.begin(), input_caches.end(), producer_of_producer);
+  if (cache_it == input_caches.end()) {
+    return false;
+  }
+
+  auto fusion_input = get_copy_src(producer_of_producer);
+  TORCH_INTERNAL_ASSERT(
+      fusion_input != nullptr,
+      "Unexpected input cache: ",
+      producer_of_producer->toString());
+
+  // Currently, the ops look like:
+  // tv0: fusion input
+  // tv1 = tv0 // cache of the input
+  // tv2 = tv1 // copy of the tv1. Placed on Global
+  // tv3 = resizeOp(tv2) // some op using resize
+
+  // Translate it to:
+  // tv0: fusion input
+  // tv3 = resizeOp(tv0) // some op using resize
+
+  ir_utils::replaceValInExpr(
+      resized_tensor->definition(), producer_of_resize, fusion_input);
+
+  return true;
+}
+
+} // namespace
+
+void prepareForMemoryTypePromotion(Fusion* fusion) {
+  auto resized_tensors = getResizedTensors(fusion);
+
+  // Inserting a copy of the producer of each resize op. If a tensor
+  // is used as the producer of multiple resize ops, only insert one
+  // copy and share it with the resize ops.
+
+  // Map to keep track resize producer and its copy
+  std::unordered_map<TensorView*, TensorView*> resize_producer_copy_map;
+
+  for (auto resized_tensor : resized_tensors) {
+    // Resized tensors are those created by operations like pad and
+    // slice. If it has no defining expression, it must be a fusion
+    // input, and no need of the memory type promotion
+    if (resized_tensor->definition() == nullptr) {
+      TORCH_INTERNAL_ASSERT(
+          resized_tensor->isFusionInput(),
+          "Unexpected resized tensor: ",
+          resized_tensor->toString());
+      continue;
+    }
+    // Assume it has only one input tensor, which may need to
+    // be placed on a non-local memory for data dependencies.
+    TORCH_INTERNAL_ASSERT(
+        resized_tensor->definition(),
+        "Unexpected to have an undefined resized tensor: ",
+        resized_tensor->toString());
+    auto producers = ir_utils::producerTvsOf(resized_tensor);
+    TORCH_INTERNAL_ASSERT(
+        producers.size() == 1,
+        "Unexpected number of inputs of the defining expression: ",
+        resized_tensor->definition()->toString());
+    auto producer = producers.at(0);
+    // At this point, all tensors should be either on Global or Local
+    TORCH_INTERNAL_ASSERT(
+        producer->getMemoryType() == MemoryType::Local ||
+            producer->getMemoryType() == MemoryType::Global,
+        "Unexpected memory type: ",
+        producer->getMemoryType());
+
+    // If already placed on Global, nothing to worry about
+    if (producer->getMemoryType() == MemoryType::Global) {
+      continue;
+    }
+
+    auto resize_producer_copy_map_it = resize_producer_copy_map.find(producer);
+    if (resize_producer_copy_map_it == resize_producer_copy_map.end()) {
+      // Create a copy of the producer that is to be inserted between
+      // resized_tensor and producer
+      auto copy_of_producer = set(producer);
+      resize_producer_copy_map_it =
+          resize_producer_copy_map.emplace(producer, copy_of_producer).first;
+    }
+
+    // Insert a copy between resized_tensor and producer
+    ir_utils::replaceValInExpr(
+        resized_tensor->definition(),
+        producer,
+        resize_producer_copy_map_it->second);
+  }
+}
+
+void promoteProducerMemoryTypesOfResizedTensors(
+    Fusion* fusion,
+    const std::vector<TensorView*>& input_caches) {
+  auto resized_tensors = getResizedTensors(fusion);
+
+  // Just make it simpler to promote memory types. Minimum is
+  // preferred. Increased as required.
+  auto memoryTypeToInt = [](MemoryType mt1) -> int {
+    switch (mt1) {
+      case MemoryType::Local:
+        return 1;
+      case MemoryType::Shared:
+        return 2;
+      case MemoryType::Global:
+        return 3;
+      default:
+        TORCH_INTERNAL_ASSERT(false);
+    }
+  };
+
+  std::unordered_map<TensorView*, MemoryType> tvs_to_promote;
+
+  auto setPromotion = [&](TensorView* tv, MemoryType m_type) {
+    // Initialize the memory type with the current type
+    tvs_to_promote.emplace(tv, tv->getMemoryType());
+
+    if (memoryTypeToInt(m_type) > memoryTypeToInt(tvs_to_promote.at(tv))) {
+      tvs_to_promote[tv] = m_type;
+    }
+  };
+
+  for (auto resized_tensor : resized_tensors) {
+    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
+      auto c2p_map = BestEffortReplay(
+                         producer->domain()->domain(),
+                         resized_tensor->domain()->domain(),
+                         PairwiseRootDomainMap(producer, resized_tensor, true)
+                             .mapConsumerToProducer(
+                                 resized_tensor->domain(), producer->domain()))
+                         .getReplay();
+
+      for (const auto i :
+           c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+        auto producer_non_ca_id =
+            producer->axis(i + producer->getComputeAtPosition());
+        auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
+        if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
+          continue;
+        }
+
+        auto resized_tensor_exact_map_id_it = std::find_if(
+            resized_tensor->domain()->domain().begin(),
+            resized_tensor->domain()->domain().end(),
+            [&](IterDomain* resized_tensor_leaf_id) {
+              auto it = c2p_map.find(resized_tensor_leaf_id);
+              return it != c2p_map.end() && it->second == producer_non_ca_id;
+            });
+        if (resized_tensor_exact_map_id_it !=
+                resized_tensor->domain()->domain().end() &&
+            (*resized_tensor_exact_map_id_it)->getParallelType() ==
+                producer_non_ca_id_ptype) {
+          continue;
+        }
+
+        // Promotion required
+        if (isParallelTypeThreadDim(producer_non_ca_id_ptype)) {
+          setPromotion(producer, MemoryType::Shared);
+        } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
+          setPromotion(producer, MemoryType::Global);
+        }
+      }
+    }
+  }
+
+  // Iterate over resized_tensors so that promotion is done in a
+  // deterministic order
+  for (auto resized_tensor : resized_tensors) {
+    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
+      auto it = tvs_to_promote.find(producer);
+      if (it == tvs_to_promote.end() ||
+          it->second == producer->getMemoryType()) {
+        continue;
+      }
+
+      // Required memory type of the producer
+      const auto new_mem_type = it->second;
+
+      if (revertUseOfInputCacheInResize(
+              resized_tensor, producer, new_mem_type, input_caches)) {
+        continue;
+      }
+
+      producer->setMemoryType(new_mem_type);
+    }
+  }
 }
 
 } // namespace scheduler_utils

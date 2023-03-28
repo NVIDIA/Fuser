@@ -928,7 +928,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
-
   auto target_indexing = indexing.updateIndexCompute(
       target_tv->domain(), index_update_map, contig_finder);
 
@@ -1288,9 +1287,30 @@ namespace {
 //!  the vector ids by permissive compute at map.
 bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
   return std::any_of(ids.begin(), ids.end(), [&](Val* val) {
-    return val->isA<IterDomain>() &&
-        GpuLower::current()->caMap()->areMapped(
-            id, val->as<IterDomain>(), IdMappingMode::PERMISSIVE);
+    if (!(val->isA<IterDomain>() &&
+          GpuLower::current()->caMap()->areMapped(
+              id, val->as<IterDomain>(), IdMappingMode::PERMISSIVE))) {
+      return false;
+    }
+    // When id is an input to resize, make sure the resize argumens
+    // are compatible. This is important when, for example, a tensor
+    // is padded two times differently but to the same shape, and the
+    // pad outputs are exactly mapped. In such a case, there're two
+    // paths from the post rfactor ID to the original input ID, and
+    // the correct path depends on the path where this producer is
+    // used as a producer. See the FusionPad8 test for a concrete
+    // example.
+    if (auto id_resize = dynamic_cast<Resize*>(id->uses().at(0))) {
+      auto mapped_id_resize =
+          dynamic_cast<Resize*>(val->as<IterDomain>()->uses().at(0));
+      TORCH_INTERNAL_ASSERT(mapped_id_resize != nullptr);
+      if (!(id_resize->leftExpand()->sameAs(mapped_id_resize->leftExpand()) &&
+            id_resize->rightExpand()->sameAs(
+                mapped_id_resize->rightExpand()))) {
+        return false;
+      }
+    }
+    return true;
   });
 }
 
@@ -1390,7 +1410,6 @@ IterDomain* getRfactorIDToTraverse(
   const auto& rfactor_ids =
       GpuLower::current()->caMap()->getRfactorDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
-
   if (rfactor_ids.empty()) {
     return nullptr;
   }

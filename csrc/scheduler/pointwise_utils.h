@@ -45,10 +45,10 @@ class DomainMap {
       std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
 
-  // Check if in_id is mapped to id through any view rfactor domain
-  void eraseIfInputMappedThroughViewTo(
-      std::unordered_set<IterDomain*>& in_concrete_ids,
-      IterDomain* id) const;
+  // Check if in_ids are mapped to ids through any rfactor domain.
+  void eraseIfInputMappedThroughRFactorDomain(
+      std::unordered_set<IterDomain*>& in_ids,
+      const std::vector<IterDomain*>& ids) const;
 
   // Find any id in domain that maps with target id
   IterDomain* anyMapped(
@@ -57,7 +57,7 @@ class DomainMap {
 
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
-  std::vector<TensorView*> view_tvs_;
+  std::vector<TensorView*> tvs_with_rfactor_;
   std::unordered_set<IterDomain*> select_ids_;
 };
 

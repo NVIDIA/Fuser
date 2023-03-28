@@ -25,18 +25,18 @@ class ComputeAtSelector : public MaxInfoSpanningTree::Selector {
   std::unordered_set<TensorView*> selected_;
 
  public:
-  virtual bool allowC2P(TensorView* from, TensorView* to) override {
+  bool allowC2P(TensorView* from, TensorView* to) override {
     return selected_.count(to) > 0;
   }
 
-  virtual bool allowP2C(TensorView* from, TensorView* to) override {
+  bool allowP2C(TensorView* from, TensorView* to) override {
     // If the producer is in the selected set, then the consumer must also be
     // replayed to obtain a compatible loop structure so that this producer
     // can be consumed in this loop.
     return selected_.count(from) > 0 || selected_.count(to) > 0;
   }
 
-  virtual bool allowSibling(TensorView* from, TensorView* to) override {
+  bool allowSibling(TensorView* from, TensorView* to) override {
     return true;
   }
 

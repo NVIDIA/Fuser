@@ -53,6 +53,10 @@ namespace nvfuser {
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
+// IdMappingMode::PERMISSIVE_RESIZE
+//   Include everything in PERMISSIVE. Map also domains that are
+//   inputs and outputs of resize ops. Used for, e.g., propagating
+//   parallel types across those domains.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -78,6 +82,9 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   }
   const DisjointSets<IterDomain*>& loopNodes() const {
     return loop_nodes_;
+  }
+  const DisjointSets<IterDomain*>& permissiveResizeNodes() const {
+    return permissive_resize_nodes_;
   }
 
   // Consumers and producers is not symmetric like the other sets
@@ -132,8 +139,11 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> exact_nodes_;
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
+  DisjointSets<IterDomain*> permissive_resize_nodes_;
 
-  // Consumers and producers is not symmetric like the other sets
+  // Consumers and producers is not symmetric like the other sets.
+  // Mapping is based on the most permissive map, i.e., the
+  // permissive-resize map.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       consumers_;
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
@@ -267,14 +277,6 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   // Update the LOOP map with resolved computeWith
   void updateComputeWith(TensorView* compute_with_tv);
 
- private:
-  // Traverses through definitions of exact maps (unique_exact_definitions_) to
-  // input ID's from provided ID. Returns all the exact map concrete IDs of the
-  // exact sets that are inputs required to construct the exact concrete id of
-  // of_id.
-  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor = true);
-
   // Traverses through definitions of exact maps (unique_exact_definitions_) to
   // all input ID's from provided exact_sets. Returns all the exact map concrete
   // IDs of all the exact sets that on the path to and including the inputs
@@ -282,7 +284,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
   getAllDisjointSetProducers(
       const VectorOfUniqueEntries<
-          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets);
+          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+      const;
 
   // Traverses through uses of exact maps (unique_exact_uses_) to
   // all input ID's from provided exact_sets. Returns all the exact map concrete
@@ -291,7 +294,16 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
   getAllDisjointSetConsumers(
       const VectorOfUniqueEntries<
-          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets);
+          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+      const;
+
+ private:
+  // Traverses through definitions of exact maps (unique_exact_definitions_) to
+  // input ID's from provided ID. Returns all the exact map concrete IDs of the
+  // exact sets that are inputs required to construct the exact concrete id of
+  // of_id.
+  VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor = true);
 
   // Build id_graph_
   void build(Fusion* fusion);

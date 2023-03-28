@@ -151,15 +151,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
   void setPrecision(std::stringstream& ss, DataType dtype) {
     TORCH_INTERNAL_ASSERT(isFloatingPointType(dtype));
-    int digits = 0;
-    if (dtype == DataType::Float) {
-      digits = std::numeric_limits<float>::max_digits10;
-    } else if (dtype == DataType::Double) {
-      digits = std::numeric_limits<double>::max_digits10;
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "Unexpected floating point type: ", dtype);
-    }
-    ss << std::setprecision(digits);
+    ss << std::setprecision(max_digits10(dtype));
   }
 
   std::string getLiteralSuffix(DataType dtype) {
@@ -509,7 +501,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   //!  vectorization handling logic but this path will be updated in
   //!  follow ups to optimize the generated assembly so keeping them
   //!  separate path for now.
-  std::string genVectorPointer(Val* val, DataType dtype, int vec_size) {
+  std::string genVectorPointer(Val* val, DataType dtype, size_t vec_size) {
     std::stringstream ss;
 
     ss << "reinterpret_cast<Array<" << dtype << "," << vec_size << ","
@@ -519,7 +511,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   // Utility function to emit a cp.async intrinsic
-  void genCpAsync(const LoadStoreOp* ldst, int vec_size) {
+  void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
 
@@ -543,7 +535,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
   }
 
-  void genLdMatrix(const LoadStoreOp* ldst, int vector_word_size) {
+  void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
     indent() << "Turing::ldMatrix";
     if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
@@ -1779,7 +1771,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     std::vector<std::vector<int64_t>> index_combinationsatoins;
 
     // Initialize with an empty vector
-    index_combinationsatoins.push_back(std::vector<int64_t>());
+    index_combinationsatoins.emplace_back();
 
     // Incrementally build a combinatorial set
     for (const auto loop : grouped_loops_) {
@@ -2772,6 +2764,41 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
   void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+  }
+
+  void handle(const CatOp* cat) final {
+    auto out = gen(cat->output(0));
+
+    // Generate code like:
+    // if (consumer_idx < producer_0_extent) {
+    //   consumer[consumer_idx] = produce_0[producer_idx0];
+    // } else if (consumer_idx < producer_1_extent) {
+    //   consumer[consumer_idx] = produce_1[producer_idx1];
+    // } else if (consumer_idx < producer_2_extent) {
+    //   consumer[consumer_idx] = produce_2[producer_idx2];
+    // } else {
+    //   consumer[consumer_idx] = produce_3[producer_idx3];
+    // }
+
+    for (const auto i : c10::irange(cat->inputs().size())) {
+      auto inp = cat->input(i)->as<kir::TensorIndex>();
+      auto inp_str = gen(inp);
+      if (i < cat->inputs().size() - 1) {
+        if (i == 0) {
+          indent() << "if (";
+        } else {
+          indent() << "} else if (";
+        }
+        code_ << gen(cat->getPred((int)i)) << ") {\n";
+      } else {
+        // last case doesn't need to be predicated
+        indent() << "} else {\n";
+      }
+
+      indent() << kTab << out << " = " << gen(inp) << ";\n";
+    }
+
+    indent() << "}\n";
   }
 
  private:

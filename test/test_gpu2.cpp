@@ -4351,8 +4351,10 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
   const int by = 2049;
-  at::Tensor t0 = at::randn({bx, by}, options).index({"...", Slice(3)});
-  at::Tensor t1 = at::randn({bx, by}, options).index({"...", Slice(3)});
+  at::Tensor t0 =
+      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
+  at::Tensor t1 =
+      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;
@@ -4402,8 +4404,11 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
   const int by = 2049;
-  at::Tensor t0 = at::randn({bx, by}, options).index({"...", Slice(3)});
-  at::Tensor t1 = at::randn({bx, by}, options).index({"...", Slice(3)});
+
+  at::Tensor t0 =
+      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
+  at::Tensor t1 =
+      at::randn({bx, by}, options).index({"...", at::indexing::Slice(3)});
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;
@@ -4548,13 +4553,13 @@ TEST_F(NVFuserTest, FusionVectorization3_CUDA) {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
 
-  aten_inputs[0] = t0.index({"...", Slice(1)});
-  aten_inputs[1] = t1.index({"...", Slice(1)});
+  aten_inputs[0] = t0.index({"...", at::indexing::Slice(1)});
+  aten_inputs[1] = t1.index({"...", at::indexing::Slice(1)});
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
 
-  t0 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
-  t1 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  t0 = at::randn({bx, 2048}, options).index({"...", at::indexing::Slice(4)});
+  t1 = at::randn({bx, 2048}, options).index({"...", at::indexing::Slice(4)});
   aten_inputs = {t0, t1};
   auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -9035,27 +9040,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i295;
-  i295 = T0.size[2] * T0.size[1];
-  int64_t i298;
-  i298 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i300;
-  i300 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i332;
-  i332 = i298 % i300;
-  int64_t i309;
-  i309 = T0.size[2] * T0.size[3];
-  int64_t i333;
-  i333 = i332 % i309;
-  if ((i298 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i1307;
+  i1307 = T0.size[2] * T0.size[1];
+  int64_t i1310;
+  i1310 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1312;
+  i1312 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i1344;
+  i1344 = i1310 % i1312;
+  int64_t i1321;
+  i1321 = T0.size[2] * T0.size[3];
+  int64_t i1345;
+  i1345 = i1344 % i1321;
+  if ((i1310 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i295 * T0.size[3]) * (i298 / i300)) + (i295 * (i333 % T0.size[3]))) + (T0.size[2] * (i332 / i309))) + (i333 / T0.size[3]))];
+       = T2[(((((i1307 * T0.size[3]) * (i1310 / i1312)) + (i1307 * (i1345 % T0.size[3]))) + (T0.size[2] * (i1344 / i1321))) + (i1345 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i298];
+       = T0[i1310];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9075,7 +9080,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i298]
+    T7[i1310]
        = T10[0];
   }
 }
@@ -9714,7 +9719,8 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
   // projectable buffer inputs. Thus, the buffer size would be
   // calculated as the sum of tv1, tv0 and tv1.
   auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
-  auto expected_size = shape[1] * 2 * dataTypeSize(DataType::Half);
+  auto expected_size =
+      static_cast<int64_t>(shape[1] * 2 * dataTypeSize(DataType::Half));
   TORCH_CHECK(
       projected_size == expected_size,
       "Buffer projection failure. Expected size: ",

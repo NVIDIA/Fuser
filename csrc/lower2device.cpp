@@ -358,6 +358,9 @@ void GpuLower::lower(Fusion* fusion) {
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
 
+  validateResize(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
+
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
@@ -456,8 +459,11 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_double_buffered = DoubleBufferPass::run(exprs_war_sync);
   dumpExprsIfEnabled(exprs_double_buffered, "DoubleBufferPass");
 
-  const auto exprs_loop_rotated =
-      rotateLoops(exprs_double_buffered, fusion_->getLoopRotationParam());
+  const auto exprs_loop_rotated = fusion_->hasManaged("loop_rotation")
+      ? rotateLoops(
+            exprs_double_buffered,
+            fusion_->getManaged<LoopRotationParam>("loop_rotation"))
+      : exprs_double_buffered;
   dumpExprsIfEnabled(exprs_loop_rotated, "rotateLoops");
 
   // This pass inserts predicates as well as branches in the code. Up until now

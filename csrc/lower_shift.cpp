@@ -445,25 +445,20 @@ void HaloInfo::build(TensorDomain* td) {
       } else {
         setHaloWidth(merge->out(), 0);
       }
-    } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-      // Assume no halo on swizzled domain for now.
-      TORCH_INTERNAL_ASSERT(
-          getExtent(swizzle->inX()) == nullptr,
-          "Halo is not supported with swizzle. Halo-extended ID: ",
-          swizzle->inX()->toString(),
-          " used in ",
-          swizzle->toString());
-      TORCH_INTERNAL_ASSERT(
-          getExtent(swizzle->inY()) == nullptr,
-          "Halo is not supported with swizzle. Halo-extended ID: ",
-          swizzle->inY()->toString(),
-          " used in ",
-          swizzle->toString());
-      for (auto id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        setHaloWidth(id, 0);
-      }
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unsupported expr: ", expr);
+      // Assume no halo
+      for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+        TORCH_INTERNAL_ASSERT(
+            getExtent(input_id) == nullptr,
+            "Halo is not supported. Halo-extended ID: ",
+            input_id->toString(),
+            " used in ",
+            expr->toString());
+      }
+      for (auto output_id :
+           ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        setHaloWidth(output_id, 0);
+      }
     }
   }
 }
@@ -839,28 +834,23 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
                 merge->out(), IdMappingMode::EXACT),
             0);
       }
-    } else if (auto swizzle_2d = dynamic_cast<Swizzle2D*>(expr)) {
-      // Swizzle with halo not yet supported, just set the width
-      //  to zero at the moment.
-      TORCH_INTERNAL_ASSERT(
-          local_halo_info.getHaloWidth(
-              GpuLower::current()->caMap()->getConcreteMappedID(
-                  swizzle_2d->inX(), IdMappingMode::EXACT)) == 0 &&
-              local_halo_info.getHaloWidth(
-                  GpuLower::current()->caMap()->getConcreteMappedID(
-                      swizzle_2d->inY(), IdMappingMode::EXACT)) == 0,
-          "Swizzle on ID with halo not yet supported.");
-      TORCH_INTERNAL_ASSERT("Swizzle on ID with halo not yet supported.");
-      local_halo_info.setHaloWidth(
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              swizzle_2d->outX(), IdMappingMode::EXACT),
-          0);
-      local_halo_info.setHaloWidth(
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              swizzle_2d->outY(), IdMappingMode::EXACT),
-          0);
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unsupported expr: ", expr);
+      // Halo not yet supported, just set the width to zero at the moment.
+      for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+        TORCH_INTERNAL_ASSERT(
+            local_halo_info.getHaloWidth(
+                GpuLower::current()->caMap()->getConcreteMappedID(
+                    input_id, IdMappingMode::EXACT)) == 0,
+            "Halo not yet supported: ",
+            input_id->toString());
+      }
+      for (auto output_id :
+           ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        local_halo_info.setHaloWidth(
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                output_id, IdMappingMode::EXACT),
+            0);
+      }
     }
   }
 

@@ -23,6 +23,8 @@
 #include <c10/util/irange.h>
 
 #include <complex>
+#include <iterator>
+#include <numeric>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -740,46 +742,49 @@ BroadcastOp::BroadcastOp(
 
   addOutput(out);
   addInput(in);
+
+  // Validate the broadcast flags when this expr is created with
+  // TensorView. Broadcast with TensorIndex only appears after
+  // lowering, so it should have already been validated.
+  if (out->isA<TensorView>()) {
+    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    auto in_tv = in->as<TensorView>();
+    auto out_tv = out->as<TensorView>();
+    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+    auto& out_dom = out_tv->getRootDomain();
+    TORCH_INTERNAL_ASSERT(
+        is_broadcast_dims.size() == out_dom.size(),
+        "The dimensions of output tensor and does not match with is_broadcast_dims");
+
+    auto out_size = is_broadcast_dims.size();
+    auto num_new_broadcasts = 0;
+    for (const auto i : c10::irange(out_size)) {
+      if (is_broadcast_dims[i]) {
+        num_new_broadcasts++;
+        auto id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            id->isBroadcast(),
+            "New broadcast dimension does not properly set its IterType.");
+        TORCH_INTERNAL_ASSERT(
+            !id->hasExpandedExtent(),
+            "New broadcast dimension can not be expanded.");
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "New broadcast dimension must have extent 1");
+      } else {
+        auto in_id = in_dom[i - num_new_broadcasts];
+        auto out_id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        out_size == in_dom.size() + num_new_broadcasts,
+        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+  }
+
   addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
       passkey.ir_container_, std::move(is_broadcast_dims)));
-
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
-  auto in_tv = in->as<TensorView>();
-  auto out_tv = out->as<TensorView>();
-  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-  auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
-      is_broadcast_dims.size() == out_dom.size(),
-      "The dimensions of output tensor and does not match with is_broadcast_dims");
-
-  auto out_size = is_broadcast_dims.size();
-  auto num_new_broadcasts = 0;
-  for (const auto i : c10::irange(out_size)) {
-    if (is_broadcast_dims[i]) {
-      num_new_broadcasts++;
-      auto id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(),
-          "New broadcast dimension does not properly set its IterType.");
-      TORCH_INTERNAL_ASSERT(
-          !id->hasExpandedExtent(),
-          "New broadcast dimension can not be expanded.");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "New broadcast dimension must have extent 1");
-    } else {
-      auto in_id = in_dom[i - num_new_broadcasts];
-      auto out_id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      out_size == in_dom.size() + num_new_broadcasts,
-      "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -805,19 +810,19 @@ SqueezeOp::SqueezeOp(
   auto in_type = in->getValType().value();
 
   TORCH_INTERNAL_ASSERT(
-      (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
-          (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
-      "Cannot squeeze a non-tensor object.");
+      in_type == ValType::TensorView,
+      "Squeeze input must be a TensorView: ",
+      in->toString());
+
+  TORCH_INTERNAL_ASSERT(
+      out_type == ValType::TensorView,
+      "Squeeze output must be a TensorView: ",
+      in->toString());
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
 
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
+  // Validate the squeeze flags
   auto in_tv = in->as<TensorView>();
   auto out_tv = out->as<TensorView>();
   auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
@@ -849,6 +854,9 @@ SqueezeOp::SqueezeOp(
   TORCH_INTERNAL_ASSERT(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+
+  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
+      passkey.ir_container_, std::move(is_squeeze_dims)));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -1000,9 +1008,9 @@ WelfordTriplet WelfordTriplet::clone(IrCloner* ir_cloner) const {
 std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
-  std::vector<WelfordTriplet> cloned;
-  for (const auto& triplet : src) {
-    cloned.emplace_back(triplet.clone(ir_cloner));
+  std::vector<WelfordTriplet> cloned(src.size());
+  for (const auto i : c10::irange(src.size())) {
+    cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
 }
@@ -1856,19 +1864,34 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   const IterDomain* other_id = other->as<IterDomain>();
 
-  bool is_same = isReduction() == other_id->isReduction() &&
-      getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
-  is_same =
-      is_same && ScalarCheck::sameAs(stopOffset(), other_id->stopOffset());
-  is_same = is_same && (hasExpandedExtent() == other_id->hasExpandedExtent());
-  if (is_same && hasExpandedExtent()) {
-    is_same = ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent());
-  }
+  // Here're the data fields of IterDomain:
+  // start_
+  // extent_
+  // expanded_extent_
+  // stop_offset_
+  // parallel_type_
+  // iter_type_
+  // is_rfactor_domain_
+  // is_padded_dimension_
+  // padded_to_size_
+  // is_mma_swizzled_
 
-  return is_same;
+  // Do not take is_rfactor_domain_ into account. IterDomain's are
+  // considered the same if they are rfactor or not.
+
+  // TODO: Consider managing them as attributes
+
+  return ScalarCheck::sameAs(start(), other_id->start()) &&
+      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+      hasExpandedExtent() == other_id->hasExpandedExtent() &&
+      (!hasExpandedExtent() ||
+       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
+      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+      getParallelType() == other_id->getParallelType() &&
+      getIterType() == other_id->getIterType() &&
+      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
+      isMmaSwizzled() == other_id->isMmaSwizzled();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2133,6 +2156,66 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
       in_x->container(), out_x, out_y, in_x, in_y, swizzle_type, swizzle_mode);
 
   return std::make_pair(out_x, out_y);
+}
+
+IterDomain* IterDomain::resize(
+    IterDomain* in,
+    Val* left_expansion,
+    Val* right_expansion,
+    bool mark_as_rfactor) {
+  TORCH_CHECK(
+      left_expansion->isIntegralScalar(),
+      "Expansion factor must be an integer scalar: ",
+      left_expansion->toString());
+  TORCH_CHECK(
+      right_expansion->isIntegralScalar(),
+      "Expansion factor must be an integer scalar: ",
+      right_expansion->toString());
+
+  // Only Inteation is considered for now.
+  TORCH_CHECK(
+      in->getIterType() == IterType::Iteration ||
+          in->getIterType() == IterType::Broadcast,
+      "Not a valid IterType: ",
+      in->getIterType());
+
+  TORCH_CHECK(
+      in->start()->isZeroInt(),
+      "Non-zero start not supported: ",
+      in->toString());
+  TORCH_CHECK(
+      in->stopOffset()->isZeroInt(),
+      "Non-zero stop offset not considered: ",
+      in->toString());
+
+  // The overall extent is (in->extent() + left_expansion +
+  // right_expansion). This can be simplified for a slice op as
+  // the right expansion should look like (slice_end_offset -
+  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  Val* resized_id_size = nullptr;
+  if (right_expansion->definition() != nullptr &&
+      right_expansion->definition()->isA<BinaryOp>() &&
+      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  } else {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        right_expansion);
+  }
+
+  auto resized_id =
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
+          .is_rfactor_domain(mark_as_rfactor)
+          .iter_type(in->getIterType())
+          .build();
+
+  IrBuilder::create<Resize>(
+      in->container(), resized_id, in, left_expansion, right_expansion);
+
+  return resized_id;
 }
 
 // TODO: We should change parallelize interface to be on tensorview or at least
@@ -2509,8 +2592,9 @@ c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
 IterDomain* TensorDomain::axis(int i) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0)
+  if (i < 0) {
     i += nDims();
+  }
   TORCH_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
       "Tried to access axis ",
@@ -2953,6 +3037,37 @@ std::string Swizzle2D::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle2D)
 
+Resize::Resize(
+    IrBuilderPasskey passkey,
+    IterDomain* out,
+    IterDomain* in,
+    Val* left,
+    Val* right)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addAttribute(left);
+  addAttribute(right);
+}
+
+std::string Resize::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Resize: ";
+  ss << in()->toString();
+  ss << " by " << leftExpand()->toInlineString() << " and "
+     << rightExpand()->toInlineString();
+  ss << " -> ";
+  ss << out()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Resize::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Resize can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Resize)
+
 NamedScalar::NamedScalar(
     IrBuilderPasskey passkey,
     std::string name,
@@ -3032,6 +3147,247 @@ c10::optional<ParallelType> NamedScalar::getParallelIndex() const {
     return c10::optional<ParallelType>(ParallelType::BIDz);
   }
   return c10::nullopt;
+}
+
+PadOp::PadOp(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* inp,
+    const std::vector<Val*>& pad_widths,
+    Val* value)
+    : Expr(passkey) {
+  const auto ndims =
+      TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
+  TORCH_INTERNAL_ASSERT(
+      pad_widths.size() % 2 == 0,
+      "Invalid size of padding width vector: ",
+      pad_widths.size(),
+      ". Number of width vals must be even.");
+  TORCH_INTERNAL_ASSERT(
+      pad_widths.size() == ndims * 2,
+      "Invalid size of padding width vector: ",
+      pad_widths.size(),
+      ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
+  addOutput(out);
+  addInput(inp);
+  addInput(value);
+  for (auto width : pad_widths) {
+    TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
+    addInput(width);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(PadOp)
+
+std::string PadOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
+                          << toDelimitedString(getPadWidths()) << "}"
+                          << " )\n";
+  return ss.str();
+}
+
+std::string PadOp::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<int> PadOp::getPaddedAxes() const {
+  auto num_dims = out()->as<TensorView>()->getRootDomain().size();
+  std::vector<int> padded_axes;
+  for (const auto i : c10::irange(num_dims)) {
+    auto [left_pad, right_pad] = getPadWidths(i);
+    // Filter out non-padded dimension
+    if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
+      continue;
+    }
+    padded_axes.push_back(i);
+  }
+  return padded_axes;
+}
+
+std::vector<Val*> PadOp::getPadWidths() const {
+  return {getPadWidthInputBegin(), getPadWidthInputEnd()};
+}
+
+std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
+  const auto num_dims =
+      static_cast<int>(out()->as<TensorView>()->getRootDomain().size());
+
+  if (axis < 0) {
+    axis += num_dims;
+  }
+
+  TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
+
+  return std::make_pair(
+      (*(getPadWidthInputBegin() + axis * 2))->as<Val>(),
+      (*(getPadWidthInputBegin() + axis * 2 + 1))->as<Val>());
+}
+
+SliceOp::SliceOp(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* inp,
+    const std::vector<Slice>& ranges)
+    : Expr(passkey) {
+  const auto ndims =
+      TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
+  TORCH_INTERNAL_ASSERT(
+      ndims == ranges.size(),
+      "The range vector must have the same number of Slice descriptors. Given: ",
+      ranges.size(),
+      ", Expected: ",
+      ndims);
+
+  addOutput(out);
+  addInput(inp);
+  for (const auto& range : ranges) {
+    TORCH_INTERNAL_ASSERT(range.start != nullptr, "nullptr not allowed");
+    TORCH_INTERNAL_ASSERT(range.stop != nullptr, "nullptr not allowed");
+    TORCH_INTERNAL_ASSERT(range.step != nullptr, "nullptr not allowed");
+    addInput(range.start);
+    addInput(range.stop);
+    addInput(range.step);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SliceOp)
+
+std::string SliceOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size) << "   = slice( " << in()->toString() << ", {";
+  for (const auto& slice : getRanges()) {
+    ss << " {"
+       << toDelimitedString(std::vector<std::string>{
+              slice.start->toString(),
+              slice.stop->toString(),
+              slice.step->toString()})
+       << "}";
+  }
+  ss << " } )\n";
+  return ss.str();
+}
+
+std::string SliceOp::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<Slice> SliceOp::getRanges() const {
+  const auto num_range_vals =
+      std::distance(getRangeInputBegin(), getRangeInputEnd());
+  TORCH_INTERNAL_ASSERT(
+      num_range_vals % 3 == 0,
+      "Unexpected number of range vals: ",
+      num_range_vals);
+  auto ndims = num_range_vals / 3;
+  std::vector<Slice> ranges(ndims);
+  auto range_val_it = getRangeInputBegin();
+  for (const auto i : c10::irange(ndims)) {
+    ranges.at(i) = Slice{
+        .start = *range_val_it,
+        .stop = *(range_val_it + 1),
+        .step = *(range_val_it + 2)};
+    range_val_it += 3;
+  }
+  return ranges;
+}
+
+CatOp::CatOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    const std::vector<Val*>& inputs,
+    int concatenated_dim)
+    : Expr(passkey) {
+  addOutput(out);
+  for (auto inp : inputs) {
+    addInput(inp);
+  }
+  TORCH_INTERNAL_ASSERT(
+      concatenated_dim >= 0 &&
+          concatenated_dim <
+              static_cast<int>(ir_utils::getTv(out)->getRootDomain().size()),
+      "Invalid dimension to concatenate: ",
+      concatenated_dim);
+
+  addAttribute(IrBuilder::create<Attribute<int>>(
+      passkey.ir_container_, concatenated_dim));
+}
+
+CatOp::CatOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    const std::vector<Val*>& inputs,
+    int concatenated_dim,
+    Val* concatenated_domain_index,
+    const std::vector<Bool*>& preds)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "Should only be used for Kernel container.");
+
+  addOutput(out);
+  for (auto inp : inputs) {
+    addInput(inp);
+  }
+  addAttribute(IrBuilder::create<Attribute<int>>(
+      passkey.ir_container_, concatenated_dim));
+  addAttribute(concatenated_domain_index);
+  for (auto pred : preds) {
+    addAttribute(pred);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CatOp)
+
+std::string CatOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent(ss, indent_size) << "   = cat( ";
+  ss << toDelimitedString(inputs());
+  ss << ", " << concatenatedDim();
+  ss << " )\n";
+  return ss.str();
+}
+
+std::string CatOp::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+Val* CatOp::getConcatenatedDomainIndex() const {
+  TORCH_INTERNAL_ASSERT(
+      container()->isA<kir::Kernel>(),
+      "Should only be used for Kernel container.");
+  TORCH_INTERNAL_ASSERT(attributes().size() > 0, "No attribute found");
+  TORCH_INTERNAL_ASSERT(
+      attribute(1) != nullptr, "nulllptr attribute is invalid");
+  auto idx = attribute(1)->as<Val>();
+  return idx;
+}
+
+Bool* CatOp::getPred(int input_idx) const {
+  TORCH_INTERNAL_ASSERT(
+      container()->isA<kir::Kernel>(),
+      "Should only be used for Kernel container.");
+  const auto num_input_tensors = static_cast<int>(inputs().size());
+  TORCH_INTERNAL_ASSERT(
+      input_idx < num_input_tensors, "Invalid input index: ", input_idx);
+  const auto attr_idx = input_idx + 2;
+  TORCH_INTERNAL_ASSERT(
+      attr_idx < static_cast<int>(attributes().size()),
+      "Invalid attribute index: ",
+      attr_idx,
+      ", number of attributes: ",
+      attributes().size());
+  auto attr = attribute(attr_idx);
+  TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
+  TORCH_INTERNAL_ASSERT(
+      attr->isA<Bool>(),
+      "Attribute must be a Bool val: ",
+      attr->toInlineString());
+  auto pred = attr->as<Bool>();
+  return pred;
 }
 
 } // namespace nvfuser
