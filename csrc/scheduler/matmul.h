@@ -40,6 +40,14 @@ class MatmulParam {
 
   //! Specify which tensor we double buffer.
   DoubleBufferOptions double_buffer_options;
+
+  //! Configurable rasterization/parallelization order.
+  //! Depending on the problem shape, switching blockIdx.x and blockIdx.y can
+  //! help improve L2 hit rate.
+  enum class TileRasterizationOrder {
+    RowMajor = 0,
+    ColumnMajor = 1
+  } rasterization_order = TileRasterizationOrder::RowMajor;
 };
 
 //! Prototype auto scheduling function.

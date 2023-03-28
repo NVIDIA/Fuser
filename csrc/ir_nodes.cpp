@@ -742,46 +742,49 @@ BroadcastOp::BroadcastOp(
 
   addOutput(out);
   addInput(in);
+
+  // Validate the broadcast flags when this expr is created with
+  // TensorView. Broadcast with TensorIndex only appears after
+  // lowering, so it should have already been validated.
+  if (out->isA<TensorView>()) {
+    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    auto in_tv = in->as<TensorView>();
+    auto out_tv = out->as<TensorView>();
+    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+    auto& out_dom = out_tv->getRootDomain();
+    TORCH_INTERNAL_ASSERT(
+        is_broadcast_dims.size() == out_dom.size(),
+        "The dimensions of output tensor and does not match with is_broadcast_dims");
+
+    auto out_size = is_broadcast_dims.size();
+    auto num_new_broadcasts = 0;
+    for (const auto i : c10::irange(out_size)) {
+      if (is_broadcast_dims[i]) {
+        num_new_broadcasts++;
+        auto id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            id->isBroadcast(),
+            "New broadcast dimension does not properly set its IterType.");
+        TORCH_INTERNAL_ASSERT(
+            !id->hasExpandedExtent(),
+            "New broadcast dimension can not be expanded.");
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "New broadcast dimension must have extent 1");
+      } else {
+        auto in_id = in_dom[i - num_new_broadcasts];
+        auto out_id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        out_size == in_dom.size() + num_new_broadcasts,
+        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+  }
+
   addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
       passkey.ir_container_, std::move(is_broadcast_dims)));
-
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
-  auto in_tv = in->as<TensorView>();
-  auto out_tv = out->as<TensorView>();
-  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-  auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
-      is_broadcast_dims.size() == out_dom.size(),
-      "The dimensions of output tensor and does not match with is_broadcast_dims");
-
-  auto out_size = is_broadcast_dims.size();
-  auto num_new_broadcasts = 0;
-  for (const auto i : c10::irange(out_size)) {
-    if (is_broadcast_dims[i]) {
-      num_new_broadcasts++;
-      auto id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(),
-          "New broadcast dimension does not properly set its IterType.");
-      TORCH_INTERNAL_ASSERT(
-          !id->hasExpandedExtent(),
-          "New broadcast dimension can not be expanded.");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "New broadcast dimension must have extent 1");
-    } else {
-      auto in_id = in_dom[i - num_new_broadcasts];
-      auto out_id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      out_size == in_dom.size() + num_new_broadcasts,
-      "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -807,19 +810,19 @@ SqueezeOp::SqueezeOp(
   auto in_type = in->getValType().value();
 
   TORCH_INTERNAL_ASSERT(
-      (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
-          (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
-      "Cannot squeeze a non-tensor object.");
+      in_type == ValType::TensorView,
+      "Squeeze input must be a TensorView: ",
+      in->toString());
+
+  TORCH_INTERNAL_ASSERT(
+      out_type == ValType::TensorView,
+      "Squeeze output must be a TensorView: ",
+      in->toString());
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
 
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
+  // Validate the squeeze flags
   auto in_tv = in->as<TensorView>();
   auto out_tv = out->as<TensorView>();
   auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
@@ -851,6 +854,9 @@ SqueezeOp::SqueezeOp(
   TORCH_INTERNAL_ASSERT(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+
+  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
+      passkey.ir_container_, std::move(is_squeeze_dims)));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -1002,9 +1008,9 @@ WelfordTriplet WelfordTriplet::clone(IrCloner* ir_cloner) const {
 std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
-  std::vector<WelfordTriplet> cloned;
-  for (const auto& triplet : src) {
-    cloned.emplace_back(triplet.clone(ir_cloner));
+  std::vector<WelfordTriplet> cloned(src.size());
+  for (const auto i : c10::irange(src.size())) {
+    cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
 }
@@ -1858,19 +1864,34 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   const IterDomain* other_id = other->as<IterDomain>();
 
-  bool is_same = isReduction() == other_id->isReduction() &&
-      getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
-  is_same =
-      is_same && ScalarCheck::sameAs(stopOffset(), other_id->stopOffset());
-  is_same = is_same && (hasExpandedExtent() == other_id->hasExpandedExtent());
-  if (is_same && hasExpandedExtent()) {
-    is_same = ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent());
-  }
+  // Here're the data fields of IterDomain:
+  // start_
+  // extent_
+  // expanded_extent_
+  // stop_offset_
+  // parallel_type_
+  // iter_type_
+  // is_rfactor_domain_
+  // is_padded_dimension_
+  // padded_to_size_
+  // is_mma_swizzled_
 
-  return is_same;
+  // Do not take is_rfactor_domain_ into account. IterDomain's are
+  // considered the same if they are rfactor or not.
+
+  // TODO: Consider managing them as attributes
+
+  return ScalarCheck::sameAs(start(), other_id->start()) &&
+      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+      hasExpandedExtent() == other_id->hasExpandedExtent() &&
+      (!hasExpandedExtent() ||
+       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
+      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+      getParallelType() == other_id->getParallelType() &&
+      getIterType() == other_id->getIterType() &&
+      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
+      isMmaSwizzled() == other_id->isMmaSwizzled();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2571,8 +2592,9 @@ c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
 IterDomain* TensorDomain::axis(int i) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0)
+  if (i < 0) {
     i += nDims();
+  }
   TORCH_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
       "Tried to access axis ",
