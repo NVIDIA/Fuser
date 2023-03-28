@@ -360,8 +360,6 @@ void FusionCache::deserialize(std::string filename) {
   TORCH_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
-  using BfsState = std::pair<TrieNode*, size_t>;
-
   auto buffer = openFusionCache(filename);
   auto fusion_cache_buffer = verifyFusionCache(buffer);
 
@@ -373,22 +371,25 @@ void FusionCache::deserialize(std::string filename) {
 
   serde::RecordFunctorFactory record_functor_factory;
 
-  std::vector<TrieNode*> bfs_order;
+  using BfsState = std::pair<TrieNode*, size_t>;
   std::deque<BfsState> queue = {
       {root_.get() /* TrieNode pointer */, 0 /* structure_idx */}};
 
-  // Create empty fusion container for root node
+  // state_queue holds the FusionState for each BfsState in the queue.
   std::deque<std::unique_ptr<FusionState>> state_queue;
+
+  // Create empty fusion container for root node
   state_queue.emplace_back(std::make_unique<FusionState>());
+
+  // bfs_order is used to map indices in the structure field to their
+  // corresponding TrieNode pointers. It is used to reconstruct the
+  // terminal_nodes vector.
+  std::vector<TrieNode*> bfs_order;
 
   // Starting from the root node, we build the Trie structure in breadth-first
   // (BFS) order.
   while (!queue.empty()) {
-    auto current = queue.front();
-    // Replace with structure binding in c++17
-    TrieNode* trie_ptr = current.first;
-    size_t structure_idx = current.second;
-    queue.pop_front();
+    auto& [trie_ptr, structure_idx] = queue.front();
 
     // Update BFS order
     bfs_order.push_back(trie_ptr);
@@ -446,6 +447,7 @@ void FusionCache::deserialize(std::string filename) {
     }
 
     // Destroy current fusion state
+    queue.pop_front();
     state_queue.pop_front();
   }
 
