@@ -18,11 +18,11 @@ std::string add_negative_flag(const std::string& flag) {
 
 int main(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
-  if (!torch::cuda::is_available()) {
-    std::cout << "CUDA not available. Disabling CUDA and MultiCUDA tests"
-              << std::endl;
-    ::testing::GTEST_FLAG(filter) = add_negative_flag("*_CUDA:*_MultiCUDA");
-  } else if (torch::cuda::device_count() < 2) {
+  TORCH_INTERNAL_ASSERT(
+      torch::cuda::is_available(),
+      "nvfuser_tests requires CUDA device being available");
+
+  if (torch::cuda::device_count() < 2) {
     std::cout << "Only one CUDA device detected. Disabling MultiCUDA tests"
               << std::endl;
     ::testing::GTEST_FLAG(filter) = add_negative_flag("*_MultiCUDA");

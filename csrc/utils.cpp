@@ -9,7 +9,6 @@
 #include <utils.h>
 
 #include <c10/util/string_view.h>
-#include <nvrtc.h>
 
 #include <cstdlib>
 #include <iostream>

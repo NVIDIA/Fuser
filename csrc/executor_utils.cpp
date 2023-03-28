@@ -1248,17 +1248,16 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
             &program, code.c_str(), name.c_str(), 0, nullptr, nullptr));
       }
 
-      nvrtcAddNameExpression(program, func_name.c_str());
+      NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
 
+      // NOTE: not using NVRTC_SAFE_CALL on the return here, since we want to
+      // display log if the compilation fails here.
       const auto result =
           nvrtcCompileProgram(program, (int)args.size(), args.data());
-
       size_t logsize = 0;
-      nvrtcGetProgramLogSize(program, &logsize);
-
+      NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
       std::vector<char> log(logsize);
-      nvrtcGetProgramLog(program, log.data());
-
+      NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
       if (result != NVRTC_SUCCESS) {
         TORCH_INTERNAL_ASSERT(
             false, code.c_str(), "\nCUDA NVRTC compile error: ", log.data());
@@ -1271,7 +1270,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         }
         std::cout << log.data() << std::endl;
       }
-      NVRTC_SAFE_CALL(result);
 
       if (isWarnRegisterSpill) {
         auto getRegisterSpillInfo = [&log](const char* subStr) {
@@ -1312,7 +1310,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     }
 
     const char* lowered_kernel_name = nullptr;
-    nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name);
+    NVRTC_SAFE_CALL(
+        nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
     lowered_kernel_name_str.assign(lowered_kernel_name);
 
     size_t ptx_size = 0;

@@ -38,15 +38,18 @@ namespace nvfuser {
     }                                                    \
   } while (0)
 
-#define CUDA_SAFE_CALL(x)                                               \
-  do {                                                                  \
-    CUresult _result = x;                                               \
-    if (_result != CUDA_SUCCESS) {                                      \
-      const char* msg;                                                  \
-      cuGetErrorName(_result, &msg);                                    \
-      std::cerr << "\nerror: " #x " failed with error " << msg << '\n'; \
-      exit(1);                                                          \
-    }                                                                   \
+#define CUDA_SAFE_CALL(x)                                              \
+  do {                                                                 \
+    CUresult _result = x;                                              \
+    if (_result != CUDA_SUCCESS) {                                     \
+      const char* msg;                                                 \
+      const char* name;                                                \
+      cuGetErrorName(_result, &name);                                  \
+      cuGetErrorString(_result, &msg);                                 \
+      std::cerr << "\nerror: " << name << " failed with error " << msg \
+                << '\n';                                               \
+      exit(1);                                                         \
+    }                                                                  \
   } while (0)
 
 #define CUDA_RT_SAFE_CALL(x)                                            \
