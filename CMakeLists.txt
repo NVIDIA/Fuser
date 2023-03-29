@@ -489,7 +489,7 @@ target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/inclu
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 if (PROJECT_IS_TOP_LEVEL)
-  file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/build" SYMBOLIC)
+  file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 else()
   file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)
