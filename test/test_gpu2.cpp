@@ -41,7 +41,6 @@
 #include <transform_rfactor.h>
 
 #include <parser.h>
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
