@@ -45,6 +45,7 @@ else() # PROJECT_IS_TOP_LEVEL
   set(TORCH_ROOT "${CMAKE_SOURCE_DIR}")
   set(ATEN_CUDA_ROOT "${TORCH_ROOT}/aten/src/ATen")
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
+  find_package(CUDAToolkit REQUIRED)
 endif() # PROJECT_IS_TOP_LEVEL
 
 # TODO: fix MSVC
@@ -205,7 +206,7 @@ if (PROJECT_IS_TOP_LEVEL)
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${NVFUSER_LIB_DIR}")
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR} CUDA::cuda_driver)
   # installing nvfuser python tests
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
   	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
