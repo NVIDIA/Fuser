@@ -18,7 +18,6 @@ if (PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
   find_package(pybind11 REQUIRED)
-  find_package(flatbuffers REQUIRED)
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
