@@ -101,7 +101,7 @@ Val* getProducerIndexWithHalo(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getProducerOffsetWithGather(
-    int consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_reference_map = false,
@@ -159,7 +159,7 @@ Val* getProducerOffsetWithGather(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getConcreteProducerOffsetWithGather(
-    int consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_concrete_map = false) {
@@ -224,7 +224,7 @@ Val* getProducerIndexWithGather(
   }
 
   // Consumer axis that corresponds to the producer axis
-  int consumer_axis = -1;
+  int64_t consumer_axis = -1;
   for (const auto i : c10::irange(producer_root_axis + 1)) {
     if (producer_tv->getMaybeRFactorDomain()[i]->isReduction() ||
         producer_tv->getMaybeRFactorDomain()[i]->isStride()) {

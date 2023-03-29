@@ -1244,7 +1244,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
   }
 
   //! Returns the gather axis that corresponds to an input axis
-  int gatherAxis(int axis) const;
+  int64_t gatherAxis(int64_t axis) const;
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
@@ -1857,10 +1857,10 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   // uint.
   IterDomain* axis(int i) const;
 
-  int posOf(IterDomain* id) const;
+  int64_t posOf(IterDomain* id) const;
 
   //! Returns a position of a root domain
-  int rootPosOf(IterDomain* id) const;
+  int64_t rootPosOf(IterDomain* id) const;
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside

@@ -1603,13 +1603,15 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int GatherOp::gatherAxis(int axis) const {
+int64_t GatherOp::gatherAxis(int64_t axis) const {
   if (axis < 0) {
-    axis += (int)out()->as<TensorView>()->nDims();
+    axis += (int64_t)out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int)windowShape().size(), "Invalid axis: ", axis);
-  return (int)windowShape().size() + axis;
+      axis >= 0 && axis < (int64_t)windowShape().size(),
+      "Invalid axis: ",
+      axis);
+  return (int64_t)windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
@@ -2604,10 +2606,10 @@ IterDomain* TensorDomain::axis(int i) const {
   return domain_[i];
 }
 
-int TensorDomain::posOf(IterDomain* id) const {
+int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
-  int i = 0;
-  while (i < (int)domain_.size()) {
+  int64_t i = 0;
+  while (i < (int64_t)domain_.size()) {
     if (domain_[i] == id)
       return i;
     i++;
@@ -2615,13 +2617,13 @@ int TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-int TensorDomain::rootPosOf(IterDomain* id) const {
+int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(
       !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
   TORCH_INTERNAL_ASSERT(
       it != root_domain_.end(), "Provided id is not part of root domain.");
-  return (int)std::distance(root_domain_.begin(), it);
+  return std::distance(root_domain_.begin(), it);
 }
 
 void TensorDomain::split(
