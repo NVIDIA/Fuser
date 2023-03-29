@@ -1244,7 +1244,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
   }
 
   //! Returns the gather axis that corresponds to an input axis
-  size_t gatherAxis(size_t axis) const;
+  int64_t gatherAxis(int64_t axis) const;
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
@@ -1857,10 +1857,10 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   // uint.
   IterDomain* axis(int i) const;
 
-  size_t posOf(IterDomain* id) const;
+  int64_t posOf(IterDomain* id) const;
 
   //! Returns a position of a root domain
-  size_t rootPosOf(IterDomain* id) const;
+  int64_t rootPosOf(IterDomain* id) const;
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -2259,7 +2259,7 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
+  std::pair<Val*, Val*> getPadWidths(int axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;

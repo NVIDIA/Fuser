@@ -15,7 +15,6 @@
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 
-#include <test/cpp/jit/test_utils.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
 

@@ -32,6 +32,7 @@ exclude_list = (
     "./tools/update_copyright.py",
     "./examples/sinh_libtorch/main.cpp",
     "./version.txt",
+    "./test/main.cpp",
     # lint adapters are taken from pytorch
     "tools/linter/adapters/black_linter.py",
     "tools/linter/adapters/clangformat_linter.py",

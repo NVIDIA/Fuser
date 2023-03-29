@@ -1447,7 +1447,7 @@ std::string TransposeOp::toInlineString(int indent_size) const {
 std::vector<int64_t> TransposeOp::old2new() const {
   std::vector<int64_t> old2new(new2old().size());
   for (auto new_axis : c10::irange(new2old().size())) {
-    int old_axis = (int)new2old().at(new_axis);
+    auto old_axis = new2old().at(new_axis);
     old2new[old_axis] = (int64_t)new_axis;
   }
   return old2new;
@@ -1603,13 +1603,15 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-size_t GatherOp::gatherAxis(size_t axis) const {
+int64_t GatherOp::gatherAxis(int64_t axis) const {
   if (axis < 0) {
-    axis += out()->as<TensorView>()->nDims();
+    axis += (int64_t)out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < windowShape().size(), "Invalid axis: ", axis);
-  return windowShape().size() + axis;
+      axis >= 0 && axis < (int64_t)windowShape().size(),
+      "Invalid axis: ",
+      axis);
+  return (int64_t)windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
@@ -2604,10 +2606,10 @@ IterDomain* TensorDomain::axis(int i) const {
   return domain_[i];
 }
 
-size_t TensorDomain::posOf(IterDomain* id) const {
+int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
-  size_t i = 0;
-  while (i < domain_.size()) {
+  int64_t i = 0;
+  while (i < (int64_t)domain_.size()) {
     if (domain_[i] == id)
       return i;
     i++;
@@ -2615,7 +2617,7 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-size_t TensorDomain::rootPosOf(IterDomain* id) const {
+int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(
       !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
@@ -3208,8 +3210,8 @@ std::vector<Val*> PadOp::getPadWidths() const {
   return {getPadWidthInputBegin(), getPadWidthInputEnd()};
 }
 
-std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
-  auto num_dims = (int64_t)out()->as<TensorView>()->getRootDomain().size();
+std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
+  auto num_dims = (int)out()->as<TensorView>()->getRootDomain().size();
 
   if (axis < 0) {
     axis += num_dims;
@@ -3217,9 +3219,11 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
 
   TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
 
+  int64_t offset_even = (int64_t)axis * 2;
+  int64_t offset_odd = offset_even + 1;
   return std::make_pair(
-      (*(getPadWidthInputBegin() + axis * 2))->as<Val>(),
-      (*(getPadWidthInputBegin() + axis * 2 + 1))->as<Val>());
+      (*(getPadWidthInputBegin() + offset_even))->as<Val>(),
+      (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
 SliceOp::SliceOp(
