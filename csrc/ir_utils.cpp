@@ -135,7 +135,7 @@ std::vector<int> normalizeOld2New(
   // All available new positions
   std::set<int> all_positions;
   for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert(i);
+    all_positions.insert((int)i);
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -174,9 +174,9 @@ struct SubstituteInExpr : public OptOutMutator {
   }
 
  protected:
-  virtual void removeExpr(IrContainer*, Expr*) const override {}
+  void removeExpr(IrContainer*, Expr*) const override {}
 
-  virtual void registerNewExpr(Expr* expr) override {
+  void registerNewExpr(Expr* expr) override {
     expr_ = expr;
   }
 
@@ -452,7 +452,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmts(fusion, allLeafOuts(fusion), true);
+    auto stmts = StmtSort::getStmts(fusion, allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -465,7 +465,7 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmts(fusion, more, true);
+    auto more_stmts = StmtSort::getStmts(fusion, more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {

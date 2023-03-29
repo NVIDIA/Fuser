@@ -481,8 +481,11 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_interleaved =
       interLeaveDoubleBufferUnrolledLoops(predicate_peeled);
 
-  const auto exprs_loop_rotated =
-      rotateLoops(exprs_interleaved, fusion_->getLoopRotationParam());
+  const auto exprs_loop_rotated = fusion_->hasManaged("loop_rotation")
+      ? rotateLoops(
+            exprs_interleaved,
+            fusion_->getManaged<LoopRotationParam>("loop_rotation"))
+      : exprs_double_buffered;
   dumpExprsIfEnabled(exprs_loop_rotated, "rotateLoops");
 
   // This pass inserts predicates as well as branches in the code. Up until now

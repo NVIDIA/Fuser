@@ -213,8 +213,11 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
 
 namespace {
 
-std::list<VarInfo> getLoopIndices(const std::vector<kir::ForLoop*>& loops) {
+std::list<VarInfo> getVariableInfo(
+    Val* value,
+    const std::vector<kir::ForLoop*>& loops) {
   std::list<VarInfo> variables;
+  // Loop indices
   for (auto loop : loops) {
     if (loop->isTrivial()) {
       if (loop->iter_domain()->isThread()) {
@@ -223,6 +226,21 @@ std::list<VarInfo> getLoopIndices(const std::vector<kir::ForLoop*>& loops) {
     } else {
       variables.push_back({loop->index(), loop->isUnrolled()});
     }
+  }
+  // Tensor base addresses
+  std::vector<Val*> to_visit{value};
+  while (!to_visit.empty()) {
+    auto back = to_visit.back();
+    to_visit.pop_back();
+    auto def = back->definition();
+    if (def == nullptr) {
+      continue;
+    }
+    if (def->isA<kir::BaseAddress>()) {
+      variables.push_front({back});
+      continue;
+    }
+    to_visit.insert(to_visit.end(), def->inputs().begin(), def->inputs().end());
   }
   return variables;
 }
@@ -263,7 +281,8 @@ Val* CommonScalarMap::hoistScalar(
   if (value == nullptr) {
     return nullptr;
   }
-  value = simplifyExpr(value, getLoopIndices(loops), getAssumptions(loops));
+  value =
+      simplifyExpr(value, getVariableInfo(value, loops), getAssumptions(loops));
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     return value;
   }

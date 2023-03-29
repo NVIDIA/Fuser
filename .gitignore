@@ -1,5 +1,38 @@
+# binary reference
 bin
-python/version.py
-__pycache__
+
+# cmake build directory
 build
+.lintbin
+
+# pip wheel directory
+dist
+
+nvfuser/version.py
+nvfuser/lib
+
+.hypothesis
+*.egg-info/
+**/__pycache__
+*/*.so
+
+# Editor temporaries
+*.swa
+*.swb
+*.swc
+*.swd
+*.swe
+*.swf
+*.swg
+*.swh
+*.swi
+*.swj
+*.swk
+*.swl
+*.swm
+*.swn
+*.swo
+*.swp
+*~
+.~lock.*
 .vscode

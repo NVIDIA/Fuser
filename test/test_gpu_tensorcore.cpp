@@ -808,8 +808,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     runtime = fe.kernelTimeMs();
   };
 
-  // Gmem pipeline stage
-
+  // Checking only a single layout to keep runtime short (compilation overhead)
   for (auto layout : {MatmulLayout::TT}) {
     for (auto order : all_orders) {
       float runtime1 = 0;

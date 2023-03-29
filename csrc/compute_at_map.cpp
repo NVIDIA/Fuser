@@ -410,7 +410,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Map the entire replay map between the multiple
         // consumers
         auto c2f_disjoint_sets = replay_FasC.getIterDomainEquivalence();
-        for (auto disjoint_set : c2f_disjoint_sets.disjointSets()) {
+        for (const auto& disjoint_set : c2f_disjoint_sets.disjointSets()) {
           if (disjoint_set->empty()) {
             continue;
           }
@@ -620,13 +620,13 @@ void IterDomainGraph::build(Fusion* fusion) {
             rfactor_id_uses.at(rfactor_inp_id),
             "\nand\n",
             expr->toString());
-        rfactor_id_uses.emplace(std::make_pair(rfactor_inp_id, expr));
+        rfactor_id_uses.emplace(rfactor_inp_id, expr);
         rfactor_id_order.push_back(rfactor_inp_id);
       }
     }
     for (auto rfactor_id : consumer_tv->getMaybeRFactorDomain()) {
       if (rfactor_id->isRFactorProduct()) {
-        rfactor_id_uses.emplace(std::make_pair(rfactor_id, nullptr));
+        rfactor_id_uses.emplace(rfactor_id, nullptr);
         rfactor_id_order.push_back(rfactor_id);
       }
     }
@@ -788,25 +788,24 @@ void ComputeAtMap::allocateIndexVariables() {
   //  all lowered kir::ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
-    ParallelType ptype;
+    ParallelType ptype = ParallelType::Serial;
     // first allocate thread and grid parallel indices:
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
-    if (std::any_of(
-            loop_disjoint_set->vector().begin(),
-            loop_disjoint_set->vector().end(),
-            [&ptype](IterDomain* id) {
-              if (id->isThread() &&
-                  // Halo extended parallel loops currently are handled
-                  // differently and an index variable would still
-                  // be allocated in this case.
-                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr)) {
-                ptype = id->getParallelType();
-                return true;
-              }
-              return false;
-            })) {
+
+    auto result = std::find_if(
+        loop_disjoint_set->vector().begin(),
+        loop_disjoint_set->vector().end(),
+        [](IterDomain* id) {
+          // Halo extended parallel loops currently are handled
+          // differently and an index variable would still
+          // be allocated in this case.
+          return id->isThread() &&
+              (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
+        });
+    if (result != loop_disjoint_set->vector().end()) {
+      ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
           NamedScalar::getParallelIndex(ptype);
       continue;
@@ -898,7 +897,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   const auto& disjoint_set_shared_ptr = disjointSetOf(id, mode);
 
   TORCH_INTERNAL_ASSERT(
-      disjoint_set_shared_ptr->vector().size(),
+      !disjoint_set_shared_ptr->vector().empty(),
       "Empty disjoint set found for ",
       id->toString());
 
@@ -927,7 +926,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   // Shouldn't ever happen, it would mean there's an error somewhere in the
   // graph.
   TORCH_INTERNAL_ASSERT(
-      maybe_concrete_ids.vector().size() > 0,
+      !maybe_concrete_ids.vector().empty(),
       "No potential concrete_id's found for ",
       id->toString());
 
@@ -979,9 +978,9 @@ IterDomain* ComputeAtMap::computeConcreteId(
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         resolved_broadcasts;
 
-    for (auto exact_set : all_exact_sets_covered) {
+    for (const auto& exact_set : all_exact_sets_covered) {
       TORCH_INTERNAL_ASSERT(
-          exact_set->vector().size(),
+          !exact_set->vector().empty(),
           "Cannot compute concrete id of empty set.");
       auto c_id = getConcreteMappedID(
           exact_set->vector().front(), IdMappingMode::EXACT);
@@ -1021,7 +1020,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         tmp_all_exact_sets_covered;
     std::swap(tmp_all_exact_sets_covered, all_exact_sets_covered);
-    for (auto entry : tmp_all_exact_sets_covered) {
+    for (const auto& entry : tmp_all_exact_sets_covered) {
       if (all_resolved_broadcast_uses.has(entry)) {
         continue;
       }
@@ -1034,7 +1033,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     // All exact sets in the history of an rfactored domain
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         produces_rfactor_dom;
-    for (auto exact_set : all_exact_sets_covered) {
+    for (const auto& exact_set : all_exact_sets_covered) {
       if (produces_rfactor_dom.has(exact_set)) {
         // Already processed
         continue;
@@ -1047,7 +1046,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
       }
       VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
           rfactor_history = getAllDisjointSetProducers({exact_set});
-      for (auto entry : rfactor_history) {
+      for (const auto& entry : rfactor_history) {
         // Leave rfactor exact set, unless it's in the history of another
         // rfactor domain.
         if (entry != exact_set) {
@@ -1061,7 +1060,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         tmp_all_exact_sets_covered;
     std::swap(tmp_all_exact_sets_covered, all_exact_sets_covered);
-    for (auto entry : tmp_all_exact_sets_covered) {
+    for (const auto& entry : tmp_all_exact_sets_covered) {
       if (produces_rfactor_dom.has(entry)) {
         continue;
       }
@@ -1086,7 +1085,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   }
 
   TORCH_INTERNAL_ASSERT(
-      maybe_concrete_ids.vector().size() > 0,
+      !maybe_concrete_ids.vector().empty(),
       "No potential concrete_id's found for disjoint set ",
       disjoint_set_shared_ptr->toString());
 
@@ -1105,7 +1104,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   for (auto maybe_concrete_id : maybe_concrete_ids.vector()) {
     auto concrete_id_root_sets = getInputDisjointSetsOf(maybe_concrete_id);
 
-    int bcast_root_count = std::count_if(
+    int bcast_root_count = (int)std::count_if(
         concrete_id_root_sets.vector().begin(),
         concrete_id_root_sets.vector().end(),
         [&](std::shared_ptr<VectorOfUniqueEntries<IterDomain*>> set) {
@@ -1139,7 +1138,7 @@ void ComputeAtMap::buildConcreteIds() {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.exactNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     concrete_id_cache_[disjoint_set_shared_ptr] = first_id;
@@ -1150,7 +1149,7 @@ void ComputeAtMap::buildConcreteIds() {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.permissiveNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     auto concrete_id = computeConcreteId(first_id, IdMappingMode::PERMISSIVE);
@@ -1161,7 +1160,7 @@ void ComputeAtMap::buildConcreteIds() {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.almostExactNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     auto concrete_id = computeConcreteId(first_id, IdMappingMode::ALMOSTEXACT);
@@ -1171,7 +1170,7 @@ void ComputeAtMap::buildConcreteIds() {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.loopNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     auto concrete_id = computeConcreteId(first_id, IdMappingMode::LOOP);
@@ -1181,7 +1180,7 @@ void ComputeAtMap::buildConcreteIds() {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.permissiveResizeNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     auto concrete_id =
@@ -1338,7 +1337,7 @@ IterDomain* ComputeAtMap::getConcreteMappedID(
   auto disjoint_set_shared_ptr = disjointSetOf(id, mode);
 
   TORCH_INTERNAL_ASSERT(
-      disjoint_set_shared_ptr->vector().size() > 0,
+      !disjoint_set_shared_ptr->vector().empty(),
       "Empty disjoint set found for ",
       id->toString());
 
@@ -1534,7 +1533,7 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
     }
 
     // Add producers to visit if not already there
-    for (auto producer : producers_of_currently_visiting.vector()) {
+    for (const auto& producer : producers_of_currently_visiting.vector()) {
       if (visited.find(producer) == visited.end()) {
         to_visit.push_back(producer);
       }
@@ -1547,7 +1546,8 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
 ComputeAtMap::getAllDisjointSetProducers(
     const VectorOfUniqueEntries<
-        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets) {
+        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+    const {
   // This deque could be VectorOfUniqueEntries
   std::deque<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>> to_visit(
       {exact_sets.vector().begin(), exact_sets.vector().end()});
@@ -1581,7 +1581,7 @@ ComputeAtMap::getAllDisjointSetProducers(
     }
 
     // Add producers to visit if not already there
-    for (auto producer : producers_of_currently_visiting.vector()) {
+    for (const auto& producer : producers_of_currently_visiting.vector()) {
       if (!visited.has(producer)) {
         to_visit.push_back(producer);
       }
@@ -1594,7 +1594,8 @@ ComputeAtMap::getAllDisjointSetProducers(
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
 ComputeAtMap::getAllDisjointSetConsumers(
     const VectorOfUniqueEntries<
-        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets) {
+        std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
+    const {
   // This deque could be VectorOfUniqueEntries
   std::deque<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>> to_visit(
       {exact_sets.vector().begin(), exact_sets.vector().end()});
@@ -1628,7 +1629,7 @@ ComputeAtMap::getAllDisjointSetConsumers(
     }
 
     // Add consumers to visit if not already there
-    for (auto consumer : consumers_of_currently_visiting.vector()) {
+    for (const auto& consumer : consumers_of_currently_visiting.vector()) {
       if (!visited.has(consumer)) {
         to_visit.push_back(consumer);
       }
@@ -1650,7 +1651,7 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
   for (auto pos = compute_with_tv->getComputeAtPosition();
        pos < compute_with_tv->getComputeWithPosition();
        ++pos) {
-    auto id = compute_with_tv->axis(pos);
+    auto id = compute_with_tv->axis((int)pos);
 
     // Find the matching consumer ID using the permissive map
     auto it = std::find_if(
@@ -1684,7 +1685,7 @@ void ComputeAtMap::updateComputeWith(TensorView* compute_with_tv) {
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.loopNodes().disjointSets()) {
     TORCH_INTERNAL_ASSERT(
-        disjoint_set_shared_ptr->vector().size(),
+        !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
     auto concrete_id = computeConcreteId(first_id, IdMappingMode::LOOP);

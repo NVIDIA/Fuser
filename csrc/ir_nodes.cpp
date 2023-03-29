@@ -742,46 +742,49 @@ BroadcastOp::BroadcastOp(
 
   addOutput(out);
   addInput(in);
+
+  // Validate the broadcast flags when this expr is created with
+  // TensorView. Broadcast with TensorIndex only appears after
+  // lowering, so it should have already been validated.
+  if (out->isA<TensorView>()) {
+    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    auto in_tv = in->as<TensorView>();
+    auto out_tv = out->as<TensorView>();
+    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+    auto& out_dom = out_tv->getRootDomain();
+    TORCH_INTERNAL_ASSERT(
+        is_broadcast_dims.size() == out_dom.size(),
+        "The dimensions of output tensor and does not match with is_broadcast_dims");
+
+    auto out_size = is_broadcast_dims.size();
+    auto num_new_broadcasts = 0;
+    for (const auto i : c10::irange(out_size)) {
+      if (is_broadcast_dims[i]) {
+        num_new_broadcasts++;
+        auto id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            id->isBroadcast(),
+            "New broadcast dimension does not properly set its IterType.");
+        TORCH_INTERNAL_ASSERT(
+            !id->hasExpandedExtent(),
+            "New broadcast dimension can not be expanded.");
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "New broadcast dimension must have extent 1");
+      } else {
+        auto in_id = in_dom[i - num_new_broadcasts];
+        auto out_id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        out_size == in_dom.size() + num_new_broadcasts,
+        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+  }
+
   addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
       passkey.ir_container_, std::move(is_broadcast_dims)));
-
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
-  auto in_tv = in->as<TensorView>();
-  auto out_tv = out->as<TensorView>();
-  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-  auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
-      is_broadcast_dims.size() == out_dom.size(),
-      "The dimensions of output tensor and does not match with is_broadcast_dims");
-
-  auto out_size = is_broadcast_dims.size();
-  auto num_new_broadcasts = 0;
-  for (const auto i : c10::irange(out_size)) {
-    if (is_broadcast_dims[i]) {
-      num_new_broadcasts++;
-      auto id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(),
-          "New broadcast dimension does not properly set its IterType.");
-      TORCH_INTERNAL_ASSERT(
-          !id->hasExpandedExtent(),
-          "New broadcast dimension can not be expanded.");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "New broadcast dimension must have extent 1");
-    } else {
-      auto in_id = in_dom[i - num_new_broadcasts];
-      auto out_id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      out_size == in_dom.size() + num_new_broadcasts,
-      "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -807,19 +810,19 @@ SqueezeOp::SqueezeOp(
   auto in_type = in->getValType().value();
 
   TORCH_INTERNAL_ASSERT(
-      (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
-          (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
-      "Cannot squeeze a non-tensor object.");
+      in_type == ValType::TensorView,
+      "Squeeze input must be a TensorView: ",
+      in->toString());
+
+  TORCH_INTERNAL_ASSERT(
+      out_type == ValType::TensorView,
+      "Squeeze output must be a TensorView: ",
+      in->toString());
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
 
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
+  // Validate the squeeze flags
   auto in_tv = in->as<TensorView>();
   auto out_tv = out->as<TensorView>();
   auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
@@ -851,6 +854,9 @@ SqueezeOp::SqueezeOp(
   TORCH_INTERNAL_ASSERT(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+
+  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
+      passkey.ir_container_, std::move(is_squeeze_dims)));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -970,7 +976,7 @@ std::string GroupedReductionOp::toInlineString(int indent_size) const {
 int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
   auto it = std::find(outputs().begin(), outputs().end(), output_val);
   if (it != outputs().end()) {
-    return std::distance(outputs().begin(), it);
+    return (int)std::distance(outputs().begin(), it);
   }
 
   TORCH_INTERNAL_ASSERT(
@@ -983,7 +989,7 @@ c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
-    return indexToValName(std::distance(begin(), it));
+    return indexToValName((int)std::distance(begin(), it));
   }
 
   return c10::optional<WelfordTriplet::ValName>();
@@ -1002,9 +1008,9 @@ WelfordTriplet WelfordTriplet::clone(IrCloner* ir_cloner) const {
 std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
-  std::vector<WelfordTriplet> cloned;
-  for (const auto& triplet : src) {
-    cloned.emplace_back(triplet.clone(ir_cloner));
+  std::vector<WelfordTriplet> cloned(src.size());
+  for (const auto i : c10::irange(src.size())) {
+    cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
 }
@@ -1305,7 +1311,7 @@ std::string GroupedWelfordOp::toInlineString(int indent_size) const {
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
   for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
-      return expr_idx;
+      return (int)expr_idx;
     }
   }
 
@@ -1442,7 +1448,7 @@ std::vector<int64_t> TransposeOp::old2new() const {
   std::vector<int64_t> old2new(new2old().size());
   for (auto new_axis : c10::irange(new2old().size())) {
     auto old_axis = new2old().at(new_axis);
-    old2new[old_axis] = new_axis;
+    old2new[old_axis] = (int64_t)new_axis;
   }
   return old2new;
 }
@@ -1597,13 +1603,15 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int GatherOp::gatherAxis(int axis) const {
+int64_t GatherOp::gatherAxis(int64_t axis) const {
   if (axis < 0) {
-    axis += out()->as<TensorView>()->nDims();
+    axis += (int64_t)out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int)windowShape().size(), "Invalid axis: ", axis);
-  return int(windowShape().size()) + axis;
+      axis >= 0 && axis < (int64_t)windowShape().size(),
+      "Invalid axis: ",
+      axis);
+  return (int64_t)windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
@@ -1858,19 +1866,34 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   const IterDomain* other_id = other->as<IterDomain>();
 
-  bool is_same = isReduction() == other_id->isReduction() &&
-      getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
-  is_same =
-      is_same && ScalarCheck::sameAs(stopOffset(), other_id->stopOffset());
-  is_same = is_same && (hasExpandedExtent() == other_id->hasExpandedExtent());
-  if (is_same && hasExpandedExtent()) {
-    is_same = ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent());
-  }
+  // Here're the data fields of IterDomain:
+  // start_
+  // extent_
+  // expanded_extent_
+  // stop_offset_
+  // parallel_type_
+  // iter_type_
+  // is_rfactor_domain_
+  // is_padded_dimension_
+  // padded_to_size_
+  // is_mma_swizzled_
 
-  return is_same;
+  // Do not take is_rfactor_domain_ into account. IterDomain's are
+  // considered the same if they are rfactor or not.
+
+  // TODO: Consider managing them as attributes
+
+  return ScalarCheck::sameAs(start(), other_id->start()) &&
+      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+      hasExpandedExtent() == other_id->hasExpandedExtent() &&
+      (!hasExpandedExtent() ||
+       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
+      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+      getParallelType() == other_id->getParallelType() &&
+      getIterType() == other_id->getIterType() &&
+      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
+      isMmaSwizzled() == other_id->isMmaSwizzled();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2167,9 +2190,23 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  Val* resized_id_size = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
-      right_expansion);
+  // The overall extent is (in->extent() + left_expansion +
+  // right_expansion). This can be simplified for a slice op as
+  // the right expansion should look like (slice_end_offset -
+  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  Val* resized_id_size = nullptr;
+  if (right_expansion->definition() != nullptr &&
+      right_expansion->definition()->isA<BinaryOp>() &&
+      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  } else {
+    resized_id_size = SimplifyingIrBuilder::addExpr(
+        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        right_expansion);
+  }
 
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
@@ -2432,7 +2469,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   }
 
   for (const auto i : c10::irange(nDims())) {
-    if (!(axis(i)->sameAs(other_td->axis(i)))) {
+    if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
       return false;
     }
   }
@@ -2558,8 +2595,9 @@ c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
 IterDomain* TensorDomain::axis(int i) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0)
-    i += nDims();
+  if (i < 0) {
+    i += (int)nDims();
+  }
   TORCH_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
       "Tried to access axis ",
@@ -2569,10 +2607,10 @@ IterDomain* TensorDomain::axis(int i) const {
   return domain_[i];
 }
 
-size_t TensorDomain::posOf(IterDomain* id) const {
+int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
-  size_t i = 0;
-  while (i < domain_.size()) {
+  int64_t i = 0;
+  while (i < (int64_t)domain_.size()) {
     if (domain_[i] == id)
       return i;
     i++;
@@ -2580,9 +2618,9 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-size_t TensorDomain::rootPosOf(IterDomain* id) const {
+int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(
-      root_domain_.size() > 0, "Tried to find an axis in a 0-dim root domain");
+      !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
   TORCH_INTERNAL_ASSERT(
       it != root_domain_.end(), "Provided id is not part of root domain.");
@@ -2596,7 +2634,7 @@ void TensorDomain::split(
     bool trim_out_of_bounds) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
-    axis_ += nDims();
+    axis_ += (int)nDims();
 
   TORCH_INTERNAL_ASSERT(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
@@ -2628,10 +2666,10 @@ void TensorDomain::split(
 void TensorDomain::merge(int axis_o, int axis_i) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
   if (axis_o < 0)
-    axis_o += nDims();
+    axis_o += (int)nDims();
 
   if (axis_i < 0)
-    axis_i += nDims();
+    axis_i += (int)nDims();
 
   TORCH_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
@@ -2666,8 +2704,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 // Reorder axes according to map[old_pos] = new_pos
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(nDims() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   domain_ = orderedAs(domain_, old2new_);
   resetDomains();
 }
@@ -2676,8 +2713,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
     const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(dom.size() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
@@ -2756,9 +2792,9 @@ std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.push_back(c10::nullopt);
+      contiguity.emplace_back(c10::nullopt);
     } else {
-      contiguity.push_back(fill_value);
+      contiguity.emplace_back(fill_value);
     }
   }
   return contiguity;
@@ -2791,10 +2827,10 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   auto inp_domain = noReductions(getMaybeRFactorDomain());
 
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
       start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
@@ -3118,7 +3154,8 @@ PadOp::PadOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
-    const std::vector<Val*>& pad_widths)
+    const std::vector<Val*>& pad_widths,
+    Val* value)
     : Expr(passkey) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
@@ -3134,6 +3171,7 @@ PadOp::PadOp(
       ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
   addOutput(out);
   addInput(inp);
+  addInput(value);
   for (auto width : pad_widths) {
     TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);
@@ -3159,12 +3197,12 @@ std::vector<int> PadOp::getPaddedAxes() const {
   auto num_dims = out()->as<TensorView>()->getRootDomain().size();
   std::vector<int> padded_axes;
   for (const auto i : c10::irange(num_dims)) {
-    auto [left_pad, right_pad] = getPadWidths(i);
+    auto [left_pad, right_pad] = getPadWidths((int)i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
       continue;
     }
-    padded_axes.push_back(i);
+    padded_axes.push_back((int)i);
   }
   return padded_axes;
 }
@@ -3174,8 +3212,7 @@ std::vector<Val*> PadOp::getPadWidths() const {
 }
 
 std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
-  const auto num_dims =
-      static_cast<int>(out()->as<TensorView>()->getRootDomain().size());
+  auto num_dims = (int)out()->as<TensorView>()->getRootDomain().size();
 
   if (axis < 0) {
     axis += num_dims;
@@ -3183,9 +3220,11 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
 
   TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
 
+  int64_t offset_even = (int64_t)axis * 2;
+  int64_t offset_odd = offset_even + 1;
   return std::make_pair(
-      (*(getPadWidthInputBegin() + axis * 2))->as<Val>(),
-      (*(getPadWidthInputBegin() + axis * 2 + 1))->as<Val>());
+      (*(getPadWidthInputBegin() + offset_even))->as<Val>(),
+      (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
 SliceOp::SliceOp(
@@ -3322,7 +3361,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  TORCH_INTERNAL_ASSERT(attributes().size() > 0, "No attribute found");
+  TORCH_INTERNAL_ASSERT(!attributes().empty(), "No attribute found");
   TORCH_INTERNAL_ASSERT(
       attribute(1) != nullptr, "nulllptr attribute is invalid");
   auto idx = attribute(1)->as<Val>();

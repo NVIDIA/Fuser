@@ -1542,11 +1542,7 @@ void IndexLowering::handle(const PadOp* pad) {
   const auto in = lowerSrcIndex(pad->in(), pad->out());
   const auto out = lowerDstIndex(pad->out());
 
-  DataType dt = producer_tv->getDataType().value();
-  // Currently it's always padded by zero
-  const auto pad_val = isFloatingPointType(dt)
-      ? static_cast<Val*>(IrBuilder::create<Double>(0, dt))
-      : static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+  const auto pad_val = pad->value();
 
   const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
       producer_tv, consumer_tv, for_loops_, getRotatedLoop());

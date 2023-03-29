@@ -58,6 +58,8 @@ void Val::dispatch(T handler, Val* val) {
           return;
         case DataType::Float:
         case DataType::Double:
+        case DataType::Half:
+        case DataType::BFloat16:
           ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:
@@ -98,6 +100,10 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::AggregateVal:
       ptr(handler)->handle(val->as<AggregateVal>());
       return;
+    case ValType::Attribute:
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
       break;
   }
@@ -346,6 +352,8 @@ void Val::constDispatch(T handler, const Val* val) {
           return;
         case DataType::Float:
         case DataType::Double:
+        case DataType::Half:
+        case DataType::BFloat16:
           ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:

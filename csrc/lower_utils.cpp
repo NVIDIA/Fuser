@@ -277,6 +277,10 @@ bool isScalarOp(const Expr* expr) {
   return true;
 }
 
+bool isIterDomainOp(const Expr* expr) {
+  return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
+}
+
 c10::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
