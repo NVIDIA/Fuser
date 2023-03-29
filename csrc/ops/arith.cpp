@@ -1792,10 +1792,13 @@ WelfordResult Welford(
     TORCH_CHECK(
         squeezed->getRootDomain().size() == init_var->getRootDomain().size(),
         "welford op: initial tensor mismatch");
-    return WelfordResult(squeezed, init_var, out_N);
+    return WelfordResult(squeezed, init_var, out_N, false);
   } else {
     return WelfordResult(
-        squeezed, full_like(squeezed, IrBuilder::create<Double>(0)), out_N);
+        squeezed,
+        full_like(squeezed, IrBuilder::create<Double>(0)),
+        out_N,
+        false);
   }
 }
 
@@ -1805,9 +1808,9 @@ WelfordResult::WelfordResult(
     TensorView* in_n,
     const bool check_definition)
     : avg(in_avg), var_sum(in_var_sum), n(in_n) {
-  if (!check_definition || avg->definition()->isA<SqueezeOp>()) {
-    // For a squeeze-only welford, the definition of outputs does not have to be
-    // the same.
+  if (!check_definition) {
+    // For squeeze-only and complex welford, the definition of outputs does not
+    // have to be the same.
     return;
   }
   TORCH_INTERNAL_ASSERT(avg->definition()->sameAs(var_sum->definition()));
