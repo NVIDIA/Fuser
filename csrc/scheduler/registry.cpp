@@ -558,6 +558,12 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
         continue;
       }
 
+      // rfactor_def can be Resize, but resize transformation is not
+      // replayed, so mismatch doesn't matter
+      if (rfactor_def->isA<Resize>()) {
+        continue;
+      }
+
       // If one output of the expression is an rfactor ID all of them should be
       auto def_outs =
           ir_utils::filterByType<IterDomain>(rfactor_def->outputs());
@@ -583,6 +589,13 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 
       // Check which definition in the unique exact definition set this
       // definition matches to:
+      // TODO: Why does it need to check all unique defs? It actually
+      // only looks at those that are exact with rfactor_def and
+      // adds those unique_defs, which are all exactly mapped, to the
+      // unique_exact_use map. Since the objective of this analysis is
+      // to find non-exact exprs using the same exact ID set, it seems
+      // it's just sufficient to register rfactor_def as a user of the
+      // exact set.
       for (auto unique_def : unique_defs) {
         if (ca_map.areExactExprs(rfactor_def, unique_def)) {
           // Check if we already have an expression that consumes an
@@ -681,9 +694,9 @@ bool reductionInterferingView(
 
   // Make sure groups are disjoint based on view
 
-  auto disjoint_view_sets = scheduler_utils::disjointViewSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointViewSetsOf(
-      fusion, reduction_reference, disjoint_view_sets);
+  auto disjoint_rfactor_sets = scheduler_utils::disjointRFactorSets(fusion);
+  auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
+      fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
   std::vector<std::vector<int>> disjoint_groups;

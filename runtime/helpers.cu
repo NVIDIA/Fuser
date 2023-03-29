@@ -1,8 +1,10 @@
+// clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #define NVFUSER_DEFINE_MAGIC_ZERO          \
   __shared__ int nvfuser_zero_s;           \
   if (threadIdx.x == 0)                    \

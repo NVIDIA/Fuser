@@ -217,6 +217,15 @@ class ReplayRFactor : public ReplayTransformations {
     }
   }
 
+  void handle(Resize* resize) override {
+    TORCH_INTERNAL_ASSERT(false, "Unexpected expression: ", resize->toString());
+  }
+
+  void handle(Swizzle2D* swizzle) override {
+    TORCH_INTERNAL_ASSERT(
+        false, "Unexpected expression: ", swizzle->toString());
+  }
+
   // The IterDomains in the original_domain that are being factored into the
   // first stage of the two stage reduction (the producer).
   std::unordered_set<IterDomain*> rfactor_axes_;
@@ -446,7 +455,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   ReplayTransformations consumer_replay(
       original_td->domain(), original_to_consumer_root_map);
-  consumer_replay.setErrorOnFailure(false);
+  consumer_replay.setErrorOnFailure(false).setReplayResize(true);
+
   auto original_to_consumer_map = consumer_replay.getReplay();
 
   std::vector<IterDomain*> new_consumer_domain;

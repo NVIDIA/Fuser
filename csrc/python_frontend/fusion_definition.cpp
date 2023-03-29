@@ -72,6 +72,7 @@ FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
       max_length_(max_length),
       fusion_id_(id),
       fusion_cache_(FusionCache::get()),
+      trie_node_(nullptr),
       recording_state_(),
       prev_fusion_(nullptr),
       user_sched_(nullptr),
@@ -87,20 +88,20 @@ FusionCache* FusionDefinition::fusionCache() const {
 FusionDefinition* FusionDefinition::setupDefinition() {
   TORCH_CHECK(max_length_ > 0, "Can't make a FusionDefinition with 0 records!");
   TORCH_CHECK(!id().has_value(), "Fusion Schedule is already found!");
-  fusionCache()->resetTriePtr();
+  trie_node_ = fusionCache()->rootTriePtr();
   return this;
 }
 
 void FusionDefinition::finalizeDefinition() {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeDefinition");
-  auto cache_entry = fusionCache()->queryChildren(end_record_.get());
-  if (!cache_entry.has_value()) {
+  auto child_node = fusionCache()->queryChildren(trie_node_, end_record_.get());
+  if (!child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::cout << "\nFusionDefinition: Terminal Node not found.\n";
     }
-    fusion_id_ = fusionCache()->createChild(end_record_.get());
+    trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
+    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
     TORCH_CHECK(id().has_value(), "Invalid fusion id!");
-    fusionCache()->traverseTrie(end_record_.get());
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
       print(std::cout);
@@ -115,15 +116,15 @@ void FusionDefinition::finalizeDefinition() {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::cout << "\nFusionDefinition: Terminal Node found!\n";
     }
-    fusion_id_ = c10::optional<size_t>(cache_entry.value()->fusion_id);
-    fusionCache()->traverseTrie(end_record_.get());
+    trie_node_ = child_node.value();
+    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
   }
 }
 
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   TORCH_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto device = getCommonDeviceCUDA(inputs);
   TORCH_CHECK(
       inputs.size() == 0 || device > -1,
@@ -174,7 +175,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool override_user_schedule) const {
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
@@ -186,13 +187,13 @@ std::vector<at::Tensor> FusionDefinition::execute(
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
-      scheds.last_user_def_scheduled_ir = user_sched.schedule.get();
-      scheds.last_user_def_executor = user_sched.executor.get();
+      scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
+      scheds->last_user_def_executor = user_sched.executor.get();
       return user_sched.executor->runFusion(inputs);
     }
   }
 
-  return scheds.auto_gen_schedules->runFusionWithInputs(inputs);
+  return scheds->auto_gen_schedules->runFusionWithInputs(inputs);
 }
 
 std::string FusionDefinition::fusionIr() {
@@ -207,8 +208,8 @@ std::string FusionDefinition::lastCudaCode(
     bool override_user_schedule) const {
   std::string result;
   TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto user_exec = scheds.last_user_def_executor;
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_exec = scheds->last_user_def_executor;
 
   if (!override_user_schedule && (user_exec != nullptr)) {
     if (intrinsic_code) {
@@ -218,7 +219,7 @@ std::string FusionDefinition::lastCudaCode(
       result = user_exec->kernelString();
     }
   } else {
-    result = scheds.auto_gen_schedules->getMostRecentCode(intrinsic_code);
+    result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
   }
   return result;
 }
@@ -228,7 +229,7 @@ std::string FusionDefinition::cudaCodeFor(
     bool intrinsic_code,
     bool override_user_schedule) const {
   TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
@@ -249,7 +250,7 @@ std::string FusionDefinition::cudaCodeFor(
       }
     }
   }
-  return scheds.auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
+  return scheds->auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
 }
 
 std::string FusionDefinition::lastScheduledFusionIr(
@@ -257,8 +258,8 @@ std::string FusionDefinition::lastScheduledFusionIr(
     bool override_user_schedule) const {
   std::string result;
   TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto user_sched_ir = scheds.last_user_def_scheduled_ir;
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_sched_ir = scheds->last_user_def_scheduled_ir;
 
   if (!override_user_schedule && (user_sched_ir != nullptr)) {
     std::stringstream ss;
@@ -266,7 +267,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
     result = ss.str();
   } else {
     result =
-        scheds.auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
+        scheds->auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
   }
   return result;
 }
@@ -276,7 +277,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
     bool tensor_transforms,
     bool override_user_schedule) const {
   TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
-  auto& scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
@@ -294,7 +295,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
       return ss.str();
     }
   }
-  return scheds.auto_gen_schedules->getScheduledIrFor(
+  return scheds->auto_gen_schedules->getScheduledIrFor(
       inputs, tensor_transforms);
 }
 
@@ -325,24 +326,26 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
       "operations.  The max_length for FusionDefintion's might need to be ",
       "increased if the definition is created as expected.");
   addRecord(record);
-  auto cache_entry = fusionCache()->queryChildren(recording_.back().get());
+  auto child_node =
+      fusionCache()->queryChildren(trie_node_, recording_.back().get());
   // If the Record is found in the cache, the FusionDefinition and the Cache
   // will not share Record given the Record had to be created in order to
   // match it but it also already existed in the cache.
-  if (cache_entry.has_value()) {
+  if (child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
                 << record->hash() << ") hit in Fusion Cache.\n";
     }
+    trie_node_ = child_node.value();
     // The FusionDefinition and the Cache will share the Record
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
                 << record->hash() << ") missed in Fusion Cache.\n";
     }
-    fusionCache()->createChild(recording_.back().get());
+    trie_node_ =
+        fusionCache()->createChild(trie_node_, recording_.back().get());
   }
-  fusionCache()->traverseTrie(recording_.back().get());
 }
 
 Fusion* FusionDefinition::preschedFusion() {
@@ -351,7 +354,7 @@ Fusion* FusionDefinition::preschedFusion() {
       "FusionDefinition does not contain a definition, yet!");
   return fusionCache()
       ->queryFusionSchedules(fusion_id_.value())
-      .preschedFusion();
+      ->preschedFusion();
 }
 
 void FusionDefinition::printMathIr() {

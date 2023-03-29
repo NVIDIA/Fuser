@@ -148,6 +148,9 @@ bool isTvOp(const Expr* expr) {
           GatherOp,
           ViewAsScalar,
           ViewOp,
+          PadOp,
+          SliceOp,
+          CatOp,
           kir::GridReduction,
           kir::GroupedGridReduction,
           kir::GridBroadcast,
@@ -246,6 +249,10 @@ bool isScalarOp(const Expr* expr) {
     if (!out->isScalar())
       return false;
   return true;
+}
+
+bool isIterDomainOp(const Expr* expr) {
+  return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
 }
 
 c10::optional<IterDomain*> getMaybeWarpReductionDim(

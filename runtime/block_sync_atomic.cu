@@ -1,8 +1,10 @@
+// clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 
 // Counter-based block synchronization. Only meant to be used for
 // debugging and validating synchronization. This should be replaced

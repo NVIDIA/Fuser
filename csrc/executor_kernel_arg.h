@@ -135,9 +135,15 @@ struct ArgAbstract {
   bool isType(ArgType type) const override {                      \
     return ArgType::TARGET_TYPE == type;                          \
   }                                                               \
-  ArgType type() const override { return ArgType::TARGET_TYPE; }  \
-  const void* arg() const override { return &ARG_NAME; }          \
-  void* arg() override { return &ARG_NAME; }                      \
+  ArgType type() const override {                                 \
+    return ArgType::TARGET_TYPE;                                  \
+  }                                                               \
+  const void* arg() const override {                              \
+    return &ARG_NAME;                                             \
+  }                                                               \
+  void* arg() override {                                          \
+    return &ARG_NAME;                                             \
+  }                                                               \
   std::unique_ptr<ArgAbstract> copy_unique_ptr() const override { \
     return std::make_unique<TARGET_TYPE##Arg>(*this);             \
   }
@@ -348,7 +354,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
-  const ArgAbstract* operator[](int ind) const {
+  const ArgAbstract* operator[](size_t ind) const {
     return arguments_.at(ind).get();
   };
 

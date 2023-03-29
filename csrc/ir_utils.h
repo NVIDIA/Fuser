@@ -114,6 +114,14 @@ class FilteredView {
     return std::vector<value_type>(begin(), end());
   }
 
+  size_t size() const {
+    size_t s = 0;
+    for (auto it = cbegin(); it != cend(); ++it) {
+      ++s;
+    }
+    return s;
+  }
+
  private:
   const InputIt input_it_;
   const InputIt last_;
@@ -370,6 +378,9 @@ TORCH_CUDA_CU_API bool isTorchGatherIndicesTv(const Val* tv);
 TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);
 
 TORCH_CUDA_CU_API std::string varName(const Val* val);
+
+// Check if a tensor is resized as part of  its root to rfactor transformations
+bool hasResizedRfactor(const TensorView* tv);
 
 } // namespace ir_utils
 } // namespace nvfuser
