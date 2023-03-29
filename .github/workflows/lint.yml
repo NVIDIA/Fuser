@@ -105,7 +105,7 @@ jobs:
         run: pip install flake8
       - name: Run flake8
         working-directory: ${{ env.working_directory }}
-        run: flake8
+        run: flake8 --exclude third_party/
 
   clang-format:
     runs-on: ubuntu-latest

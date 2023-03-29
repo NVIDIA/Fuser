@@ -39,7 +39,6 @@
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -3211,7 +3210,7 @@ graph(%x.1 : Tensor,
     std::vector<c10::IValue> results;
     for (const auto& i : c10::irange(10)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }
@@ -3258,7 +3257,7 @@ TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
     constexpr size_t numRuns = 10;
     for (const auto& i : c10::irange(numRuns)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }
