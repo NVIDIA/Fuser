@@ -121,7 +121,8 @@ class TORCH_CUDA_CU_API WelfordResult {
   explicit WelfordResult(
       TensorView* in_avg,
       TensorView* in_var_sum,
-      TensorView* in_n);
+      TensorView* in_n,
+      const bool check_definition = true);
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
@@ -513,6 +514,12 @@ TORCH_CUDA_CU_API Val* ne(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ne(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, TensorView* v2);
+
+// complex
+TORCH_CUDA_CU_API Val* complex(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS
 TORCH_CUDA_CU_API TensorView* sum(

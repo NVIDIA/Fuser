@@ -772,6 +772,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("complex", complex)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
