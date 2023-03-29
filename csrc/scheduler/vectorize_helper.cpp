@@ -154,10 +154,19 @@ Val* commonOrConstExtent(
     std::shared_ptr<const ComputeAtMap> ca_map,
     IterDomain* id) {
   auto disjoint_set = ca_map->idGraph().almostExactNodes().getDisjointSetOf(id);
+  // For ScatterOp, the extend of outputTv should be the extend of indexTv.
+  // The id_map store this mapping info.
+  auto scatter_map = ca_map->scatterMap();
   for (auto entry : disjoint_set) {
     if (entry->extent()->isConstScalar()) {
+       if (scatter_map.find(entry) != scatter_map.end()) {
+        return scatter_map[entry]->extent();
+      }
       return entry->extent();
     }
+  }
+  if (scatter_map.find(id) != scatter_map.end()) {
+    return scatter_map[id]->extent();
   }
   return ca_map->getConcreteMappedID(id, IdMappingMode::ALMOSTEXACT)->extent();
 }

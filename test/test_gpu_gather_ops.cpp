@@ -116,6 +116,111 @@ TEST_F(NVFuserTest, FusionScatter1DIndexZerosSelfTvSameShape_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionScatter2DZerosSelfTvFusion_CUDA) {
+  const std::vector<std::vector<int64_t>> input_dims = {
+      {4, 3}, {128, 22}, {128, 64}};
+
+  const std::vector<std::vector<int64_t>> src_dims = {
+      {3, 2}, {100, 14}, {64, 40}};
+
+  const std::vector<std::vector<int64_t>> idx_dims = {
+      {2, 2}, {32, 14}, {32, 40}};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i =
+      torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* tv_input = makeContigTensor(2);
+    TensorView* tv_idx_1 = makeContigTensor(2, DataType::Int);
+    TensorView* tv_idx_2 = makeContigTensor(2, DataType::Int);
+    TensorView* tv_src = makeContigTensor(2);
+
+    fusion.addInput(tv_input);
+    fusion.addInput(tv_idx_1);
+    fusion.addInput(tv_idx_2);
+    fusion.addInput(tv_src);
+
+    auto tv_idx = add(tv_idx_1, tv_idx_2);
+    auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
+    fusion.addOutput(tv_out);
+
+    at::Tensor idx = generateScatter2DIndex(
+        0, idx_dims[test_id][1], idx_dims[test_id][0], 0);
+
+    at::Tensor idx_1 = at::randint(0, 1024, idx_dims[test_id], options_i);
+    at::Tensor idx_2 = idx - idx_1;
+    at::Tensor input = at::zeros(input_dims[test_id], options);
+    at::Tensor src = at::randn(src_dims[test_id], options);
+    auto t_index = at::add(idx_1, idx_2);
+    auto out_ref = at::scatter(input, 0, t_index, src);
+
+    std::vector<c10::IValue> aten_inputs = {input, idx_1, idx_2, src};
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(NVFuserTest, FusionScatterNoParallism_CUDA) {
+  const std::vector<std::vector<int64_t>> input_dims = {{6, 5}, {32, 28}};
+
+  const std::vector<std::vector<int64_t>> src_dims = {{4, 2}, {24, 16}};
+
+  const std::vector<std::vector<int64_t>> idx_dims = {{3, 2}, {18, 16}};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i =
+      torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* tv_input = makeConcreteTensor(input_dims[test_id]);
+    TensorView* tv_idx_1 = makeConcreteTensor(idx_dims[test_id], DataType::Int);
+    TensorView* tv_idx_2 = makeConcreteTensor(idx_dims[test_id], DataType::Int);
+    TensorView* tv_src = makeConcreteTensor(src_dims[test_id]);
+
+    fusion.addInput(tv_input);
+    fusion.addInput(tv_idx_1);
+    fusion.addInput(tv_idx_2);
+    fusion.addInput(tv_src);
+
+    auto tv_idx = add(tv_idx_1, tv_idx_2);
+    auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
+    fusion.addOutput(tv_out);
+
+    tv_idx->computeAt(tv_out, 0);
+
+    at::Tensor idx = generateScatter2DIndex(
+        0, idx_dims[test_id][1], idx_dims[test_id][0], 0);
+
+    at::Tensor idx_1 = at::randint(0, 1024, idx_dims[test_id], options_i);
+    at::Tensor idx_2 = idx - idx_1;
+    at::Tensor input = at::zeros(input_dims[test_id], options);
+    at::Tensor src = at::randn(src_dims[test_id], options);
+
+    auto t_index = at::add(idx_1, idx_2);
+    auto out_ref = at::scatter(input, 0, t_index, src);
+
+    std::vector<c10::IValue> aten_inputs = {input, idx_1, idx_2, src};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
+  }
+}
+
 // all torch.gather test follow the FusionTorchGather* pattern
 
 // Test the correctness of gather operator in different dimensions and selcted

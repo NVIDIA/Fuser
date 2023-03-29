@@ -297,6 +297,10 @@ class TORCH_CUDA_CU_API ComputeAtMap {
           std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
       const;
 
+  const std::unordered_map<IterDomain*, IterDomain*> scatterMap() const {
+    return scatter_id_map_;
+  }
+
  private:
   // Traverses through definitions of exact maps (unique_exact_definitions_) to
   // input ID's from provided ID. Returns all the exact map concrete IDs of the
@@ -363,6 +367,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
       DoubleBufferIndicesPtr>
       double_buffered_loop_index_variable_map_;
 
+  //! IterationDomain mapping for ScatterOp.
+  std::unordered_map<IterDomain*, IterDomain*> scatter_id_map_;
   // Shortcut to access the fusion this computeAt map was
   //  built from.
   Fusion* fusion_;

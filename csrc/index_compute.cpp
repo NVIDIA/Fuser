@@ -463,6 +463,13 @@ void IndexCompute::handle(Merge* merge) {
     return;
   }
 
+  // For ScatterOp, the extend of outputTv should be the extend of indexTv.
+  // The caMap.idMap store this info.
+  auto scatter_map = GpuLower::current()->caMap()->scatterMap();
+  if (scatter_map.find(inner_id) != scatter_map.end()) {
+    inner_id = scatter_map[inner_id];
+  }
+
   Val* inner_extent = getExtent(inner_id);
 
   // When the reference has halo extent for inner_id, that extent needs to
@@ -2906,6 +2913,17 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     bool shift_padding) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getReferenceRootPredicates");
 
+  // For ScatterOp, the Predicates should keep the same as the index.
+  if (consumer_tv->definition() &&
+      consumer_tv->definition()->isA<ScatterOp>()) {
+    return getReferenceRootPredicates(
+        consumer_tv->definition()->as<ScatterOp>()->indexTv(),
+        loops,
+        rotated_loops,
+        unswitch_or_vec_loop,
+        shift_padding);
+  }
+
   const auto gpu_lower = GpuLower::current();
 
   const bool is_unswitch = unswitch_or_vec_loop != nullptr;
@@ -3043,6 +3061,10 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     } else {
       auto offsetted_stop_index =
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
+      auto scatter_map = gpu_lower->caMap()->scatterMap();
+      if (scatter_map.find(contig_id) != scatter_map.end()) {
+        contig_id = scatter_map[contig_id];
+      }
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
                            offsetted_stop_index, contig_id->extent())
                            ->as<Bool>();
