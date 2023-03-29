@@ -10,8 +10,9 @@
 #include <ir_all_nodes.h>
 #include <kernel_ir.h>
 
-#include <deque>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace nvfuser {
 

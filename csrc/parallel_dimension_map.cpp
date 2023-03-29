@@ -8,17 +8,37 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <disjoint_set.h>
 #include <expr_simplifier.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <lower2device.h>
 
+#include <functional>
 #include <sstream>
+#include <string>
+#include <utility>
+
+using PAndID = std::pair<nvfuser::ParallelType, nvfuser::IterDomain*>;
+
+namespace std {
+
+template <>
+struct hash<PAndID> {
+  std::size_t operator()(const PAndID& data) const noexcept {
+    size_t ptype = static_cast<size_t>(data.first);
+    size_t address = reinterpret_cast<size_t>(data.second);
+    size_t combined = (address << 8) | ptype;
+    return std::hash<size_t>()(combined);
+  }
+};
+
+} // namespace std
 
 namespace nvfuser {
 
 void ParallelDimensionMap::build(Fusion* fusion) {
-  // Scan all TVs to build dim_map_
+  VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     for (auto id : tv->domain()->domain()) {
@@ -26,21 +46,24 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       if (!isParallelTypeThread(ptype)) {
         continue;
       }
-      exact_types_.insert(ptype); // insert now and cleanup later
-
       auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
           id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape
         continue;
       }
+      all_concrete_ids.pushBack(std::make_pair(ptype, concrete_id));
+    }
+  }
 
-      if (dim_map_.count(ptype) == 0) {
-        dim_map_[ptype] = concrete_id->extent();
-      } else {
-        dim_map_.at(ptype) = SimplifyingIrBuilder::maxExpr(
-            dim_map_.at(ptype), concrete_id->extent());
-      }
+  // Scan all TVs to build dim_map_
+  for (auto [ptype, concrete_id] : all_concrete_ids) {
+    exact_types_.insert(ptype); // insert now and cleanup later
+    if (dim_map_.count(ptype) == 0) {
+      dim_map_[ptype] = concrete_id->extent();
+    } else {
+      dim_map_.at(ptype) = SimplifyingIrBuilder::maxExpr(
+          dim_map_.at(ptype), concrete_id->extent());
     }
   }
 
@@ -50,23 +73,11 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   // Compute exact_types_
-  for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    for (auto id : tv->domain()->domain()) {
-      auto ptype = id->getParallelType();
-      if (exact_types_.count(ptype) == 0) {
-        continue;
-      }
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT);
-      if (concrete_id->isBroadcast()) {
-        // Broadcasted concrete id's don't specify anything about shape
-        continue;
-      }
-      if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
-                           dim_map_.at(ptype), concrete_id->extent()))
-              ->getBool() != true) {
-        exact_types_.erase(ptype);
-      }
+  for (auto [ptype, concrete_id] : all_concrete_ids) {
+    if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                         dim_map_.at(ptype), concrete_id->extent()))
+            ->getBool() != true) {
+      exact_types_.erase(ptype);
     }
   }
 

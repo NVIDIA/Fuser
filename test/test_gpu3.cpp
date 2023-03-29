@@ -1750,21 +1750,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i238;
-  i238 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i194;
+  i194 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b368;
-  b368 = i238 < i7;
+  bool b324;
+  b324 = i194 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b368) {
+  if (b324) {
     T1[0]
-       = sinf(T0[i238]);
+       = sinf(T0[i194]);
   }
-  if (b368) {
-    T2[i238]
+  if (b324) {
+    T2[i194]
       = T1[0]
       + f8;
   }
