@@ -15,10 +15,10 @@
 
 namespace nvfuser {
 
-// Parameters of the transpose heuristic to describe the optimial schedule.
+// Parameters of the transpose heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters
-// are equivelent!
+// are equivalent!
 class TransposeParams : public HeuristicParams {
  public:
   static constexpr size_t getMaxThreadsPerBlock() {

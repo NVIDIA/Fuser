@@ -1816,7 +1816,7 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
       TORCH_CHECK(
           expr->isA<UnaryOp>() &&
               expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set,
-          "Unexpected defintion of slice output tensor: ",
+          "Unexpected definition of slice output tensor: ",
           out_tv->toString(),
           ", ",
           expr->toString());

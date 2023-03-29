@@ -388,7 +388,7 @@ TORCH_CUDA_CU_API void scheduleWarpTileWithNoReduction(
     TensorView* tv,
     MatMulTileOptions tile);
 
-//! Lower level primitive spliting inner iterdomains into tiles:
+//! Lower level primitive splitting inner iterdomains into tiles:
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]

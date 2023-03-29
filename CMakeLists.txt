@@ -185,7 +185,7 @@ endif()
 # as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
-# For kernel_db, linking STL Filesystem Library for backward compatability with C++14
+# For kernel_db, linking STL Filesystem Library for backward compatibility with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})

@@ -32,7 +32,7 @@ static void setupGeluBackwardReduction(
   constexpr float k_004 = 0.044715;
   constexpr float k_010 = 0.1070322243;
 
-  // input fp16 is converted to fp32 before caluclation and converted back to
+  // input fp16 is converted to fp32 before calculation and converted back to
   // fp16 after calculation
   bool is_fp16 = dtype == DataType::Half;
 

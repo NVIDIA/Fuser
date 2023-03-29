@@ -325,7 +325,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper1_CUDA) {
   }
 
   {
-    // Inner mapping partial propogates
+    // Inner mapping partial propagates
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv1, {tv1->axis(1)});
 
@@ -716,7 +716,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper1_CUDA) {
   }
 
   {
-    // Inner mapping partial propogates
+    // Inner mapping partial propagates
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv0, {tv0->axis(1)});
 
@@ -1091,9 +1091,9 @@ TEST_F(NVFuserTest, FusionVectorizeMapperAdvanced_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  // For broadcast we can't back propogate mapped axes to the left of bcast
+  // For broadcast we can't back propagate mapped axes to the left of bcast
   // axis.
-  // For reduction we can't forward propogate mapped axes to the left of the
+  // For reduction we can't forward propagate mapped axes to the left of the
   // reduce axis.
 
   auto tv0 = makeContigConcreteTensor({3, 4 * 6});

@@ -1074,8 +1074,8 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
   std::vector<std::pair<ProjectedExtent&, IterDomain*>> vectorizable_dim_sizes;
 
   // Order is important, need to make sure dimensions match up correctly with
-  // what was propogated through the mapper. The mapper's dimensions is
-  // propogated in the order of the reference, if that order doesn't match the
+  // what was propagated through the mapper. The mapper's dimensions is
+  // propagated in the order of the reference, if that order doesn't match the
   // tensor we're mapping too then a transpose interfered with expanded the
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();

@@ -778,12 +778,12 @@ void OptInConstDispatch::unhandled(const Statement* stmt) {
   if (stmt->isExpr()) {
     TORCH_INTERNAL_ASSERT(
         false,
-        "Handle not overriden for ",
+        "Handle not overridden for ",
         stmt->as<Expr>()->getOpString(),
         ".");
   } else if (stmt->isVal()) {
     TORCH_INTERNAL_ASSERT(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+        false, "Handle not overridden for ", stmt->getValType().value(), ".");
   } else {
     TORCH_INTERNAL_ASSERT(false, "Unrecognized statement type.");
   }
@@ -793,12 +793,12 @@ void OptInDispatch::unhandled(Statement* stmt) {
   if (stmt->isExpr()) {
     TORCH_INTERNAL_ASSERT(
         false,
-        "Handle not overriden for ",
+        "Handle not overridden for ",
         stmt->as<Expr>()->getOpString(),
         ".");
   } else if (stmt->isVal()) {
     TORCH_INTERNAL_ASSERT(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+        false, "Handle not overridden for ", stmt->getValType().value(), ".");
   } else {
     TORCH_INTERNAL_ASSERT(false, "Unrecognized statement type.");
   }

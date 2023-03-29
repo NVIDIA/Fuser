@@ -586,7 +586,7 @@ class ParallelReduce {
 
   // This is highly specific to the outer-reduction pattern. All the
   // assumptions should be asserted with static_assert at the begging of
-  // the fuction.
+  // the function.
   template <int NumVals, typename DataType, int BDIMX, int BDIMY>
   __device__ __inline__ void welfordGroupOuter(
       DataType out_avg[NumVals],

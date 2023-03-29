@@ -326,7 +326,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 // Reference: T5[i0, i1, i2]
 // If we want to base the vectorization size on the reference being contiguous
 // in a 1D scheduler, we'd start the proces on the reference with {i0, i1,
-// i2}. When we propogate to the input what we would still like is: {i0, i1,
+// i2}. When we propagate to the input what we would still like is: {i0, i1,
 // i2} to signify to us that the root domains in the input that map to the
 // reference are not contiguous. So when we think of vector word, if we want
 // the input to be included in the vectorized dimensions, we can only check
@@ -335,7 +335,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 // Another example:
 // Input:[i1, i0, i2]
 // Refrence [i0, i1, i2]
-// Similarly as above when we propogate from the reference to the Input we'd
+// Similarly as above when we propagate from the reference to the Input we'd
 // like {i0, i1, i2}, which is the order of the reference, not the input. This
 // is because we can compare that with the input domains to understand it's
 // not ordered consistently, so once again we can only take into consideration
@@ -567,7 +567,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::shared_ptr<const ComputeAtMap> ca_map_;
   std::unordered_set<Split*> divisible_splits_;
 
-  // Mapped root dimensions for each TensorView as we propogate. These
+  // Mapped root dimensions for each TensorView as we propagate. These
   // mappings are in the order of the reference.
 
   std::unordered_map<

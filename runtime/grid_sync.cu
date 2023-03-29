@@ -39,7 +39,7 @@ __device__ void sync(
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
     // Get increment value, only want a single block to have the large
     // increment, doesn't really matter which one, the goal is to flip/flop the
-    // first bit of a uint64_t value, since our semaphores are actualy int64_t
+    // first bit of a uint64_t value, since our semaphores are actually int64_t
     // we will just reinterpret_cast it to act as a uint64_t
     uint64_t semaphore_increment = 1;
 

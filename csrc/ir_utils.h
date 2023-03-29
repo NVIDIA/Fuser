@@ -366,13 +366,13 @@ TORCH_CUDA_CU_API std::vector<IterDomain*> allIDsOf(const TensorView* tv);
 // Check if the given tv is an input of SelectOp
 TORCH_CUDA_CU_API bool isSelectInput(TensorView* tv);
 
-// Check if the given tv is first argment of index_select(lookup, dim, indices)
+// Check if the given tv is first argument of index_select(lookup, dim, indices)
 TORCH_CUDA_CU_API bool isIndexSelectLookupTv(const TensorView* tv);
 
-// Check if the given tv is third argment of index_select(lookup, dim, indices)
+// Check if the given tv is third argument of index_select(lookup, dim, indices)
 TORCH_CUDA_CU_API bool isIndexSelectIndicesTv(const TensorView* tv);
 
-// Check if the given tv is first/third argment of torch_gather(lookup, dim,
+// Check if the given tv is first/third argument of torch_gather(lookup, dim,
 // indices)
 TORCH_CUDA_CU_API bool isTorchGatherIndicesTv(const Val* tv);
 TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);

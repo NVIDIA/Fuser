@@ -775,7 +775,7 @@ std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
   return removed_edges;
 }
 
-// TODO: This function may be sub optimial. If we find that an iteration domain
+// TODO: This function may be sub optimal. If we find that an iteration domain
 // matches later in the other domain, we will hold all other iteration domains
 // until that one matches. There may be cases where duplicating that iteration
 // domain, and moving on could be more efficient.

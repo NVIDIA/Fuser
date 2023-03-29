@@ -174,7 +174,7 @@ class TVDomainGuard;
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
-//! modifed as split/merge/computeAt functions are called. The history of
+//! modified as split/merge/computeAt functions are called. The history of
 //! these transformations are kept and used for generating actual code
 //! referncing physical memory. Generally when users are thinking of code
 //! generation in reference to a Tensor, this is the class they should be

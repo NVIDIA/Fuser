@@ -53,7 +53,7 @@ namespace impl {
 // long as the above assumptions hold.
 //
 // Note: Having an output reference parameter resulted in using more
-// registers than just returing the output. Results would vary
+// registers than just returning the output. Results would vary
 // depending on compiler versions, but it seems safer to return outputs
 // as a new value.
 template <int NumVals, typename DataType, int BDIMX, int BDIMY>

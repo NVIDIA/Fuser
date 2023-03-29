@@ -16,7 +16,7 @@
 //    (output[output_index], inputs[input_index],
 //      [] __device__ (T& a, const T b) { a += b; });
 //
-// Note: We agressively template functions taking dim3 in the functions below
+// Note: We aggressively template functions taking dim3 in the functions below
 //       because ROCM uses different types for the various dim3 and maps them
 //       directly to intrinsics, but they're dim3 when used after modification.
 //

@@ -76,7 +76,7 @@ TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
 //! Pad a tensor by given widths by specified value. Similar to torch.pad, the
 //! pad_widths vector specifies the padding widths of the innermost N
 //! dimensions, where N is half the size of the width vector. If value is
-//! omitted, a default value of zero is assumed. The provied value will be cast
+//! omitted, a default value of zero is assumed. The provided value will be cast
 //! to the dtype of the argument x.
 //! TODO: Support other padding types
 TORCH_CUDA_CU_API TensorView* pad(

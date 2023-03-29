@@ -188,7 +188,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   target_blocks = std::min(target_blocks, device_multiprocessor_count * 4);
 
   if (target_blocks * target_unroll * target_iterations < n_elems) {
-    // targetting 4 waves, so try to use a quarter of available threads
+    // targeting 4 waves, so try to use a quarter of available threads
     target_threads_in_block = std::min(
         ceilDiv(n_elems, target_blocks * target_unroll),
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));

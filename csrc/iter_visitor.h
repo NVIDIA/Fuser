@@ -75,8 +75,8 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
 
   // The entire stack during traversal. stmt_stack.back().back() is the node
   // that is being called in handle(). stmt_stack.back() contains siblings (not
-  // guarenteed to be all siblings throughout traversal). stmt_stack.front()
-  // contains the outputs we started with (not guarenteed to be all outputs
+  // guaranteed to be all siblings throughout traversal). stmt_stack.front()
+  // contains the outputs we started with (not guaranteed to be all outputs
   // throughout traversal).
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   std::vector<std::vector<Statement*>> stmt_stack;
@@ -220,8 +220,8 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
 
   // The entire stack during traversal. stmt_stack.back().back() is the node
   // that is being called in handle(). stmt_stack.back() contains siblings (not
-  // guarenteed to be all siblings throughout traversal). stmt_stack.front()
-  // contains the inputs we started with (not guarenteed to be all outputs
+  // guaranteed to be all siblings throughout traversal). stmt_stack.front()
+  // contains the inputs we started with (not guaranteed to be all outputs
   // throughout traversal).
   std::deque<std::deque<Statement*>> stmt_stack_;
 

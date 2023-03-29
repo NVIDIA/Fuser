@@ -79,8 +79,8 @@ Val* getProducerIndexWithHalo(
     size_t producer_axis,
     Val* producer_index,
     const TensorView* consumer_tv,
-    bool is_overriden_index) {
-  const auto offset = is_overriden_index
+    bool is_overridden_index) {
+  const auto offset = is_overridden_index
       ? 0
       : getProducerHaloOffset(producer_tv, producer_axis, consumer_tv);
 
@@ -1672,12 +1672,12 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         root_dom[i]->toString());
 
     auto override_it = override_index.find(root_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
+    const bool is_overridden = override_it != override_index.end();
     auto root_ind_i =
-        is_overriden ? override_it->second : index_map.at(root_dom[i]);
+        is_overridden ? override_it->second : index_map.at(root_dom[i]);
 
     root_ind_i = getProducerIndexWithHalo(
-        producer_tv, i, root_ind_i, consumer_tv, is_overriden);
+        producer_tv, i, root_ind_i, consumer_tv, is_overridden);
 
     root_ind_i = getProducerIndexWithGather(
         root_ind_i,
@@ -1980,8 +1980,8 @@ std::vector<Val*> Index::getProducerRootIndices(
 
     Val* root_ind = nullptr;
     auto override_it = override_index.find(root_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
-    if (is_overriden) {
+    const bool is_overridden = override_it != override_index.end();
+    if (is_overridden) {
       root_ind = override_it->second;
     } else if (
         producer_indexing.indexMap().find(root_dom[i]) !=
@@ -1999,7 +1999,7 @@ std::vector<Val*> Index::getProducerRootIndices(
         root_dom[i]->toString());
 
     root_ind = getProducerIndexWithHalo(
-        producer_tv, i, root_ind, consumer_tv, is_overriden);
+        producer_tv, i, root_ind, consumer_tv, is_overridden);
 
     root_ind = getProducerIndexWithGather(
         root_ind,

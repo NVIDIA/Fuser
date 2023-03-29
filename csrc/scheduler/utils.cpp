@@ -666,7 +666,7 @@ getScopePersistenceFactors(
     // to actually generate the kernel before we know if it would fit
     // persistently in registers. In practice, though, this should not happen
     // as inlining loop structures where the persistent buffer is used should
-    // prevent muiltiple persistent buffers from being merged togther if not
+    // prevent multiple persistent buffers from being merged together if not
     // necessary.
     auto resolution_points =
         persistent_buffer_resolution_points[persistent_buffer_i];
@@ -1725,7 +1725,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
 
   // Split the inner dimensions:
   for (auto idx : c10::irange(tile_dimension_size)) {
-    // Using negative indexing to accomodate potential batching
+    // Using negative indexing to accommodate potential batching
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
     // [M, N, K]  -> [B0, B1, M, N, K]
@@ -1862,7 +1862,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Calculate the ordering:
 
-  // pointer to the current target postion after
+  // pointer to the current target position after
   //  repordering
   int current_pos = leftmost_pos;
   std::unordered_map<int, int> reorder_map_old_to_new;

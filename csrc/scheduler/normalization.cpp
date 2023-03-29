@@ -170,7 +170,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           ceilDiv(n_elems, target_blocks * target_unroll),
           (int64_t)dev_prop->maxThreadsPerBlock);
     } else {
-      // targetting 4 waves, so try to use a quarter of available threads
+      // targeting 4 waves, so try to use a quarter of available threads
       max_threads_in_block = std::min(
           ceilDiv(n_elems, target_blocks * target_unroll),
           ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));
@@ -720,7 +720,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   target_blocks = std::min(target_blocks, device_multiprocessor_count * 4);
 
   if (target_blocks * target_unroll * max_threads_in_block < n_elems) {
-    // targetting 4 waves, so try to use a quarter of available threads
+    // targeting 4 waves, so try to use a quarter of available threads
     max_threads_in_block = std::min(
         ceilDiv(n_elems, target_blocks * target_unroll),
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));
@@ -1037,7 +1037,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
             persistent_buffer_size_info.persistent_buffer_size,
             persistent_buffer_size_info.projected_persistent_buffer_size);
 
-  // Figure out if we want to projet persistent buffers to the inputs for
+  // Figure out if we want to project persistent buffers to the inputs for
   // exmaple if we have an input tensor t0 that's fp16:
   //
   // t0 = makeSymbolicTensor(2, DataType::Half)

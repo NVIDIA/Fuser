@@ -667,7 +667,7 @@ TEST_F(NVFuserTest, FusionIndexing14_CUDA) {
       &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
 }
 
-// This excercises indexing with broadcast root axes. Non-broadcast
+// This exercises indexing with broadcast root axes. Non-broadcast
 // axes need to be preferred when propagating index exprs to root
 // axes. See, e.g., Index::getConsumerIndex_impl.
 TEST_F(NVFuserTest, FusionIndexing15_CUDA) {

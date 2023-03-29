@@ -128,17 +128,17 @@ class ParallelTypeBitmap {
     return ParallelTypeBitmap(~bitset_);
   }
 
-  //! Return true if none of the mapppings is true
+  //! Return true if none of the mappings is true
   bool none() const {
     return bitset_.none();
   }
 
-  //! Return true if any of the mapppings is true
+  //! Return true if any of the mappings is true
   bool any() const {
     return bitset_.any();
   }
 
-  //! Return true if all of the mapppings is true
+  //! Return true if all of the mappings is true
   bool all() const {
     return bitset_.all();
   }

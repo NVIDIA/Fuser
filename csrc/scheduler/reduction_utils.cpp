@@ -692,7 +692,7 @@ std::vector<TensorView*> projectPersistentBuffers(Fusion* fusion) {
 
     // Go through the resolution points one by one. Resolution points are points
     // in which the reduction branch meets the residual branch. These are points
-    // where the persitent buffer may no longer be needed (one point could be
+    // where the persisten buffer may no longer be needed (one point could be
     // after another, and the buffer would be needed until the last resolution
     // points)
     for (auto resolution_point : resolution_points) {

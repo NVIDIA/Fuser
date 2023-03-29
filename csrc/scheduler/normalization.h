@@ -13,7 +13,7 @@
 #include <scheduler/reduction_heuristic.h>
 
 // TODO: If caching inputs would require persistence we are sending it to the
-// persistent kerenl scheduler. This isn't necessary if the only persistent
+// persistent kernel scheduler. This isn't necessary if the only persistent
 // buffers are inputs as we could re-read them from global memory. Need to
 // consider if this is worth implementing.
 

@@ -375,7 +375,7 @@ void OrderedIdInformation::handle(Resize* resize) {
 
 NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
     // TODO: Revisit reduction rfactor axes and propagation. Should probably use
-    // ca_map to propogate non divisibility dependencies across exact map. Still
+    // ca_map to propagate non divisibility dependencies across exact map. Still
     // need to think through divisible split and non divisible dependencies to
     // see if there's conflicts where a split might look non divisible but
     // actually is divisible and one's overruling the other.

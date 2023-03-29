@@ -201,8 +201,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
-  //! iteration size. Not guarenteed to return the same ID every call, but is
-  //! guarenteed to return iter domains in the same disjoint set.
+  //! iteration size. Not guaranteed to return the same ID every call, but is
+  //! guaranteed to return iter domains in the same disjoint set.
   IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode) const;
 
   //! Returns a list of expressions that produce the iter domains of all exact

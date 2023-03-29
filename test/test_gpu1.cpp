@@ -2211,7 +2211,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer2_CUDA) {
   // consumer.
   tv1->computeAt(computeAtTarget, 1);
 
-  // All tensors should have the same dimenionality as the target
+  // All tensors should have the same dimensionality as the target
   for (Val* val : fusion.vals()) {
     if (val->isFusionInput() ||
         val->getValType().value() != ValType::TensorView) {
@@ -2297,7 +2297,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
 
   tv1->computeAt(computeAtTarget, 1);
 
-  // All tensors should have the same dimenionality as the target
+  // All tensors should have the same dimensionality as the target
   for (auto tv : ir_utils::filterByType<TensorView>(fusion.vals())) {
     if (tv->isFusionInput()) {
       continue;

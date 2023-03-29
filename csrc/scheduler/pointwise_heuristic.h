@@ -13,10 +13,10 @@
 
 namespace nvfuser {
 
-// Parameters of the pointwise heuristic to describe the optimial schedule.
+// Parameters of the pointwise heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these pointwise parameters. It does not check if the launch parameters
-// are equivelent!
+// are equivalent!
 class PointwiseParams : public HeuristicParams {
  public:
   // vectorize if true, otherwise unroll

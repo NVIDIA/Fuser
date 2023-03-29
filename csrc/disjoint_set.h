@@ -35,7 +35,7 @@ std::string abstractToString(T ref) {
 } // namespace
 
 // Vector like class that will prevent adding duplicate entries by also
-// maintaing a set
+// maintaining a set
 template <typename T, typename Hash = std::hash<T>>
 class VectorOfUniqueEntries {
  public:

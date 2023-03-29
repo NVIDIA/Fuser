@@ -1882,7 +1882,7 @@ class TestNvFuserFrontend(TestCase):
             T1 = fd.ops.slice(T0, start_indices=[2, 2], end_indices=[4, 4])
             fd.add_output(T1)
 
-        # TODO: Currently, this check fails to produce a zero-element tensor whne the tensor
+        # TODO: Currently, this check fails to produce a zero-element tensor when the tensor
         # is smaller than the index range of the slize.  Therefore, it is disabled.
         # Issue: https://github.com/NVIDIA/Fuser/issues/52
         def legal(fd: FusionDefinition, acts) -> None:

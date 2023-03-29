@@ -130,7 +130,7 @@ class DomainMap : public pointwise_utils::DomainMap {
   // The returned groups are sorted in descending size. If the sizes of two
   // group are equal, then we sort them by their members in the following order:
   //   output[0], output[1], ..., input[0], input[1], ...
-  // That is, {ouput[0], output[2]} will be in front of {ouput[1], output[3]}
+  // That is, {output[0], output[2]} will be in front of {output[1], output[3]}
   // The order here must be deterministic, because in transpose heuristics, we
   // have `vectorize_factor1` and `vectorize_factor2` and we need to be sure
   // that `1` and `2` are assigned to the same group across runs.

@@ -484,7 +484,7 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 }
 
 // Returns if a fusion cannot transformed into a consistent format since we
-// can't transform forward through view operations, for exmaple:
+// can't transform forward through view operations, for example:
 //
 // tv0[I0, I1, I2]
 // tv1[I0*I1, I2] = view(tv0)

@@ -42,7 +42,7 @@ struct TORCH_CUDA_CU_API State {
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
 
-  //! A unique index to identifiy each recorded state item.
+  //! A unique index to identify each recorded state item.
   size_t index;
   //! StateType is either: Tensor or Scalar
   StateType stype;
@@ -68,7 +68,7 @@ struct TORCH_CUDA_CU_API Tensor {
     return index;
   }
 
-  //! A unique index to identifiy each recorded state item.
+  //! A unique index to identify each recorded state item.
   size_t index;
   size_t dims;
 
@@ -84,7 +84,7 @@ struct TORCH_CUDA_CU_API Scalar {
     return index;
   }
 
-  //! A unique index to identifiy each recorded state item.
+  //! A unique index to identify each recorded state item.
   size_t index;
 
   //! Pointer to the FusionDefinition used to create this scalar

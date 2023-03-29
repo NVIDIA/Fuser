@@ -4413,7 +4413,7 @@ class TestCudaFuser(JitTestCase):
         complete_views = set(tuple_original_view)
 
         to_visit = []
-        # empty new view, curent originaal view, start pos=0, move count = 0, last_move
+        # empty new view, current originaal view, start pos=0, move count = 0, last_move
         to_visit.append(([], original_view, 0, [], Moves.Keep))
 
         # depth-first search of view shapes, starting from the original view
@@ -6207,7 +6207,7 @@ class TestCudaFuser(JitTestCase):
         t_jit = torch.jit.script(t)
         self._run_helper(t_jit, t, x, check_stride=True)
 
-        # Note that curently TS embeds constant tensor in the graph
+        # Note that currently TS embeds constant tensor in the graph
         # this triggers memory leak check in CI
         torch.jit._state._python_cu.drop_all_functions()
 
