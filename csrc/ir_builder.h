@@ -57,6 +57,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   // Unary operations
   static Val* negExpr(Val* val);
   static Val* notExpr(Val* val);
+  static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* setExprNamedScalar(const std::string& name, Val* val);
   static Val* addressExprNamedScalar(const std::string& name, Val* val);

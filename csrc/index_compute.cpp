@@ -101,7 +101,7 @@ Val* getProducerIndexWithHalo(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getProducerOffsetWithGather(
-    size_t consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_reference_map = false,
@@ -117,7 +117,7 @@ Val* getProducerOffsetWithGather(
 
   // If the window extent is one, no specific offsetting
   // is necessary
-  if (consumer_root_axis >= gather_expr->windowShape().size() ||
+  if (consumer_root_axis >= (int)gather_expr->windowShape().size() ||
       gather_expr->windowShape()[consumer_root_axis] == 1) {
     return gpu_lower->kernel()->zeroVal();
   }
@@ -159,7 +159,7 @@ Val* getProducerOffsetWithGather(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getConcreteProducerOffsetWithGather(
-    size_t consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_concrete_map = false) {
@@ -173,7 +173,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // If the window extent is one, no specific offsetting
   // is necessary
-  if (consumer_root_axis >= gather_expr->windowShape().size() ||
+  if (consumer_root_axis >= (int64_t)gather_expr->windowShape().size() ||
       gather_expr->windowShape()[consumer_root_axis] == 1) {
     return gpu_lower->kernel()->zeroVal();
   }
@@ -224,7 +224,7 @@ Val* getProducerIndexWithGather(
   }
 
   // Consumer axis that corresponds to the producer axis
-  int consumer_axis = -1;
+  int64_t consumer_axis = -1;
   for (const auto i : c10::irange(producer_root_axis + 1)) {
     if (producer_tv->getMaybeRFactorDomain()[i]->isReduction() ||
         producer_tv->getMaybeRFactorDomain()[i]->isStride()) {
@@ -658,14 +658,14 @@ IndexCompute::IndexCompute(
       extent_map_(std::move(extent_map)),
       zero_domains_(std::move(zero_domains)),
       zero_merged_in_(std::move(zero_merged_in)),
+      contig_ids_{contig_finder.contigIDs()},
+      root_to_indexed_id_{contig_finder.rootToIndexedID()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
 
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
-  contig_ids_ = contig_finder.contigIDs();
-  root_to_indexed_id_ = contig_finder.rootToIndexedID();
   const auto& within_contig = contig_finder.withinContigIDs();
   for (auto contig_id : contig_ids_) {
     if (index_map_.find(contig_id) != index_map_.end()) {
@@ -683,13 +683,14 @@ IndexCompute::IndexCompute(
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> preferred_paths,
     std::unordered_map<IterDomain*, Val*> halo_extent_map)
-    : index_map_(std::move(initial_index_map)),
+    : td_{nullptr},
+      index_map_(std::move(initial_index_map)),
       zero_domains_(std::move(zero_domains)),
       preferred_paths_(std::move(preferred_paths)),
-      halo_extent_map_(std::move(halo_extent_map)) {
+      halo_extent_map_(std::move(halo_extent_map)),
+      concrete_id_pass_{true},
+      swizzle_mode_{SwizzleMode::Loop} {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
-  concrete_id_pass_ = true;
-  swizzle_mode_ = SwizzleMode::Loop;
 }
 
 void IndexCompute::run(const LoopIndexing& loop_indexing) {
@@ -1579,7 +1580,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         entry.first, IdMappingMode::EXACT);
     auto p_id = entry.second;
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
-      p_id_backup.emplace_back(std::make_pair(p_id, p_id->getParallelType()));
+      p_id_backup.emplace_back(p_id, p_id->getParallelType());
       p_id->parallelize(ParallelType::Vectorize);
     } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
       p_id->parallelize(ParallelType::MisalignedVectorize);
@@ -1948,7 +1949,7 @@ std::vector<Val*> Index::getProducerRootIndices(
         entry.first, IdMappingMode::EXACT);
     auto p_id = entry.second;
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
-      p_id_backup.emplace_back(std::make_pair(p_id, p_id->getParallelType()));
+      p_id_backup.emplace_back(p_id, p_id->getParallelType());
       p_id->parallelize(ParallelType::Vectorize);
     } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
       p_id->parallelize(ParallelType::MisalignedVectorize);
@@ -2038,7 +2039,7 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   std::vector<Val*> strided_inds(
       root_inds.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(root_inds.size())) {
-    auto override_it = override_index.find(i);
+    auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
       root_inds[i] = override_it->second;
     }
@@ -2071,7 +2072,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   const auto gpu_lower = GpuLower::current();
   // At now, only ScatterOp set override_index, and the output of ScatterOp
   // is on global memory, so in this method, the override_index must be empty.
-  TORCH_INTERNAL_ASSERT(override_index.size() == 0);
+  TORCH_INTERNAL_ASSERT(override_index.empty());
   auto consumer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops,
       rotated_loops,
@@ -2234,7 +2235,7 @@ Val* Index::getProducerStridedIndices(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
-  if (producer->domain()->noReductions().size() == 0) {
+  if (producer->domain()->noReductions().empty()) {
     if (generate_pointer) {
       return getTensorBaseAddress(producer);
     } else {
@@ -2292,7 +2293,7 @@ Val* Index::getConsumerStridedIndices(
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
-  if (consumer->domain()->noReductions().size() == 0) {
+  if (consumer->domain()->noReductions().empty()) {
     if (generate_pointer) {
       return getTensorBaseAddress(consumer);
     } else {
@@ -2957,7 +2958,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   std::vector<RootPredicateInfo> pred_info_vec;
 
-  for (auto contig_id_entry : contig_id_infos) {
+  for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
     // No predicates needed for braodcasted indices.
     if (contig_id->isBroadcast()) {

@@ -1,10 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+
+import os
+import sys
+
+import torch
+
+# This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
+sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
+
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
 from . import _C
 from ._C import *  # noqa: F401,F403
+
 
 class FusionDefinition(_C._FusionDefinition):
     def __enter__(self):
@@ -32,7 +42,7 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             List[Tensor]
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
         func_based_def = False
 
         # if definition is not defined by a context manager, try a child class
@@ -48,9 +58,17 @@ class FusionDefinition(_C._FusionDefinition):
             self.schedule()
             self._finalize_schedule(inputs)
 
-        return self._execute(inputs, override_user_schedule)
+        result = None
+        try:
+            result = self._execute(inputs, override_user_schedule)
+        except Exception as err:
+            print("\nError executing nvFuser FusionDefinition:")
+            print(self)
+            raise RuntimeError(err)
 
-    def from_pytorch(self, tensor) :
+        return result
+
+    def from_pytorch(self, tensor):
         """
         Defines an nvfuser input tensor from a pytorch tensor
 
@@ -68,10 +86,15 @@ class FusionDefinition(_C._FusionDefinition):
         if not tensor.is_cuda:
             raise ValueError("Tensor should be on a cuda device!")
 
-        return self.define_tensor(sizes=tensor.size(), strides=tensor.stride(),
-                                  dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype))
+        return self.define_tensor(
+            sizes=tensor.size(),
+            strides=tensor.stride(),
+            dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+        )
+
 
 from .nvfuser_version import __version__
+
 
 def version():
     r"""returns nvfuser version in format of a string 'm.n.p+git[7d-sha]'.
