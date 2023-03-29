@@ -135,7 +135,7 @@ std::vector<int> normalizeOld2New(
   // All available new positions
   std::set<int> all_positions;
   for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert(i);
+    all_positions.insert((int)i);
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -174,9 +174,9 @@ struct SubstituteInExpr : public OptOutMutator {
   }
 
  protected:
-  virtual void removeExpr(IrContainer*, Expr*) const override {}
+  void removeExpr(IrContainer*, Expr*) const override {}
 
-  virtual void registerNewExpr(Expr* expr) override {
+  void registerNewExpr(Expr* expr) override {
     expr_ = expr;
   }
 

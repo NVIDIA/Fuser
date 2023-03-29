@@ -1522,8 +1522,9 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         return output;
       }
     }
-    { // b && b -> b, b || b -> b
-      if (op == BinaryOpType::And || op == BinaryOpType::Or) {
+    { // b && b -> b, b || b -> b, max(i, i) -> i, min(i, i) -> i
+      if (op == BinaryOpType::And || op == BinaryOpType::Or ||
+          op == BinaryOpType::Max || op == BinaryOpType::Min) {
         std::vector<Val*> dedup_input;
         for (auto v : fop->inputs()) {
           bool found_dup = false;

@@ -3,6 +3,7 @@ code = 'FLAKE8'
 include_patterns = ['**/*.py']
 exclude_patterns = [
     '.git/**',
+    'third_party/**',
 ]
 command = [
     'python3',
@@ -31,6 +32,9 @@ include_patterns = [
     '**/*.h',
     '**/*.cpp',
 ]
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/clangformat_linter.py',
@@ -56,6 +60,7 @@ include_patterns = [
 ]
 exclude_patterns = [
     'pytorch/**/*.cpp',
+    'third_party/**',
 ]
 
 init_command = [
@@ -81,6 +86,7 @@ code = 'MYPY'
 include_patterns = [
     '**/*.py',
     '**/*.pyi',
+    'third_party/**',
 ]
 command = [
     'python3',
@@ -113,7 +119,9 @@ code = 'MYPYSTRICT'
 include_patterns = [
     '**/*.py',
 ]
-exclude_patterns = []
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/mypy_linter.py',
@@ -125,7 +133,9 @@ command = [
 [[linter]]
 code = 'TYPEIGNORE'
 include_patterns = ['**/*.py', '**/*.pyi']
-exclude_patterns = []
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/grep_linter.py',
@@ -143,6 +153,9 @@ command = [
 [[linter]]
 code = 'NOQA'
 include_patterns = ['**/*.py', '**/*.pyi']
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/grep_linter.py',
@@ -161,6 +174,9 @@ command = [
 [[linter]]
 code = 'NEWLINE'
 include_patterns=['**']
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/newlines_linter.py',
@@ -172,6 +188,9 @@ is_formatter = true
 [[linter]]
 code = 'SPACES'
 include_patterns = ['**']
+exclude_patterns = [
+    'third_party/**',
+]
 command = [
     'python3',
     'tools/linter/adapters/grep_linter.py',
@@ -195,6 +214,7 @@ exclude_patterns = [
     '**/.gitmodules',
     '.lintrunner.toml',
     'CMakeLists.txt',
+    'third_party/**',
 ]
 command = [
     'python3',
@@ -220,6 +240,7 @@ exclude_patterns = [
     '**/*.bash',
     '**/git-pre-commit',
     '**/git-clang-format',
+    'third_party/**',
 ]
 command = [
     'python3',
@@ -232,6 +253,9 @@ command = [
 code = 'BLACK'
 include_patterns = [
     '**/*.py',
+]
+exclude_patterns = [
+    'third_party/**',
 ]
 command = [
     'python3',
