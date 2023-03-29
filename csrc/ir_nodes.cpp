@@ -1447,7 +1447,7 @@ std::string TransposeOp::toInlineString(int indent_size) const {
 std::vector<int64_t> TransposeOp::old2new() const {
   std::vector<int64_t> old2new(new2old().size());
   for (auto new_axis : c10::irange(new2old().size())) {
-    int old_axis = (int)new2old().at(new_axis);
+    auto old_axis = new2old().at(new_axis);
     old2new[old_axis] = (int64_t)new_axis;
   }
   return old2new;

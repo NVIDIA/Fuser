@@ -173,7 +173,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // If the window extent is one, no specific offsetting
   // is necessary
-  if (consumer_root_axis >= (int)gather_expr->windowShape().size() ||
+  if (consumer_root_axis >= (int64_t)gather_expr->windowShape().size() ||
       gather_expr->windowShape()[consumer_root_axis] == 1) {
     return gpu_lower->kernel()->zeroVal();
   }
