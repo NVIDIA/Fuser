@@ -956,20 +956,23 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   return {IrBuilder::newConstant(const_factor, const_dtype), symbolic_factors};
 }
 
+inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
+  if (inputs.size() == 1) {
+    return inputs.at(0);
+  }
+  auto result = IrBuilder::newScalar(inferDtypes(inputs));
+  IrBuilder::create<FOp>(bop, result, std::move(inputs));
+  return result;
+}
+
 Val* productOfFactors(Val* const_factor, std::vector<Val*> symbolic_factors) {
   if (*const_factor->getInt() != 1) {
     symbolic_factors.emplace_back(const_factor);
   }
-  if (symbolic_factors.size() == 1) {
-    return symbolic_factors.at(0);
-  }
   if (symbolic_factors.empty()) {
     return IrBuilder::newConstant(1, *const_factor->getDataType());
   }
-  auto output = IrBuilder::newScalar(inferDtypes(symbolic_factors));
-  IrBuilder::create<FOp>(
-      BinaryOpType::Mul, output, std::move(symbolic_factors));
-  return output;
+  return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
 }
 
 } // namespace
@@ -1127,6 +1130,7 @@ Val* factorizeFlattenedAdd(Val* x) {
   }
   // divide by common factors
   std::vector<Val*> quotient_inputs;
+  quotient_inputs.reserve(factorized_inputs.size());
   for (auto inp : factorized_inputs) {
     auto quotient = divideFactorized(inp, gcd);
     TORCH_INTERNAL_ASSERT(quotient != nullptr);
@@ -1258,6 +1262,16 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
           isNonNegative(bop->rhs(), context);
     }
   }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    if (a->isZero() && b->sameAs(value)) {
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    if (a->isZero() && b->sameAs(value)) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -1280,6 +1294,11 @@ bool isPositiveHelper(Val* value, const Context& context) {
           return false;
         }
       }
+      return true;
+    }
+  }
+  for (const auto& [a, b] : context.getKnownLessThan()) {
+    if (a->isZero() && b->sameAs(value)) {
       return true;
     }
   }
@@ -1382,6 +1401,60 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
     // x <= b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
       return true;
+    }
+  }
+  // if i is an integer, i > 0, then i >= 1
+  if (x->isOneInt() && y->isIntegralScalar()) {
+    if (isPositiveHelper(y, context)) {
+      return true;
+    }
+  }
+  // if a >= 0, b >= 1, then a <= a * b
+  if (auto fop = toFlattenedMul(y->definition())) {
+    std::vector<Val*> remaining_inputs;
+    remaining_inputs.reserve(fop->inputs().size());
+    bool found = false;
+    for (auto inp : fop->inputs()) {
+      if (!found && x->sameAs(inp)) {
+        found = true;
+        continue;
+      }
+      remaining_inputs.emplace_back(inp);
+    }
+    if (found) {
+      auto zero = IrBuilder::newConstant(0, *x->getDataType());
+      if (lessEqual(zero, x, context)) {
+        auto remaining =
+            maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
+        auto one = IrBuilder::newConstant(1, *remaining->getDataType());
+        if (lessEqual(one, remaining, context)) {
+          return true;
+        }
+      }
+    }
+  }
+  // if a <= 0, b >= 1, then a * b <= a
+  if (auto fop = toFlattenedMul(x->definition())) {
+    std::vector<Val*> remaining_inputs;
+    remaining_inputs.reserve(fop->inputs().size());
+    bool found = false;
+    for (auto inp : fop->inputs()) {
+      if (!found && y->sameAs(inp)) {
+        found = true;
+        continue;
+      }
+      remaining_inputs.emplace_back(inp);
+    }
+    if (found) {
+      auto zero = IrBuilder::newConstant(0, *y->getDataType());
+      if (lessEqual(y, zero, context)) {
+        auto remaining =
+            maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
+        auto one = IrBuilder::newConstant(1, *remaining->getDataType());
+        if (lessEqual(one, remaining, context)) {
+          return true;
+        }
+      }
     }
   }
   return false;
@@ -1514,12 +1587,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         if (const_term != nullptr) {
           new_inputs.emplace_back(const_term);
         }
-        if (new_inputs.size() == 1) {
-          return new_inputs.at(0);
-        }
-        auto output = IrBuilder::newScalar(inferDtypes(new_inputs));
-        IrBuilder::create<FOp>(op, output, std::move(new_inputs));
-        return output;
+        return maybeFlattenedOpOf(op, std::move(new_inputs));
       }
     }
     { // b && b -> b, b || b -> b, max(i, i) -> i, min(i, i) -> i
@@ -1539,13 +1607,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           }
         }
         if (dedup_input.size() < fop->inputs().size()) {
-          if (dedup_input.size() == 1) {
-            return dedup_input.at(0);
-          } else {
-            auto output = IrBuilder::newScalar(inferDtypes(dedup_input));
-            IrBuilder::create<FOp>(op, output, std::move(dedup_input));
-            return output;
-          }
+          return maybeFlattenedOpOf(op, std::move(dedup_input));
         }
       }
     }
@@ -1751,14 +1813,8 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
       }
       other_terms.emplace_back(fop->input(j));
     }
-    Val* sum_of_other_terms = nullptr;
-    if (other_terms.size() == 1) {
-      sum_of_other_terms = other_terms.at(0);
-    } else {
-      sum_of_other_terms = IrBuilder::newScalar(inferDtypes(other_terms));
-      IrBuilder::create<FOp>(
-          BinaryOpType::Add, sum_of_other_terms, std::move(other_terms));
-    }
+    Val* sum_of_other_terms =
+        maybeFlattenedOpOf(BinaryOpType::Add, std::move(other_terms));
     if (prove::hasCompatibleSign(divisible_term, sum_of_other_terms, context)) {
       std::vector<Val*> new_inputs;
       auto term1 = IrBuilder::newScalar(
@@ -1906,22 +1962,9 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
         }
       }
       // compute sum of combo_xs and sum of combo_other
-      Val* sum_xs = nullptr;
-      if (combo_xs.size() == 1) {
-        sum_xs = combo_xs.at(0);
-      } else {
-        sum_xs = IrBuilder::newScalar(inferDtypes(combo_xs));
-        IrBuilder::create<FOp>(BinaryOpType::Add, sum_xs, combo_xs);
-      }
-      Val* sum_other = nullptr;
-      if (combo_other.size() == 1) {
-        sum_other = combo_other.at(0);
-        // sum_other is already factorized
-      } else {
-        sum_other = IrBuilder::newScalar(inferDtypes(combo_other));
-        IrBuilder::create<FOp>(BinaryOpType::Add, sum_other, combo_other);
-        sum_other = sym_algebra::factorize(sum_other);
-      }
+      Val* sum_xs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(combo_xs));
+      Val* sum_other =
+          maybeFlattenedOpOf(BinaryOpType::Add, std::move(combo_other));
       // prove -|g| < sum_xs < |g|
       bool allowed_to_simplify =
           prove::hasCompatibleSign(sum_other, sum_xs, context);
@@ -2106,19 +2149,13 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
   Val* rhs = nullptr;
   if (new_lhs.empty()) {
     lhs = IrBuilder::newConstant(0, ltype);
-  } else if (new_lhs.size() == 1) {
-    lhs = new_lhs.at(0);
   } else {
-    lhs = IrBuilder::newScalar(ltype);
-    IrBuilder::create<FOp>(BinaryOpType::Add, lhs, std::move(new_lhs));
+    lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs));
   }
   if (new_rhs.empty()) {
     rhs = IrBuilder::newConstant(0, rtype);
-  } else if (new_rhs.size() == 1) {
-    rhs = new_rhs.at(0);
   } else {
-    rhs = IrBuilder::newScalar(rtype);
-    IrBuilder::create<FOp>(BinaryOpType::Add, rhs, std::move(new_rhs));
+    rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs));
   }
   auto output = IrBuilder::newScalar(DataType::Bool);
   IrBuilder::create<BinaryOp>(op_type, output, lhs, rhs);
@@ -2168,11 +2205,8 @@ Val* fundamentalDivisionWithRemainderProperty(
         Val* c = nullptr;
         if (other_terms.empty()) {
           continue;
-        } else if (other_terms.size() == 1) {
-          c = other_terms.at(0);
         } else {
-          c = IrBuilder::newScalar(inferDtypes(other_terms));
-          IrBuilder::create<FOp>(BinaryOpType::Mul, c, std::move(other_terms));
+          c = maybeFlattenedOpOf(BinaryOpType::Mul, std::move(other_terms));
         }
         if (!isIntegralType(*a->getDataType()) ||
             !isIntegralType(*b->getDataType()) ||
@@ -2248,13 +2282,7 @@ Val* fundamentalDivisionWithRemainderProperty(
           }
           terms.emplace_back(fadd->input(k));
         }
-        if (terms.size() == 1) {
-          return terms.at(0);
-        } else {
-          Val* result = IrBuilder::newScalar(inferDtypes(terms));
-          IrBuilder::create<FOp>(BinaryOpType::Add, result, terms);
-          return result;
-        }
+        return maybeFlattenedOpOf(BinaryOpType::Add, terms);
       }
     }
   }
