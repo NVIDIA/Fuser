@@ -19,7 +19,7 @@ namespace nvfuser {
 namespace {
 
 // Private helper, generating node labels for IrGraphGenerator
-class IrNodeLabel : private OptInConstDispatch {
+class IrNodeLabel final : private OptInConstDispatch {
   using DetailLevel = IrGraphGenerator::DetailLevel;
 
  public:
@@ -35,7 +35,7 @@ class IrNodeLabel : private OptInConstDispatch {
   explicit IrNodeLabel(DetailLevel detail_level)
       : detail_level_(detail_level) {}
 
-  ~IrNodeLabel() override = default;
+  ~IrNodeLabel() final = default;
 
   void handle(const Bool* b) override {
     if (b->isSymbolic()) {
