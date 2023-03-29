@@ -585,13 +585,6 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   return view_ops;
 }
 
-bool isIterDomainOp(const Expr* expr) {
-  if (expr->outputs().empty()) {
-    return false;
-  }
-  return expr->output(0)->isA<IterDomain>();
-}
-
 TORCH_CUDA_CU_API c10::optional<Expr*> getMaybeSingleUse(
     const Val* val,
     std::function<bool(Expr*)> filter) {
