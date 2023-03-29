@@ -41,7 +41,6 @@
 #include <transform_rfactor.h>
 
 #include <parser.h>
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -2878,16 +2877,12 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
 
 TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
   std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  // TODO: enable this for complex. Currently, complex yields
-  // silent wrong results:
-  //   Detected abs error of: 3.8062
-  //     absolute tolerance was set to 2.23704e-06
-  //     and relative tolerance set to 2.23704e-08
-  // Reason: variance of complex numbers is a real value instead of a complex
-  // number to enable complex number with Welford, we need to either (1)
-  // find/invent a specific version of Welford for complex numbers or (2)
-  // translate Welford to two-pass approach
+      DataType::ComplexFloat,
+      DataType::ComplexDouble,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half};
+
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
