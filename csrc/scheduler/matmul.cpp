@@ -381,7 +381,7 @@ void scheduleMatmul(
   // [... M,N,K]
   scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
 
-  // Applies swizzle factor on C
+  // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.rasterization_order ==
@@ -447,9 +447,6 @@ void scheduleMatmul(
   //   and needs more configurability.
   // ------------------------------------------------------------------
   // CTA tile:
-
-  // Swizzle block tiles:
-  // c->swizzle(Swizzle2DType::ZShape, 0, 1, SwizzleMode::Loop);
 
   a->computeAt(c, 2);
   b->computeAt(c, 2);
