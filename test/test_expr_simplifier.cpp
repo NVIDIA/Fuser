@@ -440,6 +440,8 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
 
   TORCH_CHECK(simplifyExpr("b && b"_)->sameAs("b"_));
   TORCH_CHECK(simplifyExpr("b || b"_)->sameAs("b"_));
+  TORCH_CHECK(simplifyExpr(IrBuilder::maxExpr("i"_, "i"_))->sameAs("i"_));
+  TORCH_CHECK(simplifyExpr(IrBuilder::minExpr("i"_, "i"_))->sameAs("i"_));
 
   TORCH_CHECK(simplifyExpr("i / 1"_)->sameAs("i"_));
   TORCH_CHECK(simplifyExpr("d / 1.0"_)->sameAs("d"_));

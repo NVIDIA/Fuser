@@ -22,7 +22,6 @@
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
@@ -369,7 +368,7 @@ void FusionExecutor::compileFusion(
 
   // The driver API call requires an int argument.
   int max_dynamic_smem = 0;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncGetAttribute(
+  CUDA_SAFE_CALL(cuFuncGetAttribute(
       &max_dynamic_smem,
       CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
       compiled_kernel_.function));
@@ -1182,11 +1181,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (kernel()->summary().has_cooperative_grid_reduction) {
       int num_blocks_per_SM = -1;
-      at::globalContext().getNVRTC().cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &num_blocks_per_SM,
           compiled_kernel_.function,
           (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
-          (size_t)launch_params_.smem());
+          (size_t)launch_params_.smem()));
 
       TORCH_INTERNAL_ASSERT(
           (int64_t)(
@@ -1340,23 +1339,23 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventCreate(&start_event));
-    C10_CUDA_CHECK(cudaEventCreate(&finish_event));
-    C10_CUDA_CHECK(cudaEventRecord(start_event, stream));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
   }
 
   if (execute_kernel_) {
     if (maybe_available_dynamic_smem_.has_value() &&
         size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
       // Increase limit of dynamic shared memory if needed.
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncSetAttribute(
+      CUDA_SAFE_CALL(cuFuncSetAttribute(
           compiled_kernel_.function,
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+      CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_.function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
@@ -1370,31 +1369,30 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      AT_CUDA_DRIVER_CHECK(
-          at::globalContext().getNVRTC().cuLaunchCooperativeKernel(
-              compiled_kernel_.function,
-              launch_params_.gdimx(),
-              launch_params_.gdimy(),
-              launch_params_.gdimz(),
-              launch_params_.bdimx(),
-              launch_params_.bdimy(),
-              launch_params_.bdimz(),
-              launch_params_.smem(),
-              stream,
-              args.getBuffer()));
+      CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
+          compiled_kernel_.function,
+          launch_params_.gdimx(),
+          launch_params_.gdimy(),
+          launch_params_.gdimz(),
+          launch_params_.bdimx(),
+          launch_params_.bdimy(),
+          launch_params_.bdimz(),
+          launch_params_.smem(),
+          stream,
+          args.getBuffer()));
     }
   }
 
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventRecord(finish_event, stream));
-    C10_CUDA_CHECK(cudaEventSynchronize(start_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(finish_event));
-    C10_CUDA_CHECK(
+    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    CUDA_RT_SAFE_CALL(
         cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
-    C10_CUDA_CHECK(cudaEventDestroy(start_event));
-    C10_CUDA_CHECK(cudaEventDestroy(finish_event));
+    CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
     bytes_processed_ = 0;
     // Figure how many bytes are inputs, outputs, and temporary buffers
@@ -1460,15 +1458,15 @@ float FusionExecutor::runRtc(
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
 
-  cudaEventCreate(&start_event);
-  cudaEventCreate(&finish_event);
+  CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+  CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
   KernelArgumentHolder kernel_arguments(index_type);
   kernel_arguments.push(args);
 
-  cudaEventRecord(start_event, stream);
+  CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+  CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
       launch_params.gdimy(),
@@ -1481,14 +1479,15 @@ float FusionExecutor::runRtc(
       kernel_arguments.getBuffer(),
       nullptr));
 
-  cudaEventRecord(finish_event, stream);
-  cudaEventSynchronize(start_event);
-  cudaEventSynchronize(finish_event);
+  CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
+  CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+  CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
 
   float kernel_time_ms = 0;
-  cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event);
-  cudaEventDestroy(start_event);
-  cudaEventDestroy(finish_event);
+  CUDA_RT_SAFE_CALL(
+      cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event));
+  CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+  CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
 }
