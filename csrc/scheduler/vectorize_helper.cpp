@@ -159,7 +159,7 @@ Val* commonOrConstExtent(
   auto scatter_map = ca_map->scatterMap();
   for (auto entry : disjoint_set) {
     if (entry->extent()->isConstScalar()) {
-       if (scatter_map.find(entry) != scatter_map.end()) {
+      if (scatter_map.find(entry) != scatter_map.end()) {
         return scatter_map[entry]->extent();
       }
       return entry->extent();
