@@ -13,6 +13,7 @@
 #include <test/test_utils.h>
 
 #include <cctype>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -80,13 +81,24 @@ namespace stupid_simple_compiler {
 
 using fun1_t = Val* (*)(Val*);
 using fun2_t = Val* (*)(Val*, Val*);
-struct LeftParenthesis {};
+struct LeftParenthesis {
+  int64_t prev_lparen_pos;
+};
+struct FunctionCall {
+  int64_t prev_lparen_pos;
+  std::string_view name;
+};
+struct Comma {};
+struct LowestPrecedence {};
 
 using token_t = std::variant<
     Val*, // variable or constant
     fun1_t, // unary op
     fun2_t, // binary op
-    LeftParenthesis>;
+    LeftParenthesis,
+    FunctionCall,
+    Comma,
+    LowestPrecedence>;
 
 Val* parseIdentifier(std::string_view token_str) {
   if (token_str == "true") {
@@ -154,6 +166,23 @@ Val* parseNumber(std::string_view token_str) {
   }
 }
 
+Val* functionCall(std::string_view name, std::deque<Val*> args) {
+  if (name == "max") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::maxExpr(args.at(0), args.at(1));
+  } else if (name == "min") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::minExpr(args.at(0), args.at(1));
+  } else if (name == "ceilDiv") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::ceilDivExpr(args.at(0), args.at(1));
+  }
+  TORCH_CHECK(false, "Unknown function: ", name);
+}
+
 token_t parseToken(std::string_view token_str, bool& expect_val) {
   if (std::isalpha(token_str.at(0))) {
     TORCH_CHECK(
@@ -219,6 +248,12 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
 
 // https://en.cppreference.com/w/cpp/language/operator_precedence
 int getOpPrecedence(token_t op) {
+  if (std::holds_alternative<LowestPrecedence>(op)) {
+    return std::numeric_limits<int>::max();
+  }
+  if (std::holds_alternative<Comma>(op)) {
+    return 17;
+  }
   if (std::holds_alternative<fun1_t>(op)) {
     auto uop = std::get<fun1_t>(op);
     if (uop == fun1_t(neg) || uop == fun1_t(notOp)) {
@@ -279,7 +314,19 @@ Val* parse(const char* str) {
         op);
   };
 
+  auto eval_all_top = [&](token_t token) {
+    TORCH_CHECK(current != nullptr, "Expect value to evaluate top");
+    while (!op_stack.empty() &&
+           (std::holds_alternative<fun1_t>(op_stack.back()) ||
+            std::holds_alternative<fun2_t>(op_stack.back())) &&
+           getOpPrecedence(op_stack.back()) <= getOpPrecedence(token)) {
+      eval_top();
+    }
+  };
+
   bool expect_val = true;
+  int64_t last_lparen_pos = -1;
+
   while (!remaining.empty()) {
     const auto end_pos = remaining.find_first_of(' ');
     const auto token_str = remaining.substr(0, end_pos);
@@ -287,19 +334,48 @@ Val* parse(const char* str) {
     if (token_str == "(") {
       TORCH_CHECK(
           expect_val, "Syntax error: not expecting ( but get ", token_str);
-      op_stack.push_back(LeftParenthesis{});
+      op_stack.push_back(LeftParenthesis{last_lparen_pos});
+      last_lparen_pos = op_stack.size() - 1;
+    } else if (token_str.back() == '(') {
+      TORCH_CHECK(
+          expect_val,
+          "Syntax error: not expecting function call but get ",
+          token_str);
+      op_stack.push_back(FunctionCall{
+          last_lparen_pos, token_str.substr(0, token_str.size() - 1)});
+      last_lparen_pos = op_stack.size() - 1;
+    } else if (token_str == ",") {
+      TORCH_CHECK(!expect_val, "Syntax error: not expecting comma");
+      expect_val = true;
+      auto comma = Comma{};
+      eval_all_top(comma);
+      value_stack.emplace_back(current);
+      op_stack.emplace_back(comma);
+      current = nullptr;
     } else if (token_str == ")") {
       TORCH_CHECK(
           !expect_val, "Syntax error: not expecting ) but get ", token_str);
-      // pop stack until meets matching (
-      TORCH_CHECK(current != nullptr, "Expect value before )");
-      while (true) {
-        TORCH_CHECK(!op_stack.empty(), "Unmatched )");
-        if (std::holds_alternative<LeftParenthesis>(op_stack.back())) {
+      eval_all_top(LowestPrecedence{});
+      auto last_lparen = op_stack.at(last_lparen_pos);
+      TORCH_CHECK(!op_stack.empty(), "Unmatched )");
+      if (std::holds_alternative<LeftParenthesis>(last_lparen)) {
+        TORCH_INTERNAL_ASSERT(last_lparen_pos == (int64_t)op_stack.size() - 1);
+        auto lparen = std::get<LeftParenthesis>(op_stack.back());
+        last_lparen_pos = lparen.prev_lparen_pos;
+        op_stack.pop_back();
+      } else if (std::holds_alternative<FunctionCall>(last_lparen)) {
+        std::deque<Val*> args{current};
+        while (std::holds_alternative<Comma>(op_stack.back())) {
           op_stack.pop_back();
-          break;
+          args.push_front(value_stack.back());
+          value_stack.pop_back();
         }
-        eval_top();
+        auto fc = std::get<FunctionCall>(op_stack.back());
+        last_lparen_pos = fc.prev_lparen_pos;
+        op_stack.pop_back();
+        current = functionCall(fc.name, std::move(args));
+      } else {
+        TORCH_CHECK(false, "Unknown left parenthesis type");
       }
     } else {
       token_t token = parseToken(token_str, expect_val);
@@ -307,15 +383,9 @@ Val* parse(const char* str) {
         TORCH_CHECK(current == nullptr, "Don't expect value");
         current = std::get<Val*>(token);
       } else if (std::holds_alternative<fun1_t>(token)) {
-        TORCH_CHECK(current == nullptr, "Don't expect value");
         op_stack.push_back(token);
       } else if (std::holds_alternative<fun2_t>(token)) {
-        TORCH_CHECK(current != nullptr, "Expect value before binary op");
-        while (!op_stack.empty() &&
-               !std::holds_alternative<LeftParenthesis>(op_stack.back()) &&
-               getOpPrecedence(op_stack.back()) <= getOpPrecedence(token)) {
-          eval_top();
-        }
+        eval_all_top(token);
         value_stack.push_back(current);
         op_stack.push_back(token);
         current = nullptr;
@@ -416,6 +486,9 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  // constant folding
+  TORCH_CHECK(simplifyExpr("ceilDiv( 5 , 3 ) * 5"_)->sameAs("10"_));
+
   TORCH_CHECK(simplifyExpr("1 * i"_)->sameAs("i"_));
   TORCH_CHECK(simplifyExpr("1.0 * d"_)->sameAs("d"_));
   TORCH_CHECK(simplifyExpr("i * 1"_)->sameAs("i"_));
@@ -440,8 +513,8 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
 
   TORCH_CHECK(simplifyExpr("b && b"_)->sameAs("b"_));
   TORCH_CHECK(simplifyExpr("b || b"_)->sameAs("b"_));
-  TORCH_CHECK(simplifyExpr(IrBuilder::maxExpr("i"_, "i"_))->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr(IrBuilder::minExpr("i"_, "i"_))->sameAs("i"_));
+  TORCH_CHECK(simplifyExpr("max( i , i )"_)->sameAs("i"_));
+  TORCH_CHECK(simplifyExpr("min( i , i )"_)->sameAs("i"_));
 
   TORCH_CHECK(simplifyExpr("i / 1"_)->sameAs("i"_));
   TORCH_CHECK(simplifyExpr("d / 1.0"_)->sameAs("d"_));

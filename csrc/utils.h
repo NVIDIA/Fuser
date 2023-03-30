@@ -12,6 +12,7 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
+#include <deque>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -267,9 +268,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -372,6 +372,13 @@ std::string toDelimitedString(
     const std::vector<Printable>& vec,
     std::string delim = ", ") {
   return toDelimitedString(vec.begin(), vec.end(), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
+    const std::deque<Printable>& dq,
+    std::string delim = ", ") {
+  return toDelimitedString(dq.begin(), dq.end(), delim);
 }
 
 template <int64_t index, int64_t stop, int64_t step, typename func_t>
