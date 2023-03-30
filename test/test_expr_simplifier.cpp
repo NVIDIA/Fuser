@@ -440,6 +440,8 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
 
   TORCH_CHECK(simplifyExpr("b && b"_)->sameAs("b"_));
   TORCH_CHECK(simplifyExpr("b || b"_)->sameAs("b"_));
+  TORCH_CHECK(simplifyExpr(IrBuilder::maxExpr("i"_, "i"_))->sameAs("i"_));
+  TORCH_CHECK(simplifyExpr(IrBuilder::minExpr("i"_, "i"_))->sameAs("i"_));
 
   TORCH_CHECK(simplifyExpr("i / 1"_)->sameAs("i"_));
   TORCH_CHECK(simplifyExpr("d / 1.0"_)->sameAs("d"_));
@@ -766,6 +768,11 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
   ASSERT_TRUE(*simplify(
       "i1 < 3"_,
       "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
+
+  ASSERT_TRUE(*simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
+  ASSERT_TRUE(*simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
+  ASSERT_TRUE(*simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
+  ASSERT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {

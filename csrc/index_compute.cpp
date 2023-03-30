@@ -101,7 +101,7 @@ Val* getProducerIndexWithHalo(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getProducerOffsetWithGather(
-    size_t consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_reference_map = false,
@@ -117,7 +117,7 @@ Val* getProducerOffsetWithGather(
 
   // If the window extent is one, no specific offsetting
   // is necessary
-  if (consumer_root_axis >= gather_expr->windowShape().size() ||
+  if (consumer_root_axis >= (int)gather_expr->windowShape().size() ||
       gather_expr->windowShape()[consumer_root_axis] == 1) {
     return gpu_lower->kernel()->zeroVal();
   }
@@ -159,7 +159,7 @@ Val* getProducerOffsetWithGather(
 //! \param use_reference_map True when index_map maps reference domains
 //! \param concrete_to_ref_map Mappings from concrete to reference domains
 Val* getConcreteProducerOffsetWithGather(
-    size_t consumer_root_axis,
+    int64_t consumer_root_axis,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     bool use_concrete_map = false) {
@@ -173,7 +173,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // If the window extent is one, no specific offsetting
   // is necessary
-  if (consumer_root_axis >= gather_expr->windowShape().size() ||
+  if (consumer_root_axis >= (int64_t)gather_expr->windowShape().size() ||
       gather_expr->windowShape()[consumer_root_axis] == 1) {
     return gpu_lower->kernel()->zeroVal();
   }
@@ -224,7 +224,7 @@ Val* getProducerIndexWithGather(
   }
 
   // Consumer axis that corresponds to the producer axis
-  int consumer_axis = -1;
+  int64_t consumer_axis = -1;
   for (const auto i : c10::irange(producer_root_axis + 1)) {
     if (producer_tv->getMaybeRFactorDomain()[i]->isReduction() ||
         producer_tv->getMaybeRFactorDomain()[i]->isStride()) {

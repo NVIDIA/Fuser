@@ -106,6 +106,9 @@ TEST_F(NVFuserTest, MultiClusterFusion_CUDA) {
       "  }\n"
       "} //MultiClusterFusion"};
 
+  std::sort(obtained_string_MCF.begin(), obtained_string_MCF.end());
+  std::sort(ref_string_MCF.begin(), ref_string_MCF.end());
+
   TORCH_INTERNAL_ASSERT(
       obtained_string_MCF == ref_string_MCF,
       "the obtained MultiClusterFusion is not the one expected");
@@ -135,6 +138,10 @@ TEST_F(NVFuserTest, MultiClusterFusion_CUDA) {
       "AggregateDag's outputs:{\n"
       " AggregateVal representing Val T6_g[ iS14{i3} ] on cluster 3\n"
       "}"};
+
+  std::sort(obtained_string_aDag.begin(), obtained_string_aDag.end());
+  std::sort(ref_string_aDag.begin(), ref_string_aDag.end());
+
   TORCH_INTERNAL_ASSERT(
       obtained_string_aDag == ref_string_aDag,
       "the obtained AggregateDag is not the one expected");

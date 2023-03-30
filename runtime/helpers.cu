@@ -276,6 +276,14 @@ __device__ constexpr float fmod(float a, float b) {
   return ::fmod(a, b);
 }
 
+__device__ constexpr double nextafter(double a, double b) {
+  return ::nextafter(a, b);
+}
+
+__device__ constexpr float nextafter(float a, float b) {
+  return ::nextafterf(a, b);
+}
+
 template <typename T>
 __device__ T pow(T a, T b) {
   if (b < 0) {
