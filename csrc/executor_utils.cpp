@@ -1436,7 +1436,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 // Template instantiation
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
-template class ExecutorCompileTimeEntry<WarpPaddedParallelExtents>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
 template class ExecutorCompileTimeEntry<InputAliasIndices>;
 template class ExecutorCompileTimeEntry<OutputAliasIndices>;
@@ -1495,36 +1494,6 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
-}
-
-std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    kir::Kernel* kernel,
-    std::vector<IterDomain*>& parallel_binding_ids) {
-  auto warp_padded_extent_info_ptr =
-      std::make_unique<caching::WarpPaddedExtentsInfo>();
-  auto& warp_padded_extent_set =
-      warp_padded_extent_info_ptr->warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_extent_info_ptr->warp_padded_constant;
-  bool has_warp_reduction =
-      kernel->getWarpPaddedParallelInfo().has_warp_reduction;
-
-  for (auto id : parallel_binding_ids) {
-    // Apply warp padding only when there're warp reductions in
-    //  the kernel.
-    if (has_warp_reduction) {
-      if (id->hasPaddingToMultipleOfWarp() ||
-          kernel->isParallelTypePadded(id->getParallelType())) {
-        auto extent = id->extent();
-        warp_padded_extent_set.insert(extent);
-        auto padded_value = id->getMaybeSizeAfterPadding();
-        if (padded_value.has_value()) {
-          warp_padded_constant[extent] = padded_value.value();
-        }
-      }
-    }
-  }
-  return warp_padded_extent_info_ptr;
 }
 
 } // namespace executor_utils

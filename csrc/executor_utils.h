@@ -147,24 +147,6 @@ class ParallelIterExtentMap {
       CompileTimeEntryType::PARALLEL_ITER_EXTENT_MAP;
 };
 
-//!  WarpPaddedExtentsInfo:
-//!    Auxiliary data type for entry class WarpPaddedParallelExtents
-struct WarpPaddedExtentsInfo {
-  std::unordered_set<const Val*> warp_padded_extent_set;
-  std::unordered_map<const Val*, int64_t> warp_padded_constant;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  WarpPaddedParallelExtents
-//!    Stores the symbolic and constant extents of warp
-//!    padded parallel iterdomains.
-class WarpPaddedParallelExtents {
- public:
-  using DataType = WarpPaddedExtentsInfo;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::WARP_PADDED_PARALLEL_EXTENTS;
-};
-
 //!  VectorizedTensorInfo:
 //!    Auxiliary data type for entry class VectorizedTensorValidation
 struct VectorizedTensorInfo {
@@ -307,12 +289,6 @@ using ParallelExtentMap =
 //! Returns the extents of all parallel binding iterdomains corresponding
 //!  to each parallel type.
 std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    std::vector<IterDomain*>& parallel_binding_ids);
-
-//! Returns the symbolic or constant extetns of warp padded parallel
-//!  iterdomains in the given vector.
-std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    kir::Kernel* lower,
     std::vector<IterDomain*>& parallel_binding_ids);
 
 void validateVectorizedTensors(
