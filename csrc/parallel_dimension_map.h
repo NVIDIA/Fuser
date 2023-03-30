@@ -35,6 +35,10 @@ class TORCH_CUDA_CU_API ParallelDimensionMap {
 
   std::string toString() const;
 
+  const std::unordered_map<ParallelType, Val*, TypeHash>& getMap() const {
+    return dim_map_;
+  }
+
  private:
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
