@@ -31,7 +31,7 @@ ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
 }
 
 bool ConcretizedBroadcastDomains::isConcretized(IterDomain* id) const {
-  return allConcretizedDomains(id).size() >= 1;
+  return !allConcretizedDomains(id).empty();
 }
 
 bool ConcretizedBroadcastDomains::isUniquelyConcretized(IterDomain* id) const {

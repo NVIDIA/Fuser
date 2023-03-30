@@ -92,7 +92,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
   std::vector<int64_t> addresses;
   const auto word_size_bytes =
       dataTypeSize(*(ti->getDataType())) * getVectorizeSize(ti);
-  int64_t phase_size = getPhaseSize(word_size_bytes);
+  int64_t phase_size = getPhaseSize((int64_t)word_size_bytes);
 
   if (launch_params.has_value()) {
     phase_size = std::min<int64_t>(phase_size, launch_params->nThreads());
@@ -130,15 +130,16 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
 }
 
 int getConflictWays(const std::vector<int64_t>& addresses) {
-  std::unordered_set<int64_t> words_by_bank[32];
+  using long_set = std::unordered_set<int64_t>;
+  std::array<long_set, 32> words_by_bank;
   for (auto addr : addresses) {
     int64_t word = addr / 4;
     int64_t bank = word % 32;
-    words_by_bank[bank].insert(word);
+    words_by_bank.at(bank).insert(word);
   }
   int conflict = 1;
   for (const auto& words : words_by_bank) {
-    conflict = std::max<int>(conflict, words.size());
+    conflict = std::max<int>(conflict, (int)words.size());
   }
   return conflict;
 }
@@ -158,7 +159,7 @@ class InferLaunchParams : public kir::IrVisitor {
   InferLaunchParams(
       const std::vector<Expr*>& exprs,
       const std::unordered_map<std::string, EvaluatorValue>& known_values) {
-    for (auto pair : known_values) {
+    for (const auto& pair : known_values) {
       expr_eval_.bind(pair.first, pair.second);
     }
     handle(exprs);
@@ -230,7 +231,7 @@ class BankConflictInfo : public kir::IrVisitor {
       expr_eval_common_.bind("gridDim.y", launch_params->gdimy());
       expr_eval_common_.bind("gridDim.z", launch_params->gdimz());
     }
-    for (auto pair : known_values) {
+    for (const auto& pair : known_values) {
       expr_eval_common_.bind(pair.first, pair.second);
     }
     handle(exprs);
@@ -301,7 +302,7 @@ std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     kir::Kernel* kernel,
     c10::optional<LaunchParams> launch_params,
     const std::unordered_map<std::string, EvaluatorValue>& known_values) {
-  for (auto pair : known_values) {
+  for (const auto& pair : known_values) {
     TORCH_CHECK(
         !isThreadIdx(pair.first),
         "threadIdx.{x,y,z} should be computed instead of provided");

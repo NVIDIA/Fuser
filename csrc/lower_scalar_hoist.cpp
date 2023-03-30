@@ -22,7 +22,7 @@ int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
   int64_t position = -1;
   for (auto i : c10::irange(loops.size())) {
     if (!loops.at(i)->isTrivial()) {
-      position = i;
+      position = (int64_t)i;
     }
   }
   return position;
@@ -45,7 +45,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
   if (TensorView* tv = dynamic_cast<TensorView*>(value)) {
     // In getAllocInformation, position i means before the ith loop, in this
     // function, i means after the ith loop, so we need to -1 here.
-    return lower_utils::getAllocInformation(tv, loops).alloc_pos - 1;
+    return (int64_t)lower_utils::getAllocInformation(tv, loops).alloc_pos - 1;
   }
 
   auto def = value->definition();
@@ -65,7 +65,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
         continue;
       }
       if (loop->index()->sameAs(value)) {
-        return i;
+        return (int64_t)i;
       }
     }
     // If no loop found, then `value` would could only depend on constants and
@@ -388,7 +388,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
       auto buffer = alloc->buffer();
       if (buffer == value ||
           findRefAsSubexprOf(value, buffer, true) != nullptr) {
-        pos = i;
+        pos = (int64_t)i;
       }
     }
     for (auto o : expr->outputs()) {
@@ -397,7 +397,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
       }
       auto subexpr = findRefAsSubexprOf(value, o, true);
       if (subexpr != nullptr) {
-        pos = i;
+        pos = (int64_t)i;
       }
     }
   }

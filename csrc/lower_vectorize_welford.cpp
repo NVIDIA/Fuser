@@ -492,8 +492,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       // problem.
       auto expr_ite = dynamic_cast<kir::IfThenElse*>(expr);
       if (expr_ite == nullptr ||
-          !(expr_ite->thenBody().size() == 1 &&
-            expr_ite->elseBody().size() == 0)) {
+          !(expr_ite->thenBody().size() == 1 && expr_ite->elseBody().empty())) {
         return false;
       }
 

@@ -261,7 +261,7 @@ class WarSyncInserter : private kir::ExprMutator {
     bool insert_sync = false;
     for (auto& entry : smem_allocations_) {
       auto& alloc_stack = entry.second;
-      if (alloc_stack.size() && alloc_stack.back().ca_loop == for_loop) {
+      if (!alloc_stack.empty() && alloc_stack.back().ca_loop == for_loop) {
         if (!alloc_stack.back().sync_after_read &&
             !alloc_stack.back().sync_before_write) {
           insert_sync = within_iter_loop_;
@@ -469,8 +469,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     //  cpasync wait and a block sync before the same expr, we want
     //  to place the wait before the block sync, since currently there shouldn't
     //  be any normal case where we explicitly want the wait after a block sync.
-    if (cpasync_wait_before_.size() > 0 &&
-        cpasync_wait_before_.front() == expr) {
+    if (!cpasync_wait_before_.empty() && cpasync_wait_before_.front() == expr) {
       cpasync_wait_before_.pop_front();
       auto last_writes = last_cpasync_writes_.front();
       last_cpasync_writes_.pop_front();
@@ -479,7 +478,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       insertSyncExpr(last_writes, expr, sync_expr, nullptr);
     }
 
-    if (sync_before_.size() > 0 && sync_before_.front().first == expr) {
+    if (!sync_before_.empty() && sync_before_.front().first == expr) {
       auto sync_bitmap = sync_before_.front().second;
       sync_before_.pop_front();
       auto last_writes = last_writes_.front();
@@ -555,7 +554,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       // Sync should be placed at global scope, after its outer most loop if
       // it has one.
       Expr* place_before =
-          for_loops_.size() > 0 ? for_loops_[0] : insert_before_expr;
+          !for_loops_.empty() ? for_loops_[0] : insert_before_expr;
       // Find location in exprs_
       auto place_before_it =
           std::find(exprs_.begin(), exprs_.end(), place_before);
@@ -673,7 +672,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           bitmap |= sync_bits;
         }
 
-        sync_before_.emplace_back(std::make_pair(expr, bitmap));
+        sync_before_.emplace_back(expr, bitmap);
         last_writes_.push_back(last_gmem_writes);
         gmem.clear();
       }
@@ -702,7 +701,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         bitmap.set(ParallelType::TIDx);
         bitmap.set(ParallelType::TIDy);
         bitmap.set(ParallelType::TIDz);
-        sync_before_.emplace_back(std::make_pair(expr, bitmap));
+        sync_before_.emplace_back(expr, bitmap);
 
         // Before clearing `smem`, put all the currently pending smem writes
         //  in last_writes_. This will make sure all the smem writes will

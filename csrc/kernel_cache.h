@@ -76,7 +76,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! starts compilation async
-  void startAsyncCompile(KernelArgumentHolder& inputs);
+  void startAsyncCompile(const KernelArgumentHolder& inputs);
 
   //! maps entries in `args` to fusion inputs.
   //! Note that this function also pushes extra bits like dimension extent into
