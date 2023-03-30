@@ -926,7 +926,7 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
   TORCH_INTERNAL_ASSERT(!e->isA<BroadcastOp>());
   TORCH_INTERNAL_ASSERT(!e->isA<SqueezeOp>());
 
-  TORCH_INTERNAL_ASSERT(e->outputs().size() >= 1);
+  TORCH_INTERNAL_ASSERT(!e->outputs().empty());
   const TensorView* out_tv = e->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->getRootDomain();
@@ -1158,7 +1158,7 @@ void ComputeAtRootDomainMapBuilder::mapAllPendingMappings(
   }
   const auto& pending_set = it->second;
   // All entries in key_set must be equivalent with each other.
-  TORCH_INTERNAL_ASSERT(pending_set.size() > 0);
+  TORCH_INTERNAL_ASSERT(!pending_set.empty());
   bool consistent = safeToMap(pending_set);
   for (const auto pending_key : pending_set) {
     if (consistent) {
