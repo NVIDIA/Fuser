@@ -70,6 +70,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Simplify dim_map_
   for (auto& [k, v] : dim_map_) {
+    // Well, this isn't really correct, but we need this assumption to better
+    // handle non-empty cases. If this turn out to be an issue, I believe we
+    // then need to find a more systematic way to handle empty tensor, rather
+    // than just disable this assumption.
     auto assume = assume::tensorsAreNotEmpty(v);
     if (assume != nullptr) {
       v = simplifyExpr(v, {}, {assume});
