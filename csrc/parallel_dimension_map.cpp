@@ -8,6 +8,7 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <assume.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
 #include <ir_utils.h>
@@ -69,7 +70,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Simplify dim_map_
   for (auto& [k, v] : dim_map_) {
-    v = simplifyExpr(v);
+    v = simplifyExpr(v, {}, {assume::tensorsAreNotEmpty(v)});
   }
 
   // Compute exact_types_

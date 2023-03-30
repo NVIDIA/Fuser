@@ -7,6 +7,7 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <assume.h>
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
 #include <test/test_gpu_validator.h>
@@ -858,6 +859,9 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
       *simplifyExpr(
            "ceilDiv( T0.size[0] , 128 ) * 4 >= ceilDiv( T0.size[0] , 128 )"_)
            ->getBool());
+
+  ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
+  ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
@@ -1039,6 +1043,36 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
     auto v9 = eq(unroll_imm2, unroll_imm1);
     TORCH_CHECK(simplifyExpr(v9, variables)->sameAs(v9));
   }
+}
+
+TEST_F(ExprSimplifierTest, MinMax_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto simplify = [](Val* x, Val* assumption) {
+    return simplifyExpr(x, {}, {assumption->as<Bool>()});
+  };
+
+  auto expr =
+      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
+  ASSERT_TRUE(simplify(expr, assume::tensorsAreNotEmpty(expr))
+                  ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
+}
+
+TEST_F(ExprSimplifierTest, Assume_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto expr =
+      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[1] , 128 ) ) , 4 )"_;
+  ASSERT_EQ(
+      simplifyExpr(IrBuilder::eqExpr(
+                       assume::tensorsAreNotEmpty(expr),
+                       "T0.size[0] > 0 && T0.size[1] > 0"_))
+          ->getBool(),
+      true);
 }
 
 } // namespace nvfuser

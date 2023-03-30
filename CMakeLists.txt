@@ -60,6 +60,7 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/assume.cpp
     ${NVFUSER_SRCS_DIR}/compute_at.cpp
     ${NVFUSER_SRCS_DIR}/inlining.cpp
     ${NVFUSER_SRCS_DIR}/compute_at_map.cpp

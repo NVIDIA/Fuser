@@ -1296,6 +1296,13 @@ bool isPositiveHelper(Val* value, const Context& context) {
       }
       return true;
     }
+  } else if (auto bop = dynamic_cast<BinaryOp*>(value->definition())) {
+    auto op = bop->getBinaryOpType();
+    if (op == BinaryOpType::CeilDiv) {
+      return isPositive(bop->lhs(), context) &&
+          isValidDenominator(bop->rhs(), context) &&
+          isNonNegative(bop->rhs(), context);
+    }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (a->isZero() && b->sameAs(value)) {
