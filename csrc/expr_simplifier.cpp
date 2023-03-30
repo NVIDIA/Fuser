@@ -1611,6 +1611,33 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         }
       }
     }
+    { // max(a, b) -> a if a >= b, min(a, b) -> b if a >= b
+      if (op == BinaryOpType::Max || op == BinaryOpType::Min) {
+        std::vector<Val*> simplified_input;
+        for (auto v : fop->inputs()) {
+          bool found_redundant = false;
+          for (auto& v2 : simplified_input) {
+            if ((op == BinaryOpType::Max && prove::lessEqual(v, v2, context)) ||
+                (op == BinaryOpType::Min && prove::lessEqual(v2, v, context))) {
+              found_redundant = true;
+              break;
+            } else if (
+                (op == BinaryOpType::Max && prove::lessEqual(v2, v, context)) ||
+                (op == BinaryOpType::Min && prove::lessEqual(v, v2, context))) {
+              found_redundant = true;
+              v2 = v;
+              break;
+            }
+          }
+          if (!found_redundant) {
+            simplified_input.emplace_back(v);
+          }
+        }
+        if (simplified_input.size() < fop->inputs().size()) {
+          return maybeFlattenedOpOf(op, std::move(simplified_input));
+        }
+      }
+    }
   } else if (auto bop = dynamic_cast<BinaryOp*>(value->definition())) {
     auto lhs = foldConstants(bop->lhs());
     auto rhs = foldConstants(bop->rhs());

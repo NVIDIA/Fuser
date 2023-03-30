@@ -486,53 +486,61 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  // constant folding
-  TORCH_CHECK(simplifyExpr("ceilDiv( 5 , 3 ) * 5"_)->sameAs("10"_));
+  auto simplify = [](Val* x, Val* assumption) {
+    return simplifyExpr(x, {}, {assumption->as<Bool>()});
+  };
 
-  TORCH_CHECK(simplifyExpr("1 * i"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("1.0 * d"_)->sameAs("d"_));
-  TORCH_CHECK(simplifyExpr("i * 1"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("d * 1.0"_)->sameAs("d"_));
+  // constant folding
+  ASSERT_TRUE(simplifyExpr("ceilDiv( 5 , 3 ) * 5"_)->sameAs("10"_));
+
+  ASSERT_TRUE(simplifyExpr("1 * i"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("1.0 * d"_)->sameAs("d"_));
+  ASSERT_TRUE(simplifyExpr("i * 1"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
   ASSERT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
   ASSERT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
 
-  TORCH_CHECK(simplifyExpr("0 + i"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("0.0 + d"_)->sameAs("d"_));
-  TORCH_CHECK(simplifyExpr("i + 0"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("d + 0.0"_)->sameAs("d"_));
+  ASSERT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
+  ASSERT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
 
-  TORCH_CHECK(simplifyExpr("true && b"_)->sameAs("b"_));
-  TORCH_CHECK(simplifyExpr("b && true"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
   ASSERT_EQ(simplifyExpr("false && b"_)->getBool(), false);
   ASSERT_EQ(simplifyExpr("b && false"_)->getBool(), false);
 
   ASSERT_EQ(simplifyExpr("true || b"_)->getBool(), true);
   ASSERT_EQ(simplifyExpr("b || true"_)->getBool(), true);
-  TORCH_CHECK(simplifyExpr("false || b"_)->sameAs("b"_));
-  TORCH_CHECK(simplifyExpr("b || false"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("false || b"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("b || false"_)->sameAs("b"_));
 
-  TORCH_CHECK(simplifyExpr("b && b"_)->sameAs("b"_));
-  TORCH_CHECK(simplifyExpr("b || b"_)->sameAs("b"_));
-  TORCH_CHECK(simplifyExpr("max( i , i )"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("min( i , i )"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("b && b"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("b || b"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("max( i , i )"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("min( i , i )"_)->sameAs("i"_));
+  ASSERT_TRUE(simplify("max( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i2"_));
+  ASSERT_TRUE(simplify("max( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i2"_));
+  ASSERT_TRUE(simplify("min( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i1"_));
+  ASSERT_TRUE(simplify("min( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i1"_));
 
-  TORCH_CHECK(simplifyExpr("i / 1"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("d / 1.0"_)->sameAs("d"_));
+  ASSERT_TRUE(simplifyExpr("i / 1"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("d / 1.0"_)->sameAs("d"_));
 
   ASSERT_EQ(simplifyExpr("0 / i"_)->getInt(), 0);
   ASSERT_EQ(simplifyExpr("i % 1"_)->getInt(), 0);
 
   // -(-a) -> a
-  TORCH_CHECK(simplifyExpr("- - i"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("~ ~ i"_)->sameAs("i"_));
-  TORCH_CHECK(simplifyExpr("! ! b"_)->sameAs("b"_));
+  ASSERT_TRUE(simplifyExpr("- - i"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("~ ~ i"_)->sameAs("i"_));
+  ASSERT_TRUE(simplifyExpr("! ! b"_)->sameAs("b"_));
 
   // Test constant folding
-  TORCH_CHECK(simplifyExpr("1 + i + 1"_)->sameAs("i + 2"_));
-  TORCH_CHECK(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
+  ASSERT_TRUE(simplifyExpr("1 + i + 1"_)->sameAs("i + 2"_));
+  ASSERT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
-  TORCH_CHECK(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+  ASSERT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
@@ -846,6 +854,10 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
   ASSERT_TRUE(*simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
   ASSERT_TRUE(*simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
   ASSERT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
+  ASSERT_TRUE(
+      *simplifyExpr(
+           "ceilDiv( T0.size[0] , 128 ) * 4 >= ceilDiv( T0.size[0] , 128 )"_)
+           ->getBool());
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
