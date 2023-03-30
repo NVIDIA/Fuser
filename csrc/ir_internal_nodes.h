@@ -2259,7 +2259,7 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   //! Return pad widths of the given axis, which are just zero for non padded
   //! dimensions
-  std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
+  std::pair<Val*, Val*> getPadWidths(int axis) const;
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
