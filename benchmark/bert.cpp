@@ -32,7 +32,7 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
   TensorView* tv0 = TensorViewBuilder()
                         .ndims(4)
                         .dtype(dtype)
-                        .contiguity({true, false, false, true})
+                        .contiguity({true, c10::nullopt, c10::nullopt, true})
                         .shape({-1, 1, 1, -1})
                         .build();
   TensorView* tv1 = makeContigTensor(4, dtype);
