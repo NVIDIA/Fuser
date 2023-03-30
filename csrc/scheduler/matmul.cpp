@@ -181,6 +181,29 @@ void scheduleMatmul(
   // [... M,N,K]
   scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
 
+  // Swizzle block tiles:
+  if (params.grid_swizzle_factor != 1) {
+    int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
+    if (params.rasterization_order ==
+        MatmulParam::TileRasterizationOrder::RowMajor) {
+      cc->split(1, factor);
+      // [I1, I2/factor, factor]
+      cc->reorder({{1, 2}});
+      // [I1, factor, I2/factor]
+      cc->merge(0);
+      // [I1*factor, I2/factor]
+    } else if (
+        params.rasterization_order ==
+        MatmulParam::TileRasterizationOrder::ColumnMajor) {
+      cc->split(0, factor);
+      // [I1/factor, factor, I2]
+      cc->reorder({{1, 2}});
+      // [I1/factor, I2, factor]
+      cc->merge(1);
+      // [I1/factor, I2*factor]
+    }
+  }
+
   // [Mo, No, Ko, Mi, Ni, Ki]
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(cc, -1);
@@ -228,9 +251,6 @@ void scheduleMatmul(
   //   and needs more configurability.
   // ------------------------------------------------------------------
   // CTA tile:
-
-  // Swizzle block tiles:
-  c->swizzle(Swizzle2DType::ZShape, 0, 1, SwizzleMode::Loop);
 
   a->computeAt(c, 2);
   b->computeAt(c, 2);

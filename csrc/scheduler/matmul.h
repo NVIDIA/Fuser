@@ -48,6 +48,21 @@ class MatmulParam {
     RowMajor = 0,
     ColumnMajor = 1
   } rasterization_order = TileRasterizationOrder::RowMajor;
+
+  //! Swizzle factor is used to increase L2 hit rate.
+  //! It horizontally squeezes the grid so that gridDim.x is larger and
+  //! gridDim.y is smaller.
+  //! We rely on the observation that the CTAs are scheduled by the GPU by
+  //! iterating on gridDim.x first. As a result, as blocks are launched, they
+  //! will more likely be forming sub-tiles of the C matrix. This will increase
+  //! L2 hit rate/data reuse of A and B.
+  //!
+  //! Eg for grid_swizzle_factor=2:
+  //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
+  //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
+  //!    C1 C2 D1 D2
+  //!    C3 C4 D3 D4
+  int grid_swizzle_factor = 1;
 };
 
 //! Prototype auto scheduling function.
