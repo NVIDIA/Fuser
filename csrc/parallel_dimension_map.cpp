@@ -98,36 +98,41 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   }
 
   const auto tidx_pt = ParallelType::TIDx;
-  auto warp_size = 32;
+  auto warp_size_val = IrBuilder::create<Int>(32);
+  auto tidx_dim = getRaw(tidx_pt);
 
-  // If the dimension of TIDx is actually a multple of the warp size
-  // before padding, it can be left as exact
-  if (isExact(tidx_pt)) {
-    auto tidx_dim = dynamic_cast<Int*>(getRaw(tidx_pt));
-    if (tidx_dim) {
-      if (tidx_dim->isConst()) {
-        auto tidx_dim_val = tidx_dim->value().value();
-        if (tidx_dim_val % warp_size == 0) {
-          // Dimension of TIDx is a multiple of the warp size
-          return;
-        }
-      }
-      // If tidx is strictly defined as blockDim.x then it must be set to a
-      // multiple of the warp and can be considered exact
-      if (tidx_dim->sameAs(NamedScalar::getParallelDim(tidx_pt))) {
-        return;
-      }
-    }
+  TORCH_INTERNAL_ASSERT(tidx_dim != nullptr);
+  if (false) {
+    dim_map_.at(ParallelType::TIDx) =
+        NamedScalar::getParallelDim(ParallelType::TIDx);
+    exact_types_.erase(ParallelType::TIDx);
+    return;
+  }
+
+  // If tidx is strictly defined as blockDim.x then it must be set to a
+  // multiple of the warp, there is nothing to do
+  if (tidx_dim->sameAs(NamedScalar::getParallelDim(tidx_pt))) {
+    return;
+  }
+
+  // If already multiple of warp, nothing to do
+  if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                       SimplifyingIrBuilder::modExpr(tidx_dim, warp_size_val),
+                       tidx_dim->container()->zeroVal()))
+          ->getBool() == true) {
+    return;
   }
 
   // TIDx is padded to a multiple of warp. If it's known to be a
   // single warp, use the constant warp size as the dimension of
   // TIDx. Otherwise, just use blockDim.x.
   if (warp_info.is_tidx_single_warp) {
-    dim_map_.at(ParallelType::TIDx) = IrBuilder::create<Int>(warp_size);
+    dim_map_.at(ParallelType::TIDx) = warp_size_val;
   } else {
     dim_map_.at(ParallelType::TIDx) =
-        NamedScalar::getParallelDim(ParallelType::TIDx);
+        simplifyExpr(SimplifyingIrBuilder::mulExpr(
+            SimplifyingIrBuilder::ceilDivExpr(tidx_dim, warp_size_val),
+            warp_size_val));
   }
 
   // TIDx is no longer exact

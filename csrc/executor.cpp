@@ -590,27 +590,20 @@ LaunchParams FusionExecutor::computeLaunchParams(
           });
   auto& parallel_iter_extents = parallel_iter_extent_entry.get();
 
-  auto simplified_parallel_iter_extent_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::SimplifiedParallelIterExtentMap>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getSimplifiedParallelIterExtents(
-                lower, parallel_binding_ids);
-          });
-  auto& simplified_parallel_iter_extents =
-      simplified_parallel_iter_extent_entry.get();
+  const auto& simplified_parallel_iter_extents =
+      lower->parallelDimensionMap().getMap();
 
-  auto warp_padded_parallel_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::WarpPaddedParallelExtents>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getWarpPaddedExtentsInfo(
-                lower->kernel(), parallel_binding_ids);
-          });
-  auto& warp_padded_extent_set =
-      warp_padded_parallel_entry.get().warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_parallel_entry.get().warp_padded_constant;
+  // auto warp_padded_parallel_entry =
+  //     executor_utils::caching::ExecutorCompileTimeEntry<
+  //         executor_utils::caching::WarpPaddedParallelExtents>(
+  //         data_cache, [&parallel_binding_ids, &lower]() {
+  //           return executor_utils::getWarpPaddedExtentsInfo(
+  //               lower->kernel(), parallel_binding_ids);
+  //         });
+  // auto& warp_padded_extent_set =
+  //     warp_padded_parallel_entry.get().warp_padded_extent_set;
+  // auto& warp_padded_constant =
+  //     warp_padded_parallel_entry.get().warp_padded_constant;
 
   // TODO: Need to redesign this part a bit to
   //   find the right place to trigger evaluate
@@ -656,48 +649,42 @@ LaunchParams FusionExecutor::computeLaunchParams(
   }
 
   // Run through the rest of the parallel IterDomains and infer their size
-  for (auto& entry : simplified_parallel_iter_extents) {
+  for (auto [p_type, extent] : simplified_parallel_iter_extents) {
     FUSER_PERF_SCOPE("FusionExecutor::ParallelBindingResolution");
-    auto p_type = entry.first;
-    auto parallel_extents = entry.second;
-    // Select the maxmimum value out of all the parallel extents
-    int64_t maximum_value = std::numeric_limits<int64_t>::min();
-    for (auto extent : parallel_extents) {
-      auto val = expr_eval.evaluate(extent);
-      TORCH_INTERNAL_ASSERT(
-          val.has_value(),
-          "Tried to evaluate the extent, ",
-          extent->toInlineString(),
-          " for the ptype: ",
-          p_type,
-          " to set launch bounds but could not.");
+    auto val = expr_eval.evaluate(extent);
+    // std::cout << "extent: " << extent->toInlineString() << std::endl;
+    TORCH_INTERNAL_ASSERT(
+        val.has_value(),
+        "Tried to evaluate the extent, ",
+        extent->toInlineString(),
+        " for the ptype: ",
+        p_type,
+        " to set launch bounds but could not.");
 
-      // apply padding to the extent if needed
-      if (warp_padded_extent_set.count(extent)) {
-        // Check if the extent has const value
-        auto padded_constant_it = warp_padded_constant.find(extent);
+    // // apply padding to the extent if needed
+    // if (warp_padded_extent_set.count(extent)) {
+    //   // Check if the extent has const value
+    //   auto padded_constant_it = warp_padded_constant.find(extent);
 
-        if (padded_constant_it != warp_padded_constant.end()) {
-          // If already specified padded to constant, need to check
-          //  runtime value not over the constant bound
-          TORCH_INTERNAL_ASSERT(*val <= padded_constant_it->second);
-          *val = EvaluatorValue(padded_constant_it->second);
-        } else {
-          // If no specified constant, pad to the smallest multiple of warp
-          //  above the value.
-          auto padded_number_of_warps = (*val + warp_size - 1) / warp_size;
-          *val = warp_size * padded_number_of_warps;
-        }
-        TORCH_INTERNAL_ASSERT(
-            *val <= 1024, "padded dimension larger than max block size");
-      }
-      maximum_value = std::max(maximum_value, val->as<int64_t>());
-    }
+    //   if (padded_constant_it != warp_padded_constant.end()) {
+    //     // If already specified padded to constant, need to check
+    //     //  runtime value not over the constant bound
+    //     TORCH_INTERNAL_ASSERT(*val <= padded_constant_it->second);
+    //     *val = EvaluatorValue(padded_constant_it->second);
+    //   } else {
+    //     // If no specified constant, pad to the smallest multiple of warp
+    //     //  above the value.
+    //     auto padded_number_of_warps = (*val + warp_size - 1) / warp_size;
+    //     *val = warp_size * padded_number_of_warps;
+    //   }
+    //   TORCH_INTERNAL_ASSERT(
+    //       *val <= 1024, "padded dimension larger than max block size");
+    // }
     // Protect for size-0 tensors, they still have a value so would prefer to
     // bind nothing than 0
-    if (maximum_value > 0) {
-      expr_eval.bind(p_type, maximum_value);
-      launch_params.bind(maximum_value, p_type);
+    if (val->as<int64_t>() > 0) {
+      expr_eval.bind(p_type, val->as<int64_t>());
+      launch_params.bind(val->as<int64_t>(), p_type);
     }
   }
 

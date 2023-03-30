@@ -1436,7 +1436,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 // Template instantiation
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
-template class ExecutorCompileTimeEntry<SimplifiedParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<WarpPaddedParallelExtents>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
 template class ExecutorCompileTimeEntry<InputAliasIndices>;
@@ -1493,33 +1492,6 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   auto parallel_iter_extents_ptr = std::make_unique<ParallelExtentMap>();
   for (auto id : parallel_binding_ids) {
     insertParallelExtent(id, parallel_iter_extents_ptr);
-  }
-
-  return parallel_iter_extents_ptr;
-}
-
-std::unique_ptr<ParallelExtentMap> getSimplifiedParallelIterExtents(
-    GpuLower* lower,
-    std::vector<IterDomain*>& parallel_binding_ids) {
-  auto parallel_iter_extents_ptr = std::make_unique<ParallelExtentMap>();
-  const auto& ca_map = lower->caMap();
-  std::vector<IterDomain*> mapped;
-  bool is_tidx_warp_padded = lower->getWarpPaddedParallelInfo().is_tidx_padded;
-
-  for (auto id : parallel_binding_ids) {
-    if (std::any_of(
-            mapped.begin(), mapped.end(), [id, &ca_map](IterDomain* mapped_id) {
-              return ca_map->areMapped(mapped_id, id, IdMappingMode::LOOP);
-            })) {
-      if (id->getParallelType() != ParallelType::TIDx || !is_tidx_warp_padded) {
-        continue;
-      }
-    }
-
-    insertParallelExtent(
-        ca_map->getConcreteMappedID(id, IdMappingMode::LOOP),
-        parallel_iter_extents_ptr);
-    mapped.push_back(id);
   }
 
   return parallel_iter_extents_ptr;
