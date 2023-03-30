@@ -73,7 +73,7 @@ std::pair<Val*, Val*> unCyclicShift(Val* x, Val* y, Val* size_x) {
 // Scatter swizzle:
 //   Corresponds to the data layout out of ldmatrix intrinsic.
 //   supported dimensions are : 8x4, 16x4, 32x4
-std::pair<Val*, Val*> Scatter(Val* x, Val* y, int size_x) {
+std::pair<Val*, Val*> Scatter(Val* x, Val* y, int64_t size_x) {
   TORCH_CHECK(
       size_x == 8 || size_x == 16 || size_x == 32,
       "Unsupported Scatter swizzle size");
@@ -82,7 +82,7 @@ std::pair<Val*, Val*> Scatter(Val* x, Val* y, int size_x) {
   return {cpp_div(add(mul(y, size_x_val), x), four), mod(x, four)};
 }
 
-std::pair<Val*, Val*> unScatter(Val* x, Val* y, int size_x) {
+std::pair<Val*, Val*> unScatter(Val* x, Val* y, int64_t size_x) {
   TORCH_CHECK(
       size_x == 8 || size_x == 16 || size_x == 32,
       "Unsupported Scatter swizzle size");
