@@ -102,12 +102,6 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   auto tidx_dim = getRaw(tidx_pt);
 
   TORCH_INTERNAL_ASSERT(tidx_dim != nullptr);
-  if (false) {
-    dim_map_.at(ParallelType::TIDx) =
-        NamedScalar::getParallelDim(ParallelType::TIDx);
-    exact_types_.erase(ParallelType::TIDx);
-    return;
-  }
 
   // If tidx is strictly defined as blockDim.x then it must be set to a
   // multiple of the warp, there is nothing to do
