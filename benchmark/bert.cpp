@@ -141,7 +141,7 @@ static void MagicScheduler_DivMaxSoftDropFwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -201,7 +201,7 @@ static void MagicScheduler_DivMaxSoftDropBwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -316,7 +316,7 @@ static void MagicScheduler_BiasDropoutAddLayernormFwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -426,7 +426,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd1(
   scheduleReduction(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -537,7 +537,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd2(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -628,7 +628,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd3(
   scheduleReduction(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
