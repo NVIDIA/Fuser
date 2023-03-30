@@ -70,7 +70,12 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Simplify dim_map_
   for (auto& [k, v] : dim_map_) {
-    v = simplifyExpr(v, {}, {assume::tensorsAreNotEmpty(v)});
+    auto assume = assume::tensorsAreNotEmpty(v);
+    if (assume != nullptr) {
+      v = simplifyExpr(v, {}, {assume});
+    } else {
+      v = simplifyExpr(v);
+    }
   }
 
   // Compute exact_types_
