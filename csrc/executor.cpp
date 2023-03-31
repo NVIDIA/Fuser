@@ -218,7 +218,7 @@ static inline DataType ComputeIndexType(
       if (c.addDim(size, stride) == KernelIndexMode::INT64) {
         return KernelIndexMode::INT64;
       }
-      stride = size;
+      stride *= std::max(1, size);
     }
 
     return KernelIndexMode::INT32;
