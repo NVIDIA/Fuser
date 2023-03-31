@@ -179,6 +179,73 @@ void FusionExecutor::debugCompileFusionFromStr(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
 
+static inline DataType ComputeIndexType(
+    Fusion* fusion,
+    ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
+
+  std::vector<std::pair<int64_t, int64_t>> sizes_and_strides;
+
+  auto get_index_type = [&](TensorView* tv) {
+    const auto domain = tv->domain();
+    const auto maybe_rfactor_domain = domain->hasRFactor()
+        ? domain->getRFactorDomain()
+        : domain->getRootDomain();
+
+    KernelIndexModeCompute c;
+    int64_t stride = 1;
+
+    for (const auto id : maybe_rfactor_domain) {
+      if (id->isReduction() || id->isStride()) {
+        continue;
+      }
+
+      auto extent = (id->isBroadcast() && id->hasExpandedExtent())
+          ? id->expandedExtent()
+          : id->extent();
+
+      const auto inferred_val = expr_eval.evaluate(extent);
+      TORCH_INTERNAL_ASSERT(
+          inferred_val.has_value(),
+          "Could not launch kernel as program could not infer ",
+          extent->toString(),
+          "(",
+          extent->name(),
+          ") for the buffer ",
+          tv->toString());
+
+      int64_t size = inferred_val->as<int64_t>();
+      if (c.addDim(size, stride) == KernelIndexMode::INT64) {
+        return KernelIndexMode::INT64;
+      }
+      stride = size;
+    }
+
+    return KernelIndexMode::INT32;
+  };
+
+  for (auto output : fusion->outputs()) {
+    if (get_index_type(output->as<TensorView>()) == KernelIndexMode::INT64) {
+      return DataType::Int;
+    }
+  }
+
+  for (auto input : fusion->inputs()) {
+    if (get_index_type(input->as<TensorView>()) == KernelIndexMode::INT64) {
+      return DataType::Int;
+    }
+  }
+
+  // auto allTvs = ir_utils::allTvsExcept(fusion, {});
+  // for (auto tv : allTvs) {
+  //   if (get_index_type(tv) == KernelIndexMode::INT64) {
+  //     return KernelIndexMode::INT64;
+  //   }
+  // }
+
+  return DataType::Int32;
+}
+
 void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
@@ -249,6 +316,11 @@ void FusionExecutor::compileFusion(
     // If the given compile option doesn't specify the index type, use
     // the type determined by the arguments
     compile_params.index_type = arg_index_type;
+  }
+
+  if (compile_params.index_type == DataType::Int32) {
+    auto expr_eval = executor_utils::bindInputs(args, fusion);
+    TORCH_INTERNAL_ASSERT(ComputeIndexType(fusion, expr_eval) == DataType::Int32, "")
   }
 
   c10::DeviceGuard dg(options_.device);
