@@ -4,7 +4,6 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
-
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if (CMAKE_VERSION VERSION_LESS 3.21)
     if ("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
@@ -371,9 +370,7 @@ if(BUILD_TEST)
     set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
   endif()
 
-  if(BUILD_INSTALL)
-    install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
-  endif()
+  install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
 endif()
 
 # -- build benchmark
@@ -424,9 +421,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
-  if(BUILD_INSTALL)
-    install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
-  endif()
+  install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 
 endif()
@@ -493,9 +488,7 @@ endforeach()
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
 
 # -- install nvfuser cmake config files and symlink to build binaries
-if(BUILD_INSTALL)
-  install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
-endif()
+install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 if (PROJECT_IS_TOP_LEVEL)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 else()
