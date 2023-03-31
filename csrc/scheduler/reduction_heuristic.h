@@ -108,6 +108,21 @@ class ReductionParams : public HeuristicParams {
 
   // Use computeWith to persistent buffers
   bool compute_persistent_buffer_with_first_consumer = false;
+  // specific to combined inner and outer reduction
+  bool combined_inner_outer = false;
+  // use TIDx for out reduction axis
+  bool tidx_for_outer_reduction = false;
+  // pad outer reduction to warp
+  bool pad_outer_reduction_to_warp = false;
+  // partial result of outer reduction is written to gmem then read back in a
+  // different parallel pattern set the vectorization factor of its read and
+  // write
+  int64_t vectorization_factor_tmp_gmem_read = 1;
+  int64_t vectorization_factor_tmp_gmem_write = 1;
+  // inner reduction axis is parallelized by block_dim_inner_reduction (usually
+  // TIDx) the remaining part is further parallelized by
+  // block_dim_inner_reduction_extra (usually TIDy)
+  ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
   bool static_bdimx = false;
   bool static_bdimy = false;
@@ -155,7 +170,14 @@ class ReductionParams : public HeuristicParams {
         other.batches_per_block_outer_reduction ==
             batches_per_block_outer_reduction &&
         other.compute_persistent_buffer_with_first_consumer ==
-            compute_persistent_buffer_with_first_consumer;
+            compute_persistent_buffer_with_first_consumer &&
+        other.combined_inner_outer == combined_inner_outer &&
+        other.tidx_for_outer_reduction == tidx_for_outer_reduction &&
+        other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
+        other.vectorization_factor_tmp_gmem_read ==
+            vectorization_factor_tmp_gmem_read &&
+        other.vectorization_factor_tmp_gmem_write ==
+            vectorization_factor_tmp_gmem_write;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();

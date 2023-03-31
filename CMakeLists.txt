@@ -324,6 +324,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
     ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp

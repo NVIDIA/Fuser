@@ -5,8 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
+#include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/registry.h>
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -499,6 +502,134 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
   // as invalid
   TORCH_INTERNAL_ASSERT(launch_cfg.isInvalid());
   return std::nullopt;
+}
+
+bool checkIfReductionsAreInnerOuter(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool pass_combined_heck = true;
+  // inner reduction must be [I,I,...R,R]
+  auto innerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastIter = -1;
+    while (lastIter < ndim - 1 && tv->axis(lastIter + 1)->isIteration()) {
+      lastIter++;
+    }
+    int firstRedu = ndim;
+    while (firstRedu > 0 && tv->axis(firstRedu - 1)->isReduction()) {
+      firstRedu--;
+    }
+    return lastIter >= 0 && firstRedu < ndim && lastIter == firstRedu - 1;
+  };
+  // outer reduction must be [R,R,..I,I]
+  auto outerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastRedu = -1;
+    while (lastRedu < ndim - 1 && tv->axis(lastRedu + 1)->isReduction()) {
+      lastRedu++;
+    }
+    int firstIter = ndim;
+    while (firstIter > 0 && tv->axis(firstIter - 1)->isIteration()) {
+      firstIter--;
+    }
+    return lastRedu >= 0 && firstIter < ndim && lastRedu == firstIter - 1;
+  };
+  for (auto itv : inner_reduction_tvs) {
+    if (!innerReductionCheck(itv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  for (auto otv : outer_reduction_tvs) {
+    if (!outerReductionCheck(otv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  return pass_combined_heck;
+}
+
+bool hasSharedInput(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool has_shared_input = false;
+  std::unordered_set<TensorView*> input_inner_reduction_tvs;
+  for (auto tv : inner_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      input_inner_reduction_tvs.emplace(input_tv);
+    }
+  }
+  for (auto tv : outer_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      if (input_inner_reduction_tvs.find(input_tv) !=
+          input_inner_reduction_tvs.end()) {
+        has_shared_input = true;
+        break;
+      }
+    }
+    if (has_shared_input) {
+      break;
+    }
+  }
+  return has_shared_input;
+}
+
+bool hasSharedConsumer(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  // check inner reduction tvs
+  auto contvs = ir_utils::consumerTvsOf(inner_reduction_tvs[0]);
+  std::set<TensorView*> contvs_set(contvs.begin(), contvs.end());
+  for (int i = 1; i < (int)inner_reduction_tvs.size(); i++) {
+    for (auto tv : ir_utils::consumerTvsOf(inner_reduction_tvs[i])) {
+      if (contvs_set.find(tv) != contvs_set.end()) {
+        return false;
+      } else {
+        contvs_set.emplace(tv);
+      }
+    }
+  }
+
+  // check outer reduction tvs
+  for (int i = 0; i < (int)outer_reduction_tvs.size(); i++) {
+    for (auto tv : ir_utils::consumerTvsOf(outer_reduction_tvs[i])) {
+      if (contvs_set.find(tv) != contvs_set.end()) {
+        return false;
+      } else {
+        contvs_set.emplace(tv);
+      }
+    }
+  }
+
+  return true;
+}
+
+int64_t partialReductionBufferSize(
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t partial_reduction_buffer_size = 0;
+  for (auto buffer : outer_reduction_tvs) {
+    int64_t buffer_size = -1;
+    for (auto id : buffer->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          id_size.has_value(), "Could not infer persistent buffer size.");
+      if (buffer_size == -1) {
+        buffer_size = id_size->as<int64_t>();
+      } else {
+        buffer_size *= id_size->as<int64_t>();
+      }
+    }
+    buffer_size = buffer_size == -1 ? 0
+                                    : buffer_size *
+            dataTypeSize(buffer->getDataType().value(),
+                         indexModeToDtype(runtime_info.getIndexMode()));
+    partial_reduction_buffer_size += buffer_size;
+  }
+  return partial_reduction_buffer_size;
 }
 
 } // namespace normalization_scheduler_utils

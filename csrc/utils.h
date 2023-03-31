@@ -129,9 +129,14 @@ enum class EnableOption {
 TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
     EnableOption option);
+TORCH_CUDA_CU_API int64_t
+getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-// Check if fallback path should be used which will dispatch to eagermode if any
-// errors are encountered. Helpful for debugging.
+TORCH_CUDA_CU_API int64_t
+getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+
+// Check if fallback path should be used which will dispatch to eager mode if
+// any errors are encountered. Helpful for debugging.
 bool useFallback();
 
 //! Ceil integer division
