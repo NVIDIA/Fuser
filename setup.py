@@ -34,6 +34,7 @@ BUILD_SETUP = True
 NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
+LOCAL_DEVELOP = False
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -48,6 +49,8 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-benchmark":
         NO_BENCHMARK = True
         continue
+    if arg in ['develop']:
+        LOCAL_DEVELOP = True
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         BUILD_SETUP = False
@@ -210,6 +213,10 @@ def cmake():
         cmd_str.append("-DBUILD_PYTHON=ON")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    if not LOCAL_DEVELOP:
+        cmd_str.append("-DBUILD_INSTALL=ON")
+    else:
+        cmd_str.append("-DBUILD_INSTALL=OFF")
 
     subprocess.check_call(cmd_str)
 
