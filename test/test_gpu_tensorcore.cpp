@@ -807,7 +807,8 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     runtime = fe.kernelTimeMs();
 
-    // Check that mma op is not predicated
+    // Check that mma op is not predicated. This is a regression test for
+    // https://github.com/NVIDIA/Fuser/issues/95
     class PredicateChecker : public kir::IrVisitor {
      public:
       using kir::IrVisitor::handle;
