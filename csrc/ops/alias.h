@@ -87,7 +87,7 @@ TORCH_CUDA_CU_API TensorView* pad(
 //! Concatenate tensors in the given dimension
 TORCH_CUDA_CU_API TensorView* cat(
     const std::vector<TensorView*>& inputs,
-    int dim);
+    int64_t dim);
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment.
