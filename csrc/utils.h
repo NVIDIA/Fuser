@@ -31,6 +31,47 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 // TODO: merge these two
 // check if input is compatible with 32b index mode
 int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
+
+// Computes the index mode required.
+// Made into a class w/ state to allow reuse with
+// different tensors and without needing to pass an allocated
+// vector of size+stride
+class KernelIndexModeCompute {
+  // Save 1 more bit besides the sign bit to be conservative
+  static constexpr int64_t most_positive_int32_index =
+      std::numeric_limits<int>::max() / 2;
+  static constexpr int64_t most_negative_int32_index =
+      std::numeric_limits<int>::min() / 2;
+
+ public:
+  // Updates counters and returns current reqd mode
+  inline KernelIndexMode addDim(int64_t size, int64_t stride) {
+    if (size > 1) {
+      // accumulate based on the sign of stride
+      if (stride > 0) {
+        // Acuumulate positive stride
+        tensor_most_positive_index += (size - 1) * stride;
+      } else {
+        // Acuumulate negative stride
+        tensor_most_negative_index += (size - 1) * stride;
+      }
+    }
+    return getMode();
+  }
+
+  inline KernelIndexMode getMode() const {
+    if (tensor_most_positive_index > most_positive_int32_index ||
+        tensor_most_negative_index < most_negative_int32_index) {
+      return KernelIndexMode::INT64;
+    }
+    return KernelIndexMode::INT32;
+  }
+
+ private:
+  int64_t tensor_most_positive_index = 0;
+  int64_t tensor_most_negative_index = 0;
+};
+
 KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs);
 
 //! Types of debug print-outs
@@ -267,9 +308,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;

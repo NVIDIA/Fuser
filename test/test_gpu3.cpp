@@ -8041,6 +8041,28 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
+TEST_F(NVFuserTest, MatmulIndexingType) {
+  // Fusion fusion;
+  // FusionGuard fg(&fusion);
+
+  // auto tv0 = makeSymbolicTensor(1);
+  // auto tv1 = makeSymbolicTensor(1);
+  // auto tv2 = broadcast(tv0, {true, false});
+  // auto tv3 = broadcast(tv1, {false, true});
+  // auto tv4 = add(tv2, tv3);
+  // fusion.addOutput(tv4);
+
+  // tv4->merge(0, 1);
+  // tv4->split(0, 256);
+  // tv4->split(0, 128);
+  // // use max info propagator to propagate tv4 transformations
+
+  // inlineMost();
+  // tv4->axis(1)->parallelize(ParallelType::BIDx);
+  // tv4->axis(2)->parallelize(ParallelType::TIDx);
+  // parallelizeAllLike(tv4);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

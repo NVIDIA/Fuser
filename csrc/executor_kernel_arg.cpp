@@ -176,6 +176,32 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
   return args;
 }
 
+void KernelArgumentHolder::promoteIndexMode() {
+  if (index_mode_ == KernelIndexMode::INT64) {
+    return;
+  }
+  index_mode_ = KernelIndexMode::INT64;
+  for (auto& arg : arguments_) {
+    TensorArgAbstract* tensor_arg_old =
+        dynamic_cast<TensorArgAbstract*>(arg.get());
+    if (tensor_arg_old == nullptr)
+      continue;
+    auto tensor = tensor_arg_old->getTensor();
+    int nDims = tensor.ndimension();
+    c10::ScalarType dtype = tensor.scalar_type();
+    std::unique_ptr<TensorArgAbstract> tensor_arg =
+        getTensorArg(dtype, nDims, index_mode_);
+    tensor_arg->setTensor(tensor);
+    tensor_arg->setPointer(tensor.data_ptr());
+    tensor_arg->setDataType(aten_to_data_type(dtype));
+    for (const auto i : c10::irange(nDims)) {
+      tensor_arg->setSize(i, tensor.sizes()[i]);
+      tensor_arg->setStride(i, tensor.strides()[i]);
+    }
+    arg = std::move(tensor_arg);
+  }
+}
+
 // Push a tensor to the arguments
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
   changed_ = true;
@@ -257,6 +283,16 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
 
 // Push a scalar or integer to the arguments
 void KernelArgumentHolder::push(const c10::IValue& val) {
+  if (index_mode_ == KernelIndexMode::INT32 &&
+      collectIndexMode({val}) == KernelIndexMode::INT64) {
+    promoteIndexMode();
+
+    // TORCH_INTERNAL_ASSERT(
+    //     false,
+    //     "Tried to push that requires 64b indexing to an arg holder configured
+    //     for 32b ");
+  }
+
   changed_ = true;
   TORCH_INTERNAL_ASSERT(
       val.isScalar(),

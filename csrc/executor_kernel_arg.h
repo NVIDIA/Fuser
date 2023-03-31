@@ -293,9 +293,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return index_mode_;
   }
 
-  void setIndexMode(KernelIndexMode mode) {
-    index_mode_ = mode;
-  }
+  void promoteIndexMode();
 
   PrimDataType getIndexType() const {
     return indexModeToDtype(index_mode_);
