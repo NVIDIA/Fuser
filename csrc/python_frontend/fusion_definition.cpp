@@ -127,8 +127,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto device = getCommonDeviceCUDA(inputs);
   TORCH_CHECK(
-      inputs.size() == 0 || device > -1,
-      "Inputs are not all on the same device!");
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
   TORCH_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
@@ -180,7 +179,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
     TORCH_CHECK(
-        inputs.size() == 0 || device > -1,
+        inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
