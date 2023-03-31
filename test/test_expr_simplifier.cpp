@@ -1077,6 +1077,8 @@ TEST_F(ExprSimplifierTest, Assume_CUDA) {
                        "T0.size[0] > 0 && T0.size[1] > 0"_))
           ->getBool(),
       true);
+  expr = "ceilDiv( T0.size[0] , T0.size[0] ) * T0.size[0]"_;
+  ASSERT_TRUE(assume::tensorsAreNotEmpty(expr)->sameAs("T0.size[0] > 0"_));
 }
 
 } // namespace nvfuser

@@ -25,9 +25,21 @@ Bool* tensorsAreNotEmpty(Val* value) {
     }
   }
   Bool* result = nullptr;
+  // tensor_sizes might contain duplicate, and we should remove this duplication
+  std::vector<Val*> tensor_sizes_applied;
   for (auto ts : tensor_sizes) {
-    result = SimplifyingIrBuilder::andExpr(
-        result, SimplifyingIrBuilder::gtExpr(ts, ts->container()->zeroVal()));
+    bool is_duplicate = false;
+    for (auto existing : tensor_sizes_applied) {
+      if (existing->sameAs(ts)) {
+        is_duplicate = true;
+        break;
+      }
+    }
+    if (!is_duplicate) {
+      tensor_sizes_applied.emplace_back(ts);
+      result = SimplifyingIrBuilder::andExpr(
+          result, SimplifyingIrBuilder::gtExpr(ts, ts->container()->zeroVal()));
+    }
   }
   return result;
 }
