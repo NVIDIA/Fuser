@@ -863,16 +863,16 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         inner_most_dimension_numel,
-        (int64_t) n_tensor_inputs,
-        (int64_t) max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         vectorize_factor);
   } else {
     // 3D schedules not enabled for outer reductions
     return outerReductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
-        (int64_t) n_tensor_inputs,
-        (int64_t) max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         vectorize_factor);
   }
 }

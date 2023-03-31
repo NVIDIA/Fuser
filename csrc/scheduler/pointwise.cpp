@@ -46,7 +46,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
-        int n_dims = (int) pointwise_utils::nRootDims(output_tv);
+        int n_dims = (int)pointwise_utils::nRootDims(output_tv);
         if (n_dims > max_dims) {
           result = output_tv;
           max_dims = n_dims;
@@ -59,9 +59,7 @@ class DomainMap : public pointwise_utils::DomainMap {
  private:
   bool hasMinimumSize(TensorView* tv, size_t num_axes) const {
     TORCH_INTERNAL_ASSERT(tv != nullptr);
-    return (
-        num_axes == 0 ||
-        tv->getMaybeRFactorDomain().size() > num_axes);
+    return (num_axes == 0 || tv->getMaybeRFactorDomain().size() > num_axes);
   }
 };
 
@@ -137,7 +135,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noReductions(
           TensorDomain::noBroadcasts(largest_out->domain()->domain()))
-              .empty() ||
+          .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {
