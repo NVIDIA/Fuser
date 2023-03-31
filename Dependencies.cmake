@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Preserve build options.
 set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
 
