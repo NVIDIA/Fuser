@@ -285,8 +285,8 @@ void runCudaFusionGroup(
   // Fallback to use if anything goes wrong
   auto take_fallback = [&](torch::jit::Stack& stack) {
     std::unique_ptr<torch::jit::Code> fallback_code_unique;
-    torch::jit::Code* fallback_code;
-    int32_t kernel_id = fusion_node->i(at::attr::cache_id);
+    torch::jit::Code* fallback_code = nullptr;
+    int32_t kernel_id = (int32_t)fusion_node->i(at::attr::cache_id);
     fallback_code =
         CudaFusionManager::getManager().getFallbackCode(kernel_id, fusion_node);
     torch::jit::InterpreterState{*fallback_code}.run(stack);
@@ -314,7 +314,7 @@ void runCudaFusionGroup(
     TORCH_CHECK(
         fusion_node->kind() == at::prim::CudaFusionGroup,
         "prim::CudaFusionGroup expected");
-    int32_t kernel_id = fusion_node->i(at::attr::cache_id);
+    int32_t kernel_id = (int32_t)fusion_node->i(at::attr::cache_id);
     // Currently we just construct I/O tensors for static graph;
 
     const auto nInputs = fusion_node->g(at::attr::Subgraph)->inputs().size();
@@ -336,7 +336,7 @@ void runCudaFusionGroup(
       // if fusion failed once, it's likely to fail again; and failures are
       // slow. So if the fusion fails, then record the failure and always use
       // the fallback instead
-      int32_t kernel_id = fusion_node->i(at::attr::cache_id);
+      int32_t kernel_id = (int32_t)fusion_node->i(at::attr::cache_id);
       bool force_fallback =
           CudaFusionManager::getManager().hasFallbackCode(kernel_id);
       if (force_fallback) {

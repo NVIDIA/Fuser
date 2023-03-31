@@ -147,45 +147,6 @@ class ParallelIterExtentMap {
       CompileTimeEntryType::PARALLEL_ITER_EXTENT_MAP;
 };
 
-//! Compile-time info to be cached in each FusionExecutor:
-//!  SimplifiedParallelIterExtentMap
-//!    This entry type is a simplified version of ParallelIterExtentMap.
-//!
-//!    For launch parameter binding we only need the most concrete iterdomain
-//!      in each disjoint set stored in CaParallelMap. This entry stores the
-//!      remaining list of extents for binding after this simplification.
-//!
-//!    We still need ParallelIterExtentMap since we want to bind the concrete
-//!      values to the extents of all parallelized iterdomains. We would be
-//!      able to save these bindings if the integer machine has a notion of
-//!      equality and could be configured compile time. But that'd be a longer
-//!      term target.
-class SimplifiedParallelIterExtentMap {
- public:
-  using DataType =
-      std::unordered_map<ParallelType, std::vector<const Val*>, TypeHash>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::SIMPLIFIED_PARALLEL_ITER_EXTENT_MAP;
-};
-
-//!  WarpPaddedExtentsInfo:
-//!    Auxiliary data type for entry class WarpPaddedParallelExtents
-struct WarpPaddedExtentsInfo {
-  std::unordered_set<const Val*> warp_padded_extent_set;
-  std::unordered_map<const Val*, int64_t> warp_padded_constant;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  WarpPaddedParallelExtents
-//!    Stores the symbolic and constant extents of warp
-//!    padded parallel iterdomains.
-class WarpPaddedParallelExtents {
- public:
-  using DataType = WarpPaddedExtentsInfo;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::WARP_PADDED_PARALLEL_EXTENTS;
-};
-
 //!  VectorizedTensorInfo:
 //!    Auxiliary data type for entry class VectorizedTensorValidation
 struct VectorizedTensorInfo {
@@ -328,18 +289,6 @@ using ParallelExtentMap =
 //! Returns the extents of all parallel binding iterdomains corresponding
 //!  to each parallel type.
 std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    std::vector<IterDomain*>& parallel_binding_ids);
-
-//! Returns the simplified set of extents necessary for launch parameter
-//!  binding.
-std::unique_ptr<ParallelExtentMap> getSimplifiedParallelIterExtents(
-    GpuLower* lower,
-    std::vector<IterDomain*>& parallel_binding_ids);
-
-//! Returns the symbolic or constant extetns of warp padded parallel
-//!  iterdomains in the given vector.
-std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    kir::Kernel* lower,
     std::vector<IterDomain*>& parallel_binding_ids);
 
 void validateVectorizedTensors(

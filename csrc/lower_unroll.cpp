@@ -263,7 +263,7 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
   std::unordered_set<Expr*> all_exprs_inside_loop_nest;
   std::unordered_set<Expr*> resize_exprs;
 
-  while (loops.size() > 0) {
+  while (!loops.empty()) {
     auto loop = loops.back();
     loops.pop_back();
 
