@@ -61,6 +61,14 @@ Bool* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
+    // pt_ not being exact does not mean the predicate is not trivial. For
+    // example, if I have T1[blockIdx.x{3}] and T2[blockIdx.x{5}], then
+    // blockIdx.x will not be exact. However, the predicate blockIdx.x < 5 is
+    // still trivial.
+    if (pred_id->extent()->sameAs(
+            GpuLower::current()->parallelDimensionMap().getRaw(pt_))) {
+      continue;
+    }
     pred = SimplifyingIrBuilder::andExpr(pred, new_pred)->as<Bool>();
   }
 
