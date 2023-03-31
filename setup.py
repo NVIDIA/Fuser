@@ -49,7 +49,7 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-benchmark":
         NO_BENCHMARK = True
         continue
-    if arg in ['develop']:
+    if arg in ["develop"]:
         LOCAL_DEVELOP = True
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
