@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <utils.h>
+#include <lower_utils.h>
 
 #include <c10/util/string_view.h>
 
@@ -312,12 +313,10 @@ KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs) {
   // Check all runtime inputs, and if any one of
   //  the input's index exceeds max_int32 will
   //  fall back to int64 indexing
-  std::vector<std::pair<int64_t, int64_t>> sizes_and_strides;
-
   for (auto ivalue_input : inputs) {
     if (ivalue_input.isTensor()) {
       auto tensor_input = ivalue_input.toTensor();
-      KernelIndexModeCompute c;
+      lower_utils::KernelIndexModeCompute c;
       for (auto dim_i = 0; dim_i < tensor_input.ndimension(); dim_i++) {
         if (c.addDim(tensor_input.size(dim_i), tensor_input.stride(dim_i)) ==
             KernelIndexMode::INT64) {

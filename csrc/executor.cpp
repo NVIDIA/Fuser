@@ -192,7 +192,7 @@ static inline DataType ComputeIndexType(
         ? domain->getRFactorDomain()
         : domain->getRootDomain();
 
-    KernelIndexModeCompute c;
+    lower_utils::KernelIndexModeCompute c;
     int64_t stride = 1;
 
     for (const auto id : maybe_rfactor_domain) {
@@ -225,21 +225,27 @@ static inline DataType ComputeIndexType(
   };
 
   for (auto output : fusion->outputs()) {
+    if (!input->isA<TensorView>()) { // only output tensors, so pointless?
+      continue;
+    }
     if (get_index_type(output->as<TensorView>()) == KernelIndexMode::INT64) {
       return DataType::Int;
     }
   }
 
   for (auto input : fusion->inputs()) {
+    if (!input->isA<TensorView>()) {
+      continue;
+    }
     if (get_index_type(input->as<TensorView>()) == KernelIndexMode::INT64) {
       return DataType::Int;
     }
   }
 
-  // auto allTvs = ir_utils::allTvsExcept(fusion, {});
+  // auto allTvs = ir_utils::allTvs(fusion);
   // for (auto tv : allTvs) {
   //   if (get_index_type(tv) == KernelIndexMode::INT64) {
-  //     return KernelIndexMode::INT64;
+  //     return DataType::Int;
   //   }
   // }
 
@@ -318,9 +324,13 @@ void FusionExecutor::compileFusion(
     compile_params.index_type = arg_index_type;
   }
 
+  // Check is useful only iff the index type is int32, otherwise it will always
+  // be good.
   if (compile_params.index_type == DataType::Int32) {
     auto expr_eval = executor_utils::bindInputs(args, fusion);
-    TORCH_INTERNAL_ASSERT(ComputeIndexType(fusion, expr_eval) == DataType::Int32, "")
+    TORCH_INTERNAL_ASSERT(
+        ComputeIndexType(fusion, expr_eval) == DataType::Int32,
+        "64b indexing type is required, compile_params or KernelArgumentHolder")
   }
 
   c10::DeviceGuard dg(options_.device);
