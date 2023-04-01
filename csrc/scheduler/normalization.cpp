@@ -1195,6 +1195,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const bool fastest_dim_reduction,
     const size_t n_tensor_inputs,
     const size_t max_input_dtype_size,
+    const size_t tmp_gmem_dtype_size,
     const int64_t max_persistent_buffer_size,
     size_t vectorize_factor,
     bool project_persistent_buffers,
@@ -1203,9 +1204,6 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
   if (combined_inner_outer_reduction) {
     const int64_t outer_dim_numel = total_iteration_numel;
     const int64_t inner_dim_numel = inner_most_dimension_numel;
-    // If the input is a half, we need to use 4 bytes for the temporary buffer
-    const size_t tmp_gmem_dtype_size =
-        max_input_dtype_size == 2 ? 4 : max_input_dtype_size;
     rparams = innerOuterPersistentHeuristic(
         outer_dim_numel,
         inner_dim_numel,
@@ -1254,14 +1252,28 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   TORCH_INTERNAL_ASSERT(
       !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
-  auto first_red_tv = reduction_tvs[0];
+  std::vector<TensorView*> inner_reduction_tvs;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_reduction_tvs.emplace_back(tv);
+    } else {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  const bool combined_inner_outer_reduction =
+      !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
+
+  auto represent_red_tv = combined_inner_outer_reduction
+      ? inner_reduction_tvs[0]
+      : reduction_tvs[0];
 
   TORCH_INTERNAL_ASSERT(
-      first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+      represent_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
   TORCH_INTERNAL_ASSERT(
-      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = first_red_tv->definition();
+      represent_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = represent_red_tv->definition();
 
   TORCH_INTERNAL_ASSERT(
       ir_utils::isReductionOp(red_expr),
@@ -1271,20 +1283,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   TORCH_INTERNAL_ASSERT(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
-  int64_t n_tensor_inner_reduction = 0;
-  int64_t n_tensor_outer_reduction = 0;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      n_tensor_inner_reduction++;
-    } else {
-      n_tensor_outer_reduction++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      n_tensor_inner_reduction && n_tensor_outer_reduction;
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -1299,7 +1297,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       "Persistent scheduler requires persistent buffers.");
 
   auto properties =
-      scheduler_utils::getProperties(fusion, runtime_info, first_red_tv);
+      scheduler_utils::getProperties(fusion, runtime_info, represent_red_tv);
 
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
@@ -1384,19 +1382,19 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&first_red_tv]() {
+          data_cache, [&represent_red_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
-                    first_red_tv, false, false));
+                    represent_red_tv, false, false));
           });
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      first_red_tv,
+      represent_red_tv,
       data_cache,
-      (int)(first_red_tv->nDims() - properties.inner_most_dimension_ndims));
+      (int)(represent_red_tv->nDims() - properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1419,6 +1417,14 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     n_tensor_inputs++;
   }
 
+  // A temporary gmem buffer is needed for the combined_inner_outer_reduction.
+  // Its dtype size is the same as the outer reduction's dtype size
+  // and is used to set the vectorization factor.
+  size_t outer_red_tmp_gmem_dtype_size = combined_inner_outer_reduction
+      ? dataTypeSize(
+            outer_reduction_tvs[0]->getDataType().value(),
+            indexModeToDtype(runtime_info.getIndexMode()))
+      : -1;
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
 
@@ -1429,6 +1435,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       properties.fastest_dim_reduction,
       n_tensor_inputs,
       max_dtype_size,
+      outer_red_tmp_gmem_dtype_size,
       max_persistent_size,
       vectorize_factor,
       project_persistent_buffers,
