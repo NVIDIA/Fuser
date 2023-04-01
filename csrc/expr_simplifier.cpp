@@ -138,6 +138,10 @@ std::unique_ptr<debug_print::NoOpLogger> createLogger(Val* value) {
 
 } // namespace debug_print
 
+namespace assoc_comm {
+Val* flatten(Val* value);
+} // namespace assoc_comm
+
 namespace {
 
 std::vector<Bool*> getAxioms() {
@@ -222,16 +226,20 @@ class Context {
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
       switch (bop->getBinaryOpType()) {
         case BinaryOpType::LT:
-          less_than_.emplace_back(bop->lhs(), bop->rhs());
+          less_than_.emplace_back(
+              assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
           break;
         case BinaryOpType::LE:
-          less_equal_.emplace_back(bop->lhs(), bop->rhs());
+          less_equal_.emplace_back(
+              assoc_comm::flatten(bop->lhs()), assoc_comm::flatten(bop->rhs()));
           break;
         case BinaryOpType::GT:
-          less_than_.emplace_back(bop->rhs(), bop->lhs());
+          less_than_.emplace_back(
+              assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         case BinaryOpType::GE:
-          less_equal_.emplace_back(bop->rhs(), bop->lhs());
+          less_equal_.emplace_back(
+              assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         default:
           TORCH_INTERNAL_ASSERT(

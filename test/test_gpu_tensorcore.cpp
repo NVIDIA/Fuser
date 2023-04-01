@@ -806,6 +806,31 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     TORCH_CHECK(gdimy == expected_gdimy);
 
     runtime = fe.kernelTimeMs();
+
+    // Check that mma op is not predicated. This is a regression test for
+    // https://github.com/NVIDIA/Fuser/issues/95
+    class PredicateChecker : public kir::IrVisitor {
+     public:
+      using kir::IrVisitor::handle;
+      bool found_mma = false;
+
+     private:
+      void handle(MmaOp* uop) final {
+        found_mma = true;
+        for (auto expr : scope_exprs_) {
+          TORCH_CHECK(
+              !expr->isA<kir::IfThenElse>() ||
+                  expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
+              "MmaOp should't be predicated!",
+              " Get predicate ",
+              expr->as<kir::IfThenElse>()->predicate()->toInlineString());
+        }
+      }
+    } pred_checker;
+
+    GpuLower gpulw(&fusion);
+    pred_checker.handle(gpulw.kernel()->topLevelExprs());
+    ASSERT_TRUE(pred_checker.found_mma);
   };
 
   // Checking only a single layout to keep runtime short (compilation overhead)
