@@ -32,7 +32,7 @@ class MagicZeroInserter : public kir::ExprMutator {
   };
 
   MagicZeroInserter(const std::vector<Expr*>& exprs) {
-    TORCH_INTERNAL_ASSERT(exprs.size());
+    TORCH_INTERNAL_ASSERT(!exprs.empty());
     kir::ExprMutator::registerInsertBefore(
         exprs.front(), IrBuilder::create<kir::InitMagicZero>(), nullptr);
     kir::ExprMutator::traverseAndInsert(exprs);
@@ -45,7 +45,7 @@ class MagicZeroInserter : public kir::ExprMutator {
             fl, IrBuilder::create<kir::UpdateMagicZero>());
       } else {
         TORCH_INTERNAL_ASSERT(
-            scope_.back()->exprs().size(), "Not expecting an empty loop.");
+            !scope_.back()->exprs().empty(), "Not expecting an empty loop.");
         kir::ExprMutator::registerInsertAfter(
             fl, IrBuilder::create<kir::UpdateMagicZero>(), scope_.back());
       }

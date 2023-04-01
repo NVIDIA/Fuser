@@ -22,7 +22,6 @@
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
@@ -232,7 +231,8 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  options_.device =
+      c10::Device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -368,7 +368,7 @@ void FusionExecutor::compileFusion(
 
   // The driver API call requires an int argument.
   int max_dynamic_smem = 0;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncGetAttribute(
+  CUDA_SAFE_CALL(cuFuncGetAttribute(
       &max_dynamic_smem,
       CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
       compiled_kernel_.function));
@@ -446,8 +446,8 @@ at::Tensor inferAndAlloc(
         ") for the buffer ",
         tv->toString());
     inferred_sizes.push_back(inferred_val->as<int64_t>());
-    if (expanded_map.count(expanded_sizes.size())) {
-      auto expanded_size = expanded_map.at(expanded_sizes.size());
+    if (expanded_map.count((int)expanded_sizes.size())) {
+      auto expanded_size = expanded_map.at((int)expanded_sizes.size());
       const auto inferred_expanded_size = expr_eval.evaluate(expanded_size);
       TORCH_INTERNAL_ASSERT(
           inferred_expanded_size.has_value(),
@@ -515,7 +515,7 @@ at::Tensor inferAndAllocOutput(
     }
     sizes.push_back(id->extent());
     if (id->isBroadcast() && id->hasExpandedExtent()) {
-      expand_map[sizes.size() - 1] = id->expandedExtent();
+      expand_map[(int)sizes.size() - 1] = id->expandedExtent();
     }
   }
   return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
@@ -543,7 +543,7 @@ uint64_t FusionExecutor::computeSharedMemory(
 #else
           const int align_size = 8; // see codegen.cpp for HIP
 #endif
-          total = ceilDiv(total, align_size) * align_size;
+          total = ceilDiv((int64_t)total, align_size) * align_size;
         }
         total += inferred_val->as<int64_t>() * data_size;
       } else {
@@ -590,27 +590,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
           });
   auto& parallel_iter_extents = parallel_iter_extent_entry.get();
 
-  auto simplified_parallel_iter_extent_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::SimplifiedParallelIterExtentMap>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getSimplifiedParallelIterExtents(
-                lower, parallel_binding_ids);
-          });
-  auto& simplified_parallel_iter_extents =
-      simplified_parallel_iter_extent_entry.get();
-
-  auto warp_padded_parallel_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::WarpPaddedParallelExtents>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getWarpPaddedExtentsInfo(
-                lower->kernel(), parallel_binding_ids);
-          });
-  auto& warp_padded_extent_set =
-      warp_padded_parallel_entry.get().warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_parallel_entry.get().warp_padded_constant;
+  const auto& simplified_parallel_iter_extents =
+      lower->parallelDimensionMap().getMap();
 
   // TODO: Need to redesign this part a bit to
   //   find the right place to trigger evaluate
@@ -656,48 +637,20 @@ LaunchParams FusionExecutor::computeLaunchParams(
   }
 
   // Run through the rest of the parallel IterDomains and infer their size
-  for (auto& entry : simplified_parallel_iter_extents) {
+  for (auto [p_type, extent] : simplified_parallel_iter_extents) {
     FUSER_PERF_SCOPE("FusionExecutor::ParallelBindingResolution");
-    auto p_type = entry.first;
-    auto parallel_extents = entry.second;
-    // Select the maxmimum value out of all the parallel extents
-    int64_t maximum_value = std::numeric_limits<int64_t>::min();
-    for (auto extent : parallel_extents) {
-      auto val = expr_eval.evaluate(extent);
-      TORCH_INTERNAL_ASSERT(
-          val.has_value(),
-          "Tried to evaluate the extent, ",
-          extent->toInlineString(),
-          " for the ptype: ",
-          p_type,
-          " to set launch bounds but could not.");
+    auto val = expr_eval.evaluate(extent);
+    TORCH_INTERNAL_ASSERT(
+        val.has_value(),
+        "Tried to evaluate the extent, ",
+        extent->toInlineString(),
+        " for the ptype: ",
+        p_type,
+        " to set launch bounds but could not.");
 
-      // apply padding to the extent if needed
-      if (warp_padded_extent_set.count(extent)) {
-        // Check if the extent has const value
-        auto padded_constant_it = warp_padded_constant.find(extent);
-
-        if (padded_constant_it != warp_padded_constant.end()) {
-          // If already specified padded to constant, need to check
-          //  runtime value not over the constant bound
-          TORCH_INTERNAL_ASSERT(*val <= padded_constant_it->second);
-          *val = EvaluatorValue(padded_constant_it->second);
-        } else {
-          // If no specified constant, pad to the smallest multiple of warp
-          //  above the value.
-          auto padded_number_of_warps = (*val + warp_size - 1) / warp_size;
-          *val = warp_size * padded_number_of_warps;
-        }
-        TORCH_INTERNAL_ASSERT(
-            *val <= 1024, "padded dimension larger than max block size");
-      }
-      maximum_value = std::max(maximum_value, val->as<int64_t>());
-    }
-    // Protect for size-0 tensors, they still have a value so would prefer to
-    // bind nothing than 0
-    if (maximum_value > 0) {
-      expr_eval.bind(p_type, maximum_value);
-      launch_params.bind(maximum_value, p_type);
+    if (val->as<int64_t>() > 0) {
+      expr_eval.bind(p_type, val->as<int64_t>());
+      launch_params.bind(val->as<int64_t>(), p_type);
     }
   }
 
@@ -774,7 +727,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
         device_smem_limit_);
   }
 
-  launch_params.setSmem(dynamic_smem_size);
+  launch_params.setSmem((int64_t)dynamic_smem_size);
 
   return launch_params;
 }
@@ -836,7 +789,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
     if (kernel->outputs()[out_i]->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
-      c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+      c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(at::empty({0}, tensor_options));
@@ -845,7 +798,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count(out_i) != 0) {
+      if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output, just push empty
         // tensor here.
         outputs.emplace_back();
@@ -902,7 +855,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count(out_i) != 0) {
+      if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output
         // but we still need to push an entry here.
         ret.push(int64_t(0));
@@ -1181,11 +1134,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     if (kernel()->summary().has_cooperative_grid_reduction) {
       int num_blocks_per_SM = -1;
-      at::globalContext().getNVRTC().cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &num_blocks_per_SM,
           compiled_kernel_.function,
           (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
-          (size_t)launch_params_.smem());
+          (size_t)launch_params_.smem()));
 
       TORCH_INTERNAL_ASSERT(
           (int64_t)(
@@ -1268,7 +1221,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // binded but is not generally how we handle that in scheduler.
       // Refer to `Philox` in generated kernel to understand how the mapping
       // works.
-      rand_offset = (kernel()->summary().max_rng_offsets + 1) * 4;
+      rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
     }
 
     // This is the entry when we have provided `opt_code` but the entry has not
@@ -1339,23 +1292,23 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventCreate(&start_event));
-    C10_CUDA_CHECK(cudaEventCreate(&finish_event));
-    C10_CUDA_CHECK(cudaEventRecord(start_event, stream));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
   }
 
   if (execute_kernel_) {
     if (maybe_available_dynamic_smem_.has_value() &&
         size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
       // Increase limit of dynamic shared memory if needed.
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncSetAttribute(
+      CUDA_SAFE_CALL(cuFuncSetAttribute(
           compiled_kernel_.function,
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+      CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_.function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
@@ -1369,31 +1322,30 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      AT_CUDA_DRIVER_CHECK(
-          at::globalContext().getNVRTC().cuLaunchCooperativeKernel(
-              compiled_kernel_.function,
-              launch_params_.gdimx(),
-              launch_params_.gdimy(),
-              launch_params_.gdimz(),
-              launch_params_.bdimx(),
-              launch_params_.bdimy(),
-              launch_params_.bdimz(),
-              launch_params_.smem(),
-              stream,
-              args.getBuffer()));
+      CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
+          compiled_kernel_.function,
+          launch_params_.gdimx(),
+          launch_params_.gdimy(),
+          launch_params_.gdimz(),
+          launch_params_.bdimx(),
+          launch_params_.bdimy(),
+          launch_params_.bdimz(),
+          launch_params_.smem(),
+          stream,
+          args.getBuffer()));
     }
   }
 
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventRecord(finish_event, stream));
-    C10_CUDA_CHECK(cudaEventSynchronize(start_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(finish_event));
-    C10_CUDA_CHECK(
+    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    CUDA_RT_SAFE_CALL(
         cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
-    C10_CUDA_CHECK(cudaEventDestroy(start_event));
-    C10_CUDA_CHECK(cudaEventDestroy(finish_event));
+    CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
     bytes_processed_ = 0;
     // Figure how many bytes are inputs, outputs, and temporary buffers
@@ -1401,12 +1353,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       if (auto tensor_arg_abstract =
               dynamic_cast<const TensorArgAbstract*>(args[i])) {
         bytes_processed_ += tensor_arg_abstract->numel() *
-            dataTypeSize(tensor_arg_abstract->getDataType());
+            (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
       }
     }
     for (const auto& output : allocated_outputs) {
       bytes_processed_ += output.numel() *
-          dataTypeSize(aten_to_data_type(output.scalar_type()));
+          (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
     }
 
     if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
@@ -1459,15 +1411,15 @@ float FusionExecutor::runRtc(
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
 
-  cudaEventCreate(&start_event);
-  cudaEventCreate(&finish_event);
+  CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+  CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
   KernelArgumentHolder kernel_arguments(index_type);
   kernel_arguments.push(args);
 
-  cudaEventRecord(start_event, stream);
+  CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+  CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
       launch_params.gdimy(),
@@ -1480,14 +1432,15 @@ float FusionExecutor::runRtc(
       kernel_arguments.getBuffer(),
       nullptr));
 
-  cudaEventRecord(finish_event, stream);
-  cudaEventSynchronize(start_event);
-  cudaEventSynchronize(finish_event);
+  CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
+  CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+  CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
 
   float kernel_time_ms = 0;
-  cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event);
-  cudaEventDestroy(start_event);
-  cudaEventDestroy(finish_event);
+  CUDA_RT_SAFE_CALL(
+      cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event));
+  CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+  CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
 }

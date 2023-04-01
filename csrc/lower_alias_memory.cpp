@@ -439,8 +439,8 @@ class ExprPosMap {
 // Create ScopeInfo for each loop
 class ScopeMap : private kir::IrVisitor {
  public:
-  ScopeMap(const std::vector<Expr*>& exprs) {
-    global_scope_info_ = makeAndRegisterScopeInfo(nullptr);
+  ScopeMap(const std::vector<Expr*>& exprs)
+      : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
     global_scope_info_->end_pos = expr_pos_map_.getCurrentPos() + 1;
 

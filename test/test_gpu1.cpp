@@ -40,7 +40,6 @@
 #include <transform_rfactor.h>
 
 #include <parser.h>
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -1202,17 +1201,17 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
-  int64_t i164;
-  i164 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i164 < T0.size[0])) {
+  int64_t i244;
+  i244 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  if ((i244 < T0.size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
-       = T1[i164];
+       = T1[i244];
     float T4[1];
     T4[0] = 0;
     T4[0]
-       = T0[i164];
+       = T0[i244];
     float T2[1];
     T2[0]
       = T4[0]
@@ -1221,7 +1220,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Te
     T6[0]
       = T2[0]
       * T4[0];
-    T3[i164]
+    T3[i244]
        = T6[0];
   }
 }

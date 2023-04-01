@@ -7,7 +7,6 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <ATen/native/cuda/jit_utils.h>
 
 #include <c10/util/irange.h>
@@ -19,7 +18,6 @@
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <kernel_db/kernel_db.h>
-#include <torch/csrc/jit/codegen/fuser/cuda/fused_kernel.h>
 #include <torch/csrc/jit/resource_guard.h>
 
 #include <cuda_occupancy.h>
@@ -53,6 +51,8 @@
 #include <nvfuser_resources/welford.h>
 #include <cstdlib>
 #include <fstream>
+
+#include <nvrtc.h>
 
 namespace nvfuser {
 namespace executor_utils {
@@ -137,6 +137,55 @@ std::string kernelPreamble() {
 }
 
 namespace {
+
+// Query the target GPU version number NVRTC compiles CUDA kernels for
+TORCH_CUDA_CU_API void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int& major,
+    int& minor,
+    bool& compile_to_sass) {
+  using CudaVersion = std::pair<int, int>;
+  CudaVersion nvrtc_version;
+  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+
+  TORCH_CHECK(
+      nvrtc_version.first >= 6,
+      "NVRTC versions less than 6 are not supported. Is: ",
+      nvrtc_version.first);
+
+  // Version supported by device
+  // Usually any lower version works too but is less efficient
+  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
+  // Maximum version supported by the driver, cap dev_version to this
+  CudaVersion max_dev_version;
+  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
+    max_dev_version = CudaVersion(5, 0);
+  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
+    max_dev_version = CudaVersion(6, 0);
+  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
+    max_dev_version = CudaVersion(7, 2);
+  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
+    max_dev_version = CudaVersion(7, 5);
+  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
+    max_dev_version = CudaVersion(8, 0);
+  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
+    max_dev_version = CudaVersion(8, 6);
+  } else {
+    // If the driver version is unknown (i.e. newer than this code)
+    // assume the driver supports this device
+    max_dev_version = dev_version;
+  }
+  if (dev_version > max_dev_version) {
+    major = max_dev_version.first;
+    minor = max_dev_version.second;
+    // if we are clamping major/minor, sass is not compatible
+    compile_to_sass = false;
+  } else {
+    major = dev_version.first;
+    minor = dev_version.second;
+    compile_to_sass = true;
+  }
+}
 
 // return false if arg's type, number of dimensions, and device, doesn't match
 // param and provided c10:device
@@ -398,7 +447,7 @@ void validateKernelOutputs(
   FUSER_PERF_SCOPE("executor_utils::ValidateKernelOutputs");
 
   TORCH_INTERNAL_ASSERT(
-      fusion->outputs().size() != 0,
+      !fusion->outputs().empty(),
       "Kernel should have at least one output tensor.");
 
   TORCH_INTERNAL_ASSERT(
@@ -729,7 +778,7 @@ void validateMisalignedVectorizedTensors(
 
   const auto& out_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (outputs.size() > 0) {
+  if (!outputs.empty()) {
     out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
     std::transform(
         out_misaligned_tensors_pos.begin(),
@@ -806,7 +855,7 @@ void bindInputForExprEvaluation(
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
-    if (root_domain.size() == 0) {
+    if (root_domain.empty()) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::CpuScalarTensor) ||
               (arg->isType(ArgType::Tensor) &&
@@ -824,8 +873,8 @@ void bindInputForExprEvaluation(
           "Something went wrong configuring launch. Inputs rank does not match.");
 
       for (const auto dim : c10::irange(root_domain.size())) {
-        const auto tensor_arg_size = tensor_arg_abstract->getSize(dim);
-        const auto tensor_arg_stride = tensor_arg_abstract->getStride(dim);
+        const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
+        const auto tensor_arg_stride = tensor_arg_abstract->getStride((int)dim);
         const auto extent = root_domain[dim]->extent();
         if (root_domain[dim]->hasExpandedExtent()) {
           TORCH_INTERNAL_ASSERT(
@@ -912,18 +961,6 @@ ExpressionEvaluator bindInputs(
   return expr_eval;
 }
 
-void initializeCudaContext() {
-  // lazily construct context if non-existing yet;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  CUcontext pctx = nullptr;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuCtxGetCurrent(&pctx));
-  if (!pctx) {
-    std::unique_lock<std::mutex> cudaFreeMutexLock(
-        *(c10::cuda::getFreeMutex()));
-    C10_CUDA_CHECK(cudaFree(nullptr));
-  }
-}
-
 namespace {
 
 // Dump PTX or CUBIN to a file
@@ -931,15 +968,12 @@ namespace {
 std::vector<char> dumpCompiledCode(
     const nvrtcProgram& program,
     bool dump_cubin) {
-  const auto getSize = dump_cubin
-      ? at::globalContext().getNVRTC().nvrtcGetCUBINSize
-      : at::globalContext().getNVRTC().nvrtcGetPTXSize;
-  const auto getCode = dump_cubin ? at::globalContext().getNVRTC().nvrtcGetCUBIN
-                                  : at::globalContext().getNVRTC().nvrtcGetPTX;
+  const auto getSize = dump_cubin ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
+  const auto getCode = dump_cubin ? nvrtcGetCUBIN : nvrtcGetPTX;
   size_t size = 0;
-  AT_CUDA_NVRTC_CHECK(getSize(program, &size));
+  NVRTC_SAFE_CALL(getSize(program, &size));
   std::vector<char> code(size);
-  AT_CUDA_NVRTC_CHECK(getCode(program, code.data()));
+  NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -953,7 +987,7 @@ void dumpCompiledCodeToFile(
   std::cout << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
-  out.write(code.data(), code.size());
+  out.write(code.data(), (std::streamsize)code.size());
   out.close();
 }
 #endif
@@ -981,14 +1015,14 @@ c10::optional<int> getMaxRegCount(
     cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
     cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
     int warp_size = prop->warpSize;
-    int num_warps = ceilDiv(opt_block_size.value(), warp_size);
+    int64_t num_warps = ceilDiv(opt_block_size.value(), warp_size);
 
     // warps could be distributed unevenly across partition
-    int max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
+    int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
     // registers are evenly distributed across partitions, partition with most
     // wraps determins the maximum register available per warp
     int max_reg_per_warp =
-        prop->regsPerBlock / num_partition / max_warps_per_sm_partition;
+        prop->regsPerBlock / num_partition / (int)max_warps_per_sm_partition;
     // clamp down to register allocation granularity at warp level
     int effective_max_reg_per_warp = max_reg_per_warp /
         reg_allocation_granularity * reg_allocation_granularity;
@@ -1045,8 +1079,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 
   int major = 0, minor = 0;
   bool compile_to_sass = false;
-  torch::jit::fuser::cuda::codegenOutputQuery(
-      prop, major, minor, compile_to_sass);
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
 #if CUDA_VERSION < 11010
   // compile to sass is not allowed prior to CUDA 11.1
@@ -1069,7 +1102,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
   const std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<const char*> args = {
       "--std=c++17", compute.c_str(), "-default-device"};
 
@@ -1095,9 +1127,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
   const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
   std::string jit_opt_level = "-O";
 
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<CUjit_option> options;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<void*> option_vals;
   std::vector<char> info_log;
   unsigned int log_size = 8196;
@@ -1119,7 +1149,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
       option_vals.push_back((void*)info_log.data());
 
       options.push_back(CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES);
-      option_vals.push_back((void*)(long)log_size);
+      // NOLINTNEXTLINE(performance-no-int-to-ptr)
+      option_vals.push_back((void*)(intptr_t)log_size);
     }
   }
 
@@ -1138,6 +1169,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         args.push_back(jit_opt_level.c_str());
       } else {
         options.push_back(CU_JIT_OPTIMIZATION_LEVEL);
+        // NOLINTNEXTLINE(performance-no-int-to-ptr)
         option_vals.push_back((void*)(intptr_t)val);
       }
     } else {
@@ -1162,6 +1194,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     } else {
       // TODO: Why max register is set when compiled to PTX?
       options.push_back(CU_JIT_MAX_REGISTERS);
+      // NOLINTNEXTLINE(performance-no-int-to-ptr)
       option_vals.push_back((void*)(intptr_t)*max_register);
     }
   }
@@ -1201,8 +1234,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
     torch::jit::ResourceGuard holdProgram([&] {
       FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-      AT_CUDA_NVRTC_CHECK(
-          at::globalContext().getNVRTC().nvrtcDestroyProgram(&program));
+      NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
     });
 
     {
@@ -1212,22 +1244,20 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         ss << "__tmp_kernel" << id << ".cu";
         std::string name = ss.str();
         FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-        AT_CUDA_NVRTC_CHECK(at::globalContext().getNVRTC().nvrtcCreateProgram(
+        NVRTC_SAFE_CALL(nvrtcCreateProgram(
             &program, code.c_str(), name.c_str(), 0, nullptr, nullptr));
       }
 
-      at::globalContext().getNVRTC().nvrtcAddNameExpression(
-          program, func_name.c_str());
+      NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
 
-      const auto result = at::globalContext().getNVRTC().nvrtcCompileProgram(
-          program, args.size(), args.data());
-
+      // NOTE: not using NVRTC_SAFE_CALL on the return here, since we want to
+      // display log if the compilation fails here.
+      const auto result =
+          nvrtcCompileProgram(program, (int)args.size(), args.data());
       size_t logsize = 0;
-      at::globalContext().getNVRTC().nvrtcGetProgramLogSize(program, &logsize);
-
+      NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
       std::vector<char> log(logsize);
-      at::globalContext().getNVRTC().nvrtcGetProgramLog(program, log.data());
-
+      NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
       if (result != NVRTC_SUCCESS) {
         TORCH_INTERNAL_ASSERT(
             false, code.c_str(), "\nCUDA NVRTC compile error: ", log.data());
@@ -1240,7 +1270,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         }
         std::cout << log.data() << std::endl;
       }
-      AT_CUDA_NVRTC_CHECK(result);
 
       if (isWarnRegisterSpill) {
         auto getRegisterSpillInfo = [&log](const char* subStr) {
@@ -1265,7 +1294,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
         auto optionArgs =
             getEnableOptionArguments(EnableOption::WarnRegisterSpill);
         int allowed_spill = 0;
-        if (optionArgs.size() > 0) {
+        if (!optionArgs.empty()) {
           try {
             allowed_spill = std::stoi(optionArgs[0]);
           } catch (const std::exception& e) {
@@ -1281,8 +1310,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     }
 
     const char* lowered_kernel_name = nullptr;
-    at::globalContext().getNVRTC().nvrtcGetLoweredName(
-        program, func_name.c_str(), &lowered_kernel_name);
+    NVRTC_SAFE_CALL(
+        nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
     lowered_kernel_name_str.assign(lowered_kernel_name);
 
     size_t ptx_size = 0;
@@ -1292,19 +1321,16 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
 #if CUDA_VERSION >= 11010
       // compile_to_sass determines whether we are generating SASS or PTX, hence
       // the different API.
-      const auto getSize = compile_to_sass
-          ? at::globalContext().getNVRTC().nvrtcGetCUBINSize
-          : at::globalContext().getNVRTC().nvrtcGetPTXSize;
-      const auto getFunc = compile_to_sass
-          ? at::globalContext().getNVRTC().nvrtcGetCUBIN
-          : at::globalContext().getNVRTC().nvrtcGetPTX;
+      const auto getSize =
+          compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
+      const auto getFunc = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
 #else
-      const auto getSize = at::globalContext().getNVRTC().nvrtcGetPTXSize;
-      const auto getFunc = at::globalContext().getNVRTC().nvrtcGetPTX;
+      const auto getSize = nvrtcGetPTXSize;
+      const auto getFunc = nvrtcGetPTX;
 #endif
-      AT_CUDA_NVRTC_CHECK(getSize(program, &ptx_size));
+      NVRTC_SAFE_CALL(getSize(program, &ptx_size));
       ptx.resize(ptx_size);
-      AT_CUDA_NVRTC_CHECK(getFunc(program, ptx.data()));
+      NVRTC_SAFE_CALL(getFunc(program, ptx.data()));
     }
 
     if (kernel_db.enabled() && kernel_code.has_value()) {
@@ -1336,7 +1362,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
 
     // load ptx or cubin directly
-    AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuModuleLoadDataEx(
+    CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &(compiled_kernel_.module),
         ptx.data(),
         options.size(),
@@ -1349,7 +1375,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     }
   }
 
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuModuleGetFunction(
+  CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel_.function),
       compiled_kernel_.module,
       lowered_kernel_name_str.c_str()));
@@ -1410,8 +1436,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 // Template instantiation
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
-template class ExecutorCompileTimeEntry<SimplifiedParallelIterExtentMap>;
-template class ExecutorCompileTimeEntry<WarpPaddedParallelExtents>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
 template class ExecutorCompileTimeEntry<InputAliasIndices>;
 template class ExecutorCompileTimeEntry<OutputAliasIndices>;
@@ -1470,63 +1494,6 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
-}
-
-std::unique_ptr<ParallelExtentMap> getSimplifiedParallelIterExtents(
-    GpuLower* lower,
-    std::vector<IterDomain*>& parallel_binding_ids) {
-  auto parallel_iter_extents_ptr = std::make_unique<ParallelExtentMap>();
-  const auto& ca_map = lower->caMap();
-  std::vector<IterDomain*> mapped;
-  bool is_tidx_warp_padded = lower->getWarpPaddedParallelInfo().is_tidx_padded;
-
-  for (auto id : parallel_binding_ids) {
-    if (std::any_of(
-            mapped.begin(), mapped.end(), [id, &ca_map](IterDomain* mapped_id) {
-              return ca_map->areMapped(mapped_id, id, IdMappingMode::LOOP);
-            })) {
-      if (id->getParallelType() != ParallelType::TIDx || !is_tidx_warp_padded) {
-        continue;
-      }
-    }
-
-    insertParallelExtent(
-        ca_map->getConcreteMappedID(id, IdMappingMode::LOOP),
-        parallel_iter_extents_ptr);
-    mapped.push_back(id);
-  }
-
-  return parallel_iter_extents_ptr;
-}
-
-std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    kir::Kernel* kernel,
-    std::vector<IterDomain*>& parallel_binding_ids) {
-  auto warp_padded_extent_info_ptr =
-      std::make_unique<caching::WarpPaddedExtentsInfo>();
-  auto& warp_padded_extent_set =
-      warp_padded_extent_info_ptr->warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_extent_info_ptr->warp_padded_constant;
-  bool has_warp_reduction =
-      kernel->getWarpPaddedParallelInfo().has_warp_reduction;
-
-  for (auto id : parallel_binding_ids) {
-    // Apply warp padding only when there're warp reductions in
-    //  the kernel.
-    if (has_warp_reduction) {
-      if (id->hasPaddingToMultipleOfWarp() ||
-          kernel->isParallelTypePadded(id->getParallelType())) {
-        auto extent = id->extent();
-        warp_padded_extent_set.insert(extent);
-        auto padded_value = id->getMaybeSizeAfterPadding();
-        if (padded_value.has_value()) {
-          warp_padded_constant[extent] = padded_value.value();
-        }
-      }
-    }
-  }
-  return warp_padded_extent_info_ptr;
 }
 
 } // namespace executor_utils

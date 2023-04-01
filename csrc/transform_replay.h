@@ -136,16 +136,16 @@ class TORCH_CUDA_CU_API TransformReplay {
   // replay_resize indicates whether resize should be replayed or
   // ignored. It is only replayed when replaying a producer for
   // indexing.
-  static std::pair<TensorDomain*, unsigned int> replayPasC(
+  static std::pair<TensorDomain*, size_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
-      int consumer_compute_at_axis,
+      int64_t consumer_compute_at_axis,
       bool replay_swizzle = false,
       bool replay_resize = false);
-  static std::pair<TensorDomain*, unsigned int> replayPasC(
+  static std::pair<TensorDomain*, size_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
-      int consumer_compute_at_axis,
+      int64_t consumer_compute_at_axis,
       const RootDomainMap& root_map,
       bool replay_swizzle = false,
       bool replay_resize = false);
@@ -154,15 +154,15 @@ class TORCH_CUDA_CU_API TransformReplay {
   // consumer_compute_at_axis}.
   //
   // Unlike replayPasC, it always ignores resize.
-  static std::pair<TensorDomain*, unsigned int> replayCasP(
+  static std::pair<TensorDomain*, size_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
-      int producer_compute_at_axis,
+      int64_t producer_compute_at_axis,
       bool replay_swizzle = false);
-  static std::pair<TensorDomain*, unsigned int> replayCasP(
+  static std::pair<TensorDomain*, size_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
-      int producer_compute_at_axis,
+      int64_t producer_compute_at_axis,
       const RootDomainMap& root_map,
       bool replay_swizzle = false);
 
@@ -185,10 +185,10 @@ class TORCH_CUDA_CU_API TransformReplay {
   // by TransformPropagator, whereas it isn't when used for
   // determining the inlining position by MaxPosCalculator as inlining
   // isn't allowed with different extents.
-  static int getMatchedLeafPosWithoutReplayPasC(
+  static int64_t getMatchedLeafPosWithoutReplayPasC(
       const TensorView* producer,
       const TensorView* consumer,
-      int consumer_pos,
+      int64_t consumer_pos,
       bool skip_resize = false);
 
   // Returns the leaf position in consumer that matches with `producer_pos` in
@@ -200,10 +200,10 @@ class TORCH_CUDA_CU_API TransformReplay {
   // by TransformPropagator, whereas it isn't when used for
   // determining the inlining position by MaxPosCalculator as inlining
   // isn't allowed with different extents.
-  static int getMatchedLeafPosWithoutReplayCasP(
+  static int64_t getMatchedLeafPosWithoutReplayCasP(
       const TensorView* consumer,
       const TensorView* producer,
-      int producer_pos,
+      int64_t producer_pos,
       bool skip_resize = false);
 
   // tests if two tensors has fully matching transformations
@@ -215,7 +215,7 @@ class TORCH_CUDA_CU_API TransformReplay {
 class TORCH_CUDA_CU_API TransformPropagator
     : public MaxRootDomainInfoSpanningTree::Propagator {
  protected:
-  std::unordered_map<TensorView*, size_t> replayed_pos_;
+  std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
  public:
   virtual void propagateC2P(TensorView* from, TensorView* to) override;

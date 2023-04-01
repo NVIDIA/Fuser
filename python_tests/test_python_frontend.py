@@ -9,7 +9,7 @@ import math
 import re
 from typing import List
 import unittest
-from itertools import permutations
+import itertools
 
 import torch
 import torch.nn.functional as F
@@ -24,6 +24,7 @@ try:
         FusionCache,
         FusionDefinition,
         DataType,
+        Tensor,
         version,
         compute_contiguity,
     )
@@ -44,7 +45,6 @@ def is_pre_volta():
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(TestCase):
-
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
@@ -1331,7 +1331,7 @@ class TestNvFuserFrontend(TestCase):
 
         assert len(nvf_out) == len(torch_out)
 
-        for (n, t) in zip(nvf_out, torch_out):
+        for n, t in zip(nvf_out, torch_out):
             self.assertEqual(n, t)
 
     def test_all_dim_var_mean(self):
@@ -1441,7 +1441,7 @@ class TestNvFuserFrontend(TestCase):
         ]
         eager_out = inputs[0] + 3.0
 
-        for perm in permutations(range(4), 4):
+        for perm in itertools.permutations(range(4), 4):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
@@ -1643,6 +1643,44 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
+    def test_nextafter(self):
+        inputs = [
+            # torch.nextafter is only defined for float{32,64} tensor inputs
+            torch.testing.make_tensor(4, device="cuda", dtype=torch.float32),
+            torch.testing.make_tensor(4, device="cuda", dtype=torch.float64),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            s0 = fd.define_constant(1.0, dtype=DataType.Float)
+            s1 = fd.define_constant(-1.0, dtype=DataType.Double)
+
+            for a, b in itertools.product(
+                [t0, t1, s0, s1],
+                [t0, t1, s0, s1],
+            ):
+                # always enter the fusion...
+                t = fd.ops.nextafter(a, b)
+                if isinstance(t, Tensor):
+                    # ...but skip outputting scalars, which we don't support
+                    fd.add_output(t)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        ab = [inputs[0], inputs[1], 1.0, -1.0]
+        i = 0
+        for a, b in itertools.product(ab, ab):
+            if not (isinstance(a, torch.Tensor) or isinstance(b, torch.Tensor)):
+                continue
+            n = nvf_out[i]
+            i += 1
+            torch_out = torch.nextafter(
+                torch.as_tensor(a, device="cuda"), torch.as_tensor(b, device="cuda")
+            )
+            self.assertEqual(n, torch_out)
+
     def test_nanogpt_mha_dpa(self):
         inputs = [
             torch.randn(16, 16, 128, 128, device="cuda"),
@@ -1831,7 +1869,7 @@ class TestNvFuserFrontend(TestCase):
         def check_start_indices(fd: FusionDefinition, acts) -> None:
             T0 = fd.from_pytorch(acts[0])
             T1 = fd.ops.slice(
-                T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[1, 1]
+                T0, start_indices=[-1, -2], end_indices=[5, 5], strides=[7, 7]
             )
             fd.add_output(T1)
 
@@ -1877,6 +1915,11 @@ class TestNvFuserFrontend(TestCase):
             )
             fd.add_output(T1)
 
+        def check_nostrides(fd: FusionDefinition, acts) -> None:
+            T0 = fd.from_pytorch(acts[0])
+            T1 = fd.ops.slice(T0, start_indices=[2, 2], end_indices=[4, 4])
+            fd.add_output(T1)
+
         # TODO: Currently, this check fails to produce a zero-element tensor whne the tensor
         # is smaller than the index range of the slize.  Therefore, it is disabled.
         # Issue: https://github.com/NVIDIA/Fuser/issues/52
@@ -1906,7 +1949,7 @@ class TestNvFuserFrontend(TestCase):
             ),
             (
                 check_slice_dims_start,
-                "Number of tensor dimensions does not match slice dimensions! .*",
+                "Slice start_indices and strides don't match! .*",
             ),
             (
                 check_slice_dims_end,
@@ -1914,22 +1957,28 @@ class TestNvFuserFrontend(TestCase):
             ),
             (
                 check_slice_dims_stride,
-                "Slice indexing attribute dimensions don't match! .*",
+                "Slice start_indices and strides don't match! .*",
             ),
+            (check_nostrides, None),
             # (legal, None),
         ]
 
+        first_check = True
         for inp in inputs:
             for check, error in checks:
                 if error is None:
-                    out = self.exec_nvfuser(partial(check, acts=inp), inp)
+                    # First check is here on legel fusions since the second time
+                    # through they should already be cached
+                    out = self.exec_nvfuser(partial(check, acts=inp), inp, first_check)
                 else:
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
-                        partial(self.exec_nvfuser, partial(check, acts=inp)),
+                        self.exec_nvfuser,
+                        partial(check, acts=inp),
                         inp,
                     )
+            first_check = False
 
 
 if __name__ == "__main__":

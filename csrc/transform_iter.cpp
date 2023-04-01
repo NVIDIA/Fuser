@@ -654,16 +654,16 @@ int BestEffortReplay::findFirstMismatchedID(
   BestEffortReplay ber(td2->domain(), td1->domain(), id_map);
   for (const auto i :
        c10::irange(std::max(td1->domain().size(), td2->domain().size()))) {
-    if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
-      return i;
+    if (ber.getReplay().find(td1->axis((int)i)) == ber.getReplay().end()) {
+      return (int)i;
     }
     // Order is important.
-    auto td2_axis = ber.getReplay().at(td1->axis(i));
-    if (td2->axis(i) != td2_axis) {
-      return i;
+    auto td2_axis = ber.getReplay().at(td1->axis((int)i));
+    if (td2->axis((int)i) != td2_axis) {
+      return (int)i;
     }
   }
-  return std::min(td1->nDims(), td2->nDims());
+  return (int)std::min(td1->nDims(), td2->nDims());
 }
 
 namespace {
@@ -915,7 +915,7 @@ void BestEffortReplay::addComplimentLeafIDs(
       // If we used the comliment for forwarded don't add to leaf nodes.
       if (std::find(compliments.begin(), compliments.end(), out) ==
           compliments.end()) {
-        leaf_ids.emplace(std::make_pair(out, counter++));
+        leaf_ids.emplace(out, counter++);
       }
     }
   }
@@ -1131,7 +1131,8 @@ void BestEffortReplay::skipResizes() {
 
 DisjointSets<IterDomain*> BestEffortReplay::getIterDomainEquivalence() {
   DisjointSets<IterDomain*> result;
-  const std::unordered_map<IterDomain*, IterDomain*>* maps[3] = {
+  using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
+  const std::array<IterDomainMap*, 3> maps = {
       &target2replay_id_map_, &replay_forward_id_map_, &target_forward_id_map_};
   for (auto map : maps) {
     // Sort the keys so that they appear in a deterministic order
