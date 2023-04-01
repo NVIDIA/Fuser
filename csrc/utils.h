@@ -12,6 +12,7 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
+#include <deque>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -372,6 +373,13 @@ std::string toDelimitedString(
     const std::vector<Printable>& vec,
     std::string delim = ", ") {
   return toDelimitedString(vec.begin(), vec.end(), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
+    const std::deque<Printable>& dq,
+    std::string delim = ", ") {
+  return toDelimitedString(dq.begin(), dq.end(), delim);
 }
 
 template <int64_t index, int64_t stop, int64_t step, typename func_t>
