@@ -218,14 +218,14 @@ static inline DataType ComputeIndexType(
       if (c.addDim(size, stride) == KernelIndexMode::INT64) {
         return KernelIndexMode::INT64;
       }
-      stride *= std::max(1, size);
+      stride *= std::max(static_cast<int64_t>(1), size);
     }
 
     return KernelIndexMode::INT32;
   };
 
   for (auto output : fusion->outputs()) {
-    if (!input->isA<TensorView>()) { // only output tensors, so pointless?
+    if (!output->isA<TensorView>()) { // only output tensors, so pointless?
       continue;
     }
     if (get_index_type(output->as<TensorView>()) == KernelIndexMode::INT64) {

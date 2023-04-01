@@ -273,7 +273,6 @@ bool supportInlinePredicate(Expr* expr);
 //! Test if an expression is a scalar expression.
 bool isScalarExpr(Expr* expr);
 
-
 // Computes the index mode required.
 // Made into a class w/ state to allow reuse with
 // different tensors and without needing to pass an allocated
