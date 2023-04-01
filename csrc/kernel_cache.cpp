@@ -453,7 +453,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 
 // passing args by value, since we will be modify this
 void FusionKernelRuntime::startAsyncCompile(
-    const KernelArgumentHolder& input_args) {
+    const KernelArgumentHolder& args_old) {
   // only single compilation is supported at this moment.
   std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
   TORCH_CHECK(
@@ -476,7 +476,7 @@ void FusionKernelRuntime::startAsyncCompile(
   // copy-constructible. Adding a std::unique_lock to the lambda's capture list
   // prevents it from being copyable. The std::unique_lock can be moved, but it
   // cannot be copied. Thus, we need the second mutex.
-  auto compile_fusion = [args = input_args, this]() mutable {
+  auto compile_fusion = [args = args_old, this]() mutable {
     std::lock_guard<std::mutex> guard(compiling_);
 
     // locking mutex_ since we are touching executors_ during compilation.
