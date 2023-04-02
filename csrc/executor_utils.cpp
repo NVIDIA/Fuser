@@ -1414,6 +1414,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
+  // TODO: Do we still need this? PyTorch requires CUDA 11 or later.
 #if CUDA_VERSION < 11010
   // compile to sass is not allowed prior to CUDA 11.1
   compile_to_sass = false;
