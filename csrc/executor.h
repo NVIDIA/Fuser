@@ -343,7 +343,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
   int64_t block_size_high_water_mark = 1;
-  int maxrregcount_high_water_mark = 255;
+  int64_t maxrregcount_high_water_mark = 255;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.

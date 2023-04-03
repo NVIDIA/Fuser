@@ -995,15 +995,15 @@ void dumpCompiledCodeToFile(
 // Get the max register count passed as -maxrregcount ptxas
 // option. The count is determined based on block sizes, an optional
 // heuristic and an environment variable.
-c10::optional<int> getMaxRegCount(
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic) {
+c10::optional<int64_t> getMaxRegCount(
+    c10::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic) {
   // The maximum possible count allowed by ptxas is 255
-  constexpr int max_register_limit = 255;
+  constexpr int64_t max_register_limit = 255;
 
   // Temporary set the max register count to be larger than the
   // limit.
-  int max_register = max_register_limit + 1;
+  int64_t max_register = max_register_limit + 1;
 
   // If the block size is known, set the maximum that at least allows
   // one block to be resident on an SM
@@ -1026,8 +1026,9 @@ c10::optional<int> getMaxRegCount(
     // clamp down to register allocation granularity at warp level
     int effective_max_reg_per_warp = max_reg_per_warp /
         reg_allocation_granularity * reg_allocation_granularity;
-    max_register =
-        std::min(max_register_limit, effective_max_reg_per_warp / warp_size);
+    max_register = std::min(
+        max_register_limit,
+        static_cast<int64_t>(effective_max_reg_per_warp / warp_size));
   }
 
   // If a heuristic value is given, i.e., max_register_heuristic is
@@ -1051,7 +1052,7 @@ c10::optional<int> getMaxRegCount(
   if (max_register <= max_register_limit) {
     return max_register;
   } else {
-    return c10::optional<int>();
+    return c10::optional<int64_t>();
   }
 }
 
@@ -1062,8 +1063,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> nvrtcCompile(
     const std::string& code,
     const std::string& func_name,
     int id,
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic,
+    c10::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
   if (isOptionDisabled(DisableOption::ArchCheck)) {

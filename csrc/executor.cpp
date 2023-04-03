@@ -334,7 +334,7 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: pass block_size here;
-  c10::optional<int> block_size = c10::nullopt;
+  c10::optional<int64_t> block_size = c10::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
     auto launch_params =
