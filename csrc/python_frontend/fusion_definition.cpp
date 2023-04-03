@@ -236,7 +236,7 @@ std::string FusionDefinition::cudaCodeFor(
         inputs.size() == 0 || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id =
-        fusionCache()->queryUserScheduleId(scheds, inputs, device);
+        fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
@@ -284,7 +284,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
         inputs.size() == 0 || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id =
-        fusionCache()->queryUserScheduleId(scheds, inputs, device);
+        fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
