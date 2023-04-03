@@ -62,7 +62,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 //! The shared mem datalayout is always 2D currently, and this utility
 //!  function assumes that the innermost 2 dimensions on shared_mem_tv
 //!  are the ones begin swizzled.
-void prologSwizzle(TensorView* shared_mem_tv, const MatmulParam& params) {
+void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
 
@@ -85,14 +85,12 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParam& params) {
   check_concrete_static_dim(shared_mem_tv->axis(-2));
   check_concrete_static_dim(shared_mem_tv->axis(-1));
 
-  auto mma_config = params.mma_builder.build();
-
   // Extract the constant sizes of the swizzled tile
   const auto tile_size_x = shared_mem_tv->axis(-2)->extent()->evaluateInt();
   const auto tile_size_y = shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
   // TODO: add support for tf32(different macro) and fp32(ffma)
-  if (isTuring(mma_config.macro) || isAmpere(mma_config.macro)) {
+  if (isTuring(params.mma_op) || isAmpere(params.mma_op)) {
     // Dimension of each inner unit of swizzled indices.
     // Turing and Ampere case, ldmatrix access assumed (see TODO above)
     // Each ldmatrix access is 8x8
@@ -221,7 +219,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParam& params) {
     shared_mem_tv->merge(-5);
     shared_mem_tv->merge(-3);
     shared_mem_tv->merge(-2);
-  } else if (isVolta(mma_config.macro)) {
+  } else if (isVolta(params.mma_op)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma
     //  macro layout themselves as we already have them registered in
@@ -237,7 +235,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParam& params) {
 //!
 //! 1. Swizzled the shared mem data layout.
 //! 2. Coalesce and vectorize the read write schedule.
-void scheduleProlog(TensorView* shared_mem_tv, const MatmulParam& params) {
+void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   // Swizzle the shared memory data layout
   prologSwizzle(shared_mem_tv, params);
 
