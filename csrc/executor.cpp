@@ -472,7 +472,9 @@ at::Tensor inferAndAlloc(
     }
   }
 
-  const auto at_type = (tv->dtype() == DataType::Index) ? data_type_to_aten(index_dtype) : data_type_to_aten(tv->dtype());
+  const auto at_type = (tv->dtype() == DataType::Index)
+      ? data_type_to_aten(index_dtype)
+      : data_type_to_aten(tv->dtype());
   const auto tensor_options =
       at::TensorOptions().dtype(at_type).device(options.device);
   c10::IntArrayRef isizes(inferred_sizes);
@@ -520,7 +522,8 @@ at::Tensor inferAndAllocOutput(
       expand_map[(int)sizes.size() - 1] = id->expandedExtent();
     }
   }
-  return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init, index_dtype);
+  return inferAndAlloc(
+      tv, sizes, expr_eval, expand_map, options, zero_init, index_dtype);
 }
 
 } // namespace
@@ -861,7 +864,8 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
       } else {
         // TODO: we are using meta here, which is bad since it doesn't account
         // for devices. Switch to fake tensor instead
-        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false, index_dtype));
+        ret.push(inferAndAllocOutput(
+            output, expr_eval, meta_options, false, index_dtype));
       }
     }
   }

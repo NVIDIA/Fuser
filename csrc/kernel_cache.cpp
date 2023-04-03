@@ -501,21 +501,17 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
     sg_inputs.push_back(std::move(group_runtime_inputs));
   }
 
-  auto compile_fusion =
-      [this](const KernelArgumentHolder& input_args, SegmentedGroup* sg) {
-        FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-        c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
-        compileKernel(input_args, sg);
-      };
-
   // std::cout << "kernels\t" << sg_inputs.size() << std::endl;
 
   for (auto pos : c10::irange(runtime_workspace_.group_run_order.size())) {
-    auto group_to_run = runtime_workspace_.group_run_order.at(pos);
-    auto group_runtime_inputs = sg_inputs.at(pos);
-    auto fn = std::bind(compile_fusion, group_runtime_inputs, group_to_run);
-    getThreadPool()->run(fn);
+    auto input_args = sg_inputs.at(pos);
+    auto sg = runtime_workspace_.group_run_order.at(pos);
+    getThreadPool()->run([=]() {
+      FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
+      c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
+      c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
+      compileKernel(input_args, sg);
+    });
   }
 
   getThreadPool()->waitWorkComplete();
