@@ -541,7 +541,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
           lhs_i = (int)pos;
         } else {
           reference_tv->merge((int)pos, lhs_i);
-          lhs_i = pos;
+          lhs_i = (int)pos;
           if (rhs_i > lhs_i) {
             rhs_i--;
           }
@@ -552,7 +552,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
           rhs_i = (int)pos;
         } else {
           reference_tv->merge((int)pos, rhs_i);
-          rhs_i = pos;
+          rhs_i = (int)pos;
           if (lhs_i > rhs_i) {
             lhs_i--;
           }
