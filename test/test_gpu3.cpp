@@ -8129,23 +8129,21 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
-  // // check thread_pred and write_stride
-  // const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
-  // auto kernel = fe.kernel();
-  // const auto& thread_pred_map = fe.threadPredMap();
-  // for (const auto expr : kernel->exprs()) {
-  //   auto tv = ir_utils::getTvOutput(expr);
-  //   if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global)
-  //   {
-  //     const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
-  //     bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx);
-  //     bool has_stride = thread_pred.write_stride.count(ParallelType::BIDx);
-  //     TORCH_CHECK(
-  //         predicted && has_stride,
-  //         "Tv15 should be predicted by ParallelType::BIDx with a write
-  //         stride!");
-  //   }
-  // }
+  // check thread_pred and write_stride
+  const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx);
+      bool has_stride = thread_pred.write_stride_mod.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted && has_stride,
+          "Tv15 should be predicted by ParallelType::BIDx with a write stride!");
+    }
+  }
 
   auto ref_1 = t0.unsqueeze(1).unsqueeze(1) + 1.0;
   auto ref_2 = at::_softmax(ref_1 + t1, -1, false);
@@ -8153,108 +8151,157 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
       fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionAvoidRedundantWriteIBBI_CUDA) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
+  auto runTest = [](const std::vector<bool>& is_broadcast) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape0({2, 2048});
-  std::vector<int64_t> shape1({2, 64, 128, 2048});
+    std::vector<int64_t> shape0;
+    std::vector<int64_t> shape1({2, 64, 128, 2048});
 
-  auto tv0 = makeSymbolicTensor(2);
-  auto tv1 = makeSymbolicTensor(4);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+    for (int i = 0; i < shape1.size(); i++) {
+      if (!is_broadcast[i]) {
+        shape0.push_back(shape1[i]);
+      }
+    }
 
-  // broadcast to {2, b, b, 16}
-  auto tvb = broadcast(tv0, {false, true, true, false});
-  auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = sum(tv3, {-1});
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv4);
+    auto tv0 = makeSymbolicTensor(shape0.size());
+    auto tv1 = makeSymbolicTensor(4);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn(shape0, options);
-  at::Tensor t1 = at::randn(shape1, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
+    auto tvb = broadcast(tv0, is_broadcast);
+    auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
+    auto tv3 = add(tv1, tv2);
+    auto tv4 = sum(tv3, {-1});
+    fusion.addOutput(tv2);
+    fusion.addOutput(tv4);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn(shape0, options);
+    at::Tensor t1 = at::randn(shape1, options);
+    std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto ref_1 = t0.unsqueeze(1).unsqueeze(1) + 1.0;
-  auto ref_2 = (ref_1 + t1).sum({-1});
-  testValidate(
-      fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
-}
-TEST_F(NVFuserTest, FusionAvoidRedundantWriteBIII_CUDA) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(inputs);
 
-  std::vector<int64_t> shape0({64, 128, 2048});
-  std::vector<int64_t> shape1({2, 64, 128, 2048});
+    // check thread_pred and write_stride
+    const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
+    auto kernel = fe.kernel();
+    const auto& thread_pred_map = fe.threadPredMap();
 
-  auto tv0 = makeSymbolicTensor(3);
-  auto tv1 = makeSymbolicTensor(4);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+    int first_broadcast_dim = shape1.size(), last_iter_dim = -1;
+    int first_iter_dim = shape1.size(), last_broadcast_dim = -1;
+    // last dim is not merged
+    for (int i = 0; i < shape1.size() - 1; i++) {
+      if (is_broadcast[i]) {
+        first_broadcast_dim = std::min(first_broadcast_dim, i);
+        last_broadcast_dim = std::max(last_broadcast_dim, i);
+      } else {
+        first_iter_dim = std::min(first_iter_dim, i);
+        last_iter_dim = std::max(last_iter_dim, i);
+      }
+    }
+    // if there is a broadcast before iter domain, e.g. [B,I] we expect a
+    // stride_less, except [I,B,I] where only stride_mod is expected
+    bool expect_stride_less =
+        first_broadcast_dim == 0 && first_broadcast_dim < last_iter_dim ? true
+                                                                        : false;
+    // if there is a iter before broadcast domain, e.g. [I,B] we expect a
+    // stride_mod
+    bool expect_stride_mod = first_iter_dim < last_broadcast_dim ? true : false;
+    // if there is no iter domain, e.g. [B,B] we expect a stride_less (only
+    // the first block writes)
+    if (last_iter_dim == -1) {
+      expect_stride_less = true;
+    }
+    for (const auto expr : kernel->exprs()) {
+      auto tv = ir_utils::getTvOutput(expr);
+      if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
+        const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx);
+        bool has_stride_less =
+            thread_pred.write_stride_less.count(ParallelType::BIDx);
+        bool has_stride_mod =
+            thread_pred.write_stride_mod.count(ParallelType::BIDx);
+        if (has_stride_mod) {
+          // don't cout x % 1 as a valid write_stride_mod
+          Val* val =
+              std::get<0>(thread_pred.write_stride_mod.at(ParallelType::BIDx));
+          if (val->isConstScalar()) {
+            auto const_val = (dynamic_cast<Int*>(val))->value();
+            if (const_val.value() == 1) {
+              has_stride_mod = false;
+            }
+          }
+        }
 
-  auto tvb = broadcast(tv0, {true, false, false, false});
-  auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = sum(tv3, {-1});
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv4);
+        TORCH_CHECK(predicted, "Tv8 should be predicted by ParallelType::BIDx");
+        TORCH_CHECK(
+            expect_stride_mod == has_stride_mod,
+            expect_stride_mod ? "write_stride_mod is expected"
+                              : "write_stride_mod is not expected");
+        TORCH_CHECK(
+            expect_stride_less == has_stride_less,
+            expect_stride_less ? "write_stride_less is expected"
+                               : "write_stride_less is not expected");
+      }
+    }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn(shape0, options);
-  at::Tensor t1 = at::randn(shape1, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
+    at::Tensor tb = t0;
+    for (int i = 0; i < shape1.size(); i++) {
+      if (is_broadcast[i]) {
+        tb = tb.unsqueeze(i);
+      }
+    }
+    auto ref_1 = tb + 1.0;
+    auto ref_2 = (ref_1 + t1).sum({-1});
+    testValidate(
+        fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+  };
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  // Test case where [B1,I2,I3] is merged to [B1I2I3] and paralled by blockIdx.x
+  // The write pattern should be: write only the first len(I2)*len(I3) blocks,
+  // where len(I) is the extent of the concretized domain.
+  // write_stride_less= ( ( 1 * T0.size[1] ) * T0.size[0] )
+  // condition = blockIdx.x < ( ( 1 * T0.size[1] ) * T0.size[0] )
+  runTest({true, false, false, false});
 
-  auto ref_1 = t0.unsqueeze(0) + 1.0;
-  auto ref_2 = (ref_1 + t1).sum({-1});
-  testValidate(
-      fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
-}
-TEST_F(NVFuserTest, FusionAvoidRedundantWriteBIBI_CUDA) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  // Test case where [I1,B2,I3] is merged to [I1B2I3] and paralled by blockIdx.x
+  // The write pattern should be: len(I3) blocks write, in every len(B2)*len(I3)
+  // blocks, write_stride_mod= {len(B2)*len(I3), len(I3)} condition = blockIdx.x
+  // % (len(B2)*len(I3)) < len(I3)
+  runTest({false, true, false, false});
 
-  std::vector<int64_t> shape0({64, 2048});
-  std::vector<int64_t> shape1({2, 64, 128, 2048});
+  // Test case where [I1,I2,B3] is merged to [I1I2B3] and paralled by blockIdx.x
+  // The write pattern should be: write every len(B3) blocks,
+  // where len(B) is the extent of the domain.
+  // write_stride_mod= ( 1 * T1.size[2] )
+  runTest({false, false, true, false});
 
-  auto tv0 = makeSymbolicTensor(2);
-  auto tv1 = makeSymbolicTensor(4);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+  // Test case where [I1,B2,B3] is merged to [I1B2B3] and paralled by blockIdx.x
+  // The write pattern should be: write every len(B2)*len(B3) blocks,
+  // where len(B) is the extent of the concretized domain.
+  // write_stride_mod= ( ( 1 * T1.size[2] ) * T1.size[1] )
+  runTest({false, true, true, false});
 
-  auto tvb = broadcast(tv0, {true, false, true, false});
-  auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = sum(tv3, {-1});
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv4);
+  // Test case where [B1,I2,B3] is merged to [B1I2B3] and paralled by blockIdx.x
+  // The write pattern should be: write every len(B3) blocks of the first
+  // len(I2) * len(B3) blocks write_stride_less= ( ( 1 * T1.size[2] ) *
+  // T0.size[0] ) write_stride_mod= ( 1 * T1.size[2] )
+  runTest({true, false, true, false});
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn(shape0, options);
-  at::Tensor t1 = at::randn(shape1, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
+  // Test case where [B1,B2,I3] is merged to [B1B2I3] and paralled by blockIdx.x
+  // The write pattern should be: write only the first len(I3) blocks
+  // write_stride_less= ( 1 * T0.size[0] )
+  runTest({true, true, false, false});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
-
-  auto ref_1 = t0.unsqueeze(0).unsqueeze(2) + 1.0;
-  auto ref_2 = (ref_1 + t1).sum({-1});
-  testValidate(
-      fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+  // Test case where [B1,B2,B3] is merged to [B1B2B3] and paralled by blockIdx.x
+  // The write pattern should be: write only the first block
+  // write_stride_less= 1 (write when blockIDx.x < 1)
+  runTest({true, true, true, false});
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

@@ -50,9 +50,22 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     ParallelTypeBitmap limited_types;
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
-    // Map stores parallel types where a fraction of thread/block is enough
-    std::unordered_map<ParallelType, Val*> write_stride_mod;
-    std::unordered_map<ParallelType, Val*> write_stride_div;
+
+    // when a leaf domain is merged from concretized broadcast root domain, only
+    // part of thread/block do the write to gmem is enough e.g. [B1,I2,B3] is
+    // merged to [B1*I2*B3] and parallelized by blockIdx.x. The write pattern
+    // should be: write every len(B3) blocks of the first len(I2) * len(B3)
+    // blocks. write_stride_less= ( ( 1 * T1.size[2] ) * T0.size[0] ).
+    // write_stride_mod= ( 1 * T1.size[2] ).
+    // generated condition is: blockIdx.x < write_stride_less && blockIdx.x %
+    // write_stride_mod < 1
+    // Another example, [I1, B2, I3] merged to [I1*B2*I3], the condition is:
+    // blockIdx.x % (len(B2)*len(I3)) < len(I3).
+    // write_stride_mod will generate condition: index % pair(1) < pair(2)
+    std::unordered_map<ParallelType, std::pair<Val*, Val*>> write_stride_mod;
+    // write_stride_less will generate condition: index < write_stride_less
+    std::unordered_map<ParallelType, Val*> write_stride_less;
+
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]
     //  a parallel type is a `redundant_consumer_type` only
@@ -121,7 +134,7 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
  private:
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
-  void removeRedundantWrite(const TensorView* out_tv);
+  void avoidConcretizedBroadcastRedundantWrite(const TensorView* out_tv);
   const_iterator find(const TensorView* tv) const;
   const_iterator end() const;
 
