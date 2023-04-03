@@ -959,7 +959,6 @@ ExpressionEvaluator bindInputs(
   const auto& inputs = kernel->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
-    std::cerr << "Binding input: " << inputs[i]->toString() << std::endl;
     bindInputForExprEvaluation(
         inputs[i], args[i], check_consistency, expr_eval);
   }
@@ -968,22 +967,34 @@ ExpressionEvaluator bindInputs(
 
 namespace {
 
-// Dump PTX or CUBIN to a file
-std::vector<char> dumpCompiledCode(
-    const nvrtcProgram& program,
-    bool dump_cubin) {
+// Get the size of the program code in nvrtcProgram, which is either PTX or SASS
+size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 #if CUDA_VERSION >= 11010
-  const auto getSize = dump_cubin ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
-  const auto getCode = dump_cubin ? nvrtcGetCUBIN : nvrtcGetPTX;
+  const auto getSize = compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
 #else
   TORCH_INTERNAL_ASSERT(
-      !dump_cubin, "CUBIN not supported in CUDA versions older than 11.0");
+      !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
   const auto getSize = nvrtcGetPTXSize;
+#endif
+  size_t size = 0;
+  NVRTC_SAFE_CALL(getSize(program, &size));
+  return size;
+}
+
+// Get the program code from nvrtcProgram
+std::vector<char> nvrtcGetCode(
+    const nvrtcProgram& program,
+    bool compile_to_sass) {
+  const auto size = nvrtcGetSize(program, compile_to_sass);
+
+#if CUDA_VERSION >= 11010
+  const auto getCode = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
+#else
+  TORCH_INTERNAL_ASSERT(
+      !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
   const auto getCode = nvrtcGetPTX;
 #endif
 
-  size_t size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &size));
   std::vector<char> code(size);
   NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
@@ -1066,8 +1077,9 @@ c10::optional<int> getMaxRegCount(
   }
 }
 
-//! Utility class to invoke nvrtcCompileProgram
-class NvrtcCompileProgram {
+//! Utility class to invoke nvrtcCompileProgram. Mainly for setting up
+//! the c-str options.
+class NvrtcCompileDriver {
  public:
   void setOption(const std::string& opt) {
     options_.push_back(opt);
@@ -1115,8 +1127,10 @@ class NvrtcCompileProgram {
   std::vector<std::string> options_;
 };
 
-//! Utility class to invoke cuModuleLoadDataEx
-class ModuleLoadData {
+//! Utility class to invoke cuModuleLoadDataEx. Similar to
+//! NvrtcCompileDriver, the main task is to set up the option lists
+//! of type void**
+class CuModuleLoadDataDriver {
  public:
   //! Valid option type is either int or char*
   using OptionType = std::variant<int, char*>;
@@ -1127,6 +1141,7 @@ class ModuleLoadData {
     option_vals_.push_back(val);
   }
 
+  //! Enable logging of cuModuleLoadData
   void enableLogging() {
     logging_enabled_ = true;
     log_.reserve(kLogSize);
@@ -1137,7 +1152,8 @@ class ModuleLoadData {
     return log_;
   }
 
-  // load ptx or cubin directly
+  //! Invoke cuModuleLoadDataEx with ptx or cubin. Dump logging output
+  //! if enabled
   std::string invoke(CUmodule& module, const void* image) {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
 
@@ -1171,6 +1187,10 @@ class ModuleLoadData {
       opt_vals.emplace_back(kLogSize);
     }
 
+    // Convert the options to void**. This is ugly, but that's how
+    // cuModuleLoadDataEx works. See initCUDA in the
+    // matrixMulDynlinkJIT sample
+    // https://github.com/NVIDIA/cuda-samples/blob/master/Samples/0_Introduction/matrixMulDynlinkJIT/matrixMulDynlinkJIT.cpp#L169-L204.
     std::vector<void*> opt_val_voidp(opt_vals.size());
     for (const auto i : c10::irange(opt_vals.size())) {
       auto opt_val = opt_vals.at(i);
@@ -1200,14 +1220,14 @@ class ModuleLoadData {
 
 // Fill options for nvrtcCompileProgram and cuModuleLoadDataEx
 void fillCompileOptions(
-    NvrtcCompileProgram& nvrtc_compile,
-    ModuleLoadData& module_load,
+    NvrtcCompileDriver& nvrtc_compile_driver,
+    CuModuleLoadDataDriver& module_load_driver,
     bool compile_to_sass,
     int major,
     int minor,
     c10::optional<int> opt_block_size,
     const int max_register_heuristic) {
-  nvrtc_compile.setOption("--std=c++17");
+  nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
@@ -1219,19 +1239,19 @@ void fillCompileOptions(
   const std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
-  nvrtc_compile.setOption(compute);
+  nvrtc_compile_driver.setOption(compute);
 
-  nvrtc_compile.setOption("-default-device");
+  nvrtc_compile_driver.setOption("-default-device");
 
   if (isOptionDisabled(DisableOption::Fma)) {
-    nvrtc_compile.setOption("--fmad=false");
+    nvrtc_compile_driver.setOption("--fmad=false");
   } else {
-    nvrtc_compile.setOption("--fmad=true");
+    nvrtc_compile_driver.setOption("--fmad=true");
   }
 
   // Add line info to generated kernels
   if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
-    nvrtc_compile.setOption("-lineinfo");
+    nvrtc_compile_driver.setOption("-lineinfo");
   }
 
 #ifdef NDEBUG
@@ -1240,7 +1260,7 @@ void fillCompileOptions(
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
+    nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
@@ -1248,10 +1268,10 @@ void fillCompileOptions(
       isOptionEnabled(EnableOption::WarnRegisterSpill)) {
     // show register usage in compilation log
     if (compile_to_sass) {
-      nvrtc_compile.setOption("--ptxas-options");
-      nvrtc_compile.setOption("--verbose");
+      nvrtc_compile_driver.setOption("--ptxas-options");
+      nvrtc_compile_driver.setOption("--verbose");
     } else {
-      module_load.enableLogging();
+      module_load_driver.enableLogging();
     }
   }
 
@@ -1267,10 +1287,10 @@ void fillCompileOptions(
             ", which could negatively affect performance. Try removing env variable PYTORCH_NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
-        nvrtc_compile.setOption("--ptxas-options");
-        nvrtc_compile.setOption("-O" + std::to_string(val));
+        nvrtc_compile_driver.setOption("--ptxas-options");
+        nvrtc_compile_driver.setOption("-O" + std::to_string(val));
       } else {
-        module_load.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
+        module_load_driver.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
       }
     } else {
       TORCH_WARN_ONCE(
@@ -1286,14 +1306,15 @@ void fillCompileOptions(
   // If the max register count is set
   if (max_register.has_value()) {
     if (compile_to_sass) {
-      nvrtc_compile.setOption(
+      nvrtc_compile_driver.setOption(
           "--maxrregcount=" + std::to_string(*max_register));
     } else {
-      module_load.setOption(CU_JIT_MAX_REGISTERS, *max_register);
+      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, *max_register);
     }
   }
 }
 
+// Dump ptxas output if register spill is detected
 void warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
     auto it_end =
@@ -1325,7 +1346,8 @@ void warnRegisterSpill(const std::string& compile_log) {
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    std::cout << compile_log << std::endl;
+    std::cout << "WARNING: Register spill detected\n"
+              << compile_log << std::endl;
   }
 }
 
@@ -1341,25 +1363,14 @@ void createNvrtcProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
-std::vector<char> extractObjectCode(
-    nvrtcProgram program,
-    bool compile_to_sass) {
-  FUSER_PERF_SCOPE("executor_utils::Nvrtc::GetObjectCode");
-  const auto getSize = compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
-  const auto getFunc = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
-  size_t object_code_size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &object_code_size));
-  std::vector<char> object_code(object_code_size);
-  NVRTC_SAFE_CALL(getFunc(program, object_code.data()));
-  return object_code;
-}
-
-std::tuple<std::vector<char>, std::string, std::vector<char>> getObjectCode(
+// Compile the given source code with the NVRTC compiler
+// driver. Return the binary of the kernel and its lowered name
+std::tuple<std::vector<char>, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int id,
     bool compile_to_sass,
-    NvrtcCompileProgram& nvrtc_compile) {
+    NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
 
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
@@ -1378,20 +1389,19 @@ std::tuple<std::vector<char>, std::string, std::vector<char>> getObjectCode(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
-  auto object_code = extractObjectCode(program, compile_to_sass);
-
-  auto binary = dumpCompiledCode(program, compile_to_sass);
+  auto object_code = nvrtcGetCode(program, compile_to_sass);
 
   if (isDebugDumpEnabled(DebugDumpOption::Ptx) ||
       isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-    dumpCompiledCodeToFile(binary, id, compile_to_sass);
+    dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, lowered_kernel_name_str, binary};
+  return {object_code, lowered_kernel_name_str};
 }
 
 } // namespace
 
+// Compile the source if no existing compiled binary is found in KernelDB
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
@@ -1414,7 +1424,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
-  // TODO: Do we still need this? PyTorch requires CUDA 11 or later.
 #if CUDA_VERSION < 11010
   // compile to sass is not allowed prior to CUDA 11.1
   compile_to_sass = false;
@@ -1427,12 +1436,12 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     compile_to_sass = false;
   }
 
-  NvrtcCompileProgram nvrtc_compile;
-  ModuleLoadData module_load;
+  NvrtcCompileDriver nvrtc_comiple_driver;
+  CuModuleLoadDataDriver module_load_driver;
 
   fillCompileOptions(
-      nvrtc_compile,
-      module_load,
+      nvrtc_comiple_driver,
+      module_load_driver,
       compile_to_sass,
       major,
       minor,
@@ -1443,7 +1452,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
 
   if (compile_to_sass) {
     log << "\nCompile options: ";
-    for (const auto& opt : nvrtc_compile.options()) {
+    for (const auto& opt : nvrtc_comiple_driver.options()) {
       log << opt << " ";
     }
     if (opt_block_size.has_value()) {
@@ -1454,9 +1463,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<char> object_code;
   std::string lowered_kernel_name_str;
-  const auto compile_args = toDelimitedString(nvrtc_compile.options(), " ");
-
-  std::vector<char> binary;
+  const auto compile_args =
+      toDelimitedString(nvrtc_comiple_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
@@ -1468,8 +1476,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             compile_args,
             lowered_kernel_name_str,
             object_code))) {
-    std::tie(object_code, lowered_kernel_name_str, binary) = getObjectCode(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_compile);
+    std::tie(object_code, lowered_kernel_name_str) = compileSource(
+        full_src_code, func_name, id, compile_to_sass, nvrtc_comiple_driver);
 
     if (use_kernel_db) {
       auto result = kernel_db.write(
@@ -1486,7 +1494,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
 
   NvrtcFunction compiled_kernel;
 
-  log << module_load.invoke(compiled_kernel.module, object_code.data())
+  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
       << std::endl;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
@@ -1499,14 +1507,14 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       lowered_kernel_name_str.c_str()));
 
   if (!return_compiled_binary) {
-    binary.clear();
+    object_code.clear();
   }
 
   TORCH_CHECK(
       !isOptionDisabled(DisableOption::ArchCheck),
       "NVFuser Compile: arch check disabled, should not return any compiled kernel");
 
-  return {compiled_kernel, log.str(), binary};
+  return {compiled_kernel, log.str(), object_code};
 }
 
 namespace caching {
