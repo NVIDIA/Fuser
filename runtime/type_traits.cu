@@ -51,3 +51,6 @@ template <typename T>
 struct IsPointerType<T*> {
   static constexpr bool value = true;
 };
+
+template<typename T0, typename T1>
+constexpr bool is_same_v = IsSameType<T0, T1>::value;

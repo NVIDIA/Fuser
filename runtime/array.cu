@@ -236,3 +236,139 @@ __device__ void loadGlobalToGlobal(
     }
   }
 }
+
+template <int size>
+__device__ inline void loadLocalToGlobalAlignedImpl(
+    char* __restrict to,
+    const char* __restrict from);
+
+template <>
+__device__ inline void loadLocalToGlobalAlignedImpl<1>(
+    char* __restrict to,
+    const char* __restrict from) {
+  asm volatile(
+      "st.global.cs.u8 [%0], {%1};" ::"l"(__builtin_assume_aligned(to, 1)),
+      "h"((unsigned short)*from)
+      : "memory");
+}
+
+template <>
+__device__ inline void loadLocalToGlobalAlignedImpl<2>(
+    char* __restrict to,
+    const char* __restrict from) {
+  unsigned short const& data = *reinterpret_cast<const unsigned short*>(from);
+  asm volatile(
+      "st.global.cs.u16 [%0], {%1};" ::"l"(__builtin_assume_aligned(to, 1)),
+      "h"((unsigned short)data)
+      : "memory");
+}
+
+template <>
+__device__ inline void loadLocalToGlobalAlignedImpl<4>(
+    char* __restrict to,
+    const char* __restrict from) {
+  unsigned const& data = *reinterpret_cast<const unsigned*>(from);
+  asm volatile("st.global.cs.u32 [%0], {%1};" ::"l"(reinterpret_cast<unsigned*>(
+                   __builtin_assume_aligned(to, 4))),
+               "r"(data)
+               : "memory");
+}
+
+template <>
+__device__ inline void loadLocalToGlobalAlignedImpl<8>(
+    char* __restrict to,
+    const char* __restrict from) {
+  uint2 const& data = *reinterpret_cast<const uint2*>(from);
+  asm volatile("st.global.cs.v2.u32 [%0], {%1,%2};" ::"l"(
+                   reinterpret_cast<uint2*>(__builtin_assume_aligned(to, 8))),
+               "r"(data.x),
+               "r"(data.y)
+               : "memory");
+}
+
+template <>
+__device__ inline void loadLocalToGlobalAlignedImpl<16>(
+    char* __restrict to,
+    const char* __restrict from) {
+  uint4 const& data = *reinterpret_cast<const uint4*>(from);
+  asm volatile("st.global.cs.v4.u32 [%0], {%1,%2,%3,%4};" ::"l"(
+                   reinterpret_cast<uint4*>(__builtin_assume_aligned(to, 16))),
+               "r"(data.x),
+               "r"(data.y),
+               "r"(data.z),
+               "r"(data.w)
+               : "memory");
+}
+
+constexpr static inline __device__ bool is_power_two(
+    unsigned v,
+    int result = 1) {
+  if (v == 0)
+    return false;
+  if (v == result)
+    return true;
+  else if (result < v)
+    return is_power_two(v, result * 2);
+  else
+    return false;
+}
+
+constexpr static inline __device__ unsigned prev_or_equal_power_two(
+    unsigned v,
+    unsigned result = 1) {
+  if (v == 0)
+    return 0;
+  if (result <= v && 2 * result > v)
+    return result;
+  else
+    return prev_or_equal_power_two(v, result * 2);
+}
+
+/**
+ *
+ * @tparam T
+ * @tparam count
+ * @param to
+ * @param from
+ */
+template <typename T, int count>
+__device__ inline void loadLocalToGlobalUnaligned(
+    T* __restrict to,
+    const T* __restrict from) {
+  if constexpr (count == 0)
+    return;
+  static_assert(is_power_two(sizeof(T)));
+  constexpr unsigned byte_size = sizeof(T) * count;
+  constexpr unsigned min_alignment = sizeof(T) < 16 ? sizeof(T) : 16;
+  constexpr unsigned upper_alignment = prev_or_equal_power_two(byte_size) < 16
+      ? prev_or_equal_power_two(byte_size)
+      : 16;
+  static_assert(byte_size % min_alignment == 0);
+
+  const auto ptr_low = static_cast<unsigned>(
+      reinterpret_cast<size_t>(to) & 0xFFFFFFFF); // Should be std::intptr_t
+
+  if (ptr_low % upper_alignment == 0) {
+    char* __restrict dst =
+        reinterpret_cast<char*>(__builtin_assume_aligned(to, upper_alignment));
+    const char* __restrict src = reinterpret_cast<const char*>(from);
+    unsigned i = 0;
+#pragma unroll
+    for (; i + upper_alignment <= byte_size; i += upper_alignment) {
+      loadLocalToGlobalAlignedImpl<upper_alignment>(dst + i, src + i);
+    }
+
+#pragma unroll
+    for (; i < byte_size; i += min_alignment) {
+      loadLocalToGlobalAlignedImpl<min_alignment>(dst + i, src + i);
+    }
+  } else {
+    char* __restrict dst =
+        reinterpret_cast<char*>(__builtin_assume_aligned(to, min_alignment));
+    const char* __restrict src = reinterpret_cast<const char*>(from);
+#pragma unroll
+    for (unsigned i = 0; i < byte_size; i += min_alignment) {
+      loadLocalToGlobalAlignedImpl<min_alignment>(dst + i, src + i);
+    }
+  }
+}

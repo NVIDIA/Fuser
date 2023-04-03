@@ -121,57 +121,175 @@ DEVICE_INLINE void ldMatrixT(Array<__half, 8, 8>& out, unsigned addr) {
 namespace Ampere {
 
 // MMA instruction wrappers (sm_80+):
+template<int dst_size, typename word_type>
+DEVICE_INLINE void cpGlobalToShared(
+        unsigned smem_addr,
+        const void *gmem_ptr,
+        int src_size) {
+    constexpr int word_size = sizeof(word_type);
+    const auto *__restrict src = reinterpret_cast<const word_type *>(__builtin_assume_aligned(gmem_ptr, word_size));
+    auto *__restrict dst = reinterpret_cast<word_type *>(__builtin_assume_aligned(__cvta_shared_to_generic(smem_addr), word_size));
+    // these allow to generate ld.global.u8 and st.shared.u8 properly.
+    bool s = __isShared(dst);
+    __builtin_assume(s);
+    bool g = __isGlobal(src);
+    __builtin_assume(g);
 
-// Global to SMEM load that is asynchronous,
-// not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be `sizeof(dtype) * len` aligned
-template <typename dtype, int len>
-DEVICE_INLINE void cpAsyncCa(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
+    bool b = src_size >= 0 && src_size < dst_size;
+    __builtin_assume(b);
 
-  static_assert(
-      byte_size == 4 || byte_size == 8 || byte_size == 16,
-      "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %3, 0;\n"
-      "  cp.async.ca.shared.global [%0], [%1], %2, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "n"(byte_size),
-      "r"((int)predicate));
+#pragma unroll
+    for (int i = 0; i < dst_size; ++i) {
+        dst[i] = i < src_size ? src[i] : word_type{0};
+    }
 }
 
+/**
+ * Copies src_size bytes from gmem_ptr to smem_addr. 
+ * Zero fills upper bytes if src_size < dst_size.
+ * @tparam dst_size 
+ * @param smem_addr 
+ * @param gmem_ptr 
+ * @param src_size_or_predicate 
+ */
+template<int dst_size, typename Predicate_T>
+DEVICE_INLINE void cpAsyncCaAligned(
+        unsigned smem_addr,
+        const void *gmem_ptr,
+        Predicate_T src_size_or_predicate) {
+    static_assert(dst_size == 4 || dst_size == 8 || dst_size == 16, "cp_async : unsupported byte size");
+
+    static_assert(is_same_v < Predicate_T, bool > || is_same_v < Predicate_T, int > );
+
+    if constexpr(is_same_v < Predicate_T, bool > )
+    {
+        asm volatile(
+                "{\n"
+                "  .reg .pred p;\n"
+                "  setp.eq.b32 p, %3, 0;\n"
+                "cp.async.ca.shared.global [%0], [%1], %2, p;\n"
+                "}\n"::"r"(smem_addr),
+        "l"(__builtin_assume_aligned(gmem_ptr, dst_size)),
+        "n"(dst_size),
+        "r"((int) src_size_or_predicate) : "memory");
+    } else if constexpr(is_same_v < Predicate_T, int > )
+    {
+        asm volatile(
+                "{\n"
+                "cp.async.ca.shared.global [%0], [%1], %2, %3;\n"
+                "}\n"::"r"(smem_addr),
+        "l"(__builtin_assume_aligned(gmem_ptr, dst_size)),
+        "n"(dst_size),
+        "r"(src_size_or_predicate): "memory");
+    }
+}
+
+
+/**
+ * Async load from gmem to smem. 
+ * @tparam T elt type
+ * @tparam count elt count
+ * @tparam assume_aligned_data Assumes that gmem is aligned on sizeof(T) * count
+ * @param smem_addr 
+ * @param gmem_ptr must be at least aligned on sizeof(T)
+ * @param src_size_or_predicate if predicate is false, zeroes are written to smem and gmem is not accessed
+ */
+template<typename Predicate_T, typename T, int count, bool assume_aligned_data = true>
+DEVICE_INLINE void cpAsyncCa(
+        unsigned smem_addr,
+        const T *gmem_ptr,
+        Predicate_T src_size_or_predicate) {
+
+    static_assert(is_same_v < Predicate_T, bool > || is_same_v < Predicate_T, int > );
+
+    constexpr unsigned byte_size = sizeof(T) * count;
+    static_assert(byte_size == 4 || byte_size == 8 || byte_size == 16, "cp_async : unsupported byte size");
+
+    if constexpr(assume_aligned_data || sizeof(T) == byte_size)
+    {
+        const char *__restrict src = reinterpret_cast< const char *>(__builtin_assume_aligned(gmem_ptr, byte_size));
+        cpAsyncCaAligned<byte_size, Predicate_T>(smem_addr, src, src_size_or_predicate);
+    } else {
+        const auto ptr_low_bytes = static_cast<unsigned> (reinterpret_cast<size_t>(gmem_ptr) & 0xFFFFFFFF); //Should be std::intptr_t
+        if (ptr_low_bytes % byte_size == 0) {
+            // ptr is aligned on cp size, 
+            const char *__restrict src = reinterpret_cast< const char *>(__builtin_assume_aligned(gmem_ptr, byte_size));
+            cpAsyncCaAligned<byte_size, Predicate_T>(smem_addr, src, src_size_or_predicate);
+        } else { // Unaligned case, fallback on min_alignment
+            constexpr unsigned min_alignment = sizeof(T); // min alignment guaranteed for the type
+            static_assert(byte_size % min_alignment == 0);
+            if constexpr(min_alignment == 1)
+            { // fallback to copy through registers using bytes
+                const char *__restrict src = reinterpret_cast< const char *>(__builtin_assume_aligned(gmem_ptr, 1));
+                cpGlobalToShared<byte_size, unsigned char>(smem_addr, src, src_size_or_predicate);
+            } else if constexpr(min_alignment == 2)
+            { // fallback to copy through registers using shorts
+                const char *__restrict src = reinterpret_cast< const char *>(__builtin_assume_aligned(gmem_ptr, 2));
+                cpGlobalToShared<byte_size / 2, unsigned short>(smem_addr, src, src_size_or_predicate);
+            } else {
+                static_assert(min_alignment == 4 || min_alignment == 8 || min_alignment == 16, "cp_async : unsupported elt size");
+                const char *__restrict src = reinterpret_cast< const char *>(__builtin_assume_aligned(gmem_ptr, min_alignment));
+#pragma unroll
+                for (unsigned i = 0; i < byte_size; i += min_alignment) {
+                    cpAsyncCaAligned<min_alignment>(smem_addr + i, src + i, src_size_or_predicate);
+                }
+            }
+        }
+    }
+}
+
+
+template<typename Predicate_T>
+DEVICE_INLINE void cpAsyncCgAligned(
+        unsigned smem_addr,
+        void const *__restrict gmem_ptr,
+        Predicate_T src_size_or_predicate) {
+    static_assert(is_same_v < Predicate_T, bool > || is_same_v < Predicate_T, int > );
+    if constexpr(is_same_v < Predicate_T, bool > )
+    {
+        asm volatile(
+                "{\n"
+                "  .reg .pred p;\n"
+                "  setp.eq.b32 p, %2, 0;\n"
+                "cp.async.cg.shared.global [%0], [%1], 16, p;\n"
+                "}\n"::"r"(smem_addr),
+        "l"(__builtin_assume_aligned(gmem_ptr, 16)),
+        "r"((int) src_size_or_predicate) : "memory");
+    } else if constexpr(is_same_v < Predicate_T, int > )
+    {
+        asm volatile(
+                "{\n"
+                "cp.async.cg.shared.global [%0], [%1], 16, %2;\n"
+                "}\n"::"r"(smem_addr),
+        "l"(__builtin_assume_aligned(gmem_ptr, 16)),
+        "r"(src_size_or_predicate) : "memory");
+    }
+}
+
+
 // Global to SMEM load that is asynchronous,
-//  The cache global variant, i.e. skip L1 caching.
-// more details see:
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
 // not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be 16B aligned
-template <typename dtype, int len>
+template<typename Predicate_T, typename T, int len, bool assume_aligned_data = true>
 DEVICE_INLINE void cpAsyncCg(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
+        unsigned smem_addr,
+        const T *gmem_ptr,
+        Predicate_T src_size_or_predicate) {
+    constexpr int byte_size = sizeof(T) * len;
+    static_assert(byte_size == 16, "cp_async : unsupported byte size");
 
-  static_assert(byte_size == 16, "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %2, 0;\n"
-      "  cp.async.cg.shared.global [%0], [%1], 16, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "r"((int)predicate));
+    if constexpr(assume_aligned_data || sizeof(T) == 16)
+    {
+        cpAsyncCgAligned(smem_addr, gmem_ptr, src_size_or_predicate);
+    } else {
+        const auto ptr_low = static_cast<unsigned> (reinterpret_cast<size_t>(gmem_ptr) & 0xFFFFFFFF); //Should be std::intptr_t
+        unsigned misalignment = ptr_low % byte_size;
+        __builtin_assume(misalignment < byte_size);
+        if (misalignment == 0) {
+            cpAsyncCgAligned(smem_addr, gmem_ptr, src_size_or_predicate);
+        } else {
+            cpAsyncCa<Predicate_T, T, len, assume_aligned_data>(smem_addr, gmem_ptr, src_size_or_predicate);
+        }
+    }
 }
 
 // TODO: Might have a different category of sync if we want to build out this:

@@ -590,6 +590,10 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     auto dtype = ldst->in()->getDataType().value();
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
 
+    bool assume_aligned_data = std::getenv("NVFUSER_ANY_ALIGN") == nullptr;
+    const char* assume_aligned_data_str =
+        assume_aligned_data ? "true" : "false";
+
     if (is_cg) {
       indent() << "Ampere::cpAsyncCg";
     } else {
@@ -598,12 +602,14 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
     if (ldst->predicate() == nullptr) {
       // Out of line predicate variant
-      code_ << "<" << dtype << "," << vec_size << ">("
+      code_ << "<bool, " << dtype << ", " << vec_size << ", "
+            << assume_aligned_data_str << ">("
             << genMaybeHoistedSmemPointer(ldst->out()) << ","
             << genMaybeHoistedPointer(ldst->in()) << ");\n";
     } else {
       // Inline predicate variant
-      code_ << "<" << dtype << "," << vec_size << ">("
+      code_ << "<bool, " << dtype << ", " << vec_size << ", "
+            << assume_aligned_data_str << ">("
             << genMaybeHoistedSmemPointer(ldst->out()) << ","
             << genMaybeHoistedPointer(ldst->in()) << ","
             << genInline(ldst->predicate()) << ");\n";
