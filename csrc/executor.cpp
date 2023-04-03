@@ -425,7 +425,8 @@ at::Tensor inferAndAlloc(
     // exist
     std::unordered_map<int, Val*> expanded_map,
     const CompileOptions& options,
-    bool zero_init = false) {
+    bool zero_init = false,
+    DataType index_dtype = DataType::Index) {
   FUSER_PERF_SCOPE("inferAndAlloc");
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
@@ -471,7 +472,7 @@ at::Tensor inferAndAlloc(
     }
   }
 
-  const auto at_type = data_type_to_aten(tv->dtype());
+  const auto at_type = (tv->dtype() == DataType::Index) ? data_type_to_aten(index_dtype) : data_type_to_aten(tv->dtype());
   const auto tensor_options =
       at::TensorOptions().dtype(at_type).device(options.device);
   c10::IntArrayRef isizes(inferred_sizes);
@@ -500,7 +501,8 @@ at::Tensor inferAndAllocOutput(
     const TensorView* tv,
     ExpressionEvaluator& expr_eval,
     const CompileOptions& options,
-    bool zero_init = false) {
+    bool zero_init = false,
+    DataType index_dtype = DataType::Index) {
   const auto domain = tv->domain();
   const auto maybe_rfactor_domain = domain->hasRFactor()
       ? domain->getRFactorDomain()
@@ -518,7 +520,7 @@ at::Tensor inferAndAllocOutput(
       expand_map[(int)sizes.size() - 1] = id->expandedExtent();
     }
   }
-  return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
+  return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init, index_dtype);
 }
 
 } // namespace
@@ -823,6 +825,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
 
   KernelArgumentHolder ret(args.getIndexMode());
   ret.setDeviceIndex(args.getDeviceIndex());
+  auto index_dtype = indexModeToDtype(args.getIndexMode());
 
   CompileOptions meta_options = options_;
   meta_options.device = c10::Device(c10::DeviceType::Meta, 0);
@@ -858,7 +861,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
       } else {
         // TODO: we are using meta here, which is bad since it doesn't account
         // for devices. Switch to fake tensor instead
-        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false));
+        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false, index_dtype));
       }
     }
   }

@@ -501,14 +501,13 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
     sg_inputs.push_back(std::move(group_runtime_inputs));
   }
 
-  auto compile_fusion = [this](
-                            const KernelArgumentHolder& input_args,
-                            SegmentedGroup* sg) {
-    FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-    c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
-    c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
-    compileKernel(input_args, sg);
-   };
+  auto compile_fusion =
+      [this](const KernelArgumentHolder& input_args, SegmentedGroup* sg) {
+        FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
+        c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
+        c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
+        compileKernel(input_args, sg);
+      };
 
   // std::cout << "kernels\t" << sg_inputs.size() << std::endl;
 
@@ -704,7 +703,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
     // updating the tensor_map because we want all future use of inputs on
     // the original tensor input. See note [Trivial Forwarding]
-    for (const size_t group_out_i : c10::irange(group_to_run->outputs().size())) {
+    for (const size_t group_out_i :
+         c10::irange(group_to_run->outputs().size())) {
       if (!group_to_run->outputs()[group_out_i]->isFusionInput()) {
         args.push(group_runtime_outputs[group_out_i]);
         tensor_map.emplace(group_to_run->outputs()[group_out_i], args.back());
@@ -809,4 +809,3 @@ std::string KernelArgumentHolder::toString() const {
 }
 
 } // namespace nvfuser
-
