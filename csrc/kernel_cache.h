@@ -63,8 +63,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! query if we already have a compiled kernel for execution
   bool isCompiled() {
     std::unique_lock<std::mutex> lock0(mutex_, std::try_to_lock);
-    std::unique_lock<std::mutex> lock1(compiling_, std::try_to_lock);
-    if (!lock0.owns_lock() || !lock1.owns_lock()) {
+    if (!lock0.owns_lock()) {
       // compilation in progress
       return false;
     }
@@ -79,7 +78,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! starts compilation async
-  void startAsyncCompile(const KernelArgumentHolder& input_args);
+  void startAsyncCompile(KernelArgumentHolder args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -147,20 +146,13 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
   //! real PyTorch tensor or a fake MetaData tensor.
   std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
-      KernelArgumentHolder& args,
-      bool is_dry_run);
+      KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
   std::vector<at::Tensor> runKernelWithInput(
       KernelArgumentHolder& args,
-      SegmentedGroup* sg);
-
-  //! Interface to compile a single kernel and returns the kernel outputs
-  //! but the tensor does not own memory.
-  KernelArgumentHolder dryRunKernelWithInput(
-      const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
   //! Maps entries in `args` to fusion inputs.
@@ -213,9 +205,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   bool profiling_ = false;
 
   std::mutex mutex_;
-
-  //! A second mutex used in startAsyncCompile
-  std::mutex compiling_;
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;

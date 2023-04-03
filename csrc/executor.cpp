@@ -815,11 +815,11 @@ void FusionExecutor::setUsedTVs() {
 }
 
 KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
+    Fusion* fusion,
     const KernelArgumentHolder& args,
     ExpressionEvaluator& expr_eval,
     const std::unordered_set<int>& alias_indices) {
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
-  const auto kernel = lowered_->kernel();
 
   KernelArgumentHolder ret(args.getIndexMode());
   ret.setDeviceIndex(args.getDeviceIndex());
@@ -827,12 +827,12 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   CompileOptions meta_options = options_;
   meta_options.device = c10::Device(c10::DeviceType::Meta, 0);
 
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
     // If the output is just trivially the input, just "copy" it over, see note
     // [trivial forwarding]
-    if (kernel->outputs()[out_i]->isFusionInput()) {
-      for (auto inp_i : c10::irange(kernel->inputs().size())) {
-        if (kernel->inputs()[inp_i] == kernel->outputs()[out_i]) {
+    if (fusion->outputs()[out_i]->isFusionInput()) {
+      for (auto inp_i : c10::irange(fusion->inputs().size())) {
+        if (fusion->inputs()[inp_i] == fusion->outputs()[out_i]) {
           TORCH_INTERNAL_ASSERT(
               inp_i < args.size(),
               "Issue with an input showing up as output, couldn't find input.");
@@ -848,9 +848,9 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
       }
     } else {
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
+          fusion->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
-      auto output = kernel->outputs()[out_i]->as<TensorView>();
+      auto output = fusion->outputs()[out_i]->as<TensorView>();
       if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output
         // but we still need to push an entry here.
@@ -866,6 +866,32 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
 }
 
 KernelArgumentHolder FusionExecutor::inferOutputSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+      std::make_unique<PrecomputedValues>(fusion);
+  evaluator_precomputed_values->bindInputs(args);
+  evaluator_precomputed_values->evaluate();
+
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  auto ret = evaluateOutputSizes(
+      fusion, args, expr_eval, fusion->getOutputAliasIndices());
+
+  for (const auto& entry : fusion->getInputAliasIndices()) {
+    auto [aliased_output_index, aliased_input_index] = entry;
+    TORCH_INTERNAL_ASSERT(
+        args[aliased_input_index]->isType(ArgType::Tensor),
+        "alias io only supports tensor");
+    ret.swap(aliased_output_index, args[aliased_input_index]);
+  }
+
+  return ret;
+}
+
+KernelArgumentHolder FusionExecutor::inferOutputSizesWithValidation(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints) {
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
@@ -925,7 +951,8 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   auto& output_alias_indices = output_alias_indices_entry.get();
 
-  auto ret = evaluateOutputSizes(args, expr_eval, output_alias_indices);
+  auto ret = evaluateOutputSizes(
+      lowered_->kernel(), args, expr_eval, output_alias_indices);
 
   for (const auto& entry : alias_indices) {
     auto aliased_output_index = entry.first;
