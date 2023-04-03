@@ -24,7 +24,7 @@ namespace {
 
 bool isTensorIndexOp(Expr* expr) {
   const auto& outputs = expr->outputs();
-  return outputs.size() >= 1 && outputs[0]->isA<kir::TensorIndex>();
+  return !outputs.empty() && outputs[0]->isA<kir::TensorIndex>();
 }
 
 bool isOutputLocal(const Expr* expr) {
@@ -75,7 +75,7 @@ std::unordered_set<Val*> getNonUnswitchedRootDomains(
   std::vector<Val*> non_unswited_leaf_domains;
   std::transform(
       loops.begin(),
-      loops.begin() + unswitched_loop_index,
+      loops.begin() + (int64_t)unswitched_loop_index,
       std::back_inserter(non_unswited_leaf_domains),
       [&](kir::ForLoop* loop) { return loop->iter_domain(); });
 
@@ -165,6 +165,7 @@ ParallelizedDomainPredicate::getPredicateMap(
         gpu_lower->parallelDimensionMap().isExact(loop_ptype)) {
       continue;
     }
+    auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
 
     // Parallel dimensions need not be predicated if fully unswitched.
     if (within_unswitch &&
@@ -198,6 +199,14 @@ ParallelizedDomainPredicate::getPredicateMap(
               tv->domain()->getRootDomain().begin(),
               tv->domain()->getRootDomain().end(),
               tv_id) != tv->domain()->getRootDomain().end()) {
+        continue;
+      }
+
+      // loop_ptype not being exact does not mean the predicate is not trivial.
+      // For example, if I have T1[blockIdx.x{3}] and T2[blockIdx.x{5}], then
+      // blockIdx.x will not be exact. However, the predicate blockIdx.x < 5 is
+      // still trivial.
+      if (tv_id->extent()->sameAs(parallel_dim)) {
         continue;
       }
 
@@ -539,7 +548,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
       pending_predicates_.push_back(merged_pred);
 
       merged_pred_it =
-          pending_predicates_.begin() + pending_predicates_.size() - 1;
+          pending_predicates_.begin() + (int64_t)pending_predicates_.size() - 1;
     } else if (root_ids.size() == 1) {
       // If not new, try to find a corresponding MergedPredicates.
       merged_pred_it = std::find_if(

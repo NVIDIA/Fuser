@@ -36,7 +36,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
       });
 
   const int first_unroll_pos =
-      std::distance(tv->domain()->domain().begin(), first_unroll_it);
+      (int)std::distance(tv->domain()->domain().begin(), first_unroll_it);
 
   const int unroll_or_ca_pos =
       std::min((int)tv->getComputeAtPosition(), first_unroll_pos);

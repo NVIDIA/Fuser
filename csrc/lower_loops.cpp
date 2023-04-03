@@ -68,7 +68,7 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
 } // namespace
 
 void LoopNestGenerator::openFor(IterDomain* id) {
-  if (for_loops_.size() > 0) {
+  if (!for_loops_.empty()) {
     const auto new_scope = openForHelper(for_loops_.back(), id);
     // for_loop_allocations_.insert({new_scope, 0});
     for_loops_.push_back(new_scope);
@@ -84,7 +84,7 @@ void LoopNestGenerator::closeFor() {
 }
 
 void LoopNestGenerator::pushFront(Expr* expr) {
-  if (for_loops_.size() == 0) {
+  if (for_loops_.empty()) {
     lowered_exprs_.insert(lowered_exprs_.begin(), expr);
   } else {
     for_loops_.back()->body().insert(0, expr);

@@ -291,12 +291,6 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
 
   auto tv_in = getTv(input);
 
-  // __shfl_xor_sync() doesn't support complex number
-  if (tv_in->dtype() == DataType::ComplexFloat ||
-      tv_in->dtype() == DataType::ComplexDouble) {
-    return c10::nullopt;
-  }
-
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
       tv_out->getMemoryType() != MemoryType::Local) {
@@ -702,7 +696,7 @@ BasicAllocInfo getAllocInformation(
       break;
     }
 
-    if (tv->axis(info.alloc_pos)->isReduction()) {
+    if (tv->axis((int)info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       TORCH_INTERNAL_ASSERT(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
@@ -732,15 +726,13 @@ BasicAllocInfo getAllocInformation(
 
     // Allocation of a double buffered tensor is placed outside its
     // double buffer axis.
-    if (tv->isDoubleBuffered() || tv->isCircularBuffered()) {
-      auto double_buffer_alloc_axis =
-          gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv);
-      if (tv->axis(info.alloc_pos) == double_buffer_alloc_axis) {
-        outer_alloc_found = true;
-      }
+    if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
+        tv->axis((int)info.alloc_pos) ==
+            gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
+      outer_alloc_found = true;
     }
 
-    auto local_id = tv->axis(info.alloc_pos);
+    auto local_id = tv->axis((int)info.alloc_pos);
 
     if (use_id_map) {
       auto id_it = id_map.find(local_id);

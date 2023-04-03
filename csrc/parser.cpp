@@ -221,7 +221,7 @@ struct MemoryFormat {
   // eg2. for a rank 4 permuted tensor, stride_order can be {0, 3, 2, 1}
   //      it will be encoded as permutation_ = 321 (omitting leading '0')
   void setPermutation(const std::vector<int>& stride_order) {
-    int rank = stride_order.size();
+    auto rank = stride_order.size();
     TORCH_INTERNAL_ASSERT(
         rank <= 10, "MemoryFormat for permutation only supports rank <= 10");
 
@@ -232,7 +232,7 @@ struct MemoryFormat {
     permutation_ = 0;
     for (const auto i : c10::irange(rank)) {
       permutation_ = permutation_ * 10 + stride_order[i];
-      if (!has_permutation && stride_order[i] != rank - 1 - i) {
+      if (!has_permutation && stride_order[i] != (int)rank - 1 - (int)i) {
         has_permutation = true;
       }
     }
@@ -343,11 +343,11 @@ struct MemoryFormat {
   }
 
   bool isChannelsLast() const {
-    int rank = permuted_order_.size();
+    auto rank = permuted_order_.size();
 
     if (rank > 2 && permuted_order_[0] == 1 && permuted_order_[rank - 1] == 0) {
       for (const auto i : c10::irange(rank - 2)) {
-        if (permuted_order_[i + 1] != rank - 1 - i) {
+        if (permuted_order_[i + 1] != (int)rank - 1 - (int)i) {
           return false;
         }
       }
@@ -372,10 +372,10 @@ struct MemoryFormat {
   std::vector<int64_t> restore() const {
     std::vector<int64_t> ret;
     if (hasPermutation()) {
-      int rank = permuted_order_.size();
+      auto rank = permuted_order_.size();
       ret.resize(rank);
       for (const auto i : c10::irange(rank)) {
-        ret[permuted_order_[i]] = rank - 1 - i;
+        ret[permuted_order_[i]] = (int64_t)rank - 1 - (int64_t)i;
       }
     }
     return ret;
@@ -793,13 +793,13 @@ class IrParser {
     for (const auto& i : c10::irange(fusion->inputs().size())) {
       const auto& entry = permuted_tensors.find(fusion->inputs()[i]);
       if (entry != permuted_tensors.end()) {
-        fusion->setPermutationOnInput(i, entry->second.apply());
+        fusion->setPermutationOnInput((int)i, entry->second.apply());
       }
     }
     for (const auto& i : c10::irange(fusion->outputs().size())) {
       const auto& entry = permuted_tensors.find(fusion->outputs()[i]);
       if (entry != permuted_tensors.end()) {
-        fusion->setPermutationOnOutput(i, entry->second.restore());
+        fusion->setPermutationOnOutput((int)i, entry->second.restore());
       }
     }
     return fusion;
@@ -3482,7 +3482,7 @@ class IrParser {
                 expand_sizes.has_value(), "The size parameter is required.");
 
             std::vector<CgValue> expand_sizes_vec;
-            for (const int64_t& size : expand_sizes.value()) {
+            for (const auto& size : expand_sizes.value()) {
               expand_sizes_vec.push_back(IrBuilder::create<Int>(size));
             }
 
@@ -4688,8 +4688,6 @@ bool insertProfileIValue(
       node->matches(softmax_backward_data_schema)) {
     switch (offset) {
       case 2:
-        profileInt(pr, node, offset);
-        return true;
       case 3:
         profileInt(pr, node, offset);
         return true;
@@ -4712,8 +4710,6 @@ bool insertProfileIValue(
         profileIntList(pr, node, offset);
         return true;
       case 2:
-        profileBool(pr, node, offset);
-        return true;
       case 3:
         profileBool(pr, node, offset);
         return true;

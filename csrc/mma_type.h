@@ -16,15 +16,15 @@ struct GemmTile {
   int m, n, k;
   GemmTile(int m_, int n_, int k_) : m(m_), n(n_), k(k_) {}
 
-  bool operator==(const GemmTile& other) {
+  bool operator==(const GemmTile& other) const {
     return m == other.m && n == other.n && k == other.k;
   }
 
-  GemmTile operator/(const GemmTile& other) {
+  GemmTile operator/(const GemmTile& other) const {
     return GemmTile(m / other.m, n / other.n, k / other.k);
   }
 
-  std::vector<int> toVector() {
+  std::vector<int> toVector() const {
     return {m, n, k};
   }
 };
@@ -186,9 +186,19 @@ int getOutputRegisterSize(MmaOptions::MacroType macro);
 int getInputARegisterSize(MmaOptions::MacroType macro);
 int getInputBRegisterSize(MmaOptions::MacroType macro);
 
+// Unpack MMA op shape
+GemmTile getMmaOpShape(MmaOptions::MacroType macro);
+
 // MMA stringify utils
 std::string toString(MmaOptions::MacroType macro);
 std::string toString(MmaOptions::MmaInputLayout input_layout);
-std::string toString(MmaOptions::MacroType mt);
+std::string toString(const GemmTile& tile);
+std::string toString(const MatMulTileOptions& opts);
+std::string toString(MmaOptions::MacroType macro, bool);
 
+// MMA hash utils
+size_t hash(MmaOptions::MacroType macro);
+size_t hash(MmaOptions::MmaInputLayout input_layout);
+size_t hash(const GemmTile& tile);
+size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser

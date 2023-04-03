@@ -116,6 +116,10 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return hasValue() && value_->isConst();
   }
 
+  bool isTrivial() const {
+    return isConst() && value_->getBool() == true;
+  }
+
  private:
   PredicateType ptype_ = PredicateType::Manual;
 

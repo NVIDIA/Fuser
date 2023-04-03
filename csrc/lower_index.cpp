@@ -1121,7 +1121,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= axis->extent()->evaluateInt();
+      num_grouped_iterations *= (int)axis->extent()->evaluateInt();
     }
   }
 

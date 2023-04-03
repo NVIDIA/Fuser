@@ -318,6 +318,7 @@ enum class BinaryOpType {
   Max,
   Min,
   Mul,
+  Nextafter,
   Pow,
   Remainder,
   Sub,

@@ -438,6 +438,17 @@ std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
   return select_ops;
 }
 
+std::vector<MmaOp*> getMmaOps(Fusion* fusion) {
+  std::vector<MmaOp*> mma_ops;
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<MmaOp>()) {
+      mma_ops.push_back(expr->as<MmaOp>());
+    }
+  }
+
+  return mma_ops;
+}
+
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {
