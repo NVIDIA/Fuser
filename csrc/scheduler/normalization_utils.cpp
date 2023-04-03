@@ -63,7 +63,7 @@ void PreferredLaunchConfig::initValidGdims() {
       static_cast<int>(std::sqrt(static_cast<float>(num_sms)));
   for (int gdimy = 2; gdimy <= max_first_half; ++gdimy) {
     int gdimx = num_sms / gdimy;
-    grid_dims.push_back(std::make_pair(gdimx, gdimy));
+    grid_dims.emplace_back(gdimx, gdimy);
   }
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
@@ -74,7 +74,7 @@ void PreferredLaunchConfig::initValidGdims() {
       // This is already in the first half
       continue;
     }
-    grid_dims.push_back(std::make_pair(gdimx_gdimy.second, gdimx_gdimy.first));
+    grid_dims.emplace_back(gdimx_gdimy.second, gdimx_gdimy.first);
   }
   valid_grid_dims_ = grid_dims;
 }
@@ -258,14 +258,14 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Start with the current gdimy and buffer size. Gradually increase
   // the buffer size and in turn decrease gdimy with the bounds set as
   // below.
-  auto current_gdimy = launch_cfg.gdimy();
+  int64_t current_gdimy = launch_cfg.gdimy();
   auto current_buffer_size =
       getMinPersistentBufferSize(total_reduction_numel, bdimy, current_gdimy);
 
   log("reduceWorkOfLastBlock: ", current_gdimy, ", ", current_buffer_size);
 
   // Threshold to stop decreasing gdimy
-  const auto min_gdimy = current_gdimy * 0.9;
+  const auto min_gdimy = static_cast<int64_t>((double)current_gdimy * 0.9);
 
   // Keep track of the best gdimy and buffer size configuration
   auto optimal_size = current_buffer_size;
