@@ -242,7 +242,8 @@ class SchedulerTopologyChecker {
                       // If mapped, and producer is a producer of a reduction,
                       // we can resolve this id
                       ids_to_resolve.erase(
-                          ids_to_resolve.begin() + (int64_t)entry_i - 1l);
+                          ids_to_resolve.begin() +
+                          static_cast<int64_t>(entry_i - 1));
                     } else {
                       ids_to_resolve[entry_i - 1] = std::make_pair(
                           orig_id, backward_c2p_root_map.at(running_id));
@@ -1953,6 +1954,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
               properties.total_iteration_numel,
               vectorization_factor,
               persistent_buffer_size);
+
+      if (!cross_grid_params.has_value()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent, "no valid launch config found");
+        return false;
+      }
     }
 
     // Maximum number of iteration dimensions we can have and still be
