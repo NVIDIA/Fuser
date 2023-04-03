@@ -206,8 +206,8 @@ TEST_F(LoopRotationTest, NonDivisibleSplit_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
-  int64_t i1509;
-  i1509 = T0.size[0] * T0.size[1];
+  int64_t i1529;
+  i1529 = T0.size[0] * T0.size[1];
   float T1[5];
   float T2[5];
   #pragma unroll
@@ -219,7 +219,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
   for(nvfuser_index_t i36 = 0; i36 < 5; ++i36) {
     int64_t i154;
     i154 = i36 + nvfuser_zero;
-    if ((i154 < i1509)) {
+    if ((i154 < i1529)) {
       T1[i36]
          = T0[((T0.stride[0] * (i154 / T0.size[1])) + (T0.stride[1] * (i154 % T0.size[1])))];
     }
@@ -233,10 +233,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
   NVFUSER_UPDATE_MAGIC_ZERO
   #pragma unroll 1
   for(nvfuser_index_t i39 = 0; i39 < (ceilDiv((T0.size[0] * T0.size[1]), 5)); ++i39) {
-    int64_t i628;
-    i628 = 5 * i39;
-    int64_t i1216;
-    i1216 = 5 + i628;
+    int64_t i636;
+    i636 = 5 * i39;
+    int64_t i1230;
+    i1230 = 5 + i636;
     // Alias Allocation - register
     auto& T3 = T1;
     #pragma unroll
@@ -247,10 +247,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
     for(nvfuser_index_t i40 = 0; i40 < 5; ++i40) {
-      int64_t i629;
-      i629 = i628 + (i40 + nvfuser_zero);
-      if ((i629 < i1509)) {
-        T4[i629]
+      int64_t i637;
+      i637 = i636 + (i40 + nvfuser_zero);
+      if ((i637 < i1529)) {
+        T4[i637]
            = T3[i40];
       }
     }
@@ -262,11 +262,11 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
     NVFUSER_UPDATE_MAGIC_ZERO
     #pragma unroll
     for(nvfuser_index_t i36 = 0; i36 < 5; ++i36) {
-      int64_t i1217;
-      i1217 = i1216 + (i36 + nvfuser_zero);
-      if ((i1217 < i1509)) {
+      int64_t i1231;
+      i1231 = i1230 + (i36 + nvfuser_zero);
+      if ((i1231 < i1529)) {
         T1[i36]
-           = T0[((T0.stride[0] * (i1217 / T0.size[1])) + (T0.stride[1] * (i1217 % T0.size[1])))];
+           = T0[((T0.stride[0] * (i1231 / T0.size[1])) + (T0.stride[1] * (i1231 % T0.size[1])))];
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO

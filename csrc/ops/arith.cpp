@@ -902,6 +902,28 @@ NVFUSER_DEFINE_BINARY_FLOAT_OP(div, Div)
 NVFUSER_DEFINE_BINARY_FLOAT_OP(atan2, Atan2)
 #undef NVFUSER_DEFINE_BINARY_FLOAT_OP
 
+// These ops require full-precision floating point types (after float type
+// promotion)
+#define NVFUSER_DEFINE_BINARY_FLOAT_ONLY_OP(op_name, op_type)                \
+  Val* op_name(Val* v1, Val* v2) {                                           \
+    return binaryOp(                                                         \
+        BinaryOpType::op_type, v1, v2, TypePromotion::float_only_op_config); \
+  }                                                                          \
+  TensorView* op_name(TensorView* v1, Val* v2) {                             \
+    return binaryOp(                                                         \
+        BinaryOpType::op_type, v1, v2, TypePromotion::float_only_op_config); \
+  }                                                                          \
+  TensorView* op_name(Val* v1, TensorView* v2) {                             \
+    return binaryOp(                                                         \
+        BinaryOpType::op_type, v1, v2, TypePromotion::float_only_op_config); \
+  }                                                                          \
+  TensorView* op_name(TensorView* v1, TensorView* v2) {                      \
+    return binaryOp(                                                         \
+        BinaryOpType::op_type, v1, v2, TypePromotion::float_only_op_config); \
+  }
+NVFUSER_DEFINE_BINARY_FLOAT_ONLY_OP(nextafter, Nextafter)
+#undef NVFUSER_DEFINE_BINARY_FLOAT_ONLY_OP
+
 #define NVFUSER_DEFINE_BINARY_CAST_OP(op_name, op_type)                   \
   Val* op_name(Val* v1, Val* v2) {                                        \
     return binaryOp(                                                      \

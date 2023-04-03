@@ -398,7 +398,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
  private:
   //! Unique name for segmented fusion
-  int segmented_fusion_name_;
+  size_t segmented_fusion_name_;
 
   //! States representing segmentation
   std::vector<SegmentedEdge*> edges_;

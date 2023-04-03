@@ -39,7 +39,6 @@
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -1750,21 +1749,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i111;
-  i111 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i201;
+  i201 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b241;
-  b241 = i111 < i7;
+  bool b347;
+  b347 = i201 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b241) {
+  if (b347) {
     T1[0]
-       = sinf(T0[i111]);
+       = sinf(T0[i201]);
   }
-  if (b241) {
-    T2[i111]
+  if (b347) {
+    T2[i201]
       = T1[0]
       + f8;
   }
@@ -3211,7 +3210,7 @@ graph(%x.1 : Tensor,
     std::vector<c10::IValue> results;
     for (const auto& i : c10::irange(10)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }
@@ -3258,7 +3257,7 @@ TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
     constexpr size_t numRuns = 10;
     for (const auto& i : c10::irange(numRuns)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }

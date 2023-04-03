@@ -117,7 +117,7 @@ void AxisHaloInfo::merge(int pos, int other) {
 
 void AxisHaloInfo::merge(const AxisHaloInfo& other) {
   for (const auto i : c10::irange(widths_.size())) {
-    merge(i, other.width(i));
+    merge((int)i, other.width((int)i));
   }
 }
 

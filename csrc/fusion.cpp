@@ -27,8 +27,7 @@ namespace nvfuser {
 
 static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
 
-FusionGuard::FusionGuard(Fusion* fusion) {
-  prev_fusion = ACTIVE_FUSION;
+FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
   ACTIVE_FUSION = fusion;
 }
 
@@ -96,9 +95,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   // This should never be true on copy, but copying for completeness.
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
-  for (auto i : from->managed_data_) {
-    to->managed_data_.push_back(
-        std::make_pair(i.second(ir_cloner, i.first), i.second));
+  for (const auto& i : from->managed_data_) {
+    to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
   }
 
   for (auto [k, v] : from->managed_named_data_) {
@@ -415,7 +413,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
       smem_tvs.push_back(tv);
     }
   }
-  if (smem_tvs.size() == 0) {
+  if (smem_tvs.empty()) {
     return {};
   }
   manage("smem_tvs", smem_tvs);
@@ -802,7 +800,7 @@ std::unordered_set<int> Fusion::getOutputAliasIndices() const {
 
   for (const auto i : c10::irange(outputs_.size())) {
     if (io_alias_.count(outputs_[i]) != 0) {
-      alias_indices.insert(i);
+      alias_indices.insert((int)i);
     }
   }
   return alias_indices;

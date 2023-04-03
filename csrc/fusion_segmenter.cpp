@@ -309,8 +309,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 }
 
 SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
-    : impl_(this), complete_fusion_(std::move(fusion)) {
-  segmented_fusion_name_ = segmentedFusionName();
+    : segmented_fusion_name_{segmentedFusionName()},
+      impl_(this),
+      complete_fusion_(std::move(fusion)) {
   annotateFP16IntermediateTensors();
 }
 
@@ -1293,7 +1294,7 @@ void GroupDependencyAnalysis::mergeGroups(
   for (auto& it : known_producers_of_) {
     auto producer_intersection = groupSetIntersection(*(it.second), groups);
     // if current node has any producer that was merged
-    if (producer_intersection.size() > 0) {
+    if (!producer_intersection.empty()) {
       for (auto merged_producer : producer_intersection) {
         // delete all disappearing producers
         it.second->erase(merged_producer);
@@ -2379,7 +2380,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   std::vector<bool> broadcast_mask(in_root.size(), false);
   for (const auto i : c10::irange(in_root.size())) {
     if (out_root.at(i)->isReduction()) {
-      red_axes.push_back(i);
+      red_axes.push_back((int)i);
       broadcast_mask[i] = true;
       num_features = mul(num_features, out_root.at(i)->extent());
     }
@@ -2901,7 +2902,7 @@ class CombineReductions {
 
       for (const auto i : c10::irange(root_domain_size_)) {
         if (root_domain[i]->isReduction()) {
-          reduction_axes_.push_back(i);
+          reduction_axes_.push_back((int)i);
         }
       }
     }

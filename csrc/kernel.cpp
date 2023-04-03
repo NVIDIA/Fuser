@@ -218,7 +218,7 @@ class ValidateAllocation : private OptOutConstDispatch {
 
  private:
   explicit ValidateAllocation(const Kernel* kernel) {
-    live_allocations_.emplace_back(std::vector<const Allocate*>());
+    live_allocations_.emplace_back();
     for (const auto& expr : kernel->topLevelExprs()) {
       OptOutConstDispatch::handle(expr);
     }
@@ -270,7 +270,7 @@ class ValidateAllocation : private OptOutConstDispatch {
       validate(for_loop);
     }
 
-    live_allocations_.emplace_back(std::vector<const Allocate*>());
+    live_allocations_.emplace_back();
     for (const auto& expr : for_loop->body().exprs()) {
       OptOutConstDispatch::handle(expr);
     }
@@ -434,7 +434,7 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     auto out_tv = ir_utils::getTvOutput(expr);
     double cycles = static_cast<double>(buffer[index][0].item<int64_t>());
     auto count = buffer[index][1].item<int64_t>();
-    auto cycles_per_call = count == 0 ? 0.0 : cycles / count;
+    auto cycles_per_call = count == 0 ? 0.0 : cycles / (double)count;
     auto us_per_call = cycles_per_call / kilo_freq * 1000.0;
     ss << expr->getOpString() << ", T" << out_tv->name() << ", " << us_per_call
        << " us, " << count << "\n";

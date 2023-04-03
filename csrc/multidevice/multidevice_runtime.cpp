@@ -63,7 +63,7 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
 
   // Infer which device this fusion runs from input device ids.
   // TODO: fix should bind device with cluster?
-  const int device_index = getCommonDeviceCUDA(cluster_inputs);
+  const auto device_index = getCommonDeviceCUDA(cluster_inputs);
   TORCH_CHECK(device_index >= 0, "All inputs must be on the same device");
 
   // Set launch parameters
