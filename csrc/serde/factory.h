@@ -13,7 +13,7 @@ namespace nvfuser::serde {
 // them to an Integer type. This Factory class contains a vector that maps from
 // an enum integer to its corresponding parser function.
 //
-// All parser functions have the same signature. We use std::bind to support
+// All parser functions have the same signature. We use lambdas to support
 // functions that require extra arguments.
 
 template <typename SerdeBuffer, typename BaseType>

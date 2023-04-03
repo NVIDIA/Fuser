@@ -7,7 +7,7 @@ from copy import deepcopy
 from functools import partial
 import math
 import re
-from typing import List
+from typing import List, Callable
 import unittest
 from itertools import permutations
 
@@ -41,6 +41,42 @@ def is_pre_volta():
     return prop.major < 7
 
 
+def serde_check(test_fn: Callable):
+    """
+    A decorator to verify that serialization works with the given exec_nvfuser function.
+    Currently, it uses serialization to rebuild the FusionCache structure.
+    """
+
+    def inner(*args, **kwargs):
+        self, fusion_func, inputs = args
+        # Deep copy inputs because when a fusion output aliases an input, it will change the input value for the
+        # subsequent function calls.
+        inputs_copy = deepcopy(inputs)
+
+        # For debug purposes, clear FusionCache before running first test
+        # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
+        #    FusionCache.reset()
+
+        # Run test to populate FusionCache
+        test_fn(*args, **kwargs)
+
+        # Serialize FusionCache
+        fc = FusionCache.get()
+        fc.serialize("foo.bin")
+
+        FusionCache.reset()
+
+        # Get new FusionCache because the previous one was destroyed by the reset call.
+        fc = FusionCache.get()
+        fc.deserialize("foo.bin")
+
+        # Run test with repopulated FusionCache
+        kwargs["new_fusion_expected"] = False
+        return test_fn(self, fusion_func, inputs_copy, **kwargs)
+
+    return inner
+
+
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(TestCase):
@@ -48,7 +84,8 @@ class TestNvFuserFrontend(TestCase):
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
-    def exec_nvfuser(self, fusion_func, inputs, new_fusion_expected=True):
+    @serde_check
+    def exec_nvfuser(self, fusion_func, inputs, *, new_fusion_expected=True):
         inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -1437,7 +1474,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_output_stride_order(self):
         inputs = [
-            torch.range(0, 119).reshape(2, 3, 4, 5).cuda().float(),
+            torch.arange(0, 120).reshape(2, 3, 4, 5).cuda().float(),
         ]
         eager_out = inputs[0] + 3.0
 
@@ -1931,7 +1968,9 @@ class TestNvFuserFrontend(TestCase):
                 if error is None:
                     # First check is here on legel fusions since the second time
                     # through they should already be cached
-                    out = self.exec_nvfuser(partial(check, acts=inp), inp, first_check)
+                    out = self.exec_nvfuser(
+                        partial(check, acts=inp), inp, new_fusion_expected=first_check
+                    )
                 else:
                     self.assertRaisesRegex(
                         RuntimeError,

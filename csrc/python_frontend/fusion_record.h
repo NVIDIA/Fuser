@@ -13,14 +13,13 @@
 #include <ops/normalization.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <serde/fusion_record_serde.h>
+#include <serde/python_fusion_cache_generated.h>
 #include <utils.h>
 
 #include <algorithm>
 #include <complex>
 #include <variant>
-
-#include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
 
 namespace nvfuser::python_frontend {
 
