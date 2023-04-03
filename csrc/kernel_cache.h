@@ -75,19 +75,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
-  //! starts compilation async
-  void startAsyncCompile(const KernelArgumentHolder& inputs);
-
-  //! maps entries in `args` to fusion inputs.
-  //! Note that this function also pushes extra bits like dimension extent into
-  //! `args` for expression evaluator binding. So consider your `args` polluted
-  //! after this function and use it with caution.
-  void mapFusionInputsToArgs(
-      std::unordered_map<Val*, const ArgAbstract*>& tensor_map,
-      KernelArgumentHolder& args);
-
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInput(KernelArgumentHolder& args);
+  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+
+  //! starts compilation async
+  void startAsyncCompile(const KernelArgumentHolder& input_args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -149,6 +141,15 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
  private:
+  //! Runs each fusion segment given arguments. The outputs for a fusion are
+  //! added back to the arguments, so they can be used as inputs to successive
+  //! segments. Returns a map that links each NvFuser Val to its corresponding
+  //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
+  //! real PyTorch tensor or a fake MetaData tensor.
+  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+      KernelArgumentHolder& args,
+      bool is_dry_run);
+
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
@@ -156,10 +157,23 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
-  //! Interface to compile a single kernel, either one kernel for single-kernel
-  //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
-  //! the kernel outputs with tensor that doesn't own memory.
-  KernelArgumentHolder compileKernel(
+  //! Interface to compile a single kernel and returns the kernel outputs
+  //! but the tensor does not own memory.
+  KernelArgumentHolder dryRunKernelWithInput(
+      const KernelArgumentHolder& args,
+      SegmentedGroup* sg);
+
+  //! Maps entries in `args` to fusion inputs.
+  //! Note that this function also pushes extra bits like dimension extent into
+  //! `args` for expression evaluator binding. So consider your `args` polluted
+  //! after this function and use it with caution.
+  std::unordered_map<Val*, const ArgAbstract*> mapFusionInputsToArgs(
+      KernelArgumentHolder& args);
+
+  //! Interface to compile a single kernel. It is either a single kernel for a
+  //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
+  //! launch and compile parameters for kernel.
+  std::pair<LaunchParams, CompileParams> compileKernel(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
@@ -199,9 +213,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   bool profiling_ = false;
 
   std::mutex mutex_;
-  // TODO: remove `compiling_` mutex and rely on `mutex_` only.
-  // we don't need the second mutex, if only I could figure out how to pass
-  // unique_lock into lambda
+
+  //! A second mutex used in startAsyncCompile
   std::mutex compiling_;
 
   // The heuristics and executor for most recent kernel launch
@@ -342,6 +355,19 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs);
 
+  //! Compile a kernel executor for given inputs. Note: The compilation is
+  //! async, there's some restriction on the user side. e.g. Do not overlap
+  //! compilation and execution for the same FusionExecutor entry. This is
+  //! experimental at this moment, please use with extra caution.
+  void compileFusionAsync(const at::ArrayRef<c10::IValue>& inputs);
+
+  //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
+  //! lookup
+  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
+
+  //! query if there's a kernel ready to go for given inputs
+  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
+
   Fusion* fusion() {
     return fusion_.get();
   }
@@ -392,19 +418,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       }
     }
   }
-
-  //! converts inputs from IValue to KernelArgumentHolder, also handles cache
-  //! lookup
-  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
-
-  //! query if there's a kernel ready to go for given inputs
-  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
-
-  //! compile a kernel executor for given inputs. Note: the compilation is
-  //! async, there's some restriction on the user side. e.g. don't overlap
-  //! compilation and execution for the same FusionExecutor entry. This is
-  //! experimental at this moment, please use with extra caution.
-  void compileFusionAsync(const at::ArrayRef<c10::IValue>& inputs);
 
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
