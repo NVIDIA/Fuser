@@ -164,7 +164,7 @@ class SchedulerTopologyChecker {
             auto p_id = entry.first;
             auto c_id = entry.second;
             if (p_id->isBroadcast() && !c_id->isBroadcast()) {
-              ids_to_resolve.emplace_back(std::make_pair(c_id, c_id));
+              ids_to_resolve.emplace_back(c_id, c_id);
             }
           }
 
@@ -242,7 +242,7 @@ class SchedulerTopologyChecker {
                       // If mapped, and producer is a producer of a reduction,
                       // we can resolve this id
                       ids_to_resolve.erase(
-                          ids_to_resolve.begin() + (entry_i - 1));
+                          ids_to_resolve.begin() + (int64_t)entry_i - 1l);
                     } else {
                       ids_to_resolve[entry_i - 1] = std::make_pair(
                           orig_id, backward_c2p_root_map.at(running_id));
@@ -264,7 +264,7 @@ class SchedulerTopologyChecker {
 
           // if all ids were not resolved, then we've found an instance of a
           // bad broadcast resolution after reduction
-          if (ids_to_resolve.size()) {
+          if (!ids_to_resolve.empty()) {
             return true;
           }
 
@@ -322,7 +322,7 @@ class SchedulerTopologyChecker {
   static bool supportedPostReductionFusion(
       Fusion* fusion,
       std::vector<TensorView*> reduction_tvs) {
-    TORCH_INTERNAL_ASSERT(reduction_tvs.size());
+    TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
     bool fastest_dim_reduction = true;
     auto red_root_dom = reduction_tvs[0]->getRootDomain();
     for (size_t i = red_root_dom.size(); i > 0; i--) {
@@ -683,7 +683,7 @@ bool reductionInterferingView(
     }
 
     // Don't add empty group (would happen if it's a 2D scheduler not 3D)
-    if (current_dims.size() > 0) {
+    if (!current_dims.empty()) {
       groups.push_back(current_dims);
       dims = remove_dims(dims, processed);
     }
@@ -701,7 +701,7 @@ bool reductionInterferingView(
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
   std::vector<std::vector<int>> disjoint_groups;
 
-  for (auto group : groups) {
+  for (const auto& group : groups) {
     std::vector<int> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
@@ -769,13 +769,13 @@ void SchedulerRuntimeInfo::initialize(
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
       auto dims = tensor_arg_abstract->getRank();
-      auto expected_stride = 1;
+      auto expected_stride = 1l;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getSize(dim);
+        auto size = tensor_arg_abstract->getSize((int)dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getStride(dim);
+        auto stride = tensor_arg_abstract->getStride((int)dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1002,7 +1002,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   auto inner_most_dim = scheduler_utils::innerMostRootDim(tv);
 
   int id_pos = -1;
-  for (auto root_i : c10::irange(tv_root_no_reductions_size)) {
+  for (auto root_i : c10::irange((int)tv_root_no_reductions_size)) {
     if (tv_root_no_reductions[root_i] == inner_most_dim) {
       id_pos = root_i;
       break;
@@ -1277,7 +1277,7 @@ class ReductionScheduler : public SchedulerEntry {
 
     auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
-    if (reduction_tvs.size() == 0) {
+    if (reduction_tvs.empty()) {
       // Use pointwise logic
       return false;
     }
@@ -1289,7 +1289,7 @@ class ReductionScheduler : public SchedulerEntry {
       return false;
     }
 
-    if (ir_utils::getViewOps(fusion).size() > 0) {
+    if (!ir_utils::getViewOps(fusion).empty()) {
       ComputeAtMap ca_map(fusion);
       if (requiresForwardViewReplay(fusion, ca_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1365,7 +1365,7 @@ class ReductionScheduler : public SchedulerEntry {
 
     // Doesn't allow persistent kernels in this scheduler
     auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-    if (persistent_buffer_info.persistent_buffers.size() > 0) {
+    if (!persistent_buffer_info.persistent_buffers.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Reduction,
           "need persistent buffers that reduction scheduler doesn't handle");
@@ -1420,7 +1420,7 @@ class TransposeScheduler : public SchedulerEntry {
     // Temporarily disallow view in transpose scheduler
     // TODO Add more testing before enabling
     auto view_tvs = scheduler_utils::getViewTVs(fusion);
-    if (view_tvs.size() > 0) {
+    if (!view_tvs.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Transpose, "No support for view op");
       return false;
@@ -1546,7 +1546,7 @@ class PointWiseScheduler : public SchedulerEntry {
       return false;
     }
 
-    if (ir_utils::getViewOps(fusion).size() > 0) {
+    if (!ir_utils::getViewOps(fusion).empty()) {
       ComputeAtMap ca_map(fusion);
       if (requiresForwardViewReplay(fusion, ca_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1645,14 +1645,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
-    if (reduction_tvs.size() == 0) {
+    if (reduction_tvs.empty()) {
       // Use pointwise logic
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent, "no reduction tv");
       return false;
     }
 
-    if (ir_utils::getViewOps(fusion).size() > 0) {
+    if (!ir_utils::getViewOps(fusion).empty()) {
       ComputeAtMap ca_map(fusion);
       if (requiresForwardViewReplay(fusion, ca_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1721,7 +1721,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     // Only accept persistent kernels
     auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-    if (persistent_buffer_info.persistent_buffers.size() == 0) {
+    if (persistent_buffer_info.persistent_buffers.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent, "no persistent buffer identified");
       return false;
@@ -1904,12 +1904,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     const int64_t vectorization_factor =
-        vectorize_helper::getVectorizationFactor(
+        (int64_t)vectorize_helper::getVectorizationFactor(
             runtime_info,
             reduction_tvs.at(0),
             data_cache,
-            reduction_tvs.at(0)->nDims() -
-                properties.inner_most_dimension_ndims);
+            (int)reduction_tvs.at(0)->nDims() -
+                (int)properties.inner_most_dimension_ndims);
 
     // Minimum required multi reduction factor.
     const int64_t min_multi_reduction_factor = vectorization_factor *
@@ -1953,12 +1953,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
               properties.total_iteration_numel,
               vectorization_factor,
               persistent_buffer_size);
-
-      if (!cross_grid_params.has_value()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent, "no valid launch config found");
-        return false;
-      }
     }
 
     // Maximum number of iteration dimensions we can have and still be
@@ -1981,7 +1975,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    const int64_t max_used_sms = is_cross_grid
+    const int64_t max_used_sms = is_cross_grid && cross_grid_params.has_value()
         ? ceilDiv(
               ceilDiv(properties.total_iteration_numel, vectorization_factor),
               cross_grid_params->launch_params.bdimx()) *
@@ -2039,7 +2033,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // disable the schedule if not evenly divisible on Titan RTX and
     // V100, i.e., compute architecture version 7.
     // TODO: Revisit
-    if (is_cross_grid &&
+    if (is_cross_grid && cross_grid_params.has_value() &&
         (properties.total_iteration_numel %
              (vectorization_factor * cross_grid_params->launch_params.bdimx() *
               cross_grid_params->launch_params.gdimx()) !=
@@ -2221,8 +2215,7 @@ HeuristicSummary::HeuristicSummary(
     Fusion* fusion,
     ScheduleHeuristic heuristic,
     SchedulerRuntimeInfo& runtime_info)
-    : heuristic_(heuristic) {
-  recording_ = true;
+    : heuristic_(heuristic), recording_(true) {
   switch (heuristic) {
     case ScheduleHeuristic::NoOp:
       NoOpScheduler::canScheduleRunTime(fusion, runtime_info, this);
