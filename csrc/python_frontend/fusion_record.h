@@ -13,45 +13,15 @@
 #include <ops/normalization.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <serde/fusion_record_serde.h>
+#include <serde/python_fusion_cache_generated.h>
 #include <utils.h>
 
 #include <algorithm>
 #include <complex>
 #include <variant>
 
-#include <serde/python_fusion_cache_generated.h>
-
 namespace nvfuser::python_frontend {
-
-//! A static function to map the serde dtype to its corresponding nvfuser dtype
-static serde::DataType mapToSerdeDtype(PrimDataType t) {
-  switch (t) {
-    case PrimDataType::Bool:
-      return serde::DataType_Bool;
-    case PrimDataType::Double:
-      return serde::DataType_Double;
-    case PrimDataType::Float:
-      return serde::DataType_Float;
-    case PrimDataType::Half:
-      return serde::DataType_Half;
-    case PrimDataType::BFloat16:
-      return serde::DataType_BFloat16;
-    case PrimDataType::Int:
-      return serde::DataType_Int;
-    case PrimDataType::Int32:
-      return serde::DataType_Int32;
-    case PrimDataType::ComplexFloat:
-      return serde::DataType_ComplexFloat;
-    case PrimDataType::ComplexDouble:
-      return serde::DataType_ComplexDouble;
-    case PrimDataType::Null:
-      return serde::DataType_None;
-    default:
-      break;
-  }
-  TORCH_INTERNAL_ASSERT(false, "No serde dtype found for nvfuser data type.");
-  return serde::DataType_MAX;
-}
 
 //! RecordFunctor is the base class record for operations recorded by
 //! the FusionState.  It is, in essence, a node in the graph with
@@ -439,7 +409,7 @@ struct PadOpRecord : RecordFunctor {
   PadOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t>& pad_widths)
+      std::vector<int64_t>&& pad_widths)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
@@ -1167,7 +1137,7 @@ struct CastOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
-        serde::CreateDtype(builder, mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
   }
 
  private:
@@ -1373,7 +1343,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
   return {
       serde::RecordData_ComplexDouble,
       serde::CreateComplexDouble(
-          builder, value.real(), value.imag(), mapToSerdeDtype(dtype_))
+          builder, value.real(), value.imag(), serde::mapToSerdeDtype(dtype_))
           .Union()};
 }
 
@@ -1385,7 +1355,8 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
         const {
   return {
       serde::RecordData_Double,
-      serde::CreateDouble(builder, value, mapToSerdeDtype(dtype_)).Union()};
+      serde::CreateDouble(builder, value, serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 template <>
@@ -1396,7 +1367,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
         const {
   return {
       serde::RecordData_Int,
-      serde::CreateInt(builder, value, mapToSerdeDtype(dtype_)).Union()};
+      serde::CreateInt(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
 }
 
 //! Specialized Record Functor for recording FusionState End.
@@ -1595,7 +1566,7 @@ struct TensorRecord : RecordFunctor {
     serde::TensorBuilder tensor_builder(builder);
     tensor_builder.add_sizes(fb_sizes);
     tensor_builder.add_contiguity(fb_contiguity_enum);
-    tensor_builder.add_dtype(mapToSerdeDtype(dtype_));
+    tensor_builder.add_dtype(serde::mapToSerdeDtype(dtype_));
     tensor_builder.add_is_cpu(is_cpu_);
     auto expr_data = tensor_builder.Finish();
     return {serde::RecordData_Tensor, expr_data.Union()};
@@ -1882,7 +1853,7 @@ struct ReductionOpRecord : RecordFunctor {
     return {
         serde::RecordData_Reduction,
         serde::CreateReductionDirect(
-            builder, &axes_, keep_dim_, mapToSerdeDtype(dtype_))
+            builder, &axes_, keep_dim_, serde::mapToSerdeDtype(dtype_))
             .Union()};
   }
 
@@ -2064,7 +2035,7 @@ struct ScalarRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
-        serde::CreateDtype(builder, mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
   }
 
  private:
@@ -2549,7 +2520,7 @@ struct FullOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->template as<Val>();
+    auto arg = fd.getFusionState(args_.at(0).index);
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
@@ -2584,7 +2555,7 @@ struct FullOpRecord : RecordFunctor {
     return {
         serde::RecordData_TensorCreation,
         serde::CreateTensorCreationDirect(
-            builder, &shape_, mapToSerdeDtype(dtype_))
+            builder, &shape_, serde::mapToSerdeDtype(dtype_))
             .Union()};
   }
 
@@ -2651,7 +2622,7 @@ struct IotaOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
-        serde::CreateDtype(builder, mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
   }
 
  private:
@@ -2761,7 +2732,7 @@ struct RandomOpRecord : RecordFunctor {
     return {
         serde::RecordData_TensorCreationSymbolic,
         serde::CreateTensorCreationSymbolicDirect(
-            builder, &fb_shape, mapToSerdeDtype(dtype_))
+            builder, &fb_shape, serde::mapToSerdeDtype(dtype_))
             .Union()};
   }
 

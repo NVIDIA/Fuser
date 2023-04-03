@@ -92,6 +92,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def_static(
           "reset", &FusionCache::reset, py::return_value_policy::reference)
       .def(
+          "serialize",
+          [](FusionCache& self, std::string filename) {
+            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            self.serialize(filename);
+          },
+          py::arg("filename"))
+      .def(
+          "deserialize",
+          [](FusionCache& self, std::string filename) {
+            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            self.deserialize(filename);
+          },
+          py::arg("filename"))
+      .def(
           "__repr__",
           [](FusionCache& self) {
             std::stringstream ss;
@@ -2497,7 +2511,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
-            pad_widths));
+            std::move(pad_widths)));
         return output;
       },
       py::arg("arg"),
@@ -2520,7 +2534,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
-            pad_widths));
+            std::move(pad_widths)));
         return output;
       },
       py::arg("pad_widths"),

@@ -197,7 +197,7 @@ table Output {
   stride_order: [long];
 }
 
-// Data for PaoOpRecord
+// Data for PadOpRecord
 table Pad {
   pad_widths: [long];
 }
