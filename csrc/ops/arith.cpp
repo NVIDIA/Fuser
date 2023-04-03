@@ -1151,6 +1151,27 @@ TensorView* reductionOpZeroDimTensor(TensorView* inp) {
 
 } // namespace
 
+
+std::vector<unsigned int> canonicalizeAxes(const std::vector<int>& axes, size_t ndims) {
+  std::vector<unsigned int> uint_axes;
+  for (int axis : axes) {
+    if (axis < 0) {
+      axis += (int)ndims;
+    }
+
+    TORCH_CHECK(
+        axis >= 0 && axis < (int)ndims,
+        "Reduction on invalid axis, received: ",
+        axis,
+        " however tensor view only has ",
+        ndims,
+        " non-reduction dims.");
+
+    uint_axes.push_back((unsigned int)axis);
+  }
+  return uint_axes;
+}
+
 TensorView* reductionOpRaw(
     BinaryOpType reduction_op_type,
     const std::vector<int>& axes,
@@ -1179,23 +1200,8 @@ TensorView* reductionOpRaw(
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes;
-  const auto ndims = tv->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += (int)ndims;
-    }
 
-    TORCH_CHECK(
-        axis >= 0 && axis < (int)ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
@@ -1299,21 +1305,7 @@ TensorView* reductionOp(
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes;
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += (int)ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < (int)ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-    uint_axes.push_back(axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
   // In PyTorch, reduction of a size-0 tensor is effectively creating a tensor
@@ -1670,23 +1662,7 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes;
-  const auto ndims = tv->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += (int)ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < (int)ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
@@ -1725,24 +1701,9 @@ WelfordResult Welford(
   TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
-  std::vector<int> uint_axes;
   auto tv_root = tv->domain()->noReductions();
   const auto ndims = tv_root.size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += (int)ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < (int)ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back(axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
   // Squeeze before reduction
@@ -2560,23 +2521,7 @@ TensorView* fusedMultiplySum(
   TORCH_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes;
-  const auto ndims = tv_a->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += (int)ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < (int)ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
