@@ -1151,8 +1151,9 @@ TensorView* reductionOpZeroDimTensor(TensorView* inp) {
 
 } // namespace
 
-
-std::vector<unsigned int> canonicalizeAxes(const std::vector<int>& axes, size_t ndims) {
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims) {
   std::vector<unsigned int> uint_axes;
   for (int axis : axes) {
     if (axis < 0) {
@@ -1200,8 +1201,8 @@ TensorView* reductionOpRaw(
     return reductionOpZeroDimTensor(tv);
   }
 
-
-  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv->domain()->noReductions().size());
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
@@ -1662,7 +1663,8 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv->domain()->noReductions().size());
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
@@ -1710,12 +1712,12 @@ WelfordResult Welford(
   std::vector<int> reduction_axes;
   std::vector<bool> is_trivial_reduction(ndims, false);
   int offset = 0;
-  for (int axis : uint_axes) {
+  for (auto axis : uint_axes) {
     auto id = tv_root[axis];
     is_trivial_reduction[axis] = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
     if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back(axis + offset);
+      reduction_axes.push_back((int)axis + offset);
     } else {
       offset--;
     }
@@ -2521,7 +2523,8 @@ TensorView* fusedMultiplySum(
   TORCH_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
