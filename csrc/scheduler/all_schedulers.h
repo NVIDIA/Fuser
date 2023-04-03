@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <scheduler/matmul.h>
 #include <scheduler/normalization.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction.h>
@@ -19,7 +20,8 @@ enum class TORCH_CUDA_CU_API ScheduleHeuristic {
   PointWise,
   Reduction,
   Persistent,
-  Transpose
+  Transpose,
+  Matmul
 };
 
 } // namespace nvfuser
