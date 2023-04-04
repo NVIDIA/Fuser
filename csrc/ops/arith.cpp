@@ -1171,6 +1171,8 @@ TensorView* reductionOpRaw(
       "\n  Domain: ",
       tv->domain()->toString());
 
+  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+
   // PyTorch allows reduction of 0-dim tensors
   if (tv->domain()->noReductions().size() == 0) {
     return reductionOpZeroDimTensor(tv);
@@ -1286,6 +1288,8 @@ TensorView* reductionOp(
       tv->getMaybeRFactorDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
+
+  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
 
   auto tv_root = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   const int ndims = tv_root.size();
