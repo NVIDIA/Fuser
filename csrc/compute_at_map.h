@@ -297,8 +297,16 @@ class TORCH_CUDA_CU_API ComputeAtMap {
           std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>& exact_sets)
       const;
 
-  const std::unordered_map<IterDomain*, IterDomain*> scatterMap() const {
+  const std::unordered_map<IterDomain*, IterDomain*>& scatterMap() const {
     return scatter_id_map_;
+  }
+
+  IterDomain* maybeGetScatterMapID(IterDomain* id) const {
+    auto iter = scatter_id_map_.find(id);
+    if (iter != scatter_id_map_.end()) {
+      return iter->second;
+    }
+    return id;
   }
 
  private:
@@ -367,7 +375,7 @@ class TORCH_CUDA_CU_API ComputeAtMap {
       DoubleBufferIndicesPtr>
       double_buffered_loop_index_variable_map_;
 
-  //! IterationDomain mapping for ScatterOp.
+  // IterationDomain map from outputTv ids and srcTv ids to the indexTv ids. 
   std::unordered_map<IterDomain*, IterDomain*> scatter_id_map_;
   // Shortcut to access the fusion this computeAt map was
   //  built from.

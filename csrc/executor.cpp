@@ -41,7 +41,8 @@ bool shouldFillAllocationWithNan() {
   return fill_allocation_with_nan_;
 }
 
-// For scatter operator, we need initialize output tensor using self tensor.
+// For scatter operator, the outputTv is also the FusionOutput, and we need
+// initialize the output tensor using the self tensor.
 TensorView* getOutputTensorForFillWithInputTensor(Val* output) {
   if (output->definition() && output->definition()->isA<ScatterOp>()) {
     return output->definition()->as<ScatterOp>()->selfTv();
@@ -49,12 +50,15 @@ TensorView* getOutputTensorForFillWithInputTensor(Val* output) {
   return nullptr;
 }
 
+// This function return the `copy` for the srcTv.
 at::Tensor getTensorForFillAnotherTensor(
-    TensorView* tv,
+    TensorView* srcTv,
     const KernelArgumentHolder& arg,
     kir::Kernel* kernel) {
   for (const auto i : c10::irange(kernel->inputs().size())) {
-    if (kernel->inputs()[i] == kernel->inputsOf(tv)[0]) {
+    // we want to get the position of need_clone_tv in the arg. 
+    if (kernel->inputs()[i] == kernel->inputsOf(srcTv)[0]) {
+      // return the copy of srcTv
       return dynamic_cast<const TensorArgAbstract*>(arg[i])
           ->getTensor()
           .clone()
@@ -62,7 +66,7 @@ at::Tensor getTensorForFillAnotherTensor(
     }
   }
   TORCH_INTERNAL_ASSERT(
-      false, "can't select input tensor to initiallize output tensor");
+      false, "can't fill output tensor using another tensor");
 }
 
 void setFillAllocationWithNan(bool value) {

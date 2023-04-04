@@ -465,10 +465,7 @@ void IndexCompute::handle(Merge* merge) {
 
   // For ScatterOp, the extend of outputTv should be the extend of indexTv.
   // The caMap.idMap store this info.
-  auto scatter_map = GpuLower::current()->caMap()->scatterMap();
-  if (scatter_map.find(inner_id) != scatter_map.end()) {
-    inner_id = scatter_map[inner_id];
-  }
+  inner_id = GpuLower::current()->caMap()->maybeGetScatterMapID(inner_id);
 
   Val* inner_extent = getExtent(inner_id);
 
@@ -3061,10 +3058,6 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     } else {
       auto offsetted_stop_index =
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
-      auto scatter_map = gpu_lower->caMap()->scatterMap();
-      if (scatter_map.find(contig_id) != scatter_map.end()) {
-        contig_id = scatter_map[contig_id];
-      }
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
                            offsetted_stop_index, contig_id->extent())
                            ->as<Bool>();
