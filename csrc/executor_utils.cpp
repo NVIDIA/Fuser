@@ -1223,7 +1223,7 @@ void fillCompileOptions(
 
 #ifdef NDEBUG
   // Avoid excessive register usage from assertion
-  nvrtc_compile.add("-DNDEBUG");
+  nvrtc_compile_driver.setOption("-DNDEBUG");
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
