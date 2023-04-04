@@ -137,7 +137,8 @@ auto parseDebugDumpOptions() {
       {"lower_verbose", DebugDumpOption::LowerVerbose},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
-      {"loop_rotation", DebugDumpOption::LoopRotation}};
+      {"loop_rotation", DebugDumpOption::LoopRotation},
+      {"matmul_checks", DebugDumpOption::MatmulChecks}};
 
   return parseEnvOptions("PYTORCH_NVFUSER_DUMP", available_options);
 }
