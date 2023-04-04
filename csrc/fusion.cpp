@@ -300,7 +300,8 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       output->setIsFusionOutput(false);
       output->as<TensorView>()->setMemoryType(MemoryType::Local);
     }
-    resetTvUses();
+    // Mark uses invalid so that they will be reset next time uses() is called
+    all_tv_uses_valid_ = false;
   }
 
   // Temporary WAR for issue #1112
