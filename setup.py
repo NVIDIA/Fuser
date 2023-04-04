@@ -18,15 +18,15 @@
 #     Skips benchmark target `nvfuser_bench`
 #
 
-import sys
-import subprocess
-import os
 import multiprocessing
+import os
 import shutil
+import subprocess
+import sys
 
 import setuptools
 import setuptools.command.build_ext
-from setuptools import setup, Extension
+from setuptools import Extension, setup
 
 # pick args used by this script
 CMAKE_ONLY = False
@@ -153,7 +153,6 @@ else:
     class build_whl(bdist_wheel):
         def run(self):
             with concat_third_party_license() as tp_licenses:
-
                 if len(tp_licenses) != 0:
                     with open("LICENSE", "a") as f:
                         f.write("\n\n")
@@ -203,7 +202,15 @@ def cmake():
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     # generate cmake directory
-    cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
+    cmd_str = [
+        get_cmake_bin(),
+        pytorch_cmake_config,
+        "-B",
+        build_dir_name,
+        "-G",
+        "Ninja",
+        ".",
+    ]
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
