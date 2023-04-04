@@ -115,6 +115,11 @@ VarMeanResult variance_mean(
         sub(num_features, IrBuilder::create<Int>(x->container(), correction));
   }
 
+  // Welford op can't handle 0-dim tensors, so we need to handle them separately
+  if (x->nDims() == 0 || dims.size() == 0) {
+    return {variance(x, dims, correction, keepdim), mean(x, dims, keepdim)};
+  }
+
   auto welford_out = Welford(x, dims);
   auto mean = welford_out.avg;
   auto var = mul(welford_out.var_sum, reciprocal(num_features));
