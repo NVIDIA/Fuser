@@ -376,7 +376,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     }
     std::cout << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[(int)i]->toString() << std::endl;
+      std::cout << "  " << args[i]->toString() << std::endl;
     }
     std::cout << "Compiler log: " << executor.compilerLog() << "\n";
     std::cout << scheduler_entry->params()->toString() << "\n";
@@ -539,14 +539,14 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   auto original_args_size = args.size();
   // Bind args in the tensor_map
   for (const auto i : c10::irange(original_args_size)) {
-    tensor_map.emplace(segmented_fusion_->inputs()[i], args[(int)i]);
+    tensor_map.emplace(segmented_fusion_->inputs()[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     // TODO: we probably have done this already up to this point
     //      should consider caching the expression evaluators, both
     //      more convenient and safer than replication
     if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[(int)i])) {
+            dynamic_cast<const TensorArgAbstract*>(args[i])) {
       // Note this is very ugly way. We are pushing every single extent to args,
       // because we don't have a better place to hold them.
       auto rank = tensor_arg_abstract->getRank();
