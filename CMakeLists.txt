@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if (CMAKE_VERSION VERSION_LESS 3.21)
     if ("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
