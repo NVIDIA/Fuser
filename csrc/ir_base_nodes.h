@@ -333,10 +333,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
   //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
-  //! Insert a new expression into uses() if it is not already present and
-  //! return whether an insertion occurred.
-  bool addUse(Expr*);
-
   bool isFusionInput() const {
     return is_fusion_input_;
   }
@@ -397,6 +393,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   void setUses(const std::vector<Expr*>& uses) {
     uses_ = uses;
   }
+
+  //! Insert a new expression into uses() if it is not already present and
+  //! return whether an insertion occurred.
+  bool addUse(Expr*);
 
  private:
   // There's only one instance where dtype can change, and that's through
