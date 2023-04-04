@@ -288,7 +288,7 @@ bool validateKernelArg(
     const Val* param,
     const c10::Device& device,
     std::stringstream& msg) {
-  // clang-tidy complains that arg may be null without tis assertion
+  // clang-tidy complains that arg may be null without this assertion
   TORCH_INTERNAL_ASSERT(arg != nullptr);
   if (auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg)) {
     // TODO: don't use get tensor here. We would want to remove tensor reference
