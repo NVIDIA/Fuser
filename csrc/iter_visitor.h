@@ -132,7 +132,7 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   // registered outputs.
   void traverse(Fusion* fusion);
 
-  // Same as traverse put it traverses every edge, meaning it will traverse
+  // Same as traverse but it traverses every edge, meaning it will traverse
   // values more than once.
   void traverseAllPaths(Fusion* fusion);
 
@@ -147,8 +147,8 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
 };
 
 /*
- * Backward visitor IterVisitor calls handle in reverse order from outputs
- * to inputs It would be really nice to unify this with IterVisitor, however,
+ * Backward visitor calls handle in reverse order from outputs to inputs.
+ * It would be really nice to unify this with IterVisitor, however,
  * the challenge there is that we specify traversal from outputs towards inputs
  * because it implicitly provides DCE. However, if users are not careful, they
  * could miss necessary outputs to do a backward traversal.
@@ -163,10 +163,10 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
  * outputs of some exprs, example being the `N` output of welford ops.
  * `must_cover_all_expr_outputs` is added to disable the check, and in
  * this case the visitor pass need be aware
- *  1. Exprs with any output that has a use chain that ends with a final
- * consumer in the `from` list `will be` visited.
- *  2. Vals that doesn't have a use chain that ends with a final
- * consumer in the `from` list `will not be` visited, even though its
+ *  1. Exprs in the `from` list with any output that has a use chain that
+ * ends with a final consumer `will be` visited.
+ *  2. Vals in the `from` list that doesn't have a use chain that ends with
+ * a final consumer `will not be` visited, even though its
  * definition expr might be visited. An example is if the `N` output
  * of an welford op is unused, but other outputs are, the welford op
  * will be visited but the `N` output will not.
@@ -302,7 +302,7 @@ class StmtSort : public IterVisitor {
       bool traverse_members = false,
       bool traverse_attributes = false);
 
-  // Returns ordered Statements required to produce from, including from.
+  // Returns ordered Statements required to produce 'to', including 'to'.
   static std::vector<Statement*> getStmts(
       Fusion* fusion,
       const std::vector<Val*>& to,

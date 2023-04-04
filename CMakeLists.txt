@@ -14,13 +14,14 @@ endif ()
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 if (PROJECT_IS_TOP_LEVEL)
-  message(STATUS "top-level build")
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
   find_package(pybind11 REQUIRED)
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
+  # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
+  string(APPEND CMAKE_CXX_FLAGS ${TORCH_CXX_FLAGS})
   if(BUILD_NVFUSER_BENCHMARK)
     add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/googletest)
     add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/benchmark)
@@ -151,10 +152,11 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
+    ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+    ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
-    ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
@@ -198,8 +200,6 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
                           )
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 
-message(STATUS "install_lib_dir: ${TORCH_INSTALL_LIB_DIR}")
-message(STATUS "cmake_install_includedir: ${CMAKE_INSTALL_INCLUDEDIR}")
 if (PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
   # TODO: setup header and lib installation
@@ -272,7 +272,6 @@ if(BUILD_PYTHON)
     target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
 
   if (PROJECT_IS_TOP_LEVEL)
-    message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
@@ -359,7 +358,6 @@ if(BUILD_TEST)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if (PROJECT_IS_TOP_LEVEL)
-    message(STATUS "skipping the rest of the libs")
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
   else() # PROJECT_IS_TOP_LEVEL

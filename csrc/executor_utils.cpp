@@ -64,38 +64,13 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::basic_type_traits_cu;
   ss << nvfuser_resources::complex_number_cu;
 
-#ifndef USE_ROCM
   ss << nvfuser_resources::fp16_support_cu;
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   ss << nvfuser_resources::bf16_support_cu;
-#endif
-#else
-  ss << R"(
-#ifndef __noinline__
-#define __noinline__ __attribute__((noinline))
-#endif
-#ifndef __forceinline__
-#define __forceinline__ inline __attribute__((always_inline))
-#endif
-#ifndef assert
-#define assert(expr) ((void)0)
-#endif
-#ifndef __align__
-#define __align__(x) __attribute__((aligned(x)))
-#endif
-  )";
-  // fp16 support is automatic, bf16 is not
-  ss << nvfuser_resources::bf16_support_rocm_cu;
-#endif
 
   // Base classes and helpers
   ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
-#ifndef USE_ROCM
   ss << nvfuser_resources::array_cu;
-#else
-  ss << nvfuser_resources::array_rocm_cu;
-#endif
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
@@ -105,11 +80,7 @@ std::string kernelPreamble() {
   if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
     ss << nvfuser_resources::block_sync_atomic_cu;
   } else {
-#ifndef USE_ROCM
     ss << nvfuser_resources::block_sync_default_cu;
-#else
-    ss << nvfuser_resources::block_sync_default_rocm_cu;
-#endif
   }
   ss << nvfuser_resources::grid_sync_cu;
 
@@ -119,13 +90,9 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::grid_broadcast_cu;
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
-#ifndef USE_ROCM
   ss << nvfuser_resources::warp_cu;
   ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
-#else
-  ss << nvfuser_resources::warp_rocm_cu;
-#endif
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
   ss << nvfuser_resources::fused_welford_impl_cu;
