@@ -76,7 +76,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder&& args);
+  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);

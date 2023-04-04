@@ -862,6 +862,10 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
 
   ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
   ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
+
+  ASSERT_TRUE(*simplify(
+      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_,
+      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {

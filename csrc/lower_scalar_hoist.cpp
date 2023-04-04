@@ -247,6 +247,13 @@ std::list<VarInfo> getVariableInfo(
 
 std::vector<Bool*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
   std::vector<Bool*> assumptions;
+  // assumptions from parallel dimension
+  for (auto [p, extent] :
+       GpuLower::current()->parallelDimensionMap().getMap()) {
+    auto a = IrBuilder::ltExpr(NamedScalar::getParallelIndex(p), extent);
+    assumptions.emplace_back(a);
+  }
+  // assumptions from loop nesting
   for (auto loop : loops) {
     // Trivial loop is not generated, so there is no `if` or `for` in C++ to
     // guard its scope. So we should not assume index < stop. One real example
