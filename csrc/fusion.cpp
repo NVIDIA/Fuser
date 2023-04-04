@@ -544,9 +544,15 @@ void Fusion::registerExpr(Expr* expr) {
   bool has_tv = false;
 
   for (Val* input : expr->inputs()) {
-    if (input->isA<TensorView>()) {
-      has_tv = true;
-      break;
+    has_tv = has_tv || input->isA<TensorView>();
+    assertInContainer(input, "Input to expr is invalid, ");
+    // Do not call uses() here, since we want to avoid resetTvUses unless
+    // necessary
+    auto uses_copy = input->uses_;
+    if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
+        uses_copy.end()) {
+      uses_copy.push_back(expr);
+      input->setUses(uses_copy);
     }
   }
 
