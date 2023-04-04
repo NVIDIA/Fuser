@@ -77,8 +77,9 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
-  //! starts compilation async
-  void startAsyncCompile(KernelArgumentHolder args);
+  //! Compile a kernel executor for given inputs. Note: The compilation is
+  //! multithreaded. The segments in the fusion are compiled independently.
+  void compileFusionParallel(KernelArgumentHolder args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -343,12 +344,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! codegen.
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs);
-
-  //! Compile a kernel executor for given inputs. Note: The compilation is
-  //! async, there's some restriction on the user side. e.g. Do not overlap
-  //! compilation and execution for the same FusionExecutor entry. This is
-  //! experimental at this moment, please use with extra caution.
-  void compileFusionAsync(const at::ArrayRef<c10::IValue>& inputs);
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup

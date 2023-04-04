@@ -135,16 +135,6 @@ bool FusionExecutorCache::isCompiled(const at::ArrayRef<c10::IValue>& inputs) {
   return getKernelRuntimeFor(args)->isCompiled();
 }
 
-void FusionExecutorCache::compileFusionAsync(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::compileFusionAsync");
-
-  KernelArgumentHolder args = prepareInputs(inputs);
-  auto kernel_runtime = getKernelRuntimeFor(args);
-
-  kernel_runtime->startAsyncCompile(args);
-}
-
 // Note [ Permutation support in nvfuser ]
 //
 // Background:
@@ -203,7 +193,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   auto kernel_runtime = getKernelRuntimeFor(args);
 
   if (!isCompiled(perm_inputs)) {
-    kernel_runtime->startAsyncCompile(args);
+    kernel_runtime->compileFusionParallel(args);
   }
 
   most_recent_runtime_ = kernel_runtime;
@@ -456,14 +446,8 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 }
 
 // passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
-  // only single compilation is supported at this moment.
-  std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
-  TORCH_CHECK(
-      unique_lock.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that has already",
-      " started a compilation thread is not supported.",
-      " - unique_lock");
+void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
+  std::lock_guard<std::mutex> guard(mutex_);
 
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
@@ -480,8 +464,10 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
+    sg_inputs.emplace_back(args.getIndexMode());
+    KernelArgumentHolder& group_runtime_inputs = sg_inputs.back();
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+
     for (auto input : group_to_run->inputs()) {
       group_runtime_inputs.push(tensor_map.at(input));
     }
@@ -497,8 +483,6 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
       args.push(group_runtime_outputs[group_out_i]);
       tensor_map.emplace(group_outputs[group_out_i], args.back());
     }
-
-    sg_inputs.push_back(std::move(group_runtime_inputs));
   }
 
   // std::cout << "kernels\t" << sg_inputs.size() << std::endl;
@@ -507,7 +491,7 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder args) {
     auto input_args = sg_inputs.at(pos);
     auto sg = runtime_workspace_.group_run_order.at(pos);
     getThreadPool()->run([=]() {
-      FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
+      FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
       compileKernel(input_args, sg);
