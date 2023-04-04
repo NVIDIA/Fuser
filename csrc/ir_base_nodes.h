@@ -327,6 +327,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   inline bool isDefinitionType() const;
 
+  //! Returns the Exprs for which this is an input.
+  //! Note that uses() will occasionally trigger a deferred call to
+  //! resetTvUses() which can be expensive as it requires traversing the graph
+  //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
   bool isFusionInput() const {
