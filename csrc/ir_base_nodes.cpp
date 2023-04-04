@@ -115,7 +115,9 @@ const std::vector<Expr*>& Val::uses() const {
 bool Val::addUse(Expr* expr) {
   if (std::find(uses_.begin(), uses_.end(), expr) == uses_.end()) {
     uses_.push_back(expr);
-    fusion()->invalidateUses();
+    if (vtype_ == ValType::TensorView) {
+      fusion()->invalidateUses();
+    }
     return true;
   }
   return false;
