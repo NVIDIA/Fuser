@@ -253,10 +253,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs);
 
-  Fusion* fusion() const {
-    return fusion_;
-  }
-
  private:
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   struct GlobalBuffers {

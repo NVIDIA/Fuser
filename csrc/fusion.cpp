@@ -371,6 +371,7 @@ void Fusion::validateInputs() {
 }
 
 std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
+  FUSER_PERF_SCOPE("Fusion::print");
   FusionGuard fg(this);
   os << "\n%kernel {\n";
   IrMathPrinter op_exprs(os);
@@ -383,12 +384,6 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
   os << "}\n";
 
   return os;
-}
-
-void Fusion::print() {
-  FUSER_PERF_SCOPE("Fusion::print");
-
-  print(std::cout, /*include_tensor_transforms*/ true);
 }
 
 void Fusion::printKernel(const CompileParams& compile_params) {

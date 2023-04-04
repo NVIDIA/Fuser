@@ -287,7 +287,7 @@ std::string FusionExecutorCache::getScheduledIr(
     ss << fs << "\n";
   }
   for (auto& exec : kernel_runtime->executors()) {
-    auto sched_ir = exec.fusion();
+    auto sched_ir = exec.kernel()->as<Fusion>();
     sched_ir->print(ss, tensor_transforms);
   }
   return ss.str();
