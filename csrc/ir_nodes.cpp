@@ -1686,9 +1686,15 @@ LoadStoreOp::LoadStoreOp(
 
 std::string LoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size + 1)
-      << " = " << opType() << "( " << in()->toString() << " )\n";
+  indent(ss, indent_size + 1) << " = " << optype << "( " << in()->toString();
+  if (predicate()) {
+    ss << ", " << std::endl;
+    indent(ss, indent_size + 1)
+        << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
