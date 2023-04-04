@@ -389,6 +389,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
     ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
     ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
