@@ -1051,6 +1051,35 @@ void validateIndexType(
       compile_params.index_type.value());
 }
 
+void validateCooperativeLaunch(
+    CUfunction kernel,
+    const LaunchParams& launch_params,
+    int64_t device_index) {
+  int num_blocks_per_SM = -1;
+  CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &num_blocks_per_SM,
+      kernel,
+      (int)(launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz()),
+      (size_t)launch_params.smem()));
+
+  TORCH_INTERNAL_ASSERT(
+      (int64_t)(num_blocks_per_SM * at::cuda::getDeviceProperties(device_index)->multiProcessorCount) >=
+          launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "what can be resident on the GPU at once. Need: ",
+      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      " (",
+      launch_params.gdimx(),
+      " * ",
+      launch_params.gdimy(),
+      " * ",
+      launch_params.gdimz(),
+      ") but limited to ",
+      num_blocks_per_SM,
+      " * ",
+      at::cuda::getDeviceProperties(device_index)->multiProcessorCount);
+}
+
 } // namespace
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1211,34 +1240,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
 
     if (kernel()->summary().has_cooperative_grid_reduction) {
-      int num_blocks_per_SM = -1;
-      CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
-          &num_blocks_per_SM,
-          compiled_kernel_.function,
-          (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
-          (size_t)launch_params_.smem()));
-
-      TORCH_INTERNAL_ASSERT(
-          (int64_t)(
-              num_blocks_per_SM *
-              at::cuda::getDeviceProperties(options_.device.index())
-                  ->multiProcessorCount) >= launch_params_.gdimx() *
-                  launch_params_.gdimy() * launch_params_.gdimz(),
-          "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
-          "what can be resident on the GPU at once. Need: ",
-          launch_params_.gdimx() * launch_params_.gdimy() *
-              launch_params_.gdimz(),
-          " (",
-          launch_params_.gdimx(),
-          " * ",
-          launch_params_.gdimy(),
-          " * ",
-          launch_params_.gdimz(),
-          ") but limited to ",
-          num_blocks_per_SM,
-          " * ",
-          at::cuda::getDeviceProperties(options_.device.index())
-              ->multiProcessorCount);
+      validateCooperativeLaunch(
+          compiled_kernel_.function, launch_params_, options_.device.index());
     }
 
     executor_utils::validateVectorizedTensors(
