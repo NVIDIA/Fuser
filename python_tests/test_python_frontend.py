@@ -1520,10 +1520,10 @@ class TestNvFuserFrontend(TestCase):
 
     def test_cuda_code_and_scheduled_fusion_ir_strings(self):
         inputs = [
-            torch.randn(2, 2, 2, 2, device='cuda'),
+            torch.randn(2, 2, 2, 2, device="cuda"),
         ]
         big_inputs = [
-            torch.randn(64, 64, 64, 64, device='cuda'),
+            torch.randn(64, 64, 64, 64, device="cuda"),
         ]
 
         # Function only based definition
@@ -1592,10 +1592,12 @@ class TestNvFuserFrontend(TestCase):
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs))
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
-            sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs, tensor_transforms=True))
+            sched_ir_len = len(
+                fd.scheduled_fusion_ir_for(inputs, tensor_transforms=True)
+            )
             self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
 
-            # Attemp to get strings for inputs that do not heuristically match 
+            # Attemp to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.cuda_code_for(big_inputs)
