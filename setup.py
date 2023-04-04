@@ -17,6 +17,9 @@
 #   --no-benchmark
 #     Skips benchmark target `nvfuser_bench`
 #
+#   --no-ninja
+#     In case you want to use make instead of ninja for build
+#
 
 import multiprocessing
 import os
@@ -34,6 +37,8 @@ BUILD_SETUP = True
 NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
+NO_NINJA = False
+PATCH_NVFUSER = True
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -48,9 +53,15 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-benchmark":
         NO_BENCHMARK = True
         continue
+    if arg == "--no-ninja":
+        NO_NINJA = True
+        continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         BUILD_SETUP = False
+    if arg in ["bdist_wheel"]:
+        # bdist_wheel doesn't install entry-points, so we can't really patch it yet
+        PATCH_NVFUSER = False
     forward_args.append(arg)
 sys.argv = forward_args
 
@@ -207,10 +218,11 @@ def cmake():
         pytorch_cmake_config,
         "-B",
         build_dir_name,
-        "-G",
-        "Ninja",
-        ".",
     ]
+    if not NO_NINJA:
+        cmd_str.append("-G")
+        cmd_str.append("Ninja")
+    cmd_str.append(".")
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
@@ -272,7 +284,7 @@ def main():
             },
         )
 
-        if BUILD_SETUP:
+        if BUILD_SETUP and PATCH_NVFUSER:
             subprocess.check_call(["patch-nvfuser"])
 
 
