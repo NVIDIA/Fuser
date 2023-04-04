@@ -17,6 +17,9 @@ int nonNegativeAxis(int axis, int ndims) {
 
 Val* numFeatures(TensorView* x, const std::vector<int>& dims, int ndims) {
   Val* num_features = IrBuilder::create<Double>(x->container(), 1);
+  if (ndims == 0) {
+    return num_features;
+  }
   for (const auto dim : dims) {
     const int axis = nonNegativeAxis(dim, ndims);
     num_features = mul(num_features, x->domain()->domain()[axis]->extent());
@@ -116,7 +119,7 @@ VarMeanResult variance_mean(
   }
 
   // Welford op can't handle 0-dim tensors, so we need to handle them separately
-  if (x->nDims() == 0 || dims.size() == 0) {
+  if (x->nDims() == 0) {
     return {variance(x, dims, correction, keepdim), mean(x, dims, keepdim)};
   }
 
