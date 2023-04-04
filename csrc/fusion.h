@@ -373,6 +373,11 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Val::uses()
   void resetTvUses();
 
+  //! Declare that uses needs to be updated (but don't actually do the update).
+  void invalidateUses() {
+    all_tv_uses_valid_ = false;
+  }
+
  private:
   // Determine if the two values are compatible for aliasing
   // Same DataType, ValType, and number of dimensions
