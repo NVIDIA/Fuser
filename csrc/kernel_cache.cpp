@@ -252,9 +252,19 @@ std::string FusionExecutorCache::getCode(
   }
 
   if (intrinsic_code) {
-    const FusionExecutor& fe = kernel_runtime->executors()[0];
-    std::string full_code =
-        fe.getStructuredCode(kernel_code, fe.kernel()->indexType());
+    const auto& execs = kernel_runtime->executors();
+    const FusionExecutor& fe = execs[0];
+    auto index_type = fe.kernel()->indexType();
+    // Make sure all the segment index types match
+    for (const auto& exec : execs) {
+      TORCH_CHECK(
+          index_type == exec.kernel()->indexType(),
+          "Index Type mismatch between Segment Executors: ",
+          index_type,
+          " ",
+          exec.kernel()->indexType());
+    }
+    std::string full_code = fe.getStructuredCode(kernel_code, index_type);
     return full_code;
   } else {
     return kernel_code;
