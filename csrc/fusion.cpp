@@ -172,9 +172,8 @@ void Fusion::removeExpr(Expr* expr) {
     out->setDefinition(nullptr);
   }
 
-  for (auto inp : expr->inputs()) {
-    inp->addUse(expr);
-  }
+  // Call for a rebuild of uses vector
+  invalidateUses();
 
   IrContainer::removeExpr(expr);
 }
