@@ -92,7 +92,6 @@ class FusionDefinition(_C._FusionDefinition):
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
         )
 
-
     def fusion_ir(self):
         """
         Returns the uscheduled Fusion IR for the given definition that corresponds to all scheduled inputs.
@@ -115,7 +114,7 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             String
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
         return self._last_cuda_code(intrinsic_code, override_user_schedule)
 
     def cuda_code_for(self, inputs, intrinsic_code=False, **kwargs):
@@ -132,7 +131,7 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             String
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
         return self._cuda_code_for(inputs, intrinsic_code, override_user_schedule)
 
     def last_scheduled_fusion_ir(self, tensor_transforms=False, **kwargs):
@@ -148,7 +147,7 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             String
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
         return self._last_scheduled_fusion_ir(tensor_transforms, override_user_schedule)
 
     def scheduled_fusion_ir_for(self, inputs, tensor_transforms=False, **kwargs):
@@ -165,8 +164,11 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             String
         """
-        override_user_schedule = kwargs.pop('override_user_schedule', False)
-        return self._scheduled_fusion_ir_for(inputs, tensor_transforms, override_user_schedule)
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
+        return self._scheduled_fusion_ir_for(
+            inputs, tensor_transforms, override_user_schedule
+        )
+
 
 from .nvfuser_version import __version__
 
