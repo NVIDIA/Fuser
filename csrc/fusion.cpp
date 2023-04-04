@@ -173,12 +173,7 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   for (auto inp : expr->inputs()) {
-    auto uses_copy = inp->uses();
-    auto it = std::find(uses_copy.begin(), uses_copy.end(), expr);
-    if (it != uses_copy.end()) {
-      uses_copy.erase(it);
-      inp->setUses(uses_copy);
-    }
+    inp->addUse(expr);
   }
 
   IrContainer::removeExpr(expr);
@@ -547,14 +542,7 @@ void Fusion::registerExpr(Expr* expr) {
   for (Val* input : expr->inputs()) {
     has_tv = has_tv || input->isA<TensorView>();
     assertInContainer(input, "Input to expr is invalid, ");
-    // Do not call uses() here, since we want to avoid resetTvUses unless
-    // necessary
-    auto uses_copy = input->uses_;
-    if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
-        uses_copy.end()) {
-      uses_copy.push_back(expr);
-      input->setUses(uses_copy);
-    }
+    input->addUse(expr);
   }
 
   // Kernel is the only container type that is non-ssa. This is mainly (maybe
@@ -596,12 +584,7 @@ void Fusion::resetTvUses() {
   // Same as in register expr
   for (auto expr : used_exprs) {
     for (Val* input : expr->inputs()) {
-      auto uses_copy = input->uses();
-      if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
-          uses_copy.end()) {
-        uses_copy.push_back(expr);
-        input->setUses(uses_copy);
-      }
+      input->addUse(expr);
     }
   }
 
