@@ -34,6 +34,8 @@ BUILD_SETUP = True
 NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
+SYSTEM_GTEST = False
+SYSTEM_GBENCH = False
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -47,6 +49,12 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-benchmark":
         NO_BENCHMARK = True
+        continue
+    if arg == "--system-gtest":
+        SYSTEM_GTEST = True
+        continue
+    if arg == "--system-gbench":
+        SYSTEM_GBENCH = True
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -203,13 +211,17 @@ def cmake():
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     # generate cmake directory
-    cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
+    cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "-G", "Ninja", "."]
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
         cmd_str.append("-DBUILD_PYTHON=ON")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    if SYSTEM_GTEST:
+        cmd_str.append("-DSYSTEM_GTEST=ON")
+    if SYSTEM_GBENCH:
+        cmd_str.append("-DSYSTEM_GBENCH=ON")
 
     subprocess.check_call(cmd_str)
 
