@@ -313,25 +313,28 @@ bool inferViewShape(
     c10::List<int64_t> view_sizes) {
   int64_t dynamic_index = -1;
   size_t view_size_num_elements = 1;
-  for (size_t idx = 0; idx < view_sizes.size(); ++idx) {
+  for (auto idx : c10::irange(view_sizes.size())) {
     if (view_sizes[idx] == -1) {
       TORCH_INTERNAL_ASSERT(
           dynamic_index == -1, "Only one dimension can by inferred.")
-      dynamic_index = idx;
+      dynamic_index = (int64_t)idx;
     } else {
       TORCH_INTERNAL_ASSERT(view_sizes[idx] > 0);
       view_size_num_elements *= view_sizes[idx];
     }
   }
-  const size_t kNumElements = std::accumulate(
-      tensor_sizes.begin(), tensor_sizes.end(), 1, std::multiplies<>());
+  const auto kNumElements = std::accumulate(
+      tensor_sizes.begin(),
+      tensor_sizes.end(),
+      int64_t(1),
+      std::multiplies<>());
 
   if (kNumElements % view_size_num_elements != 0) {
     return false;
   }
 
   if (dynamic_index != -1) {
-    view_sizes[dynamic_index] = kNumElements / view_size_num_elements;
+    view_sizes[dynamic_index] = kNumElements / (int64_t)view_size_num_elements;
   }
 
   return true;
@@ -525,7 +528,7 @@ torch::jit::RegisterOperators reg_infer_unsqueeze_size({
             auto dim = torch::jit::pop(stack).toInt();
             auto size = torch::jit::pop(stack).toIntVector();
             if (dim < 0) {
-              dim = dim + 1 + size.size();
+              dim = dim + 1 + (int64_t)size.size();
             }
             auto it = size.begin() + dim;
             size.insert(it, 1);
@@ -544,7 +547,7 @@ torch::jit::RegisterOperators reg_infer_squeeze_dim_size({
             auto dim = torch::jit::pop(stack).toInt();
             auto size = torch::jit::pop(stack).toIntVector();
             if (dim < 0) {
-              dim = dim + size.size();
+              dim = dim + (int64_t)size.size();
             }
             auto it = size.begin() + dim;
             if (*it == 1) {
@@ -607,7 +610,7 @@ torch::jit::RegisterOperators reg_infer_index_select({
             auto idx_size = torch::jit::pop(stack).toIntVector();
             auto size = torch::jit::pop(stack).toIntVector();
             size[selected_dim] = idx_size[0];
-            torch::jit::push(stack, c10::IValue(std::move(size)));
+            torch::jit::push(stack, c10::IValue(size));
           };
         },
         torch::jit::aliasAnalysisFromSchema()),

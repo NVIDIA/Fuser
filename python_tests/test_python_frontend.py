@@ -9,7 +9,7 @@ import math
 import re
 from typing import List, Callable
 import unittest
-from itertools import permutations
+import itertools
 
 import torch
 import torch.nn.functional as F
@@ -24,6 +24,7 @@ try:
         FusionCache,
         FusionDefinition,
         DataType,
+        Tensor,
         version,
         compute_contiguity,
     )
@@ -80,7 +81,6 @@ def serde_check(test_fn: Callable):
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(TestCase):
-
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
@@ -1368,7 +1368,7 @@ class TestNvFuserFrontend(TestCase):
 
         assert len(nvf_out) == len(torch_out)
 
-        for (n, t) in zip(nvf_out, torch_out):
+        for n, t in zip(nvf_out, torch_out):
             self.assertEqual(n, t)
 
     def test_all_dim_var_mean(self):
@@ -1478,7 +1478,7 @@ class TestNvFuserFrontend(TestCase):
         ]
         eager_out = inputs[0] + 3.0
 
-        for perm in permutations(range(4), 4):
+        for perm in itertools.permutations(range(4), 4):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
@@ -1679,6 +1679,44 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
+
+    def test_nextafter(self):
+        inputs = [
+            # torch.nextafter is only defined for float{32,64} tensor inputs
+            torch.testing.make_tensor(4, device="cuda", dtype=torch.float32),
+            torch.testing.make_tensor(4, device="cuda", dtype=torch.float64),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            s0 = fd.define_constant(1.0, dtype=DataType.Float)
+            s1 = fd.define_constant(-1.0, dtype=DataType.Double)
+
+            for a, b in itertools.product(
+                [t0, t1, s0, s1],
+                [t0, t1, s0, s1],
+            ):
+                # always enter the fusion...
+                t = fd.ops.nextafter(a, b)
+                if isinstance(t, Tensor):
+                    # ...but skip outputting scalars, which we don't support
+                    fd.add_output(t)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        ab = [inputs[0], inputs[1], 1.0, -1.0]
+        i = 0
+        for a, b in itertools.product(ab, ab):
+            if not (isinstance(a, torch.Tensor) or isinstance(b, torch.Tensor)):
+                continue
+            n = nvf_out[i]
+            i += 1
+            torch_out = torch.nextafter(
+                torch.as_tensor(a, device="cuda"), torch.as_tensor(b, device="cuda")
+            )
+            self.assertEqual(n, torch_out)
 
     def test_nanogpt_mha_dpa(self):
         inputs = [

@@ -802,6 +802,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
   NVFUSER_PYTHON_BINDING_BINARY_OP("pow", pow)
   NVFUSER_PYTHON_BINDING_BINARY_OP("remainder", remainder)
   NVFUSER_PYTHON_BINDING_BINARY_OP("sub", sub)

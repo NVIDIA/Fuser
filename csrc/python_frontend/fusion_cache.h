@@ -144,8 +144,7 @@ class TORCH_CUDA_CU_API FusionCache {
   //! cause a modification to that data member for cache eviction.
   c10::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
-      const at::ArrayRef<c10::IValue>& inputs,
-      int device);
+      const at::ArrayRef<c10::IValue>& inputs);
   //! Lookup the User Schedule based on Id
   const UserSchedule& queryUserSchedule(
       const FusionSchedules* scheds,

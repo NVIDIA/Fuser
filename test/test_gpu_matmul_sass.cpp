@@ -9,6 +9,7 @@
 
 #include <ops/arith.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 #include <test/test_utils.h>
 
 #include <sstream>
@@ -58,15 +59,15 @@ sass::Container getSASSFor(
   gemm_tile.warp_tile = warp_tile;
   gemm_tile.instruction_tile = instruction_tile;
 
-  auto mma_builder = MmaBuilder(macro, gemm_tile).layout(layout);
-
-  MatmulParam params(mma_builder);
+  MatmulParams params;
+  params.mma_op = macro;
+  params.layout = layout;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(tv2, tv0, tv1, params);
+  scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
   auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -288,7 +289,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSRegisterUsageLDSM_CUDA) {
               std::string_view view(smem_address); // example: [R0+UR0+0x200]
               view = view.substr(1, view.size() - 2); // example: R0+UR0+0x200
               std::string_view base;
-              int offset;
+              int offset = 0;
               using namespace std::literals;
               auto last = view.find_last_of("+"sv);
               if (last == std::string::npos ||

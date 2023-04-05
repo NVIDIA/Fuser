@@ -11,6 +11,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/utils.h>
@@ -203,6 +204,13 @@ class TORCH_CUDA_CU_API SchedulerEntry {
     TORCH_INTERNAL_ASSERT(
         tparams != nullptr, "Heuristic parameter is not a transpose parameter");
     return *tparams;
+  }
+
+  const MatmulParams& matmulParams() const {
+    auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
+    TORCH_INTERNAL_ASSERT(
+        mparams != nullptr, "Heuristic parameter is not a matmul parameter");
+    return *mparams;
   }
 
   void updateLaunchConstraint(const LaunchParams& launch_params) {

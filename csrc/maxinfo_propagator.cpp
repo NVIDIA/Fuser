@@ -25,7 +25,7 @@ MaxInfoSpanningTree::MaxInfoSpanningTree(
     Selector* selector)
     : selector_(selector),
       reference_(reference),
-      reference_info_(reference_info) {}
+      reference_info_(std::move(reference_info)) {}
 
 void MaxInfoSpanningTree::compute_spanning_tree() {
   // A set that allows us to quickly tell if a tensor has been replayed. If yes,

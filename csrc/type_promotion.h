@@ -29,6 +29,7 @@ namespace nvfuser {
 //!
 struct TypePromotionConfig {
   bool promote_integer_inputs_to_float = false;
+  bool require_full_precision_promoted = false;
   TypePromotionConfig() = default;
 };
 
@@ -37,7 +38,11 @@ namespace TypePromotion {
 static const TypePromotionConfig comparison_op_config;
 static const TypePromotionConfig default_op_config;
 static const TypePromotionConfig float_op_config{
-    /* promote_integer_inputs_to_float */ true};
+    /* promote_integer_inputs_to_float */ true,
+    /* require_full_precision_promoted */ false};
+static const TypePromotionConfig float_only_op_config{
+    /* promote_integer_inputs_to_float */ false,
+    /* require_full_precision_promoted */ true};
 
 } // namespace TypePromotion
 

@@ -8,6 +8,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <mma_type.h>
+#include <functional>
 
 namespace nvfuser {
 
@@ -124,7 +125,8 @@ bool isTuring(MmaOptions::MacroType macro) {
 }
 
 bool isAmpere(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Ampere_16_8_16 ||
+  return macro == MmaOptions::MacroType::Ampere_16_8_8 ||
+      macro == MmaOptions::MacroType::Ampere_16_8_16 ||
       macro == MmaOptions::MacroType::Ampere_16_16_16;
 }
 
@@ -134,11 +136,9 @@ int getOutputRegisterSize(MmaOptions::MacroType macro) {
     case MmaOptions::MacroType::Ampere_16_16_16:
     case MmaOptions::MacroType::Turing_16_16_16:
       return 8;
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
       return 4;
-      break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown macro");
       break;
@@ -150,13 +150,11 @@ int getInputARegisterSize(MmaOptions::MacroType macro) {
   switch (macro) {
     case MmaOptions::MacroType::Volta_16_16_4:
       return 4;
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Turing_16_16_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
     case MmaOptions::MacroType::Ampere_16_16_16:
       return 8;
-      break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown macro");
       break;
@@ -168,7 +166,6 @@ int getInputBRegisterSize(MmaOptions::MacroType macro) {
   switch (macro) {
     case MmaOptions::MacroType::Volta_16_16_4:
       return 4;
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
       return 4;
@@ -194,6 +191,25 @@ bool isOperandTransposed(MmaOptions options) {
       TORCH_CHECK(false, "isOperandTransposed: please specify operand");
   }
   return false;
+}
+
+GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
+  switch (macro) {
+    case MmaOptions::MacroType::Volta_16_16_4:
+      return {16, 16, 4};
+    case MmaOptions::MacroType::Turing_16_8_16:
+    case MmaOptions::MacroType::Ampere_16_8_16:
+      return {16, 8, 16};
+    case MmaOptions::MacroType::Turing_16_16_16:
+    case MmaOptions::MacroType::Ampere_16_16_16:
+      return {16, 16, 16};
+    case MmaOptions::MacroType::Ampere_16_8_8:
+      return {16, 8, 8};
+    case MmaOptions::MacroType::NoMMA:
+      return {1, 1, 1};
+  }
+
+  TORCH_INTERNAL_ASSERT(false, "unknown MMA macro");
 }
 
 std::string toString(MmaOptions::MmaInputLayout input_layout) {
@@ -236,6 +252,61 @@ std::string toString(MmaOptions::MacroType mt) {
       break;
   }
   return ss.str();
+}
+
+std::string toString(const GemmTile& tile) {
+  std::stringstream ss;
+  ss << "[" << tile.m << ", " << tile.n << ", " << tile.k << "]";
+  return ss.str();
+}
+
+std::string toString(const MatMulTileOptions& opts) {
+  std::stringstream ss;
+  ss << "MatMulTileOptions: "
+     << "instruction tile " << toString(opts.instruction_tile) << ", "
+     << "warp tile " << toString(opts.warp_tile) << ", "
+     << "CTA tile " << toString(opts.cta_tile);
+  return ss.str();
+}
+
+std::string toString(MmaOptions::MacroType mt, bool) {
+  switch (mt) {
+    case MmaOptions::MacroType::Ampere_16_8_8:
+      return "Ampere_16_8_8";
+    case MmaOptions::MacroType::Ampere_16_8_16:
+      return "Ampere_16_8_16";
+    case MmaOptions::MacroType::Ampere_16_16_16:
+      return "Ampere_16_16_16";
+    case MmaOptions::MacroType::NoMMA:
+      return "NoOp";
+    case MmaOptions::MacroType::Turing_16_8_16:
+      return "Turing_16_8_16";
+    case MmaOptions::MacroType::Turing_16_16_16:
+      return "Turing_16_16_16";
+    case MmaOptions::MacroType::Volta_16_16_4:
+      return "Volta_16_16_4";
+  }
+  TORCH_INTERNAL_ASSERT(false, "Unsupported mma type");
+  return "Unsupported";
+}
+
+size_t hash(MmaOptions::MacroType macro) {
+  return std::hash<size_t>{}(static_cast<size_t>(macro));
+}
+
+size_t hash(MmaOptions::MmaInputLayout input_layout) {
+  return std::hash<size_t>{}(static_cast<size_t>(input_layout));
+}
+
+size_t hash(const GemmTile& tile) {
+  return std::hash<size_t>{}(
+      (static_cast<size_t>(tile.m) << 32) +
+      (static_cast<size_t>(tile.n) << 16) + (static_cast<size_t>(tile.k)));
+}
+
+size_t hash(const MatMulTileOptions& opts) {
+  return (hash(opts.instruction_tile) << 0) ^ (hash(opts.warp_tile) << 1) ^
+      (hash(opts.cta_tile) << 2);
 }
 
 } // namespace nvfuser

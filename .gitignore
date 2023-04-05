@@ -36,3 +36,6 @@ nvfuser/lib
 *~
 .~lock.*
 .vscode
+
+# debugging temporaries
+*.log
