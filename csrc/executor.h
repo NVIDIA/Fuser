@@ -137,7 +137,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // TODO: strides would also be important when we handle permutations in
   //       codegen.
   //
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
@@ -145,10 +144,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<std::vector<int64_t>> output_sizes;
     std::vector<std::vector<int64_t>> output_strides;
     std::vector<at::ScalarType> output_types;
-    std::vector<std::vector<int64_t>> buffer_sizes;
-    std::vector<at::ScalarType> buffer_types;
-    std::vector<bool> buffer_zero_init;
-    uint64_t rand_offset;
+    std::vector<std::vector<int64_t>> intermediate_buffer_sizes;
+    std::vector<at::ScalarType> intermediate_buffer_types;
+    std::vector<bool> intermediate_buffer_zero_init;
+    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -342,8 +341,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
-  int64_t block_size_high_water_mark = 1;
-  int maxrregcount_high_water_mark = 255;
+  int64_t block_size_high_water_mark_ = 1;
+  int maxrregcount_high_water_mark_ = 255;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.

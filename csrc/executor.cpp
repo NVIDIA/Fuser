@@ -350,18 +350,18 @@ void FusionExecutor::compileFusion(
   // Basically setting high water martk as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the first
   // run - not great. We should have better heuristics.
-  block_size_high_water_mark = std::max<int64_t>(
+  block_size_high_water_mark_ = std::max<int64_t>(
       (block_size.has_value() ? block_size.value() : 1),
-      block_size_high_water_mark);
-  maxrregcount_high_water_mark = compile_params.maxrregcount;
+      block_size_high_water_mark_);
+  maxrregcount_high_water_mark_ = compile_params.maxrregcount;
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
-          (kernelNamespace() + "::" + kernelName()).c_str(),
+          kernelNamespace() + "::" + kernelName(),
           fusion_id_,
           block_size,
-          maxrregcount_high_water_mark,
+          maxrregcount_high_water_mark_,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
@@ -776,7 +776,6 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
     const std::unordered_set<int>& alias_indices) {
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
   const auto kernel = lowered_->kernel();
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<at::Tensor> outputs;
   TORCH_INTERNAL_ASSERT(
       args.size() == kernel->inputs().size(),
@@ -909,7 +908,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
       executor_utils::caching::InputAliasIndices>(
       compileTimeDataCache(), [&]() {
         return std::make_unique<std::vector<std::pair<int, int>>>(
-            fusion_->getInputAliasIndices());
+            fusion_->getInputToOutputAliasIndices());
       });
 
   auto& alias_indices = alias_indices_entry.get();
@@ -920,7 +919,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
           executor_utils::caching::OutputAliasIndices>(
           compileTimeDataCache(), [&]() {
             return std::make_unique<std::unordered_set<int>>(
-                fusion_->getOutputAliasIndices());
+                fusion_->getIndicesOfAliasedOutputs());
           });
 
   auto& output_alias_indices = output_alias_indices_entry.get();
@@ -1106,9 +1105,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
         for (const auto i : c10::irange(executor_entry->output_sizes.size())) {
           allocated_outputs.push_back(at::native::empty_strided_cuda(
-              executor_entry->output_sizes[i],
-              executor_entry->output_strides[i],
-              executor_entry->output_types[i],
+              executor_entry->output_sizes.at(i),
+              executor_entry->output_strides.at(i),
+              executor_entry->output_types.at(i),
               c10::nullopt,
               options_.device,
               c10::nullopt));
@@ -1125,33 +1124,35 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               dynamic_cast<const TensorArgAbstract*>(args[aliased_input_index]);
           TORCH_INTERNAL_ASSERT(
               tensor_arg_abstract, "alias io only supports tensor");
-          allocated_outputs[aliased_output_index] =
+          allocated_outputs.at(aliased_output_index) =
               tensor_arg_abstract->getTensor();
         }
         args.push(allocated_outputs);
       } else {
+        // TODO: Use validateKernelOutputs
         TORCH_INTERNAL_ASSERT(
             outputs.size() == fusion_->outputs().size(),
             __func__,
-            " provided number of outputs does match fusion output");
+            " provided number of outputs does not match fusion output");
         allocated_outputs = outputs;
         args.push(outputs);
       }
 
       {
         FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
-        for (const auto i : c10::irange(executor_entry->buffer_sizes.size())) {
-          if (executor_entry->buffer_zero_init[i]) {
+        for (const auto i :
+             c10::irange(executor_entry->intermediate_buffer_sizes.size())) {
+          if (executor_entry->intermediate_buffer_zero_init.at(i)) {
             global_buffers.buffers.push_back(at::zeros(
-                executor_entry->buffer_sizes[i],
+                executor_entry->intermediate_buffer_sizes.at(i),
                 at::TensorOptions()
-                    .dtype(executor_entry->buffer_types[i])
+                    .dtype(executor_entry->intermediate_buffer_types.at(i))
                     .device(options_.device)));
             global_buffers.zero_init.push_back(true);
           } else {
             global_buffers.buffers.push_back(at::native::empty_cuda(
-                executor_entry->buffer_sizes[i],
-                executor_entry->buffer_types[i],
+                executor_entry->intermediate_buffer_sizes.at(i),
+                executor_entry->intermediate_buffer_types.at(i),
                 c10::nullopt,
                 options_.device,
                 c10::nullopt));
@@ -1185,23 +1186,23 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     // Recompile the kernel if the number of threads in the block has increased
     // or maxrregcount has changed
-    if (launch_params_.nThreads() > block_size_high_water_mark ||
-        compile_params.maxrregcount != maxrregcount_high_water_mark) {
+    if (launch_params_.nThreads() > block_size_high_water_mark_ ||
+        compile_params.maxrregcount != maxrregcount_high_water_mark_) {
       const auto kernel = lowered_->kernel();
       kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
       const auto structured_code =
           getStructuredCode(kernel_code_, kernel->indexType());
-      block_size_high_water_mark = launch_params_.nThreads();
-      maxrregcount_high_water_mark = compile_params.maxrregcount;
+      block_size_high_water_mark_ = launch_params_.nThreads();
+      maxrregcount_high_water_mark_ = compile_params.maxrregcount;
 
       std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
           executor_utils::getCompiledKernel(
               kernel_code_,
               structured_code,
-              (kernelNamespace() + "::" + kernelName()).c_str(),
+              kernelNamespace() + "::" + kernelName(),
               fusion_id_,
-              block_size_high_water_mark,
-              maxrregcount_high_water_mark,
+              block_size_high_water_mark_,
+              maxrregcount_high_water_mark_,
               save_compiled_binary_);
     }
 
@@ -1215,15 +1216,15 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         compileTimeDataCache(),
         expr_eval);
 
-    auto alias_indices_entry =
+    auto input_alias_indices_entry =
         executor_utils::caching::ExecutorCompileTimeEntry<
             executor_utils::caching::InputAliasIndices>(
             compileTimeDataCache(), [&]() {
               return std::make_unique<std::vector<std::pair<int, int>>>(
-                  fusion_->getInputAliasIndices());
+                  fusion_->getInputToOutputAliasIndices());
             });
 
-    auto& alias_indices = alias_indices_entry.get();
+    const auto& input_to_output_alias_map = input_alias_indices_entry.get();
 
     // NOLINTNEXTLINE(bugprone-branch-clone)
     if (outputs.empty()) {
@@ -1232,21 +1233,21 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               executor_utils::caching::OutputAliasIndices>(
               compileTimeDataCache(), [&]() {
                 return std::make_unique<std::unordered_set<int>>(
-                    fusion_->getOutputAliasIndices());
+                    fusion_->getIndicesOfAliasedOutputs());
               });
 
-      auto& output_alias_indices = output_alias_indices_entry.get();
+      const auto& output_alias_indices = output_alias_indices_entry.get();
 
       allocated_outputs = allocOutputs(args, expr_eval, output_alias_indices);
 
-      for (const auto& entry : alias_indices) {
+      for (const auto& entry : input_to_output_alias_map) {
         auto aliased_output_index = entry.first;
         auto aliased_input_index = entry.second;
-        auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[aliased_input_index]);
+        auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(
+            args.at(aliased_input_index));
         TORCH_INTERNAL_ASSERT(
             tensor_arg_abstract, "alias io only supports tensor");
-        allocated_outputs[aliased_output_index] =
+        allocated_outputs.at(aliased_output_index) =
             tensor_arg_abstract->getTensor();
       }
       args.push(allocated_outputs);
@@ -1275,7 +1276,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       FUSER_PERF_SCOPE("ExecutorRunFusion::FillCacheEntry");
       // record the the short-cut executor entry for the given input set;
       executor_entry->launch_params = launch_params_;
-      executor_entry->io_alias_indices = alias_indices;
+      executor_entry->io_alias_indices = input_to_output_alias_map;
       for (const auto& output : allocated_outputs) {
         executor_entry->output_sizes.push_back(output.sizes().vec());
         executor_entry->output_strides.push_back(output.strides().vec());
@@ -1283,11 +1284,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
 
       for (const auto& i : c10::irange(global_buffers.buffers.size())) {
-        executor_entry->buffer_sizes.push_back(
+        executor_entry->intermediate_buffer_sizes.push_back(
             global_buffers.buffers[i].sizes().vec());
-        executor_entry->buffer_types.push_back(
+        executor_entry->intermediate_buffer_types.push_back(
             global_buffers.buffers[i].scalar_type());
-        executor_entry->buffer_zero_init.push_back(global_buffers.zero_init[i]);
+        executor_entry->intermediate_buffer_zero_init.push_back(
+            global_buffers.zero_init[i]);
       }
       executor_entry->rand_offset = rand_offset;
       executor_entry->init = true;
