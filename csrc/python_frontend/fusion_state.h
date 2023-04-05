@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <ir_interface_nodes.h>
+#include <serde/python_fusion_cache_generated.h>
 
 namespace nvfuser::python_frontend {
 

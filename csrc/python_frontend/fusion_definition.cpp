@@ -54,11 +54,11 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == StateType::Scalar) {
+  if (state.stype == serde::StateType_Scalar) {
     os << "S";
-  } else if (state.stype == StateType::Tensor) {
+  } else if (state.stype == serde::StateType_Tensor) {
     os << "T";
-  } else if (state.stype == StateType::None) {
+  } else if (state.stype == serde::StateType_None) {
     os << "None";
   } else {
     TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
@@ -199,14 +199,14 @@ c10::optional<size_t> FusionDefinition::id() const {
 Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   Scalar out(recording_state_.size(), this);
-  recording_state_.emplace_back(out(), StateType::Scalar);
+  recording_state_.emplace_back(out(), serde::StateType_Scalar);
   return out;
 }
 
 Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
-  recording_state_.emplace_back(out(), StateType::Tensor);
+  recording_state_.emplace_back(out(), serde::StateType_Tensor);
   return out;
 }
 

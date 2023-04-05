@@ -1351,6 +1351,17 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
+  const auto isBroadcastIn = [](const Val* val) {
+    if (val->getValType().value() == ValType::TensorView) {
+      const auto* tv = val->as<TensorView>();
+      return tv->hasBroadcast();
+    }
+    return true;
+  };
+
+  TORCH_INTERNAL_ASSERT(isBroadcastIn(in_a));
+  TORCH_INTERNAL_ASSERT(isBroadcastIn(in_b));
+
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
@@ -1675,9 +1686,15 @@ LoadStoreOp::LoadStoreOp(
 
 std::string LoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size + 1)
-      << " = " << opType() << "( " << in()->toString() << " )\n";
+  indent(ss, indent_size + 1) << " = " << optype << "( " << in()->toString();
+  if (predicate()) {
+    ss << ", " << std::endl;
+    indent(ss, indent_size + 1)
+        << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
