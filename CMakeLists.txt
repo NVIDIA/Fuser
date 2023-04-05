@@ -146,8 +146,8 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/partition.cpp
     ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/register_interface.cpp
     ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -162,6 +162,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+    ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
     ${NVFUSER_SRCS_DIR}/swizzle.cpp
     ${NVFUSER_SRCS_DIR}/sys_utils.cpp
     ${NVFUSER_SRCS_DIR}/type_inference.cpp
@@ -189,6 +190,8 @@ endif()
 # as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
+# Link flatbuffers for serialization support
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
@@ -355,7 +358,7 @@ if(BUILD_TEST)
              ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if (PROJECT_IS_TOP_LEVEL)
