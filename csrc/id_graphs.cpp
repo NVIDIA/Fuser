@@ -1879,6 +1879,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
+      // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
@@ -1890,6 +1891,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
+      // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
@@ -1999,11 +2001,13 @@ void IterDomainGraphs::build(
   // expressions.
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
+  std::cout << "buildExactMap" << std::endl;
   buildExactMap(tv_exprs);
-
+  std::cout << "buildAlmostExactMap" << std::endl;
   buildAlmostExactMap();
-
+  std::cout << "buildPermissiveMap" << std::endl;
   buildPermissiveMap(tv_exprs);
+  std::cout << "built non lowering graphs" << std::endl;
 
   // Only build loop map during lowering
   if (FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
@@ -3243,37 +3247,84 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
               << loop_graph_copy_promotion_map.at(group)->toString()
               << std::endl;
   }
+  // Indexing traversal must start at leaf nodes of TensorViews as that's where
+  // the loop indices are defined. For indexing we need to propagate leaves to
+  // root domains. We want the indexing graph easy to traverse. Easy to traverse
+  // means that we start at terminating outputs of this graph and propagate to
+  // terminating inputs. We shouldn't have to worry about which paths each time
+  // we traverse the index graph as we may do it many times.
 
-  // Mark all iter domains that should share a loop nest, ignoring promotion for
-  // now
-  auto original_loop_graph = initializeIdGraph();
+  // The IEL Map cannot be traversed for indexing, because the loop map is
+  // really only used to model broadcast promotion. We could have multiple paths
+  // from leaf nodes to an intermediate IEL entry. Meaning:
+
+  // T0 root[i0, i1] T0 leaf domain [i0*i1//32, 4, 8]
+  // T1 root[i0, i1] T0 leaf domain [i0*i1//32, 8, 4]
+
+  // Even though T0 and T1 are inlined on the outer most dimension, indexing
+  // into their roots is different. Yet, their roots would be in the same IEL
+  // entries.
+
+  // The index graph should provide a direct model of what indices are reused,
+  // i.e. if two ID's in the IndexMap map to eachother, they should use the same
+  // index math. Therefore, roughly what we need to do is:
+
+  // - Figure out which leaves share exact indexing and map them together:
+  //   (1) Promoted producer-consumer leaf nodes are almost exact.
+  //   (2) Producer-consumer leaf nodes are inlined with eachother, and they're
+  //   almost exact.
+
+  // - Start at the promoted leaf nodes of each tensor view
+
+  // - If those promoted leaf nodes are *ALMOST EXACT* mapped from
+  // producer-consumer they can be mapped in the index map
+
+  // - Traversing backward from each tensor view's leaf nodes, we directly reach
+  // the root nodes of that tensor view
+
+  // - During the backward traversal, for an expression, if the output iter
+  // domains are mapped in the index map, their inputs should be mapped as well.
+  //   So as we build the index map, we could also be accumulating mapped iter
+  //   domains.
+
+  // Mark all iter domains that share a loop nest and are almost exact mapped.
+  // Ignores promotion.
+  auto index_graph = initializeIdGraph();
 
   for (auto expr : exprs) {
-    std::vector<IterDomain*> producer_leaves;
+    // Iter domains in producer that are inlined with consumer iter domains
+    std::vector<IterDomain*> producer_inlined_leaves;
+
+    // Copy of all the producer id's for determinism
     VectorOfUniqueEntries<IterDomain*> all_p_ids;
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       all_p_ids.insert(
           producer->domain()->domain().begin(),
           producer->domain()->domain().begin() +
               producer->getComputeAtPosition());
-      producer_leaves.insert(
-          producer_leaves.end(),
+      producer_inlined_leaves.insert(
+          producer_inlined_leaves.end(),
           producer->domain()->domain().begin(),
           producer->domain()->domain().begin() +
               producer->getComputeAtPosition());
     }
 
-    std::vector<IterDomain*> consumer_leaves;
+    // Grab potentially inlined iter domains in consumers
+    std::vector<IterDomain*> consumer_inlined_leaves;
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      consumer_leaves.insert(
-          consumer_leaves.end(),
+      consumer_inlined_leaves.insert(
+          consumer_inlined_leaves.end(),
           consumer->domain()->domain().begin(),
           consumer->domain()->domain().begin() +
               consumer->getMaxProducerPosition());
     }
 
-    auto p2c_loop_map = idGraph(IdMappingMode::LOOP)
-                            .buildMapBetween(producer_leaves, consumer_leaves);
+    // Almost exact map from producer inlined iter domains to all the consumer
+    // domains they could be inlined into. Build an almost exact map between
+    // those.
+    auto p2c_loop_map =
+        idGraph(IdMappingMode::ALMOSTEXACT)
+            .buildMapBetween(producer_inlined_leaves, consumer_inlined_leaves);
     // Make sure we call mapIds deterministically
     for (auto p_id : all_p_ids) {
       auto p2c_loop_map_it = p2c_loop_map.find(p_id);
@@ -3283,12 +3334,177 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       auto c_ids = p2c_loop_map_it->second;
 
       for (auto c_id : c_ids) {
-        original_loop_graph.mapIds(p_id, c_id);
+        index_graph.mapIds(p_id, c_id);
       }
     }
   }
 
-  auto index_graph = initializeIdGraph();
+  // Doing the same as above on promoted iter domains is a bit tricky, because
+  // there's a promoted IterDomian per IEL group, we need a promoted IterDomain
+  // per index group. So let's figure out which leaf domains share a promoted
+  // iter domain, so we don't have to build a promoted iter domain for every
+  // leaf, then try to rejoin them.
+
+  // TODO: I think we need to validate that for each tensor view leaf domains,
+  // no two leaves within a tensor domain map to another leaf in the same tensor
+  // domain in the IEL graph.
+
+  // Which non-promoted iter domains, share their promoted iterdomains
+  DisjointSets<IterDomain*> shared_promoted_id;
+
+  for (auto expr : exprs) {
+    std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+        promo_id_to_producer_ids;
+    std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+        promo_id_to_consumer_ids;
+
+    // Copy of all promo ids for determinism
+    VectorOfUniqueEntries<IterDomain*> all_promo_ids;
+
+    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      for (auto p_id : producer->domain()->domain()) {
+        // Initialize all entries
+        shared_promoted_id.initializeSet(p_id);
+
+        auto loop_copy_p_group_pair = loop_graph_copy.disjointIdSet(p_id);
+        TORCH_INTERNAL_ASSERT(loop_copy_p_group_pair.second);
+        auto loop_copy_p_group = loop_copy_p_group_pair.first;
+
+        auto promo_id_it =
+            loop_graph_copy_promotion_map.find(loop_copy_p_group);
+        TORCH_INTERNAL_ASSERT(
+            promo_id_it != loop_graph_copy_promotion_map.end());
+
+        promo_id_to_producer_ids[promo_id_it->second].pushBack(p_id);
+        all_promo_ids.pushBack(promo_id_it->second);
+      }
+    }
+
+    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      for (auto c_id : consumer->domain()->domain()) {
+        // Initialize all entries
+        shared_promoted_id.initializeSet(c_id);
+
+        auto loop_copy_c_group_pair = loop_graph_copy.disjointIdSet(c_id);
+        TORCH_INTERNAL_ASSERT(loop_copy_c_group_pair.second);
+        auto loop_copy_c_group = loop_copy_c_group_pair.first;
+
+        auto promo_id_it =
+            loop_graph_copy_promotion_map.find(loop_copy_c_group);
+        TORCH_INTERNAL_ASSERT(
+            promo_id_it != loop_graph_copy_promotion_map.end());
+
+        promo_id_to_consumer_ids[promo_id_it->second].pushBack(c_id);
+        all_promo_ids.pushBack(promo_id_it->second);
+      }
+    }
+
+    for (auto promo_id : all_promo_ids) {
+      auto p_ids_it = promo_id_to_producer_ids.find(promo_id);
+      if (p_ids_it == promo_id_to_producer_ids.end()) {
+        continue;
+      }
+      auto p_ids = p_ids_it->second;
+
+      auto c_ids_it = promo_id_to_consumer_ids.find(promo_id);
+      if (c_ids_it == promo_id_to_consumer_ids.end()) {
+        continue;
+      }
+      auto c_ids = c_ids_it->second;
+
+      if (c_ids.size() && p_ids.size()) {
+        for (auto p_id : p_ids) {
+          shared_promoted_id.mapEntries(p_ids.front(), p_id);
+        }
+        for (auto c_id : c_ids) {
+          shared_promoted_id.mapEntries(p_ids.front(), c_id);
+        }
+      }
+    }
+  }
+  std::cout << "Leaf iter domains that share a promoted iter domain."
+            << std::endl;
+  for (auto disjoint_set : shared_promoted_id.disjointSets()) {
+    std::cout << disjoint_set->toString() << std::endl;
+  }
+
+  // Map from leaf iter domains to their potentially promoted iter domain used
+  // for indexing.
+  std::unordered_map<IterDomain*, IterDomain*> leaf_promotion_map;
+
+  // If a promoted iter domain was generated by replays, it won't be connected
+  // in the index graph. We can reuse these iter domains directly instead of
+  // having to make a clone of them. However, we can only use them once for a
+  // group.
+  VectorOfUniqueEntries<IterDomain*> used_promo_ids;
+
+  for (auto id_group : shared_promoted_id.disjointSets()) {
+    auto first_id = id_group->front();
+    auto loop_copy_group_pair = loop_graph_copy.disjointIdSet(first_id);
+    TORCH_INTERNAL_ASSERT(loop_copy_group_pair.second);
+    auto loop_copy_group = loop_copy_group_pair.first;
+
+    auto promo_id_it = loop_graph_copy_promotion_map.find(loop_copy_group);
+    TORCH_INTERNAL_ASSERT(promo_id_it != loop_graph_copy_promotion_map.end());
+
+    IterDomain* promo_id = promo_id_it->second;
+
+    // Promoted id is already part of the group, just use that.
+    if (std::find(id_group->begin(), id_group->end(), promo_id) !=
+        id_group->end()) {
+      for (auto id : *id_group) {
+        leaf_promotion_map[id] = promo_id;
+      }
+      continue;
+    }
+
+    // Promo id generated from running replay, we can use it for one of the
+    // index groups.
+    if (!shared_promoted_id.mappingExists(promo_id) &&
+        !used_promo_ids.has(promo_id)) {
+      used_promo_ids.pushBack(promo_id);
+      for (auto id : *id_group) {
+        leaf_promotion_map[id] = promo_id;
+      }
+      continue;
+    }
+
+    // Need to take a copy of the promo_id as it's already dedicated to an index
+    // group.
+    promo_id = cloneIterDomain(promo_id);
+    for (auto id : *id_group) {
+      leaf_promotion_map[id] = promo_id;
+    }
+  }
+
+  std::cout << "Iter domain group to their promoted iter domain." << std::endl;
+  for (auto id_group : shared_promoted_id.disjointSets()) {
+    std::cout << id_group->toString() << "\n  -> "
+              << leaf_promotion_map.at(id_group->front()) << std::endl;
+  }
+
+  // Could pass this into the function, but just using this for now.
+  auto all_tvs = ir_utils::allTvsOfExprs(exprs);
+
+  auto promoted_domain = [&](TensorDomain* td) {
+    std::vector<IterDomain*> promoted_leaves;
+    for (auto id : td->domain()) {
+      auto promo_it = leaf_promotion_map.find(id);
+      TORCH_INTERNAL_ASSERT(promo_it != leaf_promotion_map.end());
+      promoted_leaves.push_back(promo_it->second);
+    }
+    return promoted_leaves;
+  };
+
+  std::cout << "Promoted tensor view domains:" << std::endl;
+  // Need to replay all of the indexing expressions to make sure roots are
+  // connected to domains.
+  for (auto tv : all_tvs) {
+    // replay from root to promoted leaves.
+    std::cout << "TV" << tv->name() << " " << promoted_domain(tv->domain())
+              << "\n  <- "
+              << "TV" << tv->name() << tv->domain()->toString() << std::endl;
+  }
 
   TORCH_INTERNAL_ASSERT(false);
 }
