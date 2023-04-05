@@ -1445,8 +1445,8 @@ class TestNvFuserFrontend(TestCase):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
-                fd.add_output(t0.real())
-                fd.add_output(t0.imag())
+                fd.add_output(fd.ops.real(t0))
+                fd.add_output(fd.ops.imag(t0))
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
@@ -1464,40 +1464,30 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1, 1, 1])
             fd.add_output(t1)
 
-            # tensor method version
-            t2 = t0.pad([1, 1, 1, 1])
+            # zero padding in some dims
+            t2 = fd.ops.pad(t0, [0, 0, 2, 3])
             fd.add_output(t2)
 
-            # zero padding in some dims
-            t3 = fd.ops.pad(t0, [0, 0, 2, 3])
+            # zero padding in all dims
+            t3 = fd.ops.pad(t0, [0, 0, 0, 0])
             fd.add_output(t3)
 
-            # zero padding in all dims
-            t4 = fd.ops.pad(t0, [0, 0, 0, 0])
-            fd.add_output(t4)
-
             # no padding provided in first dim
-            t5 = fd.ops.pad(t0, [2, 3])
-            fd.add_output(t5)
+            t4 = fd.ops.pad(t0, [2, 3])
+            fd.add_output(t4)
 
             # test padding with a value other than 0
             fill_val = fd.define_constant(2.0)
-            t6 = fd.ops.pad(t0, [2, 3], fill_val)
-            fd.add_output(t6)
-
-            # test padding with a value other than 0 with tensor method
-            t7 = t0.pad([2, 3], fill_val)
-            fd.add_output(t7)
+            t5 = fd.ops.pad(t0, [2, 3], fill_val)
+            fd.add_output(t5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
-        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[1])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
-        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[4])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[5])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[6])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
+        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
+        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
