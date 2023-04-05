@@ -2727,8 +2727,6 @@ struct RandomOpRecord : RecordFunctor {
     for (auto& it : output_shape_) {
       fb_shape.push_back(serde::State(it.index, it.stype));
     }
-    auto shape_fb =
-        builder.CreateVectorOfStructs(fb_shape.data(), fb_shape.size());
     return {
         serde::RecordData_TensorCreationSymbolic,
         serde::CreateTensorCreationSymbolicDirect(
