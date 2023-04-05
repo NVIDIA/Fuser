@@ -8142,6 +8142,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
       TORCH_CHECK(
           predicted && has_stride,
           "Tv15 should be predicted by ParallelType::BIDx with a write stride!");
+      break;
     }
   }
 
@@ -8247,6 +8248,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
             expect_stride_less == has_stride_less,
             expect_stride_less ? "write_stride_less is expected"
                                : "write_stride_less is not expected");
+        break;
       }
     }
 

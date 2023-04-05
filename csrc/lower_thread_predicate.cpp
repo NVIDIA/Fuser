@@ -532,6 +532,7 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     auto merge = dynamic_cast<Merge*>(ld->definition());
     if (isParallelTypeThread(pt) && merge) {
       merged_parallelized_thread_block = true;
+      break;
     }
   }
   // shortcut if there is no such leaf domain
