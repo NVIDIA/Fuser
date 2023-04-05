@@ -216,8 +216,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Get indices of aliased outputs
   std::unordered_set<int> getIndicesOfAliasedOutputs() const;
 
-  //! Get alias mappings from fusion inputs to outputs
-  std::vector<std::pair<int, int>> getInputToOutputAliasIndices() const;
+  //! Get alias mappings from fusion outputs to inputs
+  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {

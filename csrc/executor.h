@@ -51,11 +51,11 @@ struct TORCH_CUDA_CU_API CompileOptions {
 
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  struct GlobalBuffers {
-    std::vector<at::Tensor> buffers;
-    std::vector<bool> zero_init;
-    at::Tensor profile_buffer;
+  struct GlobalBufferInfo {
+    std::vector<int64_t> shape;
+    std::vector<int64_t> strides;
+    at::ScalarType type = at::ScalarType::Undefined;
+    bool zero_init = false;
   };
 
   // Unsafe compilation that's useful for debugging kernels, iterating over
@@ -96,7 +96,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const std::vector<at::Tensor>& outputs = {});
+      std::vector<at::Tensor> outputs = {});
 
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
@@ -140,13 +140,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
-    std::vector<std::pair<int, int>> io_alias_indices;
-    std::vector<std::vector<int64_t>> output_sizes;
-    std::vector<std::vector<int64_t>> output_strides;
-    std::vector<at::ScalarType> output_types;
-    std::vector<std::vector<int64_t>> intermediate_buffer_sizes;
-    std::vector<at::ScalarType> intermediate_buffer_types;
-    std::vector<bool> intermediate_buffer_zero_init;
+    // Aliased output and input mappings
+    std::vector<std::pair<int, int>> output_to_input_aliases;
+    std::vector<GlobalBufferInfo> outputs;
+    // Temporary work buffers and intemediate global-memory tensors
+    std::vector<GlobalBufferInfo> intermediates;
     uint64_t rand_offset = 0;
   };
 
@@ -219,6 +217,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
         last_compiled_binary_, "-fun 1 -c");
   }
 
+  std::string getCanonicalKernelName() const {
+    return kernelNamespace() + "::" + kernelName();
+  }
+
   std::string kernelName() const {
     std::stringstream ss;
     ss << "kernel" << fusion_id_;
@@ -275,17 +277,19 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       bool align_padding = false,
       uint64_t total = 0);
 
-  // return a pair of vector of tensors, where tensors in the first vector are
-  // not initialized, while the second vector contains zero-initiliazed tensors
-  GlobalBuffers allocGlobalVals(ExpressionEvaluator& expr_eval);
+  //! Return information necessay for allocating intermediate tensors,
+  //! including temporary work buffers as well as intermediate
+  //! global-memory tensors
+  std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
+      ExpressionEvaluator& expr_eval);
 
-  // alias_index: index of outputs that are aliases to inputs, hence we should
-  // skip allocating real storage for those, but still maintain its spot to
-  // maintain the indexing from output aliases to inputs
-  std::vector<at::Tensor> allocOutputs(
+  //! Return information necessay for allocating output tensors. Input
+  //! and output tensors are allowed to alias each other, which is
+  //! specified by the list of int pairs of input and output indices
+  std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::unordered_set<int>& alias_indices = {});
+      const std::vector<std::pair<int, int>>& input_to_output_aliases);
 
   void setUsedTVs();
 
@@ -305,6 +309,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       const std::unordered_set<int>& alias_indices = {});
+
+  //! TODO: Consider changing this to a constructor of ExecutorEntry
+  void initializeExecutorEntry(
+      ExecutorEntry& executor_entry,
+      const KernelArgumentHolder& args,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const std::vector<at::Tensor>& outputs);
 
  private:
   CompileOptions options_;
