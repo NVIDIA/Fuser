@@ -445,8 +445,6 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return predicate_;
 }
 
