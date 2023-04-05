@@ -358,61 +358,6 @@ struct BroadcastMultipleInformation {
 TORCH_CUDA_CU_API BroadcastMultipleInformation
 getBroadcastMultiples(TensorView* reference_tv, DataType index_type);
 
-namespace matmul_utils {
-//! Utilities in this namespace facilitates scheduling matmul kernels with
-//!  hierarchichal tiling specified in MatMulTileOptions.
-
-//! Schedule utility for matmul prolog:
-//!   Use all the threads on a CTA tile to load matmul operands
-//!  into shared memory with the given vectorization word.
-//! TODO:
-//!  will need to add bank conflict removal swizzle in a follow up.
-TORCH_CUDA_CU_API void scheduleContiguousVectorLoad(
-    TensorView* tv,
-    MatMulTileOptions tile,
-    int vector_word,
-    bool vectorize = true);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options.
-//! TODO: rewrite this one with makeTile
-TORCH_CUDA_CU_API void scheduleWarpTileWithReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options
-//! on consumers of mma ops in epilog.
-//! TODO: remove this one eventually.
-TORCH_CUDA_CU_API void scheduleWarpTileWithNoReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Lower level primitive spliting inner iterdomains into tiles:
-//! Eg.
-//!  A[B,I0,I1,I2] -> makeTile({1,2,3})
-//! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-TORCH_CUDA_CU_API void makeTile(TensorView* tv, std::vector<int> tile_sizes);
-
-//! Order the inner tile dimensions as the original order in
-//!  root domain. Also putting broadcast domains on the left.
-//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (root domain: I1,B,I0)
-//! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
-//! This is used to facilitate data layout swizzling and
-//!  defining vectorized loads.
-TORCH_CUDA_CU_API void orderTiledConcreteIdAsRoot(TensorView* tv);
-
-//! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
-//!  for easier processing of later scheduling steps.
-//!
-//! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
-//!  not a root id.
-TORCH_CUDA_CU_API void canonicalizeMmaTvOrdering(TensorView* tv);
-
-} // namespace matmul_utils
-
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
 //!  a connection with `from_tv` on the fusion graph.

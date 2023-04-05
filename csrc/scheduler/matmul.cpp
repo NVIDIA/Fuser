@@ -200,9 +200,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Make a CTA tile
   // ------------------------------------------------------------------
-  scheduler_utils::matmul_utils::canonicalizeMmaTvOrdering(cc);
+  mma_util::canonicalizeMmaTvOrdering(cc);
   // [... M,N,K]
-  scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
+  mma_util::makeTile(cc, gemm_tile.cta_tile.toVector());
 
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
@@ -230,7 +230,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::transformPropagateToAllFrom(cc, -1);
 
   // Schedule warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(cc, gemm_tile);
+  mma_util::scheduleWarpTileWithReduction(cc, gemm_tile);
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
@@ -240,16 +240,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
-  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(acw_smem);
+  mma_util::orderTiledConcreteIdAsRoot(acw_smem);
   // [... M, K]
   acw_smem->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
+  mma_util::scheduleContiguousVectorLoad(
       acw_smem, gemm_tile, 8, false);
 
   // [... N, K]
-  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(bcw_smem);
+  mma_util::orderTiledConcreteIdAsRoot(bcw_smem);
   bcw_smem->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
+  mma_util::scheduleContiguousVectorLoad(
       bcw_smem, gemm_tile, 8, false);
 
   // Propagate prolog tensors
