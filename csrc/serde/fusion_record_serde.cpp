@@ -112,6 +112,9 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const std::unordered_map<std::string, fn_type>& str_to_func_map,
     serde::RecordType record_type,
     const serde::RecordFunctor* buffer) {
+  TORCH_INTERNAL_ASSERT(
+      str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
+      "Missing mapping from operation string to nvfuser function in serde deserialization.");
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
       parseStateArgs(buffer->outputs()),
@@ -878,6 +881,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("div", div)
   NVFUSER_BINARY_TV_OP("fmod", fmod)
   NVFUSER_BINARY_TV_OP("mul", mul)
+  NVFUSER_BINARY_TV_OP("nextafter", nextafter)
   NVFUSER_BINARY_TV_OP("pow", pow)
   NVFUSER_BINARY_TV_OP("remainder", remainder)
   NVFUSER_BINARY_TV_OP("sub", sub)
