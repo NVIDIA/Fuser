@@ -998,6 +998,64 @@ void validateCooperativeLaunch(
       at::cuda::getDeviceProperties(device_index)->multiProcessorCount);
 }
 
+// Dump fusion inputs and outputs as well as some useful fusion
+// information. Note that inputs and outputs are those that are passed
+// to FusionExecutor::runFusion, so outputs may not be given.
+void dumpFusionArgs(
+    int fusion_id,
+    const KernelArgumentHolder& args,
+    const LaunchParams& launch_constraints,
+    const CompileParams& compile_params,
+    const std::vector<at::Tensor>& outputs) {
+  std::cout << "Arguments for fusion" << fusion_id << ":" << std::endl
+            << "Inputs:" << std::endl;
+  for (auto i : c10::irange(args.size())) {
+    std::cout << "  " << args[i]->toString() << std::endl;
+  }
+  std::cout << "Outputs:" << std::endl;
+  for (const auto& output : outputs) {
+    std::cout << "  " << output.scalar_type() << " " << output.sizes()
+              << " (strides = " << output.strides() << ")" << std::endl;
+  }
+  std::cout << launch_constraints.toString();
+  std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+}
+
+// Dump arguments that are passed to a CUDA kernel call, which include
+// the inputs and outputs of the fusion as well as temporary
+// global-memory buffers. Unlike dumpFusionArgs, which dumps inputs
+// and outputs passed to FusionExecutor::runFusion, this function
+// dumps those that are passed to a CUDA kernel.
+void dumpKernelArgs(
+    int fusion_id,
+    const KernelArgumentHolder& args,
+    size_t num_inputs,
+    const std::vector<at::Tensor>& allocated_outputs,
+    const FusionExecutor::GlobalBuffers& global_buffers) {
+  std::cout << "Arguments for kernel" << fusion_id << ":" << std::endl
+            << "Inputs:" << std::endl;
+  for (auto i : c10::irange(num_inputs)) {
+    std::cout << "  " << args[i]->toString() << std::endl;
+  }
+  std::cout << "Outputs:" << std::endl;
+  // note: add aliased outputs here.
+  for (const auto& output : allocated_outputs) {
+    std::cout << "  " << output.scalar_type() << " " << output.sizes()
+              << " (strides = " << output.strides()
+              << ", address = " << output.data_ptr() << ")" << std::endl;
+  }
+  std::cout << "Reduction and semaphore buffers:" << std::endl;
+  TORCH_INTERNAL_ASSERT(
+      global_buffers.buffers.size() == global_buffers.zero_init.size(),
+      "global_buffer buffer & zero_init container should have identical sizes");
+  for (const auto i : c10::irange(global_buffers.buffers.size())) {
+    const auto& buffer = global_buffers.buffers[i];
+    const auto& zero_init = global_buffers.zero_init[i];
+    std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
+              << " is_zero_initialized: " << zero_init << std::endl;
+  }
+}
+
 } // namespace
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1018,18 +1076,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   size_t num_inputs = args.size();
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
-    std::cout << "Arguments for fusion" << fusion_id_ << ":" << std::endl
-              << "Inputs:" << std::endl;
-    for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[i]->toString() << std::endl;
-    }
-    std::cout << "Outputs:" << std::endl;
-    for (const auto& output : outputs) {
-      std::cout << "  " << output.scalar_type() << " " << output.sizes()
-                << " (strides = " << output.strides() << ")" << std::endl;
-    }
-    std::cout << launch_constraints.toString();
-    std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+    dumpFusionArgs(
+        fusion_id_, args, launch_constraints, compile_params, outputs);
   }
 
   ExecutorEntry* executor_entry = nullptr;
@@ -1158,7 +1206,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
 
     validateCooperativeLaunch(
-          compiled_kernel_.function, launch_params_, options_.device.index());
+        compiled_kernel_.function, launch_params_, options_.device.index());
 
     executor_utils::validateVectorizedTensors(
         lowered_.get()->kernel(),
@@ -1259,28 +1307,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-    std::cout << "Arguments for kernel" << fusion_id_ << ":" << std::endl
-              << "Inputs:" << std::endl;
-    for (auto i : c10::irange(num_inputs)) {
-      std::cout << "  " << args[i]->toString() << std::endl;
-    }
-    std::cout << "Outputs:" << std::endl;
-    // note: add aliased outputs here.
-    for (const auto& output : allocated_outputs) {
-      std::cout << "  " << output.scalar_type() << " " << output.sizes()
-                << " (strides = " << output.strides()
-                << ", address = " << output.data_ptr() << ")" << std::endl;
-    }
-    std::cout << "Reduction and semaphore buffers:" << std::endl;
-    TORCH_INTERNAL_ASSERT(
-        global_buffers.buffers.size() == global_buffers.zero_init.size(),
-        "global_buffer buffer & zero_init container should have identical sizes");
-    for (const auto i : c10::irange(global_buffers.buffers.size())) {
-      const auto& buffer = global_buffers.buffers[i];
-      const auto& zero_init = global_buffers.zero_init[i];
-      std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
-                << " is_zero_initialized: " << zero_init << std::endl;
-    }
+    dumpKernelArgs(
+        fusion_id_, args, num_inputs, allocated_outputs, global_buffers);
   }
 
   cudaEvent_t start_event = {};

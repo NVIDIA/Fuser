@@ -51,6 +51,13 @@ struct TORCH_CUDA_CU_API CompileOptions {
 
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+  struct GlobalBuffers {
+    std::vector<at::Tensor> buffers;
+    std::vector<bool> zero_init;
+    at::Tensor profile_buffer;
+  };
+
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
   void debugCompileFusionFromStr(
@@ -249,13 +256,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs);
 
  private:
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  struct GlobalBuffers {
-    std::vector<at::Tensor> buffers;
-    std::vector<bool> zero_init;
-    at::Tensor profile_buffer;
-  };
-
   static std::string kernelNamespace() {
     return "CudaCodeGen";
   }
