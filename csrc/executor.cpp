@@ -33,7 +33,7 @@
 
 namespace nvfuser {
 
-int FusionExecutor::fusion_id_counter_ = 0; // NOLINT
+int FusionExecutor::fusion_id_counter_ = 0;
 
 bool fill_allocation_with_nan_ = false;
 
@@ -315,7 +315,6 @@ void FusionExecutor::compileFusion(
   //  needed in later development.
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
-    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
@@ -868,7 +867,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
     }
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   const uint64_t dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
@@ -1127,7 +1125,6 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   auto& alias_indices = alias_indices_entry.get();
 
-  // NOLINTNEXTLINE(bugprone-branch-clone)
   auto output_alias_indices_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::OutputAliasIndices>(
@@ -1431,7 +1428,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
   // only allocate outputs when not given
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   if (outputs.empty()) {
     outputs = allocOutputs(
         kernel(),
