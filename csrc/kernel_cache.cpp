@@ -255,7 +255,8 @@ std::string FusionExecutorCache::getCode(
     const auto& execs = kernel_runtime->executors();
     const FusionExecutor& fe = execs[0];
     auto index_type = fe.kernel()->indexType();
-    // Make sure all the segment index types match
+    // Make sure all the segment index types match. All segments currently
+    // use the same index type but this code change in the future.
     for (const auto& exec : execs) {
       TORCH_CHECK(
           index_type == exec.kernel()->indexType(),
