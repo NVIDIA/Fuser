@@ -24,6 +24,7 @@ if (PROJECT_IS_TOP_LEVEL)
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
   # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
   string(APPEND CMAKE_CXX_FLAGS ${TORCH_CXX_FLAGS})
+  include(FlatBuffers.cmake)
   if(BUILD_NVFUSER_BENCHMARK)
     include(Dependencies.cmake)
   endif()
