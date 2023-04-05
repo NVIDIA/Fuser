@@ -243,14 +243,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   mma_util::orderTiledConcreteIdAsRoot(acw_smem);
   // [... M, K]
   acw_smem->merge(-2);
-  mma_util::scheduleContiguousVectorLoad(
-      acw_smem, gemm_tile, 8, false);
+  mma_util::scheduleContiguousVectorLoad(acw_smem, gemm_tile, 8, false);
 
   // [... N, K]
   mma_util::orderTiledConcreteIdAsRoot(bcw_smem);
   bcw_smem->merge(-2);
-  mma_util::scheduleContiguousVectorLoad(
-      bcw_smem, gemm_tile, 8, false);
+  mma_util::scheduleContiguousVectorLoad(bcw_smem, gemm_tile, 8, false);
 
   // Propagate prolog tensors
   //  propagate up the DAG, and propagate parallel type.
