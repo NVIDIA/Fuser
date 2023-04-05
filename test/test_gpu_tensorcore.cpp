@@ -3160,7 +3160,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
 // Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
 //   with strict ref check hence single layout check
 TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 128, N = 256, K = 512;
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
