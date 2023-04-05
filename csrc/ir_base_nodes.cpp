@@ -112,8 +112,8 @@ const std::vector<Expr*>& Val::uses() const {
   return uses_;
 }
 
-bool Val::addUse(Expr* expr) {
-  if (this->isA<TensorView>()) {
+bool Val::addUse(Expr* expr, bool defer_inserting_tv_uses) {
+  if (this->isA<TensorView>() && defer_inserting_tv_uses) {
     // Invalidation is needed here since the added expression may introduce
     // additional paths to fusion outputs.
     fusion()->invalidateTvUses();

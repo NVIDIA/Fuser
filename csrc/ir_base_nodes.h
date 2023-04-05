@@ -395,8 +395,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
   }
 
   //! Insert a new expression into uses() if it is not already present and
-  //! return whether an insertion occurred.
-  bool addUse(Expr*);
+  //! return whether an insertion occurred. For TensorViews, if
+  //! defer_inserting_tv_uses is true, does not actually add the use Expr, but
+  //! instead only calls invalidateTvUses(). This will trigger a later call to
+  //! resetTvUses(), which will in turn call addUse(tv, false), resulting in
+  //! the TensorView actually being added.
+  bool addUse(Expr*, bool defer_inserting_tv_uses = true);
 
   //! Remove an expression from uses() if it is already present and return
   //! whether a removal occurred.
