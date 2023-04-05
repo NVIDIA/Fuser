@@ -344,7 +344,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
   TORCH_INTERNAL_ASSERT(sg, "runKernelWithInput: need valid group to run");
-  auto [launch_params, compile_params] = compileKernel(args, sg);
+  auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto scheduler_entry = schedulers().at(group_id).get();
   auto& executor = executors_.at(group_id);
@@ -445,7 +445,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
   }
 }
 
-// passing args by value, since we will be modify this
+// passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
 
@@ -459,23 +459,33 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
       mapFusionInputsToArgs(args);
 
-  std::vector<KernelArgumentHolder> sg_inputs;
-  sg_inputs.reserve(runtime_workspace_.group_run_order.size());
+  using fusion_ptr = std::unique_ptr<Fusion>;
+  std::vector<fusion_ptr> fusions;
+
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    sg_inputs.emplace_back(args.getIndexMode());
-    KernelArgumentHolder& group_runtime_inputs = sg_inputs.back();
+    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-
     for (auto input : group_to_run->inputs()) {
       group_runtime_inputs.push(tensor_map.at(input));
     }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
+    Fusion* fusion = fusion_to_run.get();
+
+    getThreadPool()->run([=]() {
+      FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+      c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+      c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+      compileKernel(fusion, group_runtime_inputs, group_to_run);
+    });
+
     auto& executor = executors_[group_to_run->groupId()];
     auto group_runtime_outputs =
-        executor.inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+        executor.inferOutputSizes(fusion, group_runtime_inputs);
+
+    fusions.push_back(std::move((fusion_to_run)));
 
     // map output args to tensor map
     const auto& group_outputs = group_to_run->outputs();
@@ -485,23 +495,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
   }
 
-  // std::cout << "kernels\t" << sg_inputs.size() << std::endl;
-
-  for (auto pos : c10::irange(runtime_workspace_.group_run_order.size())) {
-    auto input_args = sg_inputs.at(pos);
-    auto sg = runtime_workspace_.group_run_order.at(pos);
-    getThreadPool()->run([=]() {
-      FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-      c10::cuda::CUDAGuard dg(input_args.getDeviceIndex());
-      c10::Device device(c10::DeviceType::CUDA, input_args.getDeviceIndex());
-      compileKernel(input_args, sg);
-    });
-  }
-
   getThreadPool()->waitWorkComplete();
 }
 
-std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
+void FusionKernelRuntime::compileKernel(
+    Fusion* fusion,
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
@@ -510,25 +508,32 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  TORCH_INTERNAL_ASSERT(!executors_.at(group_id).compiled());
 
-  if (!executors_.at(group_id).compiled()) {
-    FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel::Compile");
-    // Running a segment group as a single kernel,
-    // make a fusion to run from segmented fusion
-    std::unique_ptr<Fusion> fusion_to_run = segmented_fusion_->makeFusion(sg);
-    FusionGuard fg(fusion_to_run.get());
+  // Running a segment group as a single kernel,
+  // make a fusion to run from segmented fusion
+  FusionGuard fg(fusion);
+  scheduler_entry->schedule(fusion);
+  TORCH_INTERNAL_ASSERT(
+      scheduler_entry->params()->cparams.index_type.has_value(),
+      "Kernel index type is not defined.");
+  executors_.at(group_id).compileFusion(
+      fusion,
+      args,
+      scheduler_entry->params()->lparams,
+      scheduler_entry->params()->cparams);
+}
 
-    scheduler_entry->schedule(fusion_to_run.get());
+std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
+    const KernelArgumentHolder& args,
+    SegmentedGroup* sg) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::getKernelConfig");
+  auto group_id = sg->groupId();
+  auto scheduler_entry = schedulers().at(group_id).get();
 
-    TORCH_INTERNAL_ASSERT(
-        scheduler_entry->params()->cparams.index_type.has_value(),
-        "Kernel index type is not defined.");
-    executors_.at(group_id).compileFusion(
-        fusion_to_run.get(),
-        args,
-        scheduler_entry->params()->lparams,
-        scheduler_entry->params()->cparams);
-  }
+  // Check that the heuristics are matched, in the case of segmented fusion
+  TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  TORCH_INTERNAL_ASSERT(executors_.at(group_id).compiled());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);

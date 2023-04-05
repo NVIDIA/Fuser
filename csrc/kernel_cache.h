@@ -166,7 +166,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  std::pair<LaunchParams, CompileParams> compileKernel(
+  void compileKernel(
+      Fusion* fusion,
+      const KernelArgumentHolder& args,
+      SegmentedGroup* sg);
+
+  std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
