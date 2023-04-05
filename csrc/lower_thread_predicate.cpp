@@ -524,6 +524,21 @@ class RedundantUseAnalysis : BackwardVisitor {
 // thread/block id. issue https://github.com/csarofeen/pytorch/issues/2125
 void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
+  // step-1, check if there is a leaf domain parallelized by thread/block id and
+  // its definition is a merged
+  bool merged_parallelized_thread_block = false;
+  for (auto ld : out_tv->domain()->domain()) {
+    const ParallelType& pt = ld->getParallelType();
+    auto merge = dynamic_cast<Merge*>(ld->definition());
+    if (isParallelTypeThread(pt) && merge) {
+      merged_parallelized_thread_block = true;
+    }
+  }
+  // shortcut if there is no such leaf domain
+  if (!merged_parallelized_thread_block) {
+    return;
+  }
+
   auto root_domain = out_tv->getRootDomain();
   // For each broadcast root domain, find a concretized domain from its
   // exact mapped domain set.
@@ -613,7 +628,7 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
   // set write stride
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1B2B3], the merged_root_domains =
   // {B3,B2,I1}. root_stride = {1, len(B3), len(B3) * len(B2)}. write_stride_mod
-  // = {len(B3) * len(B2), len(B3), 1}. More cases can be found in
+  // = {len(B3) * len(B2)}. More cases can be found in
   // NVFuserTest.FusionAvoidRedundantWrite_CUDA
   auto setWriteStride = [&](const std::vector<IterDomain*>& merged_root_domains,
                             const std::vector<Val*>& root_stride,
@@ -659,11 +674,11 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     }
   };
 
-  // step-1, map broadcast root domain to concretized domain
+  // step-2, map broadcast root domain to concretized domain
   const std::unordered_map<IterDomain*, IterDomain*>&
       concretized_broadcast_root_domains = getConcretizedBroadcastRootDomain();
 
-  // step-2, if it has concretized broadcast root domain, there is redundant
+  // step-3, if it has concretized broadcast root domain, there is redundant
   // write for leaf domain parallelized by thread/block, and merged from
   // concretized broadcast root domains.
   if (!concretized_broadcast_root_domains.empty()) {
