@@ -3640,6 +3640,16 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         std::cout << "REPLAY3 :\n  " << replay->toString() << std::endl;
       }
 
+      all_index_exprs.pushBack(replay);
+
+      {
+        auto in_ids = ir_utils::filterByType<IterDomain>(replay->inputs());
+        all_index_ids.insert(in_ids.begin(), in_ids.end());
+
+        auto out_ids = ir_utils::filterByType<IterDomain>(replay->outputs());
+        all_index_ids.insert(out_ids.begin(), out_ids.end());
+      }
+
       auto out_groups =
           idGraph(IdMappingMode::ALMOSTEXACT).outputGroups(ae_expr);
 
@@ -3658,6 +3668,14 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       std::cout << std::endl;
     }
   }
+
+  std::cout << "Indexing expressions: " << std::endl;
+  for (auto expr : all_index_exprs) {
+    std::cout << expr->toString();
+  }
+
+  std::cout << "All indexing iter domains: " << all_index_ids.toString()
+            << std::endl;
 
   TORCH_INTERNAL_ASSERT(false);
 }
