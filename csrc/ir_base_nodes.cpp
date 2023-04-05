@@ -113,6 +113,12 @@ const std::vector<Expr*>& Val::uses() const {
 }
 
 bool Val::addUse(Expr* expr) {
+  if (this->isA<TensorView>()) {
+    // Invalidation is needed here since the added expression may introduce
+    // additional paths to fusion outputs.
+    fusion()->invalidateTvUses();
+    return true; // Pretend that we actually added the use
+  }
   if (std::find(uses_.begin(), uses_.end(), expr) == uses_.end()) {
     uses_.push_back(expr);
     return true;

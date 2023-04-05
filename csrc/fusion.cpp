@@ -539,20 +539,9 @@ void Fusion::registerExpr(Expr* expr) {
 
   IrContainer::registerExpr(expr);
 
-  bool has_tv = false;
-
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
-    if (input->isA<TensorView>()) {
-      has_tv = true;
-      // Note that we don't need to add a use here for TensorView inputs since
-      // that will happen automatically as we set the all_tv_uses_valid_ flag to
-      // false later.
-    } else {
-      // Vals are not tracked by resetTvUses, so we do need to add their uses
-      // here
-      input->addUse(expr);
-    }
+    input->addUse(expr);
   }
 
   // Kernel is the only container type that is non-ssa. This is mainly (maybe
@@ -561,18 +550,20 @@ void Fusion::registerExpr(Expr* expr) {
   bool is_ssa = !this->isA<kir::Kernel>();
 
   for (Val* output : expr->outputs()) {
-    has_tv = has_tv || output->isA<TensorView>();
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
       removeExpr(output->definition());
     }
     if (is_ssa || (!is_ssa && output->definition() == nullptr)) {
       output->setDefinition(expr);
+      if (output->isA<TensorView>()) {
+        // Updating the definition might change the path to output TVs.
+        // If that happens, our definition-based traversal can change and
+        // introduce whole new branches, so we need to recompute the uses_
+        // vector after setDefinition.
+        invalidateTvUses();
+      }
     }
-  }
-
-  if (has_tv) {
-    invalidateTvUses();
   }
 }
 
