@@ -14,8 +14,6 @@
 // 'SchedulerRuntimeInfo'
 #include <executor_utils.h>
 
-#include <sstream>
-
 namespace nvfuser {
 
 namespace {
