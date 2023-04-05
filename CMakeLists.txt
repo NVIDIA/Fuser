@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if (CMAKE_VERSION VERSION_LESS 3.21)
     if ("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
@@ -23,8 +25,7 @@ if (PROJECT_IS_TOP_LEVEL)
   # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
   string(APPEND CMAKE_CXX_FLAGS ${TORCH_CXX_FLAGS})
   if(BUILD_NVFUSER_BENCHMARK)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/googletest)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/benchmark)
+    include(Dependencies.cmake)
   endif()
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
   file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})

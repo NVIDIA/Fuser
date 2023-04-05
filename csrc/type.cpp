@@ -672,7 +672,7 @@ static const char* thread_size2string(ParallelType t) {
   }
 }
 
-static const char* load_store_type2string(LoadStoreOpType t) {
+const char* load_store_type2string(LoadStoreOpType t) {
   switch (t) {
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";

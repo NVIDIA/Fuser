@@ -651,6 +651,7 @@ TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const RNGOpType);
 TORCH_CUDA_CU_API c10::optional<std::string> integer_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API c10::optional<std::string> bool_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API const char* predicate_type2string(PredicateType t);
+TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
 TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
