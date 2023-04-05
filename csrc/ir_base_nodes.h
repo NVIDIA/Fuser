@@ -398,6 +398,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   //! return whether an insertion occurred.
   bool addUse(Expr*);
 
+  //! Remove an expression from uses() if it is already present and return
+  //! whether a removal occurred.
+  bool removeUse(Expr*);
+
  private:
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for

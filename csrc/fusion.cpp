@@ -172,8 +172,11 @@ void Fusion::removeExpr(Expr* expr) {
     out->setDefinition(nullptr);
   }
 
-  // Call for a rebuild of uses vector
-  invalidateUses();
+  // Remove uses in inputs
+  for (auto inp : expr->inputs()) {
+    // Note that if inp is a TensorView, this may call invalidateTvUses
+    inp->removeUse(expr);
+  }
 
   IrContainer::removeExpr(expr);
 }
@@ -295,7 +298,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       output->as<TensorView>()->setMemoryType(MemoryType::Local);
     }
     // Mark uses invalid so that they will be reset next time uses() is called
-    all_tv_uses_valid_ = false;
+    invalidateTvUses();
   }
 
   // Temporary WAR for issue #1112
@@ -569,7 +572,7 @@ void Fusion::registerExpr(Expr* expr) {
   }
 
   if (has_tv) {
-    invalidateUses();
+    invalidateTvUses();
   }
 }
 

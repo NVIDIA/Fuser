@@ -120,6 +120,19 @@ bool Val::addUse(Expr* expr) {
   return false;
 }
 
+bool Val::removeUse(Expr* expr) {
+  auto it = std::find(uses_.begin(), uses_.end(), expr);
+  if (it != uses_.end()) {
+    uses_.erase(it);
+    if (this->isA<TensorView>()) {
+      // Call for a rebuild of uses_ vector
+      fusion()->invalidateTvUses();
+    }
+    return true;
+  }
+  return false;
+}
+
 // Converts the data type of TensorView or Scalar representing index
 // values. The data type of the original input should be
 // DataType::Index, but DataType::Int is also allowed as it is used
