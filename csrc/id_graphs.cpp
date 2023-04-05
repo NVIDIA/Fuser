@@ -830,11 +830,11 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 
   for (auto inp : terminating_inputs) {
     auto use_it = uses_path.find(inp);
-    TORCH_INTERNAL_ASSERT(
-        use_it != uses_path.end(),
-        "Invalid calculation of exprs between, no use found of a provided terminating input: ",
-        inp->toString(),
-        " expressions cannot be computed.");
+    if (use_it == uses_path.end()) {
+      // This can happen for a trivial traversal where inputs and outputs are
+      // exactly the same.
+      continue;
+    }
     auto uses = use_it->second;
     for (auto use : uses) {
       to_visit.pushBack(use);
@@ -1780,6 +1780,9 @@ IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
   }
 
   auto id_copy = id->cloneWithoutRFactor();
+
+  id_uses_[id_copy] = {};
+  id_definitions_[id_copy] = {};
 
   for (auto mode : initialized_modes) {
     idGraph(mode).initializeId(id_copy, {}, {});
@@ -3486,7 +3489,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   // Could pass this into the function, but just using this for now.
   auto all_tvs = ir_utils::allTvsOfExprs(exprs);
 
-  auto promoted_domain = [&](TensorDomain* td) {
+  auto get_promoted_domain = [&](TensorDomain* td) {
     std::vector<IterDomain*> promoted_leaves;
     for (auto id : td->domain()) {
       auto promo_it = leaf_promotion_map.find(id);
@@ -3496,14 +3499,164 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     return promoted_leaves;
   };
 
+  idGraph(IdMappingMode::INDEX) = initializeIdGraph();
+
+  // Track every expression required for indexing
+  VectorOfUniqueEntries<Expr*> all_index_exprs;
+  // Track every iter domain required for indexing
+  VectorOfUniqueEntries<IterDomain*> all_index_ids;
+
   std::cout << "Promoted tensor view domains:" << std::endl;
-  // Need to replay all of the indexing expressions to make sure roots are
-  // connected to domains.
+  // Need to "replay" all of the indexing expressions to make sure roots are
+  // connected to the promoted leaves, in a way we can index directly on the
+  // index graph.
+
+  auto& ae_graph = idGraph(IdMappingMode::ALMOSTEXACT);
   for (auto tv : all_tvs) {
+    auto promoted_domain = get_promoted_domain(tv->domain());
     // replay from root to promoted leaves.
-    std::cout << "TV" << tv->name() << " " << promoted_domain(tv->domain())
-              << "\n  <- "
+    std::cout << "\n\nTV" << tv->name() << " " << promoted_domain << "\n  <- "
               << "TV" << tv->name() << tv->domain()->toString() << std::endl;
+
+    VectorOfUniqueEntries<IterDomain*> root_ids{
+        tv->getRootDomain().begin(), tv->getRootDomain().end()};
+
+    auto ae_root_groups = ae_graph.toGroups(root_ids);
+
+    std::unordered_map<IdGroup, IterDomain*> ae_group_2_id;
+
+    for (auto root_i : c10::irange(ae_root_groups.size())) {
+      ae_group_2_id[ae_root_groups.vector()[root_i]] =
+          root_ids.vector()[root_i];
+    }
+
+    VectorOfUniqueEntries<IterDomain*> leaf_ids{
+        promoted_domain.begin(), promoted_domain.end()};
+
+    auto ae_leaf_groups = ae_graph.toGroups(leaf_ids);
+
+    // Get indexing transformations
+    auto indexing_transforms =
+        ae_graph.getExprsBetween(ae_root_groups, ae_leaf_groups);
+
+    // Replay indexing transformations on the root_ids
+    for (ExprGroup ae_expr : indexing_transforms) {
+      std::cout << "Almost exact expr: " << ae_expr->front()->toString();
+
+      // Replay mostly copied for a third time.
+      auto input_groups = ae_graph.inputGroups(ae_expr);
+
+      // Inputs "promoted" with the ae_group_2_id map.
+      //
+      // if there isn't an entry in ae_group_2_id, then we have a resolved
+      // merged in broadcast, we need to clone that input. Would be nice to see
+      // if the dangling input has already been added already through another
+      // indexing path that this overlaps with, however having an additional Id
+      // and expression per case doesn't seem too bad right now.
+      std::vector<IterDomain*> promoted_inputs;
+      bool an_input_was_promoted = false;
+
+      for (auto inp_group : input_groups) {
+        auto inp_promo_it = ae_group_2_id.find(inp_group);
+        if (inp_promo_it == ae_group_2_id.end()) {
+          // Clone dangling input, this is unique for index graph compared to
+          // the other replays.
+          promoted_inputs.push_back(cloneIterDomain(inp_group->front()));
+        } else {
+          promoted_inputs.push_back(inp_promo_it->second);
+          an_input_was_promoted = true;
+        }
+      }
+
+      if (!an_input_was_promoted) {
+        // No inputs need promotion so just continue
+        continue;
+      }
+
+      // Debug print the promotion
+      for (auto inp_i : c10::irange(input_groups.size())) {
+        auto inp_group = input_groups.vector()[inp_i];
+        auto inp_promo_it = ae_group_2_id.find(inp_group);
+        if (inp_promo_it == ae_group_2_id.end()) {
+          std::cout << "Cloned input: " << promoted_inputs[inp_i] << std::endl;
+        } else {
+          std::cout << "\"Promoted\" input: " << promoted_inputs[inp_i]
+                    << std::endl;
+        }
+      }
+
+      Expr* replay = nullptr;
+
+      // Before replaying, check if there's already an expression like this, if
+      // so use that for promotion.
+      ExprGroups promoted_input_uses;
+      for (auto inp_id : promoted_inputs) {
+        auto index_group =
+            idGraph(IdMappingMode::INDEX).toGroups({inp_id}).front();
+        promoted_input_uses.pushBack(
+            idGraph(IdMappingMode::INDEX).uniqueUses(index_group));
+      }
+
+      for (auto index_use_group : promoted_input_uses) {
+        std::cout << "Check use: " << index_use_group->front()->toString();
+        if (transformAtributesMatch(
+                ae_expr->front(), index_use_group->front())) {
+          std::cout << "  Attributes match" << std::endl;
+          auto index_use_inputs = ir_utils::filterByType<IterDomain>(
+                                      index_use_group->front()->inputs())
+                                      .vector();
+          bool inps_match = true;
+          for (auto inp_i : c10::irange(index_use_inputs.size())) {
+            inps_match = inps_match &&
+                idGraph(IdMappingMode::INDEX)
+                    .disjointIdSets()
+                    .strictAreMapped(
+                        index_use_inputs[inp_i], promoted_inputs[inp_i]);
+            if (!idGraph(IdMappingMode::INDEX)
+                     .disjointIdSets()
+                     .strictAreMapped(
+                         index_use_inputs[inp_i], promoted_inputs[inp_i])) {
+              std::cout << "  " << index_use_inputs[inp_i]->toString()
+                        << " doesn't match "
+                        << promoted_inputs[inp_i]->toString() << std::endl;
+            }
+          }
+          if (inps_match) {
+            std::cout << "  Inputs match" << std::endl;
+            replay = index_use_group->front();
+            break;
+          } else {
+            std::cout << "  Inputs don't match" << std::endl;
+          }
+        } else {
+          std::cout << "  Attributes don't match" << std::endl;
+        }
+      }
+
+      if (replay == nullptr) {
+        std::cout << "Replay: " << ae_expr->front();
+        std::cout << "With promoted inputs: " << promoted_inputs << std::endl;
+        replay = addReplayAs(promoted_inputs, ae_expr->front());
+        std::cout << "REPLAY3 :\n  " << replay->toString() << std::endl;
+      }
+
+      auto out_groups =
+          idGraph(IdMappingMode::ALMOSTEXACT).outputGroups(ae_expr);
+
+      // Mark outputs as having a promoted iter domain
+      auto replay_out_ids =
+          ir_utils::filterByType<IterDomain>(replay->outputs()).vector();
+
+      TORCH_INTERNAL_ASSERT(replay_out_ids.size() == out_groups.size());
+
+      for (auto i : c10::irange(replay_out_ids.size())) {
+        ae_group_2_id[out_groups.vector()[i]] = replay_out_ids[i];
+        std::cout << "Mapping: " << out_groups.vector()[i]->toString() << " -> "
+                  << replay_out_ids[i]->toString() << std::endl;
+      }
+
+      std::cout << std::endl;
+    }
   }
 
   TORCH_INTERNAL_ASSERT(false);
