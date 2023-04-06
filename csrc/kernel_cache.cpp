@@ -222,9 +222,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   // Removing aliased outputs, since those are updated by the Fusion. It is not
-  // semantically correct to actually return them as outputs from fusion.
+  // semantically correct to actually return them as outputs from
+  // fusion.
   int offset = 0;
-  const auto& indices = fusion_->getOutputAliasIndices();
+  const auto& indices = fusion_->getIndicesOfAliasedOutputs();
   std::set<int> aliased_output_indices(indices.begin(), indices.end());
   for (const auto& v : aliased_output_indices) {
     outputs.erase(outputs.begin() + v - offset);
