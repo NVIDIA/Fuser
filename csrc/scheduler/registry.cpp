@@ -1271,6 +1271,13 @@ class ReductionScheduler : public SchedulerEntry {
       return false;
     }
 
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "Scheduling not supported with no input");
+      return false;
+    }
+
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Reduction)) {
       return false;
@@ -1650,6 +1657,13 @@ class PersistentKernelScheduler : public SchedulerEntry {
     if (reduction_ops.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent, "needs a reduction op");
+      return false;
+    }
+
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent,
+          "Scheduling not supported with no input");
       return false;
     }
 
