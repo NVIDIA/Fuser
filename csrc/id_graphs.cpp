@@ -2309,24 +2309,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
   }
 
-  std::cout << "p2c_root_broadcast_resolution_map" << std::endl;
-  for (auto p_id : ordered_p_ca_ids) {
-    if (p2c_root_broadcast_resolution_map.find(p_id) !=
-        p2c_root_broadcast_resolution_map.end()) {
-      std::cout << p_id->toString() << " -> "
-                << p2c_root_broadcast_resolution_map.at(p_id).toString();
-    }
-  }
-
-  std::cout << "p2c_ca_permissive_maps" << std::endl;
-  for (auto p_id : ordered_p_ca_ids) {
-    if (p2c_ca_permissive_maps.find(p_id) != p2c_ca_permissive_maps.end()) {
-      std::cout << p_id->toString() << " -> "
-                << p2c_ca_permissive_maps.at(p_id).toString() << std::endl;
-      ;
-    }
-  }
-
   // Terminal loop ids are iteration domains in each loop group that:
   // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
   //    consumer TV's iter domain maps to this domain in a way that that domain
@@ -2385,33 +2367,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   terminal_loop_ids =
       p2c_ca_terminal_loop_ids.intersect(id_consumer_terminal_loop_ids);
 
-  // std::cout << "Loop graph: " << std::endl;
-  // {
-  //   IdGroups groups;
-  //   for (auto group :
-  //        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
-  //     groups.pushBack(group);
-  //   }
-  //   std::cout << debug_print::idGroupsStringShort(groups) << std::endl;
-  // }
-
-  // std::cout << "p2c ca terminal: " << p2c_ca_terminal_loop_ids.toString()
-  //           << std::endl;
-  // std::cout << "id consumer terminal: "
-  //           << id_consumer_terminal_loop_ids.toString() << std::endl;
-  // std::cout << "Terminal: " << terminal_loop_ids.toString() << std::endl;
-
-  // std::cout << "Almost Exact graph: " << std::endl;
-  // {
-  //   IdGroups groups;
-  //   for (auto group :
-  //        idGraph(IdMappingMode::ALMOSTEXACT).disjointIdSets().disjointSets())
-  //        {
-  //     groups.pushBack(group);
-  //   }
-  //   std::cout << debug_print::idGroupsStringShort(groups) << std::endl;
-  // }
-
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with eachother. This provides a
   // better graph to do promotion and replays.
@@ -2453,16 +2408,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
-
-  // std::cout << "Intersection exact - loop: " << std::endl;
-  // {
-  //   IdGroups groups;
-  //   for (auto group :
-  //        intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
-  //     groups.pushBack(group);
-  //   }
-  //   std::cout << debug_print::idGroupsStringShort(groups) << std::endl;
-  // }
 
   // Promotion logic is going to be on the intersection of the exact and loop
   // graph. We will generate a map on the entries of this graph so it's
@@ -2566,22 +2511,13 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     if (entry_it == iel_promotion_map.end()) {
       continue;
     }
-    std::cout << entry_it->second->toString() << " <- "
+    std::cout << "  " << entry_it->second->toString() << " <- "
               << entry_it->first->toString() << std::endl;
   }
 
-  // std::cout << "Loop graph: " << std::endl;
-  // {
-  //   IdGroups groups;
-  //   for (auto group :
-  //        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
-  //     groups.pushBack(group);
-  //   }
-  //   std::cout << debug_print::idGroupsStringShort(groups) << std::endl;
-  // }
-
   IdGraphStmtSort iel_stmt_sort(intersection_exact_loop_graph);
 
+  std::cout<<"Initial promotion replay:"<<std::endl;
   for (auto iel_expr : iel_stmt_sort.exprs()) {
     auto input_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
     // Check if any inputs need promotion indicating this expr group needs to
@@ -2604,17 +2540,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       continue;
     }
 
-    for (auto inp : input_groups) {
-      auto inp_promo_it = iel_promotion_map.find(inp);
-      if (inp_promo_it == iel_promotion_map.end()) {
-        std::cout << "IEL inp: " << debug_print::idGroupStringShort(inp)
-                  << std::endl;
-      } else {
-        std::cout << "Promoted input: " << debug_print::idGroupStringShort(inp)
-                  << " -> " << inp_promo_it->second->toString() << std::endl;
-      }
-    }
-
     Expr* replay = nullptr;
 
     // Before replaying, check if there's already an expression like this, if so
@@ -2628,10 +2553,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
 
     for (auto exact_use_group : promoted_input_uses) {
-      std::cout << "Check use: " << exact_use_group->front()->toString();
       if (transformAtributesMatch(
               iel_expr->front(), exact_use_group->front())) {
-        std::cout << "Attributes match" << std::endl;
         auto exact_use_inps = ir_utils::filterByType<IterDomain>(
                                   exact_use_group->front()->inputs())
                                   .vector();
@@ -2642,13 +2565,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
                   .disjointIdSets()
                   .strictAreMapped(
                       exact_use_inps[inp_i], promoted_inputs[inp_i]);
-          if (!idGraph(IdMappingMode::EXACT)
-                   .disjointIdSets()
-                   .strictAreMapped(
-                       exact_use_inps[inp_i], promoted_inputs[inp_i])) {
-            std::cout << exact_use_inps[inp_i]->toString() << " doesn't match "
-                      << promoted_inputs[inp_i]->toString() << std::endl;
-          }
         }
         if (inps_match) {
           replay = exact_use_group->front();
@@ -2659,8 +2575,10 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     if (replay == nullptr) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
-      std::cout << "REPLAY:\n  " << iel_expr->front() << "  "
-                << replay->toString() << std::endl;
+      std::cout << "  ***REPLAY***:\n    " << iel_expr->front() << "    As:"
+                << replay->toString();
+    } else {
+      std::cout << "  Matched replay found: " << replay->toString();
     }
 
     auto out_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
@@ -2673,15 +2591,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     for (auto i : c10::irange(replay_out_ids.size())) {
       iel_promotion_map[out_groups.vector()[i]] = replay_out_ids[i];
-      std::cout << "Mapping: " << out_groups.vector()[i]->toString() << " -> "
-                << replay_out_ids[i]->toString() << std::endl;
     }
-  }
-
-  std::cout << "Filled promotion map:" << std::endl;
-  for (auto entry : iel_promotion_map) {
-    std::cout << entry.second->toString() << " <- " << entry.first->toString()
-              << std::endl;
   }
 
   // Map from an exact iter domain group, to all the exact iter domain groups it
@@ -2724,19 +2634,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
          idGraph(IdMappingMode::EXACT).outputGroups(exact_expr)) {
       exact_covered_ids[output_group] = covered;
     }
-  }
-
-  std::cout << "Covered exact entries:" << std::endl;
-  for (auto exact_group :
-       idGraph(IdMappingMode::EXACT).disjointIdSets().disjointSets()) {
-    auto exact_covered_id_it = exact_covered_ids.find(exact_group);
-    if (exact_covered_id_it == exact_covered_ids.end()) {
-      continue;
-    }
-
-    std::cout << debug_print::idGroupStringShort(exact_group) << " -> "
-              << debug_print::idGroupsStringShort(exact_covered_id_it->second)
-              << std::endl;
   }
 
   // Loop promotion map is to prepare for IterDomain replays. Since these
@@ -2811,7 +2708,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     if (loop_promotion_id == nullptr) {
       std::stringstream err_msg;
-      err_msg << "\nCould not find promotion for loop group:\n  ";
+      err_msg
+          << "\n ERROR Loop promotion map build. Could not find promotion for loop group:\n  ";
       err_msg << debug_print::idGroupStringShort(loop_group);
       err_msg << "\nnone of the terminal iter domains of this group:\n  ";
       for (auto entry : exact_promoted_terminal_ids) {
@@ -2829,79 +2727,10 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     loop_graph_copy_promotion_map[loop_group] = loop_promotion_id;
   }
 
-  // std::cout << "Loop graph copy: " << std::endl;
-  // for (auto group :
-  //      loop_graph_copy.disjointIdSets().disjointSets()) {
-  //   std::cout << debug_print::idGroupStringShort(group) << std::endl;
-  // }
-
-  // std::cout << "Loop graph copy promotion map: " << std::endl;
-  // for (auto group :
-  //      loop_graph_copy.disjointIdSets().disjointSets()) {
-  //   if (loop_graph_copy_promotion_map.find(group) ==
-  //   loop_graph_copy_promotion_map.end()) {
-  //     continue;
-  //   }
-  //   std::cout << debug_print::idGroupStringShort(group) << " -> "
-  //             << loop_graph_copy_promotion_map.at(group)->toString() <<
-  //             std::endl;
-  // }
-
-  // std::cout << "All exprs in loop map" << std::endl;
-
-  // iel_promotion_map.clear();
-
-  // // Reinitialize the IEL graph, entries have been added since it's been
-  // built. intersection_exact_loop_graph = initializeIdGraph(); for (auto
-  // exact_group :
-  //      idGraph(IdMappingMode::EXACT).disjointIdSets().disjointSets()) {
-  //   auto set_size = exact_group->size();
-  //   for (auto id0_i : c10::irange(set_size)) {
-  //     auto id0 = exact_group->vector()[id0_i];
-  //     for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
-  //       auto id1 = exact_group->vector()[id1_i];
-  //       // id0 and id1 map in the almost exact map, if they also map in the
-  //       loop
-  //       // graph, then add the mapping to the inersection
-  //       if (idGraph(IdMappingMode::LOOP)
-  //               .disjointIdSets()
-  //               .strictAreMapped(id0, id1)) {
-  //         intersection_exact_loop_graph.mapIds(id0, id1);
-  //       }
-  //     }
-  //   }
-  // }
-
-  // std::cout << "IEL Graph POST: " << std::endl;
-  // for (auto entry :
-  //      intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
-  //   std::cout << debug_print::idGroupStringShort(entry) << std::endl;
-  // }
-
-  // // Initialize IterDomain promotions based on loop group, onto the
-  // intersection
-  // // exact loop graph
-  // for(auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()){
-  //   auto promo_it = loop_graph_copy_promotion_map.find(loop_group);
-  //   if ( promo_it ==
-  //       loop_graph_copy_promotion_map.end()) {
-  //     continue;
-  //   }
-  //   auto promo_id = promo_it->second;
-  //   auto iel_groups = intersection_exact_loop_graph.toGroups(*loop_group);
-  //   for(auto iel_group : iel_groups){
-  //     if (!idGraph(IdMappingMode::ALMOSTEXACT)
-  //             .disjointIdSets()
-  //             .strictAreMapped(promo_id, iel_group->front())) {
-  //       iel_promotion_map[iel_group] = promo_id;
-  //     }
-  //   }
-  // }
-
   // Reset the promotion map for the second pass
   iel_promotion_map.clear();
 
-  std::cout << "\n\n Forward replay iel graph:" << std::endl;
+  std::cout << "\n\nForward replay iel graph:" << std::endl;
 
   IdGraphStmtSort iel_stmt_sort2(intersection_exact_loop_graph);
   for (auto iel_expr : iel_stmt_sort2.exprs()) {
@@ -2936,7 +2765,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     std::vector<IterDomain*> promoted_inputs;
 
-    bool input_is_promoted = false;
+    bool an_input_was_promoted = false;
 
     // Promote inputs for replay
     for (auto iel_inp_group : iel_inp_groups) {
@@ -2948,19 +2777,19 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       if (loop_promote_inputs &&
           inp_loop_promo_it != loop_graph_copy_promotion_map.end()) {
         promoted_inputs.push_back(inp_loop_promo_it->second);
-        input_is_promoted = true;
+        an_input_was_promoted = true;
       } else {
         auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
         if (inp_promo_it == iel_promotion_map.end()) {
           promoted_inputs.push_back(iel_inp_group->front());
         } else {
           promoted_inputs.push_back(inp_promo_it->second);
-          input_is_promoted = true;
+          an_input_was_promoted = true;
         }
       }
     }
 
-    if (!input_is_promoted) {
+    if (!an_input_was_promoted) {
       continue;
     }
 
@@ -2977,10 +2806,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
 
     for (auto exact_use_group : promoted_input_uses) {
-      std::cout << "Check use: " << exact_use_group->front()->toString();
       if (transformAtributesMatch(
               iel_expr->front(), exact_use_group->front())) {
-        std::cout << "Attributes match" << std::endl;
         auto exact_use_inps = ir_utils::filterByType<IterDomain>(
                                   exact_use_group->front()->inputs())
                                   .vector();
@@ -3008,8 +2835,10 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     if (replay == nullptr) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
-      std::cout << "REPLAY2:\n  " << iel_expr->front() << "  "
-                << replay->toString() << std::endl;
+      std::cout << "  ***REPLAY2***:\n    " << iel_expr->front() << "    As:"
+                << replay->toString();
+    } else {
+      std::cout << "  Matched replay found: " << replay->toString();
     }
 
     auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
@@ -3028,17 +2857,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         iel_promotion_map[output_groups.vector()[i]] = replay_out_ids[i];
       }
     }
-
-    std::cout << "  "
-              << debug_print::exprGroupStringShort(
-                     intersection_exact_loop_graph, iel_expr)
-              << std::endl;
-  }
-
-  std::cout << "Filled promotion map2:" << std::endl;
-  for (auto entry : iel_promotion_map) {
-    std::cout << entry.second->toString() << " <- " << entry.first->toString()
-              << std::endl;
   }
 
   // Need to update the iel_graph again since we've added operations to the
@@ -3105,25 +2923,14 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
   }
 
-  std::cout << "Covered exact entries:" << std::endl;
-  for (auto exact_group :
-       idGraph(IdMappingMode::EXACT).disjointIdSets().disjointSets()) {
-    auto exact_covered_id_it = exact_covered_ids.find(exact_group);
-    if (exact_covered_id_it == exact_covered_ids.end()) {
-      continue;
-    }
-
-    std::cout << debug_print::idGroupStringShort(exact_group) << " -> "
-              << debug_print::idGroupsStringShort(exact_covered_id_it->second)
-              << std::endl;
-  }
-
   // Loop promotion map is to prepare for IterDomain replays. Since these
   // replays will modify the loop map, we operate on a copy of the loop map,
   // not the original one.
 
   loop_graph_copy = idGraph(IdMappingMode::LOOP);
   loop_graph_copy_promotion_map.clear();
+
+  std::cout << "Find promoted ids within loop groups." << std::endl;
 
   for (auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()) {
     if (loop_group->size() == 1) {
@@ -3506,7 +3313,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   // Track every iter domain required for indexing
   VectorOfUniqueEntries<IterDomain*> all_index_ids;
 
-  std::cout << "Promoted tensor view domains:" << std::endl;
+  std::cout << "Building promoted tensor view domains:" << std::endl;
   // Need to "replay" all of the indexing expressions to make sure roots are
   // connected to the promoted leaves, in a way we can index directly on the
   // index graph.
@@ -3515,8 +3322,9 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   for (auto tv : all_tvs) {
     auto promoted_domain = get_promoted_domain(tv->domain());
     // replay from root to promoted leaves.
-    std::cout << "\n\nTV" << tv->name() << " " << promoted_domain << "\n  <- "
-              << "TV" << tv->name() << tv->domain()->toString() << std::endl;
+    std::cout << "\n\n  Processing: TV" << tv->name()
+              << "\n    Promoted: " << promoted_domain
+              << "\n    Original: " << tv->domain()->toString() << std::endl;
 
     VectorOfUniqueEntries<IterDomain*> root_ids{
         tv->getRootDomain().begin(), tv->getRootDomain().end()};
@@ -3539,10 +3347,9 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     auto indexing_transforms =
         ae_graph.getExprsBetween(ae_root_groups, ae_leaf_groups);
 
+    std::cout<<"    Replaying path to domain:"<<std::endl;
     // Replay indexing transformations on the root_ids
     for (ExprGroup ae_expr : indexing_transforms) {
-      std::cout << "Almost exact expr: " << ae_expr->front()->toString();
-
       // Replay mostly copied for a third time.
       auto input_groups = ae_graph.inputGroups(ae_expr);
 
@@ -3573,18 +3380,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         continue;
       }
 
-      // Debug print the promotion
-      for (auto inp_i : c10::irange(input_groups.size())) {
-        auto inp_group = input_groups.vector()[inp_i];
-        auto inp_promo_it = ae_group_2_id.find(inp_group);
-        if (inp_promo_it == ae_group_2_id.end()) {
-          std::cout << "Cloned input: " << promoted_inputs[inp_i] << std::endl;
-        } else {
-          std::cout << "\"Promoted\" input: " << promoted_inputs[inp_i]
-                    << std::endl;
-        }
-      }
-
       Expr* replay = nullptr;
 
       // Before replaying, check if there's already an expression like this, if
@@ -3598,10 +3393,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       }
 
       for (auto index_use_group : promoted_input_uses) {
-        std::cout << "Check use: " << index_use_group->front()->toString();
         if (transformAtributesMatch(
                 ae_expr->front(), index_use_group->front())) {
-          std::cout << "  Attributes match" << std::endl;
           auto index_use_inputs = ir_utils::filterByType<IterDomain>(
                                       index_use_group->front()->inputs())
                                       .vector();
@@ -3612,32 +3405,21 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
                     .disjointIdSets()
                     .strictAreMapped(
                         index_use_inputs[inp_i], promoted_inputs[inp_i]);
-            if (!idGraph(IdMappingMode::INDEX)
-                     .disjointIdSets()
-                     .strictAreMapped(
-                         index_use_inputs[inp_i], promoted_inputs[inp_i])) {
-              std::cout << "  " << index_use_inputs[inp_i]->toString()
-                        << " doesn't match "
-                        << promoted_inputs[inp_i]->toString() << std::endl;
-            }
           }
           if (inps_match) {
-            std::cout << "  Inputs match" << std::endl;
             replay = index_use_group->front();
             break;
-          } else {
-            std::cout << "  Inputs don't match" << std::endl;
           }
-        } else {
-          std::cout << "  Attributes don't match" << std::endl;
         }
       }
 
       if (replay == nullptr) {
-        std::cout << "Replay: " << ae_expr->front();
-        std::cout << "With promoted inputs: " << promoted_inputs << std::endl;
+        std::cout << "      Replay: " << ae_expr->front();
+        std::cout << "        With promoted inputs: " << promoted_inputs
+                  << std::endl;
         replay = addReplayAs(promoted_inputs, ae_expr->front());
-        std::cout << "REPLAY3 :\n  " << replay->toString() << std::endl;
+        std::cout << "      ***REPLAY3***:\n        " << ae_expr->front()
+                  << "        As:" << replay->toString();
       }
 
       all_index_exprs.pushBack(replay);
@@ -3661,20 +3443,16 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
       for (auto i : c10::irange(replay_out_ids.size())) {
         ae_group_2_id[out_groups.vector()[i]] = replay_out_ids[i];
-        std::cout << "Mapping: " << out_groups.vector()[i]->toString() << " -> "
-                  << replay_out_ids[i]->toString() << std::endl;
       }
-
-      std::cout << std::endl;
     }
   }
 
-  std::cout << "Indexing expressions: " << std::endl;
+  std::cout << "All indexing expressions that need to be processed: " << std::endl;
   for (auto expr : all_index_exprs) {
     std::cout << expr->toString();
   }
 
-  std::cout << "All indexing iter domains: " << all_index_ids.toString()
+  std::cout << "All iter domains that would be indexed: " << all_index_ids.toString()
             << std::endl;
 
   TORCH_INTERNAL_ASSERT(false);
