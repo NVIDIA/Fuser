@@ -2104,10 +2104,10 @@ class TestNvFuserFrontend(TestCase):
                         inp,
                     )
             first_check = False
-    
+
     def test_constant_nans(self):
         inputs = [
-            torch.randn(4, 4, device='cuda'),
+            torch.randn(4, 4, device="cuda"),
         ]
 
         def fusion_func(fd: FusionDefinition) -> None:
@@ -2120,6 +2120,7 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
+
 
 if __name__ == "__main__":
     run_tests()
