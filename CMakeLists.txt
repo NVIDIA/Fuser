@@ -28,7 +28,9 @@ if (PROJECT_IS_TOP_LEVEL)
   if(BUILD_NVFUSER_BENCHMARK)
     include(cmake/Dependencies.cmake)
   endif()
+  set(CMAKE_INSTALL_PREFIX "${NVFUSER_ROOT}/build")
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
+  set(NVFUSER_CMAKE_DIR "${NVFUSER_ROOT}/nvfuser/cmake")
   file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
@@ -493,7 +495,7 @@ endforeach()
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
 
 # -- install nvfuser cmake config files and symlink to build binaries
-install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
+install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION "${NVFUSER_CMAKE_DIR}")
 if (PROJECT_IS_TOP_LEVEL)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 else()

@@ -245,6 +245,7 @@ def main():
         nvfuser_package_data = [
             "*.so",
             "lib/*.so",
+            "cmake/NvfuserConfig.cmake",
         ]
 
         from tools.gen_nvfuser_version import get_version
