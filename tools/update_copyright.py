@@ -34,6 +34,7 @@ exclude_list = (
     "./version.txt",
     "./test/main.cpp",
     "Dependencies.cmake",
+    "FlatBuffers.cmake",
     # lint adapters are taken from pytorch
     "tools/linter/adapters/black_linter.py",
     "tools/linter/adapters/clangformat_linter.py",
