@@ -1411,7 +1411,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto tk0 = kernel->inputs()[0]->as<TensorView>();
   auto tki0 = IrBuilder::create<kir::TensorIndex>(tk0, ks0);
   auto tki1 = IrBuilder::create<kir::TensorIndex>(tk0, ks1);
-  auto tk0_expr = IrBuilder::create<UnaryOp>(UnaryOpType::Set, tki0, tki1);
+  auto tk0_expr =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, tki0, tki1);
 
   // Insert the scalar expression and the allocation of the
   // output directly to the kernel
@@ -2641,8 +2642,8 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
     using kir::IrVisitor::handle;
 
    private:
-    void handle(UnaryOp* uop) final {
-      // Record number of unary ops that modifies shared memory.
+    void handle(LoadStoreOp* uop) final {
+      // Record number of load-store ops that modifies shared memory.
       if (uop->out()->isA<kir::TensorIndex>() &&
           uop->out()->as<kir::TensorIndex>()->view()->getMemoryType() ==
               MemoryType::Shared &&
@@ -4254,16 +4255,11 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
 
-  auto tv2_def = dynamic_cast<UnaryOp*>(tv2->definition());
+  auto tv2_def = dynamic_cast<LoadStoreOp*>(tv2->definition());
   TORCH_CHECK(
       tv2_def != nullptr,
-      "Expected UnaryOp but found ",
+      "Expected LoadStoreOp but found ",
       tv2->definition()->toString());
-
-  TORCH_CHECK(
-      tv2_def->getUnaryOpType() == UnaryOpType::Set,
-      "Expected UnaryOpType::Set but found ",
-      tv2_def->getUnaryOpType());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({12345}, options);
@@ -6767,57 +6763,55 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
 
     using kir::IrVisitor::handle;
 
-    void handle(UnaryOp* uop) final {
-      if (uop->getUnaryOpType() == UnaryOpType::Set) {
-        if (uop->out()->as<kir::TensorIndex>()->view()->name() == 2) {
-          // Make sure the index of the inner loop isn't used in the
-          // predicate of the tv2 expression
-          TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
-          TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
-          auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
-          auto cond = ite->predicate()->value();
-          // Make sure the index of the inner loop isn't used in the predicate
-          TORCH_INTERNAL_ASSERT(!for_loops_.empty());
-          auto loop_index = for_loops_.back()->index();
-          auto cond_inputs = InputsOf::output(cond->fusion(), cond);
-          auto index_it =
-              std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
-          auto vec_factor_it = std::find_if(
-              cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-                auto int_val = inp->getInt();
-                return int_val.has_value() &&
-                    (int_val.value() == vec_factor - 1 ||
-                     int_val.value() == -(vec_factor - 1));
-              });
-          // If vectorized, the predicate should use (vec_factor - 1) or
-          // -(vec_factor - 1) rather than the loop index.
-          if (vectorized_) {
-            TORCH_CHECK(
-                index_it == cond_inputs.end(),
-                "Not expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it != cond_inputs.end(),
-                "Expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          } else {
-            TORCH_CHECK(
-                index_it != cond_inputs.end(),
-                "Expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it == cond_inputs.end(),
-                "Not expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          }
+    void handle(LoadStoreOp* ldst) final {
+      if (ldst->out()->as<kir::TensorIndex>()->view()->name() == 2) {
+        // Make sure the index of the inner loop isn't used in the
+        // predicate of the tv2 expression
+        TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+        TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
+        auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
+        auto cond = ite->predicate()->value();
+        // Make sure the index of the inner loop isn't used in the predicate
+        TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+        auto loop_index = for_loops_.back()->index();
+        auto cond_inputs = InputsOf::output(cond->fusion(), cond);
+        auto index_it =
+            std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
+        auto vec_factor_it =
+            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
+              auto int_val = inp->getInt();
+              return int_val.has_value() &&
+                  (int_val.value() == vec_factor - 1 ||
+                   int_val.value() == -(vec_factor - 1));
+            });
+        // If vectorized, the predicate should use (vec_factor - 1) or
+        // -(vec_factor - 1) rather than the loop index.
+        if (vectorized_) {
+          TORCH_CHECK(
+              index_it == cond_inputs.end(),
+              "Not expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it != cond_inputs.end(),
+              "Expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
+        } else {
+          TORCH_CHECK(
+              index_it != cond_inputs.end(),
+              "Expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it == cond_inputs.end(),
+              "Not expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
         }
       }
     }
@@ -7599,9 +7593,7 @@ class ThreadPredChecker : public kir::IrVisitor {
     for (auto expr : ite->thenBody().exprs()) {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
-          expr->isA<UnaryOp>() &&
-          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set &&
-          ite->predicate()->hasValue()) {
+          expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
         handle(ite->predicate()->value());
       }
     }

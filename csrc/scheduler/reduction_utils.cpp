@@ -420,8 +420,7 @@ void multiReductionInliner(
         scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);
 
     auto vectorizable_expr = [](Expr* e) {
-      return e->isA<UnaryOp>() &&
-          e->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set;
+      return e->isA<LoadStoreOp>();
     };
 
     for (auto cached_input : cached_inputs) {

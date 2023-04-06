@@ -36,20 +36,14 @@ class UnaryOpInserter : private kir::ExprMutator {
     GpuLower::current()->propagateExprInfo(old_expr, new_expr);
   }
 
-  void handle(TransposeOp* top) final {
-    auto out = top->out();
-    auto in = top->in();
-    auto container = out->container();
-    registerReplaceAndPropagate(
-        top, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
-  }
-
   void handle(SqueezeOp* sop) final {
     auto out = sop->out();
     auto in = sop->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        sop, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
+        sop,
+        IrBuilder::create<LoadStoreOp>(
+            container, LoadStoreOpType::Automatic, out, in));
   }
 
   void handle(ExpandOp* eop) final {
@@ -57,7 +51,9 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto in = eop->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        eop, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
+        eop,
+        IrBuilder::create<LoadStoreOp>(
+            container, LoadStoreOpType::Automatic, out, in));
   }
 
   void handle(ShiftOp* sop) final {
@@ -65,7 +61,9 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto in = sop->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        sop, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
+        sop,
+        IrBuilder::create<LoadStoreOp>(
+            container, LoadStoreOpType::Automatic, out, in));
   }
 
   void handle(GatherOp* gop) final {
@@ -73,7 +71,9 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto in = gop->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        gop, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
+        gop,
+        IrBuilder::create<LoadStoreOp>(
+            container, LoadStoreOpType::Automatic, out, in));
   }
 
   void handle(ViewOp* vop) final {
@@ -81,7 +81,9 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto in = vop->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        vop, IrBuilder::create<UnaryOp>(container, UnaryOpType::Set, out, in));
+        vop,
+        IrBuilder::create<LoadStoreOp>(
+            container, LoadStoreOpType::Automatic, out, in));
   }
 };
 

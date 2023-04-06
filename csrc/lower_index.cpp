@@ -171,7 +171,8 @@ void IndexLowering::handle(const FullOp* fop) {
   auto result = fop->getFillValue();
   GpuLower::current()->commonScalarMap().hoistScalar(result, for_loops_);
 
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(fop, back());
 }
@@ -191,7 +192,8 @@ void IndexLowering::handle(const IotaOp* aop) {
       aop->start(),
       aop->step(),
       aop->dtype());
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(aop, back());
@@ -204,7 +206,8 @@ void IndexLowering::handle(const EyeOp* eop) {
   // TensorIndex for writing eye output.
   const auto out = lowerDstIndex(out_tv);
   auto result = Index::eye(out_tv, for_loops_, getRotatedLoop(), eop->dtype());
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(eop, back());
@@ -277,7 +280,8 @@ void IndexLowering::handle(const TorchGatherOp* top) {
   auto input = lowerSrcIndex(top->lookupTv(), top->output(0), override_index);
 
   const auto out = lowerDstIndex(top->output(0));
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, input));
+  pushBack(
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, input));
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
@@ -321,7 +325,8 @@ void IndexLowering::handle(const SelectOp* sop) {
 
   const auto out = lowerDstIndex(sop->output(0));
 
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, input));
+  pushBack(
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, input));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -1239,11 +1244,12 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  // Today, LoadStoreOp can only be ld.matrix and cp.async. In the future, when
-  // we start to work on hopper support, this can also be TMA operations.
-  const auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  const auto out =
-      lowerDstIndex(ldst->out(), {}, !ir_utils::isLdMatrixOp(ldst));
+  const auto in = lowerSrcIndex(
+      ldst->in(),
+      ldst->out(),
+      {},
+      ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+  const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
   auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
                       ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
@@ -1455,7 +1461,7 @@ void IndexLowering::handle(const SliceOp* slice) {
   const auto in = lowerSrcIndex(slice->in(), slice->out());
   const auto out = lowerDstIndex(slice->out());
 
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, in));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, in));
   GpuLower::current()->propagateExprInfo(slice, back());
 }
 
