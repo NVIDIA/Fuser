@@ -27,17 +27,9 @@ struct TrieNode;
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
-//! The State and the StateType enum are used to define state objects to
-//! encapsulate the recording of state in the FusionDefinition.
-
-enum class StateType {
-  Tensor,
-  Scalar,
-  None,
-};
-
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, StateType _stype) : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype)
+      : index(_index), stype(_stype) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -45,7 +37,7 @@ struct TORCH_CUDA_CU_API State {
   //! A unique index to identifiy each recorded state item.
   size_t index;
   //! StateType is either: Tensor or Scalar
-  StateType stype;
+  serde::StateType stype;
 };
 
 TORCH_CUDA_CU_API std::ostream& operator<<(
