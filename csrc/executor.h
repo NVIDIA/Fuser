@@ -52,10 +52,11 @@ struct TORCH_CUDA_CU_API CompileOptions {
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
-    std::vector<int64_t> shape;
+    std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
     bool zero_init = false;
+    bool is_profile_buffer = false;
   };
 
   // Unsafe compilation that's useful for debugging kernels, iterating over

@@ -681,7 +681,7 @@ std::vector<at::Tensor> allocOutputs(
       outputs.emplace_back(at::empty({0}, tensor_options));
     } else {
       outputs.emplace_back(at::native::empty_strided_cuda(
-          buf_info.shape,
+          buf_info.sizes,
           buf_info.strides,
           buf_info.type,
           c10::nullopt,
@@ -921,19 +921,17 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     }
     GlobalBufferInfo info;
     info.zero_init = alloc->zeroInit();
-    std::tie(info.shape, info.strides) =
+    std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, alloc, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
-    global_buffers.emplace_back(info);
 
-    // TODO: re-enable this
-#if 0
     // Remember the tensor buffer used for storing kernel profile
     if (isOptionEnabled(EnableOption::KernelProfile) &&
         tv == kernel->profile().getBuffer()) {
-      global_buffers.profile_buffer = global_buffers.buffers.back();
+      info.is_profile_buffer = true;
     }
-#endif
+
+    global_buffers.emplace_back(info);
   }
 
   return global_buffers;
@@ -985,7 +983,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
       info.type = at::kFloat;
-      info.shape = {0};
+      info.sizes = {0};
     } else {
       TORCH_INTERNAL_ASSERT(
           kernel->outputs()[out_i]->isA<TensorView>(),
@@ -1001,7 +999,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
         // Aliased to an input, no need to gather allocation
         // info. Leave it as is
       } else {
-        std::tie(info.shape, info.strides) =
+        std::tie(info.sizes, info.strides) =
             inferShapeOfOutput(output, expr_eval);
         info.type = data_type_to_aten(output->dtype());
         info.zero_init = false;
@@ -1262,7 +1260,7 @@ void dumpKernelArgs(
 FusionExecutor::GlobalBufferInfo getGlobalBufferAllocationInfo(
     const at::Tensor& at_tensor) {
   FusionExecutor::GlobalBufferInfo info{
-      .shape = at_tensor.sizes().vec(),
+      .sizes = at_tensor.sizes().vec(),
       .strides = at_tensor.strides().vec(),
       .type = at_tensor.scalar_type()};
   return info;
@@ -1438,6 +1436,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   args.push(outputs);
 
   std::vector<at::Tensor> intermediates;
+  at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
@@ -1445,11 +1444,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
         intermediate_buffer = at::zeros(
-            buf_info.shape,
+            buf_info.sizes,
             at::TensorOptions().dtype(buf_info.type).device(options_.device));
       } else {
         intermediate_buffer = at::native::empty_cuda(
-            buf_info.shape,
+            buf_info.sizes,
             buf_info.type,
             c10::nullopt,
             options_.device,
@@ -1460,6 +1459,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
+      if (buf_info.is_profile_buffer) {
+        profile_buffer = intermediate_buffer;
+      }
     }
   }
 
@@ -1567,11 +1569,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    // TODO: Re-enable this
-    TORCH_INTERNAL_ASSERT(false);
-#if 0
-    std::cout << kernel()->profile().toString(global_buffers.profile_buffer);
-#endif
+    std::cout << kernel()->profile().toString(profile_buffer);
   }
 
   return outputs;
