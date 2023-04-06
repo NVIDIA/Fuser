@@ -541,12 +541,13 @@ void Fusion::registerExpr(Expr* expr) {
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
-     // Don't just add this expr as a use of the input if it's a tensor as the whole fusion needs to be traversed to rebuild the usage lists
+    // Don't just add this expr as a use of the input if it's a tensor as the
+    // whole fusion needs to be traversed to rebuild the usage lists
     if (input->isA<TensorView>()) {
       invalidateTvUses();
-     } else {
-       input->addUse(expr);
-     }
+    } else {
+      input->addUse(expr);
+    }
   }
 
   // Kernel is the only container type that is non-ssa. This is mainly (maybe

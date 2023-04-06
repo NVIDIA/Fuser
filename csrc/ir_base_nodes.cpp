@@ -112,7 +112,7 @@ const std::vector<Expr*>& Val::uses() const {
   return uses_;
 }
 
-bool Val::addUse(Expr* expr, bool defer_inserting_tv_uses) {
+bool Val::addUse(Expr* expr) {
   if (std::find(uses_.begin(), uses_.end(), expr) == uses_.end()) {
     uses_.push_back(expr);
     return true;
