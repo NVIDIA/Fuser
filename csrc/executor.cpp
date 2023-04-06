@@ -561,8 +561,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
-    ExpressionEvaluator& expr_eval,
-    const CompileOptions& options) {
+    ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("inferShape");
 
   // Allocate should be provided for intermediates. We just need to
@@ -598,10 +597,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
     const kir::Allocate* alloc,
-    ExpressionEvaluator& expr_eval,
-    const CompileOptions& options) {
-  FUSER_PERF_SCOPE("inferShape");
-
+    ExpressionEvaluator& expr_eval) {
   // Allocate should be provided for intermediates. We just need to
   // grab a chunk of memory of the size dicatated by
   // Allocate::shape().
@@ -610,14 +606,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   const auto& symbolic_sizes = alloc->shape();
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
 
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval, options);
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     const TensorView* tv,
-    ExpressionEvaluator& expr_eval,
-    const CompileOptions& options) {
+    ExpressionEvaluator& expr_eval) {
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into
   // account.
@@ -642,7 +637,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
   }
 
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval, options);
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
 // Allocate output tensos for a given kernel. Outputs may alias inputs, in
@@ -927,7 +922,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.zero_init = alloc->zeroInit();
     std::tie(info.shape, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval, options_);
+        inferShapeOfIntermediate(tv, alloc, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
     global_buffers.emplace_back(info);
 
@@ -1007,7 +1002,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
         // info. Leave it as is
       } else {
         std::tie(info.shape, info.strides) =
-            inferShapeOfOutput(output, expr_eval, options_);
+            inferShapeOfOutput(output, expr_eval);
         info.type = data_type_to_aten(output->dtype());
         info.zero_init = false;
       }
@@ -1305,8 +1300,6 @@ void FusionExecutor::initializeExecutorEntry(
   if (launch_params.nThreads() > block_size_high_water_mark_ ||
       compile_params.maxrregcount != maxrregcount_high_water_mark_) {
     const auto kernel = lowered_->kernel();
-    // TODO: Is this necessary?
-    kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
     const auto structured_code =
         getStructuredCode(kernel_code_, kernel->indexType());
     block_size_high_water_mark_ = launch_params.nThreads();
