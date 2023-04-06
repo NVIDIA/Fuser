@@ -617,6 +617,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   TORCH_INTERNAL_ASSERT(alloc != nullptr);
 
   const auto& symbolic_sizes = alloc->shape();
+  // For intermediate tensors, we just need to allocate a memory chunk
+  // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
 
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
@@ -687,8 +689,6 @@ std::vector<at::Tensor> allocOutputs(
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
-      // TODO: This is not how it's done previously. For cache hit,
-      // an allocation is actually done. Confirm if this change makes sense.
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(at::empty({0}, tensor_options));
@@ -969,14 +969,12 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
 
-  auto outputs = allocOutputs(
+  return allocOutputs(
       kernel(),
       output_info,
       output_to_input_aliases,
       kernel_inputs,
       options_.device);
-
-  return outputs;
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::

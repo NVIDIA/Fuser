@@ -290,7 +290,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! Return information necessay for allocating output tensors. Input
   //! and output tensors are allowed to alias each other, which is
   //! specified by the list of int pairs of input and output indices
-  std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
+  std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       const std::vector<std::pair<int, int>>& input_to_output_aliases);
