@@ -1689,7 +1689,8 @@ std::string LoadStoreOp::toString(int indent_size) const {
   std::string optype = load_store_type2string(opType());
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = " << optype << "( " << in()->toString();
-  if (predicate()) {
+  // Fusion IR does not have predicate
+  if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
     ss << ", " << std::endl;
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
