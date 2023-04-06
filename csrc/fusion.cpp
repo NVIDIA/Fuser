@@ -370,17 +370,20 @@ void Fusion::validateInputs() {
   }
 }
 
-void Fusion::print() {
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
   FUSER_PERF_SCOPE("Fusion::print");
-
   FusionGuard fg(this);
-  std::cout << "\n%kernel {\n";
-  IrMathPrinter op_exprs(std::cout);
+  os << "\n%kernel {\n";
+  IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
-  std::cout << "\nTransformPrinter : \n";
-  IrTransformPrinter t_exprs(std::cout);
-  t_exprs.handle(this);
-  std::cout << "}\n\n";
+  if (include_tensor_transforms) {
+    os << "\nTransformPrinter : \n";
+    IrTransformPrinter t_exprs(os);
+    t_exprs.handle(this);
+  }
+  os << "}\n";
+
+  return os;
 }
 
 void Fusion::printKernel(const CompileParams& compile_params) {
@@ -783,7 +786,7 @@ Val* Fusion::getOutputAlias(Val* output) {
   return nullptr;
 }
 
-std::unordered_set<int> Fusion::getOutputAliasIndices() const {
+std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
   if (io_alias_.empty()) {
     return {};
   }
@@ -798,18 +801,18 @@ std::unordered_set<int> Fusion::getOutputAliasIndices() const {
   return alias_indices;
 }
 
-std::vector<std::pair<int, int>> Fusion::getInputAliasIndices() const {
+std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {
     return {};
   }
 
   std::vector<std::pair<int, int>> alias_indices;
-  for (const auto i : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[i]) != 0) {
+  for (const auto output_idx : c10::irange(outputs_.size())) {
+    if (io_alias_.count(outputs_[output_idx]) != 0) {
       bool found = false;
-      for (const auto j : c10::irange(inputs_.size())) {
-        if (io_alias_.at(outputs_[i]) == inputs_[j]) {
-          alias_indices.emplace_back(i, j);
+      for (const auto input_idx : c10::irange(inputs_.size())) {
+        if (io_alias_.at(outputs_[output_idx]) == inputs_[input_idx]) {
+          alias_indices.emplace_back(output_idx, input_idx);
           found = true;
           break;
         }

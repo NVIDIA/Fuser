@@ -115,6 +115,8 @@ inline c10::optional<MmaOptions::MacroType> getMmaOp(
       return (use_small_n) ? MacroType::Turing_16_8_16
                            : MacroType::Turing_16_16_16;
     case 80:
+    case 86:
+    case 89:
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:
@@ -578,48 +580,32 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Check initial conditions
   const auto fusion_exprs = fusion->exprs();
   auto mma_exprs = ir_utils::filterByType<MmaOp>(fusion_exprs).vector();
-  if (mma_exprs.size() != 1) {
-    // Support only for fusion with a single mma op
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(
+      mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
   const auto layout = getInputsLayout(mma_exprs.front());
-  if (layout.second) {
-    // Layout check returned an error message
-    if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
-      printMsg(layout.second.value());
-    }
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(!layout.second.has_value(), layout.second.value());
 
   const auto problem_shape = getProblemShape(
       fusion, mma_exprs[0]->as<MmaOp>(), runtime_info, layout.first.value());
-  if (!problem_shape) {
-    // Failed to acquire problem shape
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(
+      problem_shape.has_value(), "Failed to acquire problem shape.");
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op = getMmaOp(
       device_prop->major * 10 + device_prop->minor, problem_shape.value());
-  if (!mma_op) {
-    // No heuristics can be prepared if mma op request is empty
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(
+      mma_op.has_value(), "Can not determine MMA op for problem.");
 
   // Populate heuristic details
   auto status = initCoreHeuristics(
       params, mma_op.value(), layout.first.value(), problem_shape.value());
-  if (!status) {
-    // Core part of heuristics failed to initialize
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(
+      status, "Core part of heuristics failed to initialize.");
 
   status = initExtraHeuristics(params, problem_shape.value());
-  if (!status) {
-    // Additional pieces of heuristics failed to initialize
-    return nullptr;
-  }
+  TORCH_INTERNAL_ASSERT(
+      status, "Additional part of heuristics failed to initialize.");
 
   // set kernel index mode
   params->cparams.index_type = getIndexType(problem_shape.value());
