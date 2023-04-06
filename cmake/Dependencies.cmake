@@ -19,11 +19,11 @@ set(BUILD_GMOCK ON CACHE BOOL "Build gmock." FORCE)
 # this shouldn't be necessary anymore.
 get_property(INC_DIR_temp DIRECTORY PROPERTY INCLUDE_DIRECTORIES)
 set_property(DIRECTORY PROPERTY INCLUDE_DIRECTORIES "")
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/third_party/googletest)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../third_party/googletest)
 set_property(DIRECTORY PROPERTY INCLUDE_DIRECTORIES ${INC_DIR_temp})
 
-include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_LIST_DIR}/third_party/googletest/googletest/include)
-include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_LIST_DIR}/third_party/googletest/googlemock/include)
+include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_LIST_DIR}/../third_party/googletest/googletest/include)
+include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_LIST_DIR}/../third_party/googletest/googlemock/include)
 
 # We will not need to test benchmark lib itself.
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark testing as we don't need it.")
@@ -31,7 +31,7 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark testing as we don
 set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "Disable benchmark install to avoid overwriting vendor install.")
 
 if(NOT USE_SYSTEM_BENCHMARK)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/third_party/benchmark)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../third_party/benchmark)
 else()
 add_library(benchmark SHARED IMPORTED)
 find_library(BENCHMARK_LIBRARY benchmark)
@@ -41,7 +41,7 @@ endif()
 message("-- Found benchmark: ${BENCHMARK_LIBRARY}")
 set_property(TARGET benchmark PROPERTY IMPORTED_LOCATION ${BENCHMARK_LIBRARY})
 endif()
-include_directories(${CMAKE_CURRENT_LIST_DIR}/third_party/benchmark/include)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../third_party/benchmark/include)
 
 # Recover build options.
 set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS} CACHE BOOL "Build shared libs" FORCE)
