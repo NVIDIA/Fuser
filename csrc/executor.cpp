@@ -94,7 +94,7 @@ static const std::string& includeStdComplex() {
 
 std::string FusionExecutor::getStructuredCode(
     const std::string& kernel_str,
-    PrimDataType index_type) {
+    PrimDataType index_type) const {
   // generating cuda code;
   std::string code = "";
   if (shouldAssertOutOfBound()) {
