@@ -590,7 +590,7 @@ void Fusion::resetTvUses() {
   // Same as in register expr
   for (auto expr : used_exprs) {
     for (Val* input : expr->inputs()) {
-      input->addUse(expr, /*defer_inserting_tv_uses*/ false);
+      input->addUse(expr);
     }
   }
 
