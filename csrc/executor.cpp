@@ -92,9 +92,18 @@ static const std::string& includeStdComplex() {
 
 } // namespace
 
+std::unique_ptr<PrecomputedValues>& FusionExecutor::
+    evaluatorPrecomputedValues() {
+  if (!evaluator_precomputed_values_) {
+    evaluator_precomputed_values_ =
+        std::make_unique<PrecomputedValues>(lowered_->kernel());
+  }
+  return evaluator_precomputed_values_;
+}
+
 std::string FusionExecutor::getStructuredCode(
     const std::string& kernel_str,
-    PrimDataType index_type) {
+    PrimDataType index_type) const {
   // generating cuda code;
   std::string code = "";
   if (shouldAssertOutOfBound()) {
@@ -125,6 +134,10 @@ std::string FusionExecutor::getStructuredCode(
   }
 
   return code;
+}
+
+std::string FusionExecutor::getStructuredCode() const {
+  return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
 // TODO: come up with a more user friendly interface
@@ -306,7 +319,7 @@ void FusionExecutor::compileFusion(
   auto external_code_path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
   const auto structured_code = external_code_path
       ? load_external_code(external_code_path)
-      : getStructuredCode(kernel_code_, kernel->indexType());
+      : getStructuredCode();
 
   const auto& kernel_summary = kernel->summary();
 
@@ -1092,14 +1105,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   // would be resolved with FakeTensor
   // executor_utils::validateKernelInputs(fusion_, args, options_.device);
 
-  if (!evaluator_precomputed_values_) {
-    evaluator_precomputed_values_ =
-        std::make_unique<PrecomputedValues>(lowered_->kernel());
-  }
-
   ExpressionEvaluator expr_eval;
-  evaluator_precomputed_values_->bindInputs(args);
-  expr_eval.precomputedValues() = evaluator_precomputed_values_.get();
+  evaluatorPrecomputedValues()->bindInputs(args);
+  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
 
   // I think this binds something to expr_eval, so even though we are not using
   // launch_params_, we still need this in order to infer output shapes.
@@ -1281,50 +1289,15 @@ void FusionExecutor::initializeExecutorEntry(
   //   2. `executor_entry` is not initialized
   executor_utils::validateKernelInputs(fusion_, args, options_.device);
 
-  if (!evaluator_precomputed_values_) {
-    evaluator_precomputed_values_ =
-        std::make_unique<PrecomputedValues>(lowered_->kernel());
-  }
-
   ExpressionEvaluator expr_eval;
-  evaluator_precomputed_values_->bindInputs(args);
-  expr_eval.precomputedValues() = evaluator_precomputed_values_.get();
+  evaluatorPrecomputedValues()->bindInputs(args);
+  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
 
   auto launch_params =
       computeLaunchParams(launch_constraints, expr_eval, warp_size_);
 
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  if (launch_params.nThreads() > block_size_high_water_mark_ ||
-      compile_params.maxrregcount != maxrregcount_high_water_mark_) {
-    const auto kernel = lowered_->kernel();
-    const auto structured_code =
-        getStructuredCode(kernel_code_, kernel->indexType());
-    block_size_high_water_mark_ = launch_params.nThreads();
-    maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-
-    std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-        executor_utils::getCompiledKernel(
-            kernel_code_,
-            structured_code,
-            getCanonicalKernelName(),
-            fusion_id_,
-            block_size_high_water_mark_,
-            maxrregcount_high_water_mark_,
-            save_compiled_binary_);
-  }
-
-  if (kernel()->summary().has_cooperative_grid_reduction) {
-    validateCooperativeLaunch(
-        compiled_kernel_.function, launch_params, options_.device.index());
-  }
-
   executor_utils::validateVectorizedTensors(
-      lowered_.get()->kernel(),
-      args,
-      outputs,
-      compileTimeDataCache(),
-      expr_eval);
+      kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
   auto input_alias_indices_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
@@ -1371,6 +1344,34 @@ void FusionExecutor::initializeExecutorEntry(
   executor_entry.init = true;
 }
 
+void FusionExecutor::recompileKernel(
+    const LaunchParams& new_launch_params,
+    const CompileParams& new_compile_params) {
+  if (new_launch_params.nThreads() <= block_size_high_water_mark_ &&
+      new_compile_params.maxrregcount == maxrregcount_high_water_mark_) {
+    return;
+  }
+
+  const auto structured_code = getStructuredCode();
+  block_size_high_water_mark_ = new_launch_params.nThreads();
+  maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
+
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+      executor_utils::getCompiledKernel(
+          kernel_code_,
+          structured_code,
+          getCanonicalKernelName(),
+          fusion_id_,
+          block_size_high_water_mark_,
+          maxrregcount_high_water_mark_,
+          save_compiled_binary_);
+
+  if (kernel()->summary().has_cooperative_grid_reduction) {
+    validateCooperativeLaunch(
+        compiled_kernel_.function, new_launch_params, options_.device.index());
+  }
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1411,6 +1412,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     initializeExecutorEntry(
         *executor_entry, args, launch_constraints, compile_params, outputs);
   }
+
+  recompileKernel(executor_entry->launch_params, compile_params);
 
   // TODO: Why does this need to be stored in the class?
   launch_params_ = executor_entry->launch_params;

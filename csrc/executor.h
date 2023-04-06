@@ -193,6 +193,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the string of the compiled kernel
   std::string kernelString() const {
+    TORCH_INTERNAL_ASSERT(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
@@ -265,7 +266,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Add preamble and wrap in namespace
   std::string getStructuredCode(
       const std::string& kernel,
-      PrimDataType index_type);
+      PrimDataType index_type) const;
+
+  std::string getStructuredCode() const;
 
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -318,6 +321,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
       const std::vector<at::Tensor>& outputs);
+
+  std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
+
+  // Recompile the kernel if the number of threads in the block has increased
+  // or maxrregcount has changed
+  void recompileKernel(
+      const LaunchParams& new_launch_params,
+      const CompileParams& new_compile_params);
 
  private:
   CompileOptions options_;
