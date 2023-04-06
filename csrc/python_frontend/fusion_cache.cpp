@@ -253,9 +253,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     node->children[new_rec] =
         std::make_unique<TrieNode>(new_rec, node, fusion_id);
     child = node->children[new_rec].get();
+    TORCH_CHECK(child, "Created child of TrieNode should not be null!");
     ++(child->visits);
-    TORCH_CHECK(
-        child != nullptr, "Created child of TrieNode should not be null!");
     if (rec->recordType() == serde::RecordType_End) {
       terminal_nodes_.push_back(node->children[new_rec].get());
     }

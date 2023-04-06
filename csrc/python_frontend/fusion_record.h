@@ -1264,7 +1264,19 @@ struct ConstantRecord : RecordFunctor {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ConstantRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (value_ == child_ptr->value_);
+      if (result) {
+        if constexpr (
+            std::is_same_v<ValueType, float> ||
+            std::is_same_v<ValueType, double>) {
+          if (std::isnan(value_) && std::isnan(child_ptr->value_)) {
+            return true;
+          } else {
+            result = (value_ == child_ptr->value_);
+          }
+        } else {
+          result = (value_ == child_ptr->value_);
+        }
+      }
     }
     return result;
   }
@@ -1292,6 +1304,8 @@ struct ConstantRecord : RecordFunctor {
         } else {
           os << "float(\"inf\")";
         }
+      } else if (std::isnan(value_)) {
+        os << "float(\"nan\")";
       } else {
         os << std::showpoint << value_;
       }
