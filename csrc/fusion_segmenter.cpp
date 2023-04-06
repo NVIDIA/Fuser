@@ -1425,7 +1425,7 @@ void SegmentedFusion::print() const {
   std::cout << this << "\n";
 }
 
-std::string toString(SegmentedFusion* segmented_fusion) {
+std::string toString(const SegmentedFusion* segmented_fusion) {
   std::stringstream ss;
   ss << segmented_fusion;
   return ss.str();

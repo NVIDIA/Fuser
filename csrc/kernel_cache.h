@@ -370,6 +370,27 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return most_recent_runtime_;
   }
 
+  //! Gets the kernel code for the associated runtime
+  std::string getCode(
+      FusionKernelRuntime* kernel_runtime,
+      bool instrinsic_code = false) const;
+  //! Get the most recently executed kernel code
+  std::string getMostRecentCode(bool instrinsic_code = false) const;
+  //! Get the kernel code for the given inputs
+  std::string getCodeFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool intrinsic_code);
+  //! Gets the Scheduled IR for the associated runtime
+  std::string getScheduledIr(
+      FusionKernelRuntime* kernel_runtime,
+      bool tensor_transforms = false) const;
+  //! Get the most recently executed Scheduled IR
+  std::string getMostRecentScheduledIr(bool tensor_transforms = false) const;
+  //! Get the Scheduled IR for the given inputs
+  std::string getScheduledIrFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool tensor_transforms = false);
+
   // TODO: in a follow up we need a global logging structure
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
