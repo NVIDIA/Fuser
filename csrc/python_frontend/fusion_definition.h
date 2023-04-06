@@ -123,6 +123,25 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       bool override_user_schedule) const;
+  //! Return the unscheduled Fusion IR
+  std::string fusionIr();
+  //! Return the Cuda code for the last executed set of inputs
+  std::string lastCudaCode(bool intrinsic_code, bool override_user_schedule)
+      const;
+  //! Return the Cuda code for the given inputs
+  std::string cudaCodeFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool intrinsic_code,
+      bool override_user_schedule) const;
+  //! Return the Cuda code for the last executed set of inputs
+  std::string lastScheduledFusionIr(
+      bool tensor_transforms,
+      bool override_user_schedule) const;
+  //! Return the Cuda code for the given inputs
+  std::string scheduledFusionIrFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool tensor_transforms,
+      bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
   c10::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation

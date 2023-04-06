@@ -235,6 +235,89 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   return outputs;
 }
 
+std::string FusionExecutorCache::getCode(
+    FusionKernelRuntime* kernel_runtime,
+    bool intrinsic_code) const {
+  std::string kernel_code;
+  TORCH_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
+  TORCH_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
+
+  bool first_kernel = true;
+  for (const auto& exec : kernel_runtime->executors()) {
+    if (first_kernel) {
+      first_kernel = false;
+    } else {
+      kernel_code += "\n";
+    }
+    kernel_code += exec.kernelString();
+  }
+
+  if (intrinsic_code) {
+    const auto& execs = kernel_runtime->executors();
+    const FusionExecutor& fe = execs[0];
+    auto index_type = fe.kernel()->indexType();
+    // Make sure all the segment index types match. All segments currently
+    // use the same index type but this code change in the future.
+    for (const auto& exec : execs) {
+      TORCH_CHECK(
+          index_type == exec.kernel()->indexType(),
+          "Index Type mismatch between Segment Executors: ",
+          index_type,
+          " ",
+          exec.kernel()->indexType());
+    }
+    std::string full_code = fe.getStructuredCode(kernel_code, index_type);
+    return full_code;
+  } else {
+    return kernel_code;
+  }
+}
+
+std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
+  return getCode(most_recent_runtime_, intrinsic_code);
+}
+
+std::string FusionExecutorCache::getCodeFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool intrinsic_code) {
+  KernelArgumentHolder args = prepareInputs(inputs);
+  auto kernel_runtime = getKernelRuntimeFor(args);
+  return getCode(kernel_runtime, intrinsic_code);
+}
+
+std::string FusionExecutorCache::getScheduledIr(
+    FusionKernelRuntime* kernel_runtime,
+    bool tensor_transforms) const {
+  TORCH_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
+  TORCH_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
+  std::stringstream ss;
+  if (kernel_runtime->isSegmented()) {
+    auto fs = kernel_runtime->fusionSegments();
+    ss << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
+    fs->completeFusion()->print(ss, false);
+    ss << "} // {Re-written complete fusion}\n";
+    ss << fs << "\n";
+  }
+  for (auto& exec : kernel_runtime->executors()) {
+    auto sched_ir = exec.kernel()->as<Fusion>();
+    sched_ir->print(ss, tensor_transforms);
+  }
+  return ss.str();
+}
+
+std::string FusionExecutorCache::getMostRecentScheduledIr(
+    bool tensor_transforms) const {
+  return getScheduledIr(most_recent_runtime_, tensor_transforms);
+}
+
+std::string FusionExecutorCache::getScheduledIrFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool tensor_transforms) {
+  KernelArgumentHolder args = prepareInputs(inputs);
+  auto kernel_runtime = getKernelRuntimeFor(args);
+  return getScheduledIr(kernel_runtime, tensor_transforms);
+}
+
 void FusionExecutorCache::evictCache(size_t cache_id) {
   auto it = id_to_kernel_runtime_.find(cache_id);
   TORCH_INTERNAL_ASSERT(it != id_to_kernel_runtime_.end());

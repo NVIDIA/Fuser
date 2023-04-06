@@ -197,6 +197,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return kernel_code_;
   }
 
+  // Add preamble and wrap in namespace
+  std::string getStructuredCode(
+      const std::string& kernel,
+      PrimDataType index_type) const;
+
+  std::string getStructuredCode() const;
+
   //! Returns the latest compile log
   std::string compilerLog() const {
     return last_compiler_log_;
@@ -262,13 +269,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   static std::string kernelNamespace() {
     return "CudaCodeGen";
   }
-
-  // Add preamble and wrap in namespace
-  std::string getStructuredCode(
-      const std::string& kernel,
-      PrimDataType index_type) const;
-
-  std::string getStructuredCode() const;
 
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
