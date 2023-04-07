@@ -60,15 +60,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       int id,
       CompileOptions options = CompileOptions());
 
+  //! infers output sizes via returning non-allocated KernelArgumentHolder.
+  //! this function is useful for parallel compilation for segmented fusion
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
       const KernelArgumentHolder& args);
-
-  //! infers output sizes via returning non-allocated KernelArgumentHolder.
-  //! this function is useful for async compilation for segmented fusion
-  KernelArgumentHolder inferOutputSizesWithValidation(
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints);
 
   void compileFusion(
       Fusion* fusion,
