@@ -82,7 +82,7 @@ class AllocationInserter : public kir::ExprMutator {
     };
 
     if (info.init_for_loop == nullptr) {
-      info.init_place_before = for_loops_.size() > 0 ? for_loops_[0] : expr;
+      info.init_place_before = !for_loops_.empty() ? for_loops_[0] : expr;
     } else {
       if (info.init_for_loop == for_loops_.back()) {
         // Inline allocation, place before expr
@@ -102,7 +102,7 @@ class AllocationInserter : public kir::ExprMutator {
       info.alloc_place_before = info.init_place_before;
     } else {
       if (info.alloc_for_loop == nullptr) {
-        info.alloc_place_before = for_loops_.size() > 0 ? for_loops_[0] : expr;
+        info.alloc_place_before = !for_loops_.empty() ? for_loops_[0] : expr;
       } else {
         // Since there must be an inner unswitched domain,
         // alloc_for_loop should never be the inner-most loop.
@@ -121,16 +121,16 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i :
          c10::irange(info.alloc_pos, info.buffer->nDims())) {
-      if (info.buffer->axis(axis_i)->isReduction() ||
-          info.buffer->axis(axis_i)->isBroadcast()) {
+      if (info.buffer->axis((int)axis_i)->isReduction() ||
+          info.buffer->axis((int)axis_i)->isBroadcast()) {
         continue;
       }
       auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis(axis_i), IdMappingMode::LOOP);
+          info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
       init_dims.push_back(concrete_id);
     }
-    Expr* init_expr =
-        IrBuilder::create<UnaryOp>(UnaryOpType::Set, info.buffer, init_val);
+    Expr* init_expr = IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, info.buffer, init_val);
     for (auto init_loop_it = init_dims.rbegin();
          init_loop_it != init_dims.rend();
          ++init_loop_it) {
@@ -329,7 +329,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
-      const auto local_id = info.buffer->axis(axis_i);
+      const auto local_id = info.buffer->axis((int)axis_i);
 
       // Don't use reduction/stride/broadcast axis in the allocation
       // computation
@@ -339,7 +339,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis(axis_i), IdMappingMode::LOOP);
+          info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
       const bool is_block_dim =
           isParallelTypeBlockDim(concrete_id->getParallelType());
       const bool is_thread_dim =
@@ -358,7 +358,7 @@ class AllocationInserter : public kir::ExprMutator {
               (memory_type == MemoryType::Global && is_thread))) {
           continue;
         }
-        alloc_domains.push_back(info.buffer->axis(axis_i));
+        alloc_domains.push_back(info.buffer->axis((int)axis_i));
       } else {
         if (
             // If shared memory, don't use any IDs bound to a grid dimension
@@ -368,12 +368,12 @@ class AllocationInserter : public kir::ExprMutator {
             (memory_type == MemoryType::Local && is_thread)) {
           continue;
         }
-        alloc_domains.push_back(info.buffer->axis(axis_i));
+        alloc_domains.push_back(info.buffer->axis((int)axis_i));
       }
 
       auto extent = concrete_id->extent();
 
-      if (gpu_lower->haloInfo()->getExtent(info.buffer->axis(axis_i)) !=
+      if (gpu_lower->haloInfo()->getExtent(info.buffer->axis((int)axis_i)) !=
           nullptr) {
         has_halo = true;
       }
@@ -406,8 +406,7 @@ class AllocationInserter : public kir::ExprMutator {
       alloc_dims = getNonGlobalAllocExpr(info);
     }
 
-    if (alloc_dims.size() == 0 &&
-        info.buffer->domain()->noReductions().size() != 0) {
+    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
@@ -427,7 +426,7 @@ class AllocationInserter : public kir::ExprMutator {
           info.buffer, original_alloc_size);
       int double_buffer_stage = 2;
       if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = info.buffer->circularBufferDepth();
+        double_buffer_stage = (int)info.buffer->circularBufferDepth();
       }
       alloc_dims.push_back(IrBuilder::create<Int>(double_buffer_stage));
     }

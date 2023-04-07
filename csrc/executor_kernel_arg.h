@@ -354,8 +354,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
-  const ArgAbstract* operator[](int ind) const {
+  const ArgAbstract* at(size_t ind) const {
     return arguments_.at(ind).get();
+  };
+
+  const ArgAbstract* operator[](size_t ind) const {
+    return at(ind);
   };
 
   size_t size() const {
@@ -366,11 +370,11 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.empty();
   }
 
-  void setDeviceIndex(int index) {
+  void setDeviceIndex(int8_t index) {
     device_index_ = index;
   }
 
-  int getDeviceIndex() const {
+  int8_t getDeviceIndex() const {
     return device_index_;
   }
 
@@ -389,7 +393,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::vector<void*> void_ptrs_;
   bool changed_ = true;
 
-  int device_index_ = 0;
+  int8_t device_index_ = 0;
   c10::optional<size_t> cache_id_ = c10::nullopt;
   KernelIndexMode index_mode_ = KernelIndexMode::INT64;
 };

@@ -84,7 +84,8 @@ class VectorOfUniqueEntries {
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     bool any_added = false;
     for (auto entry : other) {
-      any_added = any_added | pushBack(entry);
+      auto added = pushBack(entry);
+      any_added = any_added || added;
     }
     return any_added;
   }
@@ -138,16 +139,25 @@ class VectorOfUniqueEntries {
 
   // Returns first element in vector
   T front() const {
+#ifdef NDEBUG
+    TORCH_INTERNAL_ASSERT(!empty());
+#endif // NDEBUG
     return vector_.front();
   }
 
   // Returns last element in vector
   T back() const {
+#ifdef NDEBUG
+    TORCH_INTERNAL_ASSERT(!empty());
+#endif // NDEBUG
     return vector_.back();
   }
 
   // Remove and returns the last element in vector
   T popBack() {
+#ifdef NDEBUG
+    TORCH_INTERNAL_ASSERT(!empty());
+#endif // NDEBUG
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();

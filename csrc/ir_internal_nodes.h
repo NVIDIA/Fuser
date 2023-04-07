@@ -1092,40 +1092,6 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   void configureOptions(MmaOptions options);
 };
 
-class TORCH_CUDA_CU_API TransposeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  TransposeOp(
-      IrBuilderPasskey,
-      TensorView* out,
-      TensorView* in,
-      std::vector<int64_t> new2old);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "TransposeOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
-  }
-
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
-  }
-
-  const std::vector<int64_t>& new2old() const {
-    return attribute(0)->as<Attribute<std::vector<int64_t>>>()->value;
-  }
-
-  std::vector<int64_t> old2new() const;
-};
-
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
@@ -1244,7 +1210,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
   }
 
   //! Returns the gather axis that corresponds to an input axis
-  int gatherAxis(int axis) const;
+  int64_t gatherAxis(int64_t axis) const;
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
@@ -1338,6 +1304,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   virtual const char* getOpString() const override {
     return "LoadStoreOp";
   }
+
+  virtual std::vector<EvaluatorValue> evaluate(
+      const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1632,11 +1601,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! domain.
   std::pair<IterDomain*, IterDomain*> stridedSplit(int factor);
 
-  // TODO: Remove
-  bool isSimple() const {
-    return definition() == nullptr;
-  }
-
   //! Marks that this id represents a
   //!  instruction loop, mma use only.
   //!
@@ -1719,10 +1683,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   c10::optional<int64_t> padded_to_size_ = c10::nullopt;
-
-  // TODO: Remove only used in kernel IR because IterDomains don't maintain
-  // definitions of split/merge.
-  bool is_simple_ = true;
 
   //! Tracks if this id represents a thread swizzled loop or
   //!   models an implicit loop within instructions. Should not make
@@ -1866,10 +1826,10 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   // uint.
   IterDomain* axis(int i) const;
 
-  size_t posOf(IterDomain* id) const;
+  int64_t posOf(IterDomain* id) const;
 
   //! Returns a position of a root domain
-  size_t rootPosOf(IterDomain* id) const;
+  int64_t rootPosOf(IterDomain* id) const;
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside

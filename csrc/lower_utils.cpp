@@ -142,7 +142,6 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           BroadcastOp,
           SqueezeOp,
-          TransposeOp,
           ExpandOp,
           ShiftOp,
           GatherOp,
@@ -187,10 +186,6 @@ bool isTensorScalarFillOp(const Expr* expr) {
     //  into a tensor.
     if (expr->isA<LoadStoreOp>()) {
       return true;
-    }
-    // Unary copy op is also a scalar filling op.
-    if (auto uop = dynamic_cast<const UnaryOp*>(expr)) {
-      return uop->getUnaryOpType() == UnaryOpType::Set;
     }
   }
   // Ideally any scalar expression that outputs
@@ -264,12 +259,6 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   auto tv_in = getTv(input);
-
-  // __shfl_xor_sync() doesn't support complex number
-  if (tv_in->dtype() == DataType::ComplexFloat ||
-      tv_in->dtype() == DataType::ComplexDouble) {
-    return c10::nullopt;
-  }
 
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
@@ -354,9 +343,7 @@ c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
 
 //! Short-cut for checking if the expression loads from global memory.
 bool isGlobalLoad(const Expr* expr) {
-  if (expr->isA<LoadStoreOp>() ||
-      (expr->isA<UnaryOp>() &&
-       expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set)) {
+  if (expr->isA<LoadStoreOp>()) {
     if (auto in_tv = getTv(expr->input(0))) {
       return in_tv->getMemoryType() == MemoryType::Global;
     }
@@ -674,7 +661,7 @@ BasicAllocInfo getAllocInformation(
       break;
     }
 
-    if (tv->axis(info.alloc_pos)->isReduction()) {
+    if (tv->axis((int)info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       TORCH_INTERNAL_ASSERT(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
@@ -705,12 +692,12 @@ BasicAllocInfo getAllocInformation(
     // Allocation of a double buffered tensor is placed outside its
     // double buffer axis.
     if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
-        tv->axis(info.alloc_pos) ==
+        tv->axis((int)info.alloc_pos) ==
             gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
       outer_alloc_found = true;
     }
 
-    auto local_id = tv->axis(info.alloc_pos);
+    auto local_id = tv->axis((int)info.alloc_pos);
 
     if (use_id_map) {
       auto id_it = id_map.find(local_id);

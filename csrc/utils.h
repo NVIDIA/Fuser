@@ -12,6 +12,7 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
+#include <deque>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -30,7 +31,7 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
 // TODO: merge these two
 // check if input is compatible with 32b index mode
-int getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
+int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
 KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs);
 
 //! Types of debug print-outs
@@ -80,6 +81,8 @@ enum class DebugDumpOption {
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
   LoopRotation, //! Print loop rotation log
+  MatmulChecks, //! Print logs from tools around matmul scheduler used in
+                //! segmenter
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -373,6 +376,13 @@ std::string toDelimitedString(
     const std::vector<Printable>& vec,
     std::string delim = ", ") {
   return toDelimitedString(vec.begin(), vec.end(), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
+    const std::deque<Printable>& dq,
+    std::string delim = ", ") {
+  return toDelimitedString(dq.begin(), dq.end(), delim);
 }
 
 template <int64_t index, int64_t stop, int64_t step, typename func_t>

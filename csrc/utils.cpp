@@ -81,7 +81,7 @@ auto parseEnvOptions(
           options_view = options_view.substr(end_pos + 1);
           closed = (rparentheses_pos < comma_pos);
         }
-        if (options_view.size() > 0) {
+        if (!options_view.empty()) {
           TORCH_CHECK(
               options_view[0] == ',',
               "Parsing ",
@@ -138,7 +138,8 @@ auto parseDebugDumpOptions() {
       {"lower_name_only", DebugDumpOption::LowerNameOnly},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
-      {"loop_rotation", DebugDumpOption::LoopRotation}};
+      {"loop_rotation", DebugDumpOption::LoopRotation},
+      {"matmul_checks", DebugDumpOption::MatmulChecks}};
 
   return parseEnvOptions("PYTORCH_NVFUSER_DUMP", available_options);
 }
@@ -281,8 +282,8 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type) {
 // Check device of TensorType in all inputs ensure all tensors are on cuda
 // devices.
 // return common device index (or -1 if device differs).
-int getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
-  int index = -1;
+int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
+  int8_t index = -1;
   size_t num_tensors = 0;
   for (const auto& input : inputs) {
     if (!input.isTensor()) {
@@ -298,7 +299,7 @@ int getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
     if (index != -1 && index != cur_index) {
       return -1;
     }
-    index = (int)cur_index; // NOLINT
+    index = cur_index;
     ++num_tensors;
   }
   // A case where there is only a scalar input should not indicate a failure

@@ -36,7 +36,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
       });
 
   const int first_unroll_pos =
-      std::distance(tv->domain()->domain().begin(), first_unroll_it);
+      (int)std::distance(tv->domain()->domain().begin(), first_unroll_it);
 
   const int unroll_or_ca_pos =
       std::min((int)tv->getComputeAtPosition(), first_unroll_pos);
@@ -71,20 +71,17 @@ IterDomain* getDoubleBufferAxis(const TensorView* tv) {
 void validateDoubleBufferedTensor(const TensorView* tv) {
   auto double_buffer_pos = getDoubleBufferAxisPosition(tv);
 
-  // Like vectorization, only UnaryOp::Set with another TensorView is
+  // Like vectorization, only LoadStoreOp with another TensorView is
   // considered.
   auto def = tv->definition();
   TORCH_INTERNAL_ASSERT(
-      (def->isA<UnaryOp>() &&
-       def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set) ||
-          // Load store op should generally support double buffering.
-          def->isA<LoadStoreOp>(),
-      "Invalid tensor to double-buffer. Only tensor defined by UnaryOp::Set is supported: ",
+      def->isA<LoadStoreOp>(),
+      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp is supported: ",
       def->toString());
 
   TORCH_INTERNAL_ASSERT(
       def->input(0)->isA<TensorView>(),
-      "Invalid tensor to double-buffer. Only tensor defined by UnaryOp::Set with TensorView is supported: ",
+      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp with TensorView is supported: ",
       def->toString());
 
   TORCH_INTERNAL_ASSERT(

@@ -311,9 +311,6 @@ TORCH_CUDA_CU_API TensorView* rsqrt(TensorView*);
 // round
 TORCH_CUDA_CU_API Val* round(Val*);
 TORCH_CUDA_CU_API TensorView* round(TensorView*);
-// set
-TORCH_CUDA_CU_API Val* set(Val*);
-TORCH_CUDA_CU_API TensorView* set(TensorView*);
 // sigmoid
 TORCH_CUDA_CU_API Val* sigmoid(Val*);
 TORCH_CUDA_CU_API TensorView* sigmoid(TensorView*);
@@ -441,6 +438,12 @@ TORCH_CUDA_CU_API Val* sub(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* sub(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* sub(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* sub(TensorView* v1, TensorView* v2);
+// nextafter: Only single- or double-precision
+// floating point types (after promotion) are supported.
+TORCH_CUDA_CU_API Val* nextafter(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* nextafter(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* nextafter(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* nextafter(TensorView* v1, TensorView* v2);
 // Integer binary ops
 // mod
 TORCH_CUDA_CU_API Val* mod(Val* v1, Val* v2);

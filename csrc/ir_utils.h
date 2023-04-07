@@ -330,6 +330,8 @@ TORCH_CUDA_CU_API std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
 
 TORCH_CUDA_CU_API std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
 
+TORCH_CUDA_CU_API std::vector<MmaOp*> getMmaOps(Fusion* fusion);
+
 TORCH_CUDA_CU_API std::vector<SelectOp*> getSelectOps(Fusion* fusion);
 
 // Returns the initialization value of tv or nullptr if not initialized.

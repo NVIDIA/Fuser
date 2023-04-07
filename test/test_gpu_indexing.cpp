@@ -13,10 +13,9 @@
 #include <inlining.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
-#include <test/cpp/jit/test_utils.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
 
@@ -756,8 +755,8 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = makeConcreteTensor({4});
   fusion.addInput(tv1);
-  auto tv2 = unaryOp(UnaryOpType::Set, tv0);
-  auto tv3 = unaryOp(UnaryOpType::Set, tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
 
   auto tv4 = sum(tv2, {0, 2});
   auto tv5 = add(tv4, tv3);

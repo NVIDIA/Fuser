@@ -63,7 +63,7 @@ class MaxPosCalculator {
       bool check_siblings = true);
 
   MaxPosCalculator(
-      const std::unordered_set<IterDomain*>& uninlinable_ids = {},
+      std::unordered_set<IterDomain*> uninlinable_ids = {},
       bool compute_at_only = false);
 };
 

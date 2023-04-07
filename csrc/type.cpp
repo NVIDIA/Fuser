@@ -198,7 +198,6 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
     case UnaryOpType::Reciprocal:
-    case UnaryOpType::Set:
     case UnaryOpType::Sigmoid:
     case UnaryOpType::IsFinite:
     case UnaryOpType::IsInf:
@@ -287,8 +286,6 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "rsqrt";
     case UnaryOpType::Round:
       return "nearbyint";
-    case UnaryOpType::Set:
-      return "set";
     case UnaryOpType::Sigmoid:
       return "sigmoid";
     case UnaryOpType::Sin:
@@ -336,8 +333,6 @@ static const char* unary_op_type_inline_op2string(UnaryOpType t) {
       return "-";
     case UnaryOpType::Not:
       return "~";
-    case UnaryOpType::Set:
-      return "";
     case UnaryOpType::Address:
       return "(int64_t) &";
     default:
@@ -373,6 +368,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "fmin";
     case BinaryOpType::Mul:
       return "mul";
+    case BinaryOpType::Nextafter:
+      return "nextafter";
     case BinaryOpType::Pow:
       return "pow";
     case BinaryOpType::Remainder:
@@ -672,8 +669,10 @@ static const char* thread_size2string(ParallelType t) {
   }
 }
 
-static const char* load_store_type2string(LoadStoreOpType t) {
+const char* load_store_type2string(LoadStoreOpType t) {
   switch (t) {
+    case LoadStoreOpType::Set:
+      return "Set";
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:

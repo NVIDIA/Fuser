@@ -277,7 +277,6 @@ enum class UnaryOpType {
   Relu,
   Rsqrt,
   Round,
-  Set,
   Sigmoid,
   Sin,
   Sinh,
@@ -315,6 +314,7 @@ enum class BinaryOpType {
   Max,
   Min,
   Mul,
+  Nextafter,
   Pow,
   Remainder,
   Sub,
@@ -443,6 +443,7 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 // Used to annotate the special memory intrinsics that a loadstore
 //  op will be lowered to.
 enum class LoadStoreOpType {
+  Set,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,
@@ -634,6 +635,7 @@ TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const RNGOpType);
 TORCH_CUDA_CU_API c10::optional<std::string> integer_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API c10::optional<std::string> bool_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API const char* predicate_type2string(PredicateType t);
+TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
 TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
