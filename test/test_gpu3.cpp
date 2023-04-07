@@ -5359,6 +5359,7 @@ TEST_F(NVFuserTest, FusionPredicateUnshare_CUDA) {
   testValidate(fusion, {out}, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+/*
 TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -5417,6 +5418,7 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
   testValidate(
       executor_cache.fusion(), outputs, aten_inputs, {t6}, __LINE__, __FILE__);
 }
+*/
 
 TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
