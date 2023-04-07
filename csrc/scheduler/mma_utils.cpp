@@ -816,9 +816,8 @@ bool isMmaInitLoop(const kir::Scope& loop_body) {
       if (!isMmaInitLoop(inner_loop->body())) {
         return false;
       }
-    } else if (auto uop = dynamic_cast<UnaryOp*>(expr)) {
-      if (!ir_utils::isTvOp(expr) ||
-          uop->getUnaryOpType() != UnaryOpType::Set) {
+    } else if (expr->isA<LoadStoreOp>()) {
+      if (!ir_utils::isTvOp(expr)) {
         return false;
       }
       if (auto ti = dynamic_cast<kir::TensorIndex*>(expr->output(0))) {

@@ -242,30 +242,7 @@ class BankConflictInfo : public kir::IrVisitor {
       return;
     }
 
-    if (expr->isA<UnaryOp>()) {
-      auto uop = expr->as<UnaryOp>();
-      if (uop->getUnaryOpType() != UnaryOpType::Set) {
-        return;
-      }
-      std::pair<int, int> conflict_ways{0, 0};
-      if (isSmemTensorIndex(uop->in())) {
-        conflict_ways.first = getConflictWays(evaluateAddressesOnFirstPhase(
-            uop->in()->as<kir::TensorIndex>(),
-            for_loops_,
-            launch_params_,
-            expr_eval_common_));
-      }
-      if (isSmemTensorIndex(uop->out())) {
-        conflict_ways.second = getConflictWays(evaluateAddressesOnFirstPhase(
-            uop->out()->as<kir::TensorIndex>(),
-            for_loops_,
-            launch_params_,
-            expr_eval_common_));
-      }
-      if (conflict_ways.first > 1 || conflict_ways.second > 1) {
-        bank_conflict_info_[expr] = conflict_ways;
-      }
-    } else if (expr->isA<LoadStoreOp>()) {
+    if (expr->isA<LoadStoreOp>()) {
       auto ldst = expr->as<LoadStoreOp>();
       std::pair<int, int> conflict_ways{0, 0};
       if (isSmemTensorIndex(ldst->in())) {
