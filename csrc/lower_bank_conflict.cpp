@@ -138,7 +138,8 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
              ? std::min<int64_t>(32l, launch_params->nThreads())
              : 32l);
   }
-  int64_t word_size_bytes = dataTypeSize(*(ti->getDataType())) * word_size;
+  int64_t dtype_size = dataTypeSize(*(ti->getDataType()));
+  int64_t word_size_bytes = dtype_size * word_size;
   int64_t phase_size =
       std::min(num_threads, getPhaseSize((int64_t)word_size_bytes));
 
@@ -168,9 +169,12 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
       }
     }
     auto index_val = replaceBaseAddrWithZero(ti->index());
-    std::cout << index_val->toInlineString() << std::endl;
     int64_t index = expr_eval.evaluate(index_val)->as<int64_t>();
-    addresses.emplace_back(index * word_size_bytes);
+    if (ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst)) {
+      addresses.emplace_back(index);
+    } else {
+      addresses.emplace_back(index * dtype_size);
+    }
   }
   return addresses;
 }
