@@ -13,7 +13,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <kernel_cache.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>

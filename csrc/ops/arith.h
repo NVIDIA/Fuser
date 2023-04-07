@@ -311,9 +311,6 @@ TORCH_CUDA_CU_API TensorView* rsqrt(TensorView*);
 // round
 TORCH_CUDA_CU_API Val* round(Val*);
 TORCH_CUDA_CU_API TensorView* round(TensorView*);
-// set
-TORCH_CUDA_CU_API Val* set(Val*);
-TORCH_CUDA_CU_API TensorView* set(TensorView*);
 // sigmoid
 TORCH_CUDA_CU_API Val* sigmoid(Val*);
 TORCH_CUDA_CU_API TensorView* sigmoid(TensorView*);

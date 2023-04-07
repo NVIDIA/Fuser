@@ -15,6 +15,16 @@
 
 namespace nvfuser {
 
+Val* set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, v);
+  return out;
+}
+
+TensorView* set(TensorView* tv) {
+  return set(tv->as<Val>())->as<TensorView>();
+}
+
 namespace {
 
 //! Transform TensorView according to keep, merge, and split transformations.
