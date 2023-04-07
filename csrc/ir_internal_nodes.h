@@ -2228,8 +2228,8 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
         p == ParallelType::BIDz);
   }
 
-  //! Return the named scalar extent of a parallel dimension (e.g.
-  //! blockDim.x) WARNING: Only works with Fusion container at the moment
+  //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
+  //! WARNING: Only works with Fusion container at the moment
   static NamedScalar* getParallelDim(ParallelType p_type);
 
   //! Return the named scalar index of a parallel dimension (e.g. threadIdx.x)
