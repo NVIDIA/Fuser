@@ -185,7 +185,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   } else {
     // Use cp.async as requested in scheduler params.
-    LoadStoreOpType load_op = LoadStoreOpType::Automatic;
+    LoadStoreOpType load_op = LoadStoreOpType::Set;
     if (params.async_gmem_load_operands) {
       load_op = LoadStoreOpType::CpAsyncCg;
     }

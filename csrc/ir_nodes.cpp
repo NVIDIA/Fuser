@@ -1630,8 +1630,19 @@ std::vector<EvaluatorValue> LoadStoreOp::evaluate(
 std::string LoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
   std::string optype = load_store_type2string(opType());
+  std::string modifier = "";
+  { // Get modifier
+    TensorView* tv = dynamic_cast<TensorView*>(out());
+    if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
+      tv = ti->view();
+    }
+    if (tv != nullptr && tv->hasRFactor()) {
+      modifier = ".Permute";
+    }
+  }
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size + 1) << " = " << optype << "( " << in()->toString();
+  indent(ss, indent_size + 1)
+      << " = " << optype << modifier << "( " << in()->toString();
   // Fusion IR does not have predicate
   if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
     ss << ", " << std::endl;

@@ -1412,7 +1412,7 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto tki0 = IrBuilder::create<kir::TensorIndex>(tk0, ks0);
   auto tki1 = IrBuilder::create<kir::TensorIndex>(tk0, ks1);
   auto tk0_expr =
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, tki0, tki1);
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tki0, tki1);
 
   // Insert the scalar expression and the allocation of the
   // output directly to the kernel

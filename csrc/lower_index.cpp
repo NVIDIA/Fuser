@@ -172,7 +172,7 @@ void IndexLowering::handle(const FullOp* fop) {
   GpuLower::current()->commonScalarMap().hoistScalar(result, for_loops_);
 
   auto lowered =
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(fop, back());
 }
@@ -193,7 +193,7 @@ void IndexLowering::handle(const IotaOp* aop) {
       aop->step(),
       aop->dtype());
   auto lowered =
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(aop, back());
@@ -207,7 +207,7 @@ void IndexLowering::handle(const EyeOp* eop) {
   const auto out = lowerDstIndex(out_tv);
   auto result = Index::eye(out_tv, for_loops_, getRotatedLoop(), eop->dtype());
   auto lowered =
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, result);
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(eop, back());
@@ -280,8 +280,7 @@ void IndexLowering::handle(const TorchGatherOp* top) {
   auto input = lowerSrcIndex(top->lookupTv(), top->output(0), override_index);
 
   const auto out = lowerDstIndex(top->output(0));
-  pushBack(
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
@@ -325,8 +324,7 @@ void IndexLowering::handle(const SelectOp* sop) {
 
   const auto out = lowerDstIndex(sop->output(0));
 
-  pushBack(
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -1461,7 +1459,7 @@ void IndexLowering::handle(const SliceOp* slice) {
   const auto in = lowerSrcIndex(slice->in(), slice->out());
   const auto out = lowerDstIndex(slice->out());
 
-  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, in));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
   GpuLower::current()->propagateExprInfo(slice, back());
 }
 

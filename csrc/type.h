@@ -441,7 +441,7 @@ static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
 // Used to annotate the special memory intrinsics that a loadstore
 //  op will be lowered to.
 enum class LoadStoreOpType {
-  Automatic, // load store type automatically determined at codegen
+  Set,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,

@@ -15,6 +15,16 @@
 
 namespace nvfuser {
 
+Val* set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
+  return out;
+}
+
+TensorView* set(TensorView* tv) {
+  return set(tv->as<Val>())->as<TensorView>();
+}
+
 namespace {
 
 //! Transform TensorView according to keep, merge, and split transformations.
@@ -335,7 +345,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
           out_rfactor,
           TensorDomain::getContiguityFilledWith(out_rfactor, true)),
       x->getDataType().value());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out_tensor, x);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
 }
 

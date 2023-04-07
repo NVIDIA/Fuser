@@ -1319,7 +1319,7 @@ TensorView* TensorView::cacheFork() {
 
   // Create write operation from this TV to new output
   IrBuilder::create<LoadStoreOp>(
-      container(), LoadStoreOpType::Automatic, new_output, this);
+      container(), LoadStoreOpType::Set, new_output, this);
 
   // The new TV becomes an output.
   // New TV has global memory type.
