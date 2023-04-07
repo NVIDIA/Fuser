@@ -124,8 +124,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
-    return fusion_id_ != -1 && lowered_;
+  bool isCompiled() const {
+    return fusion_id_ != -1 && lowered_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -153,7 +153,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
   kir::Kernel* kernel() const {
-    TORCH_INTERNAL_ASSERT(lowered_);
+    TORCH_INTERNAL_ASSERT(isCompiled(), "FusionExecutor is not compiled.")
     return lowered_->kernel();
   }
 
@@ -330,6 +330,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  std::vector<at::Tensor> allocOutputs(
+      const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
+      const std::vector<std::pair<int, int>>& output_to_input_aliases,
+      const KernelArgumentHolder& inputs,
+      const c10::Device& device);
+
  private:
   CompileOptions options_;
 
@@ -362,6 +368,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
   Fusion* fusion_ = nullptr;
+  kir::KernelSummary kernel_summary_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
