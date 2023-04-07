@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const c10::optional<size_t>& opt_code = c10::nullopt) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(
-            inputs, indexTypeToMode(kernel()->indexType()));
+            inputs, indexTypeToMode(indexType()));
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
@@ -156,6 +156,16 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     TORCH_INTERNAL_ASSERT(isCompiled(), "FusionExecutor is not compiled.")
     return lowered_->kernel();
   }
+
+  PrimDataType indexType() const {
+    // TODO remove since it only depends on kernel summary
+    TORCH_INTERNAL_ASSERT(isCompiled(), "FusionExecutor is not compiled.")
+    return kernel_summary_.index_type_;
+  }
+
+  void validateIndexType(
+      KernelArgumentHolder& args,
+      const CompileParams& compile_params);
 
   //! Internal knob used for debugging/profiling only
   void setExecuteKernelFlag(bool execute_kernel) {

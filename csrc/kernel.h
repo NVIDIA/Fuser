@@ -81,6 +81,10 @@ struct KernelSummary {
   //! Do we have allocations of dynamic local memory?
   bool has_dynamic_local_memory_allocations = false;
 
+  // Is this kernel being compiled with int32 or int64 indexing. This
+  // information is required to resolve DataType::Index
+  PrimDataType index_type_ = PrimDataType::Int;
+
   //! List of dynamic local memory buffers.
   //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;

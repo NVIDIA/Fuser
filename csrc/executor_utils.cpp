@@ -487,11 +487,12 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
 //! Returns the information of vectorized input/output tensors
 //! in the given fusion.
 std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo(
-    kir::Kernel* kernel) {
+    Fusion* fusion,
+    const kir::KernelSummary& summary) {
   auto vectorized_tensor_info_ptr =
       std::make_unique<caching::VectorizedTensorInfo>();
 
-  for (const auto& vector_info : kernel->summary().vectorized_set_info) {
+  for (const auto& vector_info : summary.vectorized_set_info) {
     auto consumer_tv = vector_info.consumer_tv;
     auto producer_tv = vector_info.producer_tv;
 
@@ -524,7 +525,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     // Collect information on corresponding fusion input and output
     // tensors to verify strides.
     auto inp_or_out_info =
-        getVectorizedFusionInputOutput(producer_tv, consumer_tv, kernel);
+        getVectorizedFusionInputOutput(producer_tv, consumer_tv, fusion);
 
     // If both producer and consumer are contig and intermediate,
     // nothing to validate with respect to strides.
@@ -671,7 +672,8 @@ void validateAlignedVectorizedFusionInputOutput(
 }
 
 void validateAlignedVectorizedTensors(
-    kir::Kernel* kernel,
+    Fusion* fusion,
+    const kir::KernelSummary& summary,
     const KernelArgumentHolder& args,
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
@@ -679,12 +681,13 @@ void validateAlignedVectorizedTensors(
   auto tensor_vectorization_validation_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
+          data_cache, [fusion, &summary]() {
+            return executor_utils::getVectorizedTensorValidationInfo(
+                fusion, summary);
           });
 
   // Verify extents of aligned vectorized tensors
-  for (const auto& vec_info : kernel->summary().vectorized_set_info) {
+  for (const auto& vec_info : summary.vectorized_set_info) {
     if (vec_info.vectorized_leaf_id->getParallelType() ==
         ParallelType::Vectorize) {
       validateAlignedVectorizeExtents(vec_info, expr_eval);
@@ -695,8 +698,8 @@ void validateAlignedVectorizedTensors(
   // vectorization.
   for (auto pos : tensor_vectorization_validation_entry.get()
                       .aligned_vectorized_inp_tensor_pos) {
-    auto tv = kernel->inputs().at(pos)->as<TensorView>();
-    auto word_size = kernel->summary().vectorized_accesses.at(tv);
+    auto tv = fusion->inputs().at(pos)->as<TensorView>();
+    auto word_size = summary.vectorized_accesses.at(tv);
     auto tensor_arg_abstract =
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
@@ -706,8 +709,8 @@ void validateAlignedVectorizedTensors(
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
-      auto tv = kernel->outputs().at(pos)->as<TensorView>();
-      auto word_size = kernel->summary().vectorized_accesses.at(tv);
+      auto tv = fusion->outputs().at(pos)->as<TensorView>();
+      auto word_size = summary.vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
     }
   }
@@ -717,7 +720,8 @@ void validateAlignedVectorizedTensors(
 // to global-register and register-global load/store patterns. However, this
 // could be improved to include shared memory.
 void validateMisalignedVectorizedTensors(
-    kir::Kernel* kernel,
+    Fusion* fusion,
+    const kir::KernelSummary& summary,
     const KernelArgumentHolder& args,
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
@@ -725,8 +729,9 @@ void validateMisalignedVectorizedTensors(
   auto tensor_vectorization_validation_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
+          data_cache, [fusion, &summary]() {
+            return executor_utils::getVectorizedTensorValidationInfo(
+                fusion, summary);
           });
 
   std::vector<c10::IValue> inp_misaligned_tensors;
@@ -770,9 +775,9 @@ void validateMisalignedVectorizedTensors(
 // Check if there's any split that is non-divisible and vectorized. If
 // found, Vectorize is illegal.
 void validateVectorizedSplits(
-    kir::Kernel* kernel,
+    const kir::KernelSummary& summary,
     ExpressionEvaluator& expr_eval) {
-  for (const auto& extent_factor : kernel->summary().splits_to_validate) {
+  for (const auto& extent_factor : summary.splits_to_validate) {
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
     TORCH_INTERNAL_ASSERT(
@@ -798,7 +803,8 @@ void validateVectorizedSplits(
 } // namespace
 
 void validateVectorizedTensors(
-    kir::Kernel* kernel,
+    Fusion* fusion,
+    const kir::KernelSummary& summary,
     const KernelArgumentHolder& args,
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
@@ -806,12 +812,12 @@ void validateVectorizedTensors(
   FUSER_PERF_SCOPE("FusionExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      fusion, summary, args, outputs, data_cache, expr_eval);
 
   validateMisalignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      fusion, summary, args, outputs, data_cache, expr_eval);
 
-  validateVectorizedSplits(kernel, expr_eval);
+  validateVectorizedSplits(summary, expr_eval);
 }
 
 namespace {
@@ -914,16 +920,16 @@ void bindInputForExprEvaluation(
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
-    Fusion* kernel,
+    Fusion* fusion,
     bool check_consistency) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
   TORCH_INTERNAL_ASSERT(
-      kernel->inputs().size() == args.size(),
+      fusion->inputs().size() == args.size(),
       "Something went wrong configuring launch. Inputs no longer match.");
 
   ExpressionEvaluator expr_eval;
-  const auto& inputs = kernel->inputs();
+  const auto& inputs = fusion->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
     bindInputForExprEvaluation(

@@ -306,6 +306,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
+  summary_.index_type_ = GpuLower::current()->kernel()->indexType();
 }
 
 void Kernel::analyze() {
