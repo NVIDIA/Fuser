@@ -1092,40 +1092,6 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   void configureOptions(MmaOptions options);
 };
 
-class TORCH_CUDA_CU_API TransposeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  TransposeOp(
-      IrBuilderPasskey,
-      TensorView* out,
-      TensorView* in,
-      std::vector<int64_t> new2old);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "TransposeOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
-  }
-
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
-  }
-
-  const std::vector<int64_t>& new2old() const {
-    return attribute(0)->as<Attribute<std::vector<int64_t>>>()->value;
-  }
-
-  std::vector<int64_t> old2new() const;
-};
-
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
@@ -1338,6 +1304,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   virtual const char* getOpString() const override {
     return "LoadStoreOp";
   }
+
+  virtual std::vector<EvaluatorValue> evaluate(
+      const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;

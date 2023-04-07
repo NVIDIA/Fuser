@@ -299,7 +299,6 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
     return set(x);
   }
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
-  std::vector<IterDomain*> out_domain(inp_domain.size());
 
   TORCH_CHECK(
       inp_domain.size() == new2old.size(),
@@ -317,16 +316,26 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   auto normalized_new2old =
       ir_utils::normalizeNew2Old(new2old, inp_domain.size());
 
-  for (const auto i : c10::irange(out_domain.size())) {
-    auto in_id = inp_domain[normalized_new2old[i]];
-    out_domain[i] = in_id->cloneWithoutRFactor();
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(inp_domain.size());
+  for (const auto id : inp_domain) {
+    out_root.emplace_back(id->cloneWithoutRFactor());
+  }
+
+  std::vector<IterDomain*> out_rfactor;
+  out_rfactor.reserve(inp_domain.size());
+  for (const auto i : normalized_new2old) {
+    out_rfactor.emplace_back(out_root.at(i));
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_root,
+          out_rfactor,
+          out_rfactor,
+          TensorDomain::getContiguityFilledWith(out_rfactor, true)),
       x->getDataType().value());
-  IrBuilder::create<TransposeOp>(out_tensor, x, normalized_new2old);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out_tensor, x);
   return out_tensor;
 }
 

@@ -1203,7 +1203,7 @@ std::vector<TensorView*> TensorView::rFactor(
   return rf_tvs;
 }
 
-TensorView* TensorView::cacheBefore(c10::optional<LoadStoreOpType> cache_op) {
+TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1272,13 +1272,7 @@ TensorView* TensorView::cacheBefore(c10::optional<LoadStoreOpType> cache_op) {
   ir_utils::replaceValInExpr(definition(), this, producer);
 
   // Expr* producer_uses =
-  if (cache_op.has_value()) {
-    IrBuilder::create<LoadStoreOp>(
-        container(), cache_op.value(), consumer, producer);
-  } else {
-    IrBuilder::create<UnaryOp>(
-        container(), UnaryOpType::Set, consumer, producer);
-  }
+  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1324,7 +1318,8 @@ TensorView* TensorView::cacheFork() {
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<UnaryOp>(container(), UnaryOpType::Set, new_output, this);
+  IrBuilder::create<LoadStoreOp>(
+      container(), LoadStoreOpType::Automatic, new_output, this);
 
   // The new TV becomes an output.
   // New TV has global memory type.
@@ -1338,7 +1333,7 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(c10::optional<LoadStoreOpType> cache_op) {
+TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1408,13 +1403,7 @@ TensorView* TensorView::cacheAfter(c10::optional<LoadStoreOpType> cache_op) {
   }
 
   // Expr* consumer_definition =
-  if (cache_op.has_value()) {
-    IrBuilder::create<LoadStoreOp>(
-        container(), cache_op.value(), consumer, producer);
-  } else {
-    IrBuilder::create<UnaryOp>(
-        container(), UnaryOpType::Set, consumer, producer);
-  }
+  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   return consumer;
 }
