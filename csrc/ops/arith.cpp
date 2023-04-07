@@ -74,16 +74,6 @@ TensorView* bitCastOp(DataType dtype, TensorView* v1) {
   return bitCastOp(dtype, v1->as<Val>())->as<TensorView>();
 }
 
-Val* set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out, v);
-  return out;
-}
-
-TensorView* set(TensorView* tv) {
-  return set(tv->as<Val>())->as<TensorView>();
-}
-
 Val* unaryOp(UnaryOpType type, Val* v1) {
   TORCH_INTERNAL_ASSERT(
       type != UnaryOpType::Address,
