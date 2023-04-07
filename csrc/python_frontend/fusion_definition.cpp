@@ -212,7 +212,7 @@ std::string FusionDefinition::lastCudaCode(
   if (!override_user_schedule && (user_exec != nullptr)) {
     if (intrinsic_code) {
       result = user_exec->getStructuredCode(
-          user_exec->kernelString(), user_exec->kernel()->indexType());
+          user_exec->kernelString(), user_exec->indexType());
     } else {
       result = user_exec->kernelString();
     }
@@ -241,7 +241,7 @@ std::string FusionDefinition::cudaCodeFor(
       auto user_exec = user_sched.executor.get();
       if (intrinsic_code) {
         return user_exec->getStructuredCode(
-            user_exec->kernelString(), user_exec->kernel()->indexType());
+            user_exec->kernelString(), user_exec->indexType());
       } else {
         return user_exec->kernelString();
       }

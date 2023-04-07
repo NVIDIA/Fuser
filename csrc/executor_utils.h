@@ -291,7 +291,8 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
     std::vector<IterDomain*>& parallel_binding_ids);
 
 void validateVectorizedTensors(
-    kir::Kernel* kernel,
+    Fusion* fusion,
+    const kir::KernelSummary& summary,
     const KernelArgumentHolder& args,
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
