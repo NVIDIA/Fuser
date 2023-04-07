@@ -130,7 +130,7 @@ class AllocationInserter : public kir::ExprMutator {
       init_dims.push_back(concrete_id);
     }
     Expr* init_expr = IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Automatic, info.buffer, init_val);
+        LoadStoreOpType::Set, info.buffer, init_val);
     for (auto init_loop_it = init_dims.rbegin();
          init_loop_it != init_dims.rend();
          ++init_loop_it) {

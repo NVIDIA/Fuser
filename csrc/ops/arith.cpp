@@ -1545,7 +1545,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
   } else {
     IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
   }
@@ -1605,7 +1605,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
   } else {
     IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
   }

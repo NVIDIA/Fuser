@@ -114,14 +114,14 @@ Val* IrBuilder::absExpr(Val* val) {
 Val* IrBuilder::setExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExpr.");
   auto result = newScalar(val->dtype());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, result, val);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
 
 Val* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Automatic, result, val);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
 

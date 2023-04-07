@@ -43,7 +43,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     registerReplaceAndPropagate(
         sop,
         IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Automatic, out, in));
+            container, LoadStoreOpType::Set, out, in));
   }
 
   void handle(ExpandOp* eop) final {
@@ -53,7 +53,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     registerReplaceAndPropagate(
         eop,
         IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Automatic, out, in));
+            container, LoadStoreOpType::Set, out, in));
   }
 
   void handle(ShiftOp* sop) final {
@@ -63,7 +63,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     registerReplaceAndPropagate(
         sop,
         IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Automatic, out, in));
+            container, LoadStoreOpType::Set, out, in));
   }
 
   void handle(GatherOp* gop) final {
@@ -73,7 +73,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     registerReplaceAndPropagate(
         gop,
         IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Automatic, out, in));
+            container, LoadStoreOpType::Set, out, in));
   }
 
   void handle(ViewOp* vop) final {
@@ -83,7 +83,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     registerReplaceAndPropagate(
         vop,
         IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Automatic, out, in));
+            container, LoadStoreOpType::Set, out, in));
   }
 };
 

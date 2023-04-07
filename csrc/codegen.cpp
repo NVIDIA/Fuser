@@ -1164,7 +1164,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         TORCH_INTERNAL_ASSERT(
             mma != nullptr, "CodeGen: mma op not in mma loop");
-        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Automatic);
+        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
         genMmaInitialization(mma, ldst);
         return;
       }
@@ -1219,7 +1219,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
       // dispatch vectorized load/store
       if (is_vector_op) {
-        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Automatic);
+        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
         if (ldst->in()->isScalar()) {
           // Note:
           //  Double buffered local tensors need indexed initialization,
@@ -1293,7 +1293,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
 
     // Generic set op
-    TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Automatic);
+    TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
 
     if (!print_inline_) {
       indent() << gen(ldst->out());

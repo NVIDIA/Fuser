@@ -261,7 +261,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     auto pred_var = defineScalar(DataType::Bool)->as<Bool>();
 
     registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Automatic, pred_var, conditional));
+        LoadStoreOpType::Set, pred_var, conditional));
 
     auto vectorized_wop = applyVectorizeTransformation(wop, pred_var);
 
@@ -363,7 +363,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     } else {
       // Initialize reciprocal as 0;
       registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Automatic,
+          LoadStoreOpType::Set,
           reciprocal,
           GpuLower::current()->kernel()->zeroVal()));
 
