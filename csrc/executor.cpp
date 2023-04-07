@@ -137,7 +137,7 @@ std::string FusionExecutor::getStructuredCode(
 }
 
 std::string FusionExecutor::getStructuredCode() const {
-  return getStructuredCode(kernelString(), kernel()->indexType());
+  return getStructuredCode(kernelString(), indexType());
 }
 
 // TODO: come up with a more user friendly interface
@@ -1101,8 +1101,8 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   // warp_size_);
 
   // Do we need to validate again at runtime?
-  // executor_utils::validateVectorizedTensors(
-  // lowered_.get()->kernel(), args, {}, compileTimeDataCache(), expr_eval);
+  executor_utils::validateVectorizedTensors(
+      fusion_, kernel_summary_, args, {}, compileTimeDataCache(), expr_eval);
 
   auto alias_indices_entry = executor_utils::caching::ExecutorCompileTimeEntry<
       executor_utils::caching::InputAliasIndices>(
@@ -1137,20 +1137,18 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   return ret;
 }
 
-namespace {
-
 // Make sure the index type of Kernel is valid
-void validateIndexType(
-    kir::Kernel* kernel,
-    const CompileParams& compile_params) {
+void FusionExecutor::validateIndexType(const CompileParams& compile_params) {
   TORCH_INTERNAL_ASSERT(
       !compile_params.index_type.has_value() ||
-          kernel->indexType() == compile_params.index_type.value(),
+          indexType() == compile_params.index_type.value(),
       "Kernel index type and compilation index type don't match. Kernel type: ",
-      kernel->indexType(),
+      indexType(),
       ". Compilation index type: ",
       compile_params.index_type.value());
 }
+
+namespace {
 
 void validateCooperativeLaunch(
     CUfunction kernel,
@@ -1270,7 +1268,12 @@ void FusionExecutor::initializeExecutorEntry(
       computeLaunchParams(launch_constraints, expr_eval, warp_size_);
 
   executor_utils::validateVectorizedTensors(
-      lowered_->kernel(), args, outputs, compileTimeDataCache(), expr_eval);
+      lowered_->kernel(),
+      lowered_->kernel()->summary(),
+      args,
+      outputs,
+      compileTimeDataCache(),
+      expr_eval);
 
   auto input_alias_indices_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
@@ -1359,7 +1362,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       "short cut input cache is not compatible with pre-allocated output");
 
   // TODO move index type to kernel summary
-  // validateIndexType(kernel(), compile_params);
+  validateIndexType(compile_params);
 
   const auto num_inputs = args.size();
 
@@ -1769,14 +1772,14 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   launch_params_.deserialize(buffer->launch_params());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-    executor_utils::getCompiledKernel(
-        kernel_code_,
-        getStructuredCode(kernelString(), PrimDataType::Int32),
-        getCanonicalKernelName(),
-        fusion_id_,
-        block_size_high_water_mark_,
-        maxrregcount_high_water_mark_,
-        save_compiled_binary_);
+      executor_utils::getCompiledKernel(
+          kernel_code_,
+          getStructuredCode(kernelString(), PrimDataType::Int32),
+          getCanonicalKernelName(),
+          fusion_id_,
+          block_size_high_water_mark_,
+          maxrregcount_high_water_mark_,
+          save_compiled_binary_);
 
   is_cached_ = true;
 }

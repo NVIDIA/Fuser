@@ -160,6 +160,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return lowered_->kernel();
   }
 
+  PrimDataType indexType() const {
+    // TODO remove since it only depends on kernel summary
+    TORCH_INTERNAL_ASSERT(isCompiled(), "FusionExecutor is not compiled.")
+    return kernel_summary_.index_type_;
+  }
+
+  void validateIndexType(const CompileParams& compile_params);
+
   //! Internal knob used for debugging/profiling only
   void setExecuteKernelFlag(bool execute_kernel) {
     execute_kernel_ = execute_kernel;
