@@ -801,7 +801,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
   // Check that the heuristics are matched, in the case of segmented fusion
   TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
 
-  if (!executors_.at(group_id).compiled()) {
+  if (!executors_.at(group_id).isCompiled()) {
     FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel::Compile");
     // Running a segment group as a single kernel,
     // make a fusion to run from segmented fusion

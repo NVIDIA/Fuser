@@ -72,7 +72,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
-          return executor.compiled();
+          return executor.isCompiled();
         });
   }
 
