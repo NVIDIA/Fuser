@@ -464,6 +464,10 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   }
 };
 
+std::ostream& operator<<(
+    std::ostream& os,
+    const SegmentedFusion* segmented_fusion);
+
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that
 //!  a unique_ptr can use this base class
