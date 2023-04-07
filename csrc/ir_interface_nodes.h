@@ -411,8 +411,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!
   //! @param cache_op: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheBefore(
-      LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheBefore(LoadStoreOpType cache_op = LoadStoreOpType::Set);
 
   //! Create a TensorView after the original tensor. A common use case is to
   //! read tensor into shared memory or registers. Analogous to TVM Cache_Read

@@ -280,8 +280,7 @@ void IndexLowering::handle(const TorchGatherOp* top) {
   auto input = lowerSrcIndex(top->lookupTv(), top->output(0), override_index);
 
   const auto out = lowerDstIndex(top->output(0));
-  pushBack(
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
@@ -325,8 +324,7 @@ void IndexLowering::handle(const SelectOp* sop) {
 
   const auto out = lowerDstIndex(sop->output(0));
 
-  pushBack(
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
