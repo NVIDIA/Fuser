@@ -1111,8 +1111,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   // I think this binds something to expr_eval, so even though we are not using
   // launch_params_, we still need this in order to infer output shapes.
-  launch_params_ =
-      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+  // launch_params_ = computeLaunchParams(launch_constraints, expr_eval, warp_size_);
 
   /*
   executor_utils::validateVectorizedTensors(
