@@ -398,6 +398,26 @@ class DisjointSets {
     return disjoint_set_maps_.find(entry) != disjoint_set_maps_.end();
   }
 
+  // Erases element if it exists in the disjoint set, returns if element found.
+  bool erase(T entry) {
+    auto entry_it = disjoint_set_maps_.find(entry);
+    if (entry_it == disjoint_set_maps_.end()) {
+      return false;
+    }
+
+    auto set = entry_it->second;
+    if (set->size() == 1 && set->front() == entry) {
+      disjoint_set_maps_.erase(entry);
+      disjoint_sets_.erase(
+          std::find(disjoint_sets_.begin(), disjoint_sets_.end(), set));
+    } else {
+      disjoint_set_maps_.erase(entry);
+      set->erase(entry);
+    }
+
+    return true;
+  }
+
   // Returns a deterministic list of all entries that have been added to any
   // disjoint set.
   //

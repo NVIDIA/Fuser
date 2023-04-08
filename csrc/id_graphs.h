@@ -127,14 +127,12 @@ class TORCH_CUDA_CU_API IdGraph {
       // , std::vector<IterDomain*> second_input_or_output_override
   ) const;
 
-  // If entry exists in id_definitions for provided group in provided mode,
-  // returns that entry, otherwise goes through all iter domains in the group
-  // and accumulates their id_definitions_ entries
+  // Returns entry in unique_definitions_ for provided group in provided mode,
+  // otherwise errors if no entry is found.
   ExprGroups uniqueDefinitions(IdGroup group) const;
 
-  // If entry exists in id_uses for provided group in provided mode,
-  // returns that entry, otherwise goes through all iter domains in the group
-  // and accumulates their id_uses_ entries
+  // Returns entry in unique_uses_ for provided group in provided mode,
+  // otherwise errors if no entry is found.
   ExprGroups uniqueUses(IdGroup group) const;
 
   std::unordered_map<IdGroup, ExprGroups>& uniqueUses() {
@@ -167,7 +165,19 @@ class TORCH_CUDA_CU_API IdGraph {
   // order they're traversed differs.
   void mapThroughLoopSwizzles();
 
+  // Maps iter domain pairs returned by calling that return mappings from
+  // IdGraph::isTrivialExpr on every expression in the graph.
+  void mapThroughTrivialExprs();
+
+  // Removes expressions from unique_definitions_ and unique_uses_ that return
+  // mappings from IdGraph::isTrivialExpr
+  void removeTrivialExprs();
+
  private:
+  // Removes the provided expression group from unique_definitions_ and
+  // unique_uses_ breaking traversal through them.
+  void eraseExprGroup(ExprGroup expr_group);
+
   // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
@@ -181,17 +191,6 @@ class TORCH_CUDA_CU_API IdGraph {
   std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
 
   std::unordered_map<IdGroup, ExprGroups> unique_uses_;
-
-  // If multiple transformations occur IterDomains could have multiple uses,
-  // however only one should be active in the given Fusion. When we resolve loop
-  // promotions during lowering, we can generate new iter domains from existing
-  // ones, so there can be multiple uses generated. Tracks all the active iter
-  // domain uses.
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_uses_;
-
-  // Make sure we don't blindly use definitions as we don't want to grab
-  // transformations before a tensor view's root domain.
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 
   // Hold a set of IterDomains that are considered view rfactor ids. This
   // identification is particularly important to understand if split operations
