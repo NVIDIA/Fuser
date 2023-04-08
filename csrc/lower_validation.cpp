@@ -408,10 +408,7 @@ class VectorizeValidator : public OptInDispatch {
     if (misaligned_vectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
         checkContiguity(validator.domains_, tv);
-      } else if (
-          tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set) {
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
@@ -549,11 +546,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr ||
-              (tv->definition()->isA<UnaryOp>() &&
-               tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                   UnaryOpType::Set) ||
-              tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);

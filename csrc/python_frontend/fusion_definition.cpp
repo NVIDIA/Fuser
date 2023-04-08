@@ -186,11 +186,114 @@ std::vector<at::Tensor> FusionDefinition::execute(
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
+      scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
+      scheds->last_user_def_executor = user_sched.executor.get();
       return user_sched.executor->runFusion(inputs);
     }
   }
 
   return scheds->auto_gen_schedules->runFusionWithInputs(inputs);
+}
+
+std::string FusionDefinition::fusionIr() {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  std::stringstream ss;
+  preschedFusion()->print(ss, false);
+  return ss.str();
+}
+
+std::string FusionDefinition::lastCudaCode(
+    bool intrinsic_code,
+    bool override_user_schedule) const {
+  std::string result;
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_exec = scheds->last_user_def_executor;
+
+  if (!override_user_schedule && (user_exec != nullptr)) {
+    if (intrinsic_code) {
+      result = user_exec->getStructuredCode(
+          user_exec->kernelString(), user_exec->kernel()->indexType());
+    } else {
+      result = user_exec->kernelString();
+    }
+  } else {
+    result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
+  }
+  return result;
+}
+
+std::string FusionDefinition::cudaCodeFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool intrinsic_code,
+    bool override_user_schedule) const {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (!override_user_schedule) {
+    auto device = getCommonDeviceCUDA(inputs);
+    TORCH_CHECK(
+        inputs.size() == 0 || device > -1,
+        "Inputs are not all on the same device!");
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    if (user_sched_id.has_value()) {
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      auto user_exec = user_sched.executor.get();
+      if (intrinsic_code) {
+        return user_exec->getStructuredCode(
+            user_exec->kernelString(), user_exec->kernel()->indexType());
+      } else {
+        return user_exec->kernelString();
+      }
+    }
+  }
+  return scheds->auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
+}
+
+std::string FusionDefinition::lastScheduledFusionIr(
+    bool tensor_transforms,
+    bool override_user_schedule) const {
+  std::string result;
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_sched_ir = scheds->last_user_def_scheduled_ir;
+
+  if (!override_user_schedule && (user_sched_ir != nullptr)) {
+    std::stringstream ss;
+    user_sched_ir->print(ss, tensor_transforms);
+    result = ss.str();
+  } else {
+    result =
+        scheds->auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
+  }
+  return result;
+}
+
+std::string FusionDefinition::scheduledFusionIrFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool tensor_transforms,
+    bool override_user_schedule) const {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (!override_user_schedule) {
+    auto device = getCommonDeviceCUDA(inputs);
+    TORCH_CHECK(
+        inputs.size() == 0 || device > -1,
+        "Inputs are not all on the same device!");
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    if (user_sched_id.has_value()) {
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      auto user_sched_ir = user_sched.schedule.get();
+      std::stringstream ss;
+      user_sched_ir->print(ss, tensor_transforms);
+      return ss.str();
+    }
+  }
+  return scheds->auto_gen_schedules->getScheduledIrFor(
+      inputs, tensor_transforms);
 }
 
 c10::optional<size_t> FusionDefinition::id() const {
