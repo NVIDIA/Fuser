@@ -2165,6 +2165,38 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
   //! Check if this is something like T0.stride[1]
   bool isTensorStride() const;
 
+  //! Check if this is threadIdx.{x,y,z}
+  bool isThreadIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is blockIdx.{x,y,z}
+  bool isBlockIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
+
+  //! Check if this is blockDim.{x,y,z}
+  bool isBlockDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is gridDim.{x,y,z}
+  bool isGridDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
+
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   //! WARNING: Only works with Fusion container at the moment
   static NamedScalar* getParallelDim(ParallelType p_type);
