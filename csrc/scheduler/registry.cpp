@@ -1056,11 +1056,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-std::vector<TransposeOp*> findTransposeOps(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  auto transpose_ops = ir_utils::filterByType<TransposeOp>(exprs);
-  return std::vector<TransposeOp*>(transpose_ops.begin(), transpose_ops.end());
-}
 
 static bool checkPatternEquivalence(
     TensorView* out_tv0,
@@ -1268,6 +1263,13 @@ class ReductionScheduler : public SchedulerEntry {
     if (ir_utils::getReductionOps(fusion).empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Reduction, "No reduction op to schedule");
+      return false;
+    }
+
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "Scheduling not supported with no input");
       return false;
     }
 
@@ -1650,6 +1652,13 @@ class PersistentKernelScheduler : public SchedulerEntry {
     if (reduction_ops.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent, "needs a reduction op");
+      return false;
+    }
+
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent,
+          "Scheduling not supported with no input");
       return false;
     }
 

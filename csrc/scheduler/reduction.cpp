@@ -94,7 +94,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32 * 1024;
+  constexpr int64_t l1_cache = 32l * 1024;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;
@@ -665,12 +665,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // Purely empirically found switch to start vectorization, tuned on v100,
   // should check it's validity on other hardware or if we need to switch to
   // size not n_elems
-  if (n_elems * max_input_dtype_size > 64 * 1024 * 1024) {
+  if (n_elems * max_input_dtype_size > 64l * 1024 * 1024) {
     // Do some unrolling on the iter dimension
     iter_unroll_factor =
         vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll;
     iter_unroll_factor =
-        std::min(iter_unroll_factor, ceilDiv(n_elems, 32 * 1024 * 1024));
+        std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024 * 1024));
     iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
     iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
     iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
@@ -737,7 +737,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     int64_t bytes_stride_remainder = max_input_dtype_size * bdimx * bdimy *
         iter_unroll_factor * inner_reduction_unroll_factor;
     // Empiercally found stride shouldn't exceed 256kiB boundaries in a block
-    int64_t kMaxStride = 128 * 1024;
+    int64_t kMaxStride = 128l * 1024;
 
     int64_t max_remainder_size =
         scheduler_utils::safeDiv(kMaxStride, bytes_stride_remainder);
@@ -855,8 +855,8 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
     const bool fastest_dim_reduction,
-    const size_t n_tensor_inputs,
-    const size_t max_input_dtype_size,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   if (fastest_dim_reduction) {
     return innerReductionHeuristic(
@@ -906,7 +906,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   auto& reduction_tvs = reduction_tv_entry.get();
 
   TORCH_INTERNAL_ASSERT(
-      reduction_tvs.size() >= 1, "Need reduction tensor views to schedule.");
+      !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
   auto reduction_tv = reduction_tvs[0];
 
@@ -945,26 +945,26 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  size_t max_dtype_size = 1;
+  int64_t max_dtype_size = 1;
 
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
-  size_t n_tensor_inputs = 0;
+  int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
     }
     max_dtype_size = std::max(
         max_dtype_size,
-        dataTypeSize(
+        static_cast<int64_t>(dataTypeSize(
             tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode())));
+            indexModeToDtype(runtime_info.getIndexMode()))));
     n_tensor_inputs++;
   }
 
   // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
+  n_tensor_inputs = std::max(n_tensor_inputs, 1l);
 
   auto heuristic = reductionHeuristic(
       properties.total_reduction_numel,
@@ -999,13 +999,13 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
-  TORCH_INTERNAL_ASSERT(reduction_tvs.size());
+  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
 
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];
 
-  if (ir_utils::getViewOps(fusion).size() > 0) {
+  if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate view transforms through the graph, expecially the reference.
     scheduler_utils::propagateViewTransforms(fusion, ca_map);

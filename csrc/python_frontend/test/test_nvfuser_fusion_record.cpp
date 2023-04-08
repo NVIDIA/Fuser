@@ -25,26 +25,29 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
 
   // OpRecord Equality Check
   {
-    auto t0 = State(0, StateType::Tensor);
-    auto s1 = State(1, StateType::Scalar);
-    auto out = State(2, StateType::Tensor);
+    auto t0 = State(0, serde::StateType_Tensor);
+    auto s1 = State(1, serde::StateType_Scalar);
+    auto out = State(2, serde::StateType_Tensor);
     std::unique_ptr<RecordFunctor> test_record1(
         new OpRecord<TensorView*, TensorView*, Val*>(
             {t0, s1},
             {out},
             "ops.mul",
+            serde::RecordType_Binary_TV_VAL,
             static_cast<TensorView* (*)(TensorView*, Val*)>(mul)));
     std::unique_ptr<RecordFunctor> test_record2(
         new OpRecord<TensorView*, TensorView*, Val*>(
             {t0, s1},
             {out},
             "ops.mul",
+            serde::RecordType_Binary_TV_VAL,
             static_cast<TensorView* (*)(TensorView*, Val*)>(mul)));
     std::unique_ptr<RecordFunctor> test_record3(
         new OpRecord<TensorView*, TensorView*, Val*>(
             {t0, s1},
             {out},
             "ops.mul",
+            serde::RecordType_Binary_TV_VAL,
             static_cast<TensorView* (*)(TensorView*, Val*)>(mul)));
 
     EXPECT_TRUE(*test_record1 == *test_record2);
@@ -54,13 +57,14 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
 
   // CastOpRecord Equality Check
   {
-    auto t0 = State(0, StateType::Tensor);
-    auto out = State(1, StateType::Tensor);
+    auto t0 = State(0, serde::StateType_Tensor);
+    auto out = State(1, serde::StateType_Tensor);
     std::unique_ptr<RecordFunctor> test_record1(
         new CastOpRecord<TensorView*, TensorView*>(
             {t0},
             {out},
             "ops.cast",
+            serde::RecordType_CastTv,
             static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
             DataType::Half));
     std::unique_ptr<RecordFunctor> test_record2(
@@ -68,6 +72,7 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
             {t0},
             {out},
             "ops.cast",
+            serde::RecordType_CastTv,
             static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
             DataType::Half));
     std::unique_ptr<RecordFunctor> test_record3(
@@ -75,6 +80,7 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
             {t0},
             {out},
             "ops.cast",
+            serde::RecordType_CastTv,
             static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
             DataType::Half));
 
@@ -85,12 +91,13 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
 
   // ReductionOpRecord Equality Check
   {
-    auto t0 = State(0, StateType::Tensor);
-    auto out = State(1, StateType::Tensor);
+    auto t0 = State(0, serde::StateType_Tensor);
+    auto out = State(1, serde::StateType_Tensor);
     std::unique_ptr<RecordFunctor> test_record1(new ReductionOpRecord(
         {t0},
         {out},
         "ops.sum",
+        serde::RecordType_ReductionSum,
         static_cast<
             TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
             sum),
@@ -101,6 +108,7 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
         {t0},
         {out},
         "ops.sum",
+        serde::RecordType_ReductionSum,
         static_cast<
             TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
             sum),
@@ -111,6 +119,7 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
         {t0},
         {out},
         "ops.sum",
+        serde::RecordType_ReductionSum,
         static_cast<
             TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
             sum),
