@@ -3149,6 +3149,23 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dim"));
   nvf_sched.def(
+      "rFactor",
+      [](FusionDefinition::SchedOperators& self, Tensor arg, std::vector<int>& dims) -> Tensor {
+        FUSER_PERF_SCOPE("SchedOperators.rFactor");
+        TORCH_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        auto output_tv = input_tv->rFactor(dims);
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->addFusionState(output.index, output_tv);
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dims"));
+  nvf_sched.def(
       "split",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
