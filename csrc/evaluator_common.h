@@ -30,7 +30,7 @@ class PrecomputedValues;
 class NaiveValueMachine {
   //! The generic types of instructions supported for this
   //!  machine, currently only binary and unary.
-  enum class InstructionType { UNARY_OP, BINARY_OP };
+  enum class InstructionType { UNARY_OP, BINARY_OP, SET_OP };
 
  public:
   //! Constructor lowers all the expr IR nodes stored in precomputed_values
