@@ -142,7 +142,6 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           BroadcastOp,
           SqueezeOp,
-          TransposeOp,
           ExpandOp,
           ShiftOp,
           GatherOp,
@@ -187,10 +186,6 @@ bool isTensorScalarFillOp(const Expr* expr) {
     //  into a tensor.
     if (expr->isA<LoadStoreOp>()) {
       return true;
-    }
-    // Unary copy op is also a scalar filling op.
-    if (auto uop = dynamic_cast<const UnaryOp*>(expr)) {
-      return uop->getUnaryOpType() == UnaryOpType::Set;
     }
   }
   // Ideally any scalar expression that outputs
@@ -348,9 +343,7 @@ c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
 
 //! Short-cut for checking if the expression loads from global memory.
 bool isGlobalLoad(const Expr* expr) {
-  if (expr->isA<LoadStoreOp>() ||
-      (expr->isA<UnaryOp>() &&
-       expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set)) {
+  if (expr->isA<LoadStoreOp>()) {
     if (auto in_tv = getTv(expr->input(0))) {
       return in_tv->getMemoryType() == MemoryType::Global;
     }
