@@ -249,7 +249,8 @@ struct TensorArg : public TensorArgAbstract {
     return instance_.data;
   }
   DataType getDataType() const override {
-    return NativeTypeToDataType<typename TENSOR_TYPE::data_type>::type;
+    return NativeTypeWithC10ComplexToDataType<
+        typename TENSOR_TYPE::data_type>::type;
   }
   at::Tensor getTensor() const override {
     return tensor_;

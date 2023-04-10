@@ -213,10 +213,16 @@ template <PrimDataType DT>
 struct DataTypeToNativeType;
 
 template <PrimDataType DT>
+struct DataTypeToNativeTypeWithC10Complex;
+
+template <PrimDataType DT>
 struct DataTypeToAtenType;
 
 template <typename NativeType>
 struct NativeTypeToDataType;
+
+template <typename NativeType>
+struct NativeTypeWithC10ComplexToDataType;
 
 template <at::ScalarType aten_type>
 struct AtenTypeToDataType;
@@ -224,61 +230,87 @@ struct AtenTypeToDataType;
 template <at::ScalarType aten_type>
 struct AtenTypeToNativeType;
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, at_type, native_type) \
-  template <>                                                           \
-  struct DataTypeToNativeType<data_type> {                              \
-    using type = native_type;                                           \
-  };                                                                    \
-  template <>                                                           \
-  struct DataTypeToAtenType<data_type> {                                \
-    static constexpr at::ScalarType type = at_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct NativeTypeToDataType<native_type> {                            \
-    static constexpr PrimDataType type = data_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct AtenTypeToDataType<at_type> {                                  \
-    static constexpr PrimDataType type = data_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct AtenTypeToNativeType<at_type> {                                \
-    using type = native_type;                                           \
+template <at::ScalarType aten_type>
+struct AtenTypeToNativeTypeWithC10Complex;
+
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(                                     \
+    data_type, at_type, native_type, native_type_with_c10_complex)          \
+  template <>                                                               \
+  struct DataTypeToNativeType<data_type> {                                  \
+    using type = native_type;                                               \
+  };                                                                        \
+  template <>                                                               \
+  struct DataTypeToNativeTypeWithC10Complex<data_type> {                    \
+    using type = native_type_with_c10_complex;                              \
+  };                                                                        \
+  template <>                                                               \
+  struct DataTypeToAtenType<data_type> {                                    \
+    static constexpr at::ScalarType type = at_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct NativeTypeToDataType<native_type> {                                \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct NativeTypeWithC10ComplexToDataType<native_type_with_c10_complex> { \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToDataType<at_type> {                                      \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToNativeType<at_type> {                                    \
+    using type = native_type;                                               \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToNativeTypeWithC10Complex<at_type> {                      \
+    using type = native_type_with_c10_complex;                              \
   };
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Float,
+    at::ScalarType::Float,
+    float,
+    float);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
+    double,
     double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Half,
+    at::ScalarType::Half,
+    at::Half,
+    at::Half);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
+    at::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t,
+    int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Bool,
+    at::ScalarType::Bool,
+    bool,
+    bool);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
-    std::complex<float>);
+    std::complex<float>,
+    c10::complex<float>);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
-    std::complex<double>);
+    std::complex<double>,
+    c10::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
-
-// c10::complex is used along with std::complex
-template <>
-struct NativeTypeToDataType<c10::complex<float>> {
-  static constexpr PrimDataType type = DataType::ComplexFloat;
-};
-template <>
-struct NativeTypeToDataType<c10::complex<double>> {
-  static constexpr PrimDataType type = DataType::ComplexDouble;
-};
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.

@@ -443,4 +443,96 @@ class DebugPrintScope {
 #define DEBUG_PRINT_SCOPE(...) \
   DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
 
+#if 0
+template <typename RetType, template <typename NativeType> class Func, typename ...Args>
+RetType atenTypeDispatch(at::ScalarType type, Args... args) {
+  switch (type) {
+    case c10::ScalarType::Int:
+      return Func<int>()(args...);
+    case c10::ScalarType::Long:
+      return Func<int64_t>()(args...);
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Unexpected aten type: ", type);
+  }
+}
+#endif
+
+template <template <typename NativeType> class Func, typename... Args>
+typename std::result_of<Func<int>(Args...)>::type atenTypeDispatch(
+    at::ScalarType type,
+    Args... args) {
+  switch (type) {
+    case c10::ScalarType::Int:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Int>::type>()(args...);
+    case c10::ScalarType::Long:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Long>::type>()(args...);
+    case c10::ScalarType::Bool:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Bool>::type>()(args...);
+    case c10::ScalarType::Half:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Half>::type>()(args...);
+    case c10::ScalarType::BFloat16:
+      return Func<AtenTypeToNativeType<c10::ScalarType::BFloat16>::type>()(
+          args...);
+    case c10::ScalarType::Float:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Float>::type>()(
+          args...);
+    case c10::ScalarType::Double:
+      return Func<AtenTypeToNativeType<c10::ScalarType::Double>::type>()(
+          args...);
+    case c10::ScalarType::ComplexFloat:
+      return Func<AtenTypeToNativeType<c10::ScalarType::ComplexFloat>::type>()(
+          args...);
+    case c10::ScalarType::ComplexDouble:
+      return Func<AtenTypeToNativeType<c10::ScalarType::ComplexDouble>::type>()(
+          args...);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
+  }
+}
+
+template <template <typename NativeType> class Func, typename... Args>
+typename std::result_of<Func<int>(Args...)>::type atenTypeDispatchWithC10Complex(
+    at::ScalarType type,
+    Args... args) {
+  switch (type) {
+    case c10::ScalarType::Int:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Int>::type>()(
+          args...);
+    case c10::ScalarType::Long:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Long>::type>()(
+          args...);
+    case c10::ScalarType::Bool:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Bool>::type>()(
+          args...);
+    case c10::ScalarType::Half:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Half>::type>()(
+          args...);
+    case c10::ScalarType::BFloat16:
+      return Func<AtenTypeToNativeTypeWithC10Complex<
+          c10::ScalarType::BFloat16>::type>()(args...);
+    case c10::ScalarType::Float:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Float>::type>()(
+          args...);
+    case c10::ScalarType::Double:
+      return Func<
+          AtenTypeToNativeTypeWithC10Complex<c10::ScalarType::Double>::type>()(
+          args...);
+    case c10::ScalarType::ComplexFloat:
+      return Func<AtenTypeToNativeTypeWithC10Complex<
+          c10::ScalarType::ComplexFloat>::type>()(args...);
+    case c10::ScalarType::ComplexDouble:
+      return Func<AtenTypeToNativeTypeWithC10Complex<
+          c10::ScalarType::ComplexDouble>::type>()(args...);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
+  }
+}
+
 } // namespace nvfuser
