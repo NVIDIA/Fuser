@@ -89,10 +89,14 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
   const auto tile_size_x = shared_mem_tv->axis(-2)->extent()->evaluateInt();
   const auto tile_size_y = shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
-  // TODO: add support for tf32(different macro) and fp32(ffma)
   if (isTuring(params.mma_op) || isAmpere(params.mma_op)) {
-    // Dimension of each inner unit of swizzled indices.
-    // Turing and Ampere case, ldmatrix access assumed (see TODO above)
+    // TODO: right now, we are assuming ldmatrix access, which only supports
+    // 16bit load according to offical doc:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
+    // In the future, when we start adding support for tf32(different macro),
+    // fp32(ffma), double, int8, fp8, etc. we need to update this function.
+    TORCH_INTERNAL_ASSERT(dataTypeSize(*shared_mem_tv->getDataType()) == 2);
+
     // Each ldmatrix access is 8x8
     int row_unit = 8;
     int col_unit = 8;

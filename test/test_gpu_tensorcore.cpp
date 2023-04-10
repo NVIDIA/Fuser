@@ -317,6 +317,9 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -365,6 +368,9 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     params.tile_sizes = gemm_tile;
     params.double_buffer_options.double_buffer_smem_read = true;
     scheduleMatmul(&fusion, params);
+
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -650,6 +656,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -704,6 +712,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
+
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -770,6 +780,8 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     params.grid_swizzle_factor = swizzle;
 
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -877,6 +889,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
+
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -1818,6 +1832,8 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.layout = layout;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2859,6 +2875,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -2906,6 +2924,8 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.layout = layout;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2961,6 +2981,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
         scheduleMatmul(&fusion, params);
+
+        ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
         at::manual_seed(0);
         auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3027,6 +3049,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
 
           scheduleMatmul(&fusion, params);
 
+          ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
           at::manual_seed(0);
           auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3086,6 +3110,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 
       scheduleMatmul(&fusion, params);
 
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3137,6 +3163,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
