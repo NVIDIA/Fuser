@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <inlining.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <scheduler/utils.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>

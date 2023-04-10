@@ -335,7 +335,7 @@ void testValidate(
   auto reduction_sizes =
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
-  auto output_alias_indices = fusion->getOutputAliasIndices();
+  auto output_alias_indices = fusion->getIndicesOfAliasedOutputs();
 
   TORCH_INTERNAL_ASSERT(
       fusion_outputs.size() == aten_outputs.size() &&

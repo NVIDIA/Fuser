@@ -27,17 +27,9 @@ struct TrieNode;
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
-//! The State and the StateType enum are used to define state objects to
-//! encapsulate the recording of state in the FusionDefinition.
-
-enum class StateType {
-  Tensor,
-  Scalar,
-  None,
-};
-
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, StateType _stype) : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype)
+      : index(_index), stype(_stype) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -45,7 +37,7 @@ struct TORCH_CUDA_CU_API State {
   //! A unique index to identifiy each recorded state item.
   size_t index;
   //! StateType is either: Tensor or Scalar
-  StateType stype;
+  serde::StateType stype;
 };
 
 TORCH_CUDA_CU_API std::ostream& operator<<(
@@ -130,6 +122,25 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
+      bool override_user_schedule) const;
+  //! Return the unscheduled Fusion IR
+  std::string fusionIr();
+  //! Return the Cuda code for the last executed set of inputs
+  std::string lastCudaCode(bool intrinsic_code, bool override_user_schedule)
+      const;
+  //! Return the Cuda code for the given inputs
+  std::string cudaCodeFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool intrinsic_code,
+      bool override_user_schedule) const;
+  //! Return the Cuda code for the last executed set of inputs
+  std::string lastScheduledFusionIr(
+      bool tensor_transforms,
+      bool override_user_schedule) const;
+  //! Return the Cuda code for the given inputs
+  std::string scheduledFusionIrFor(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
   c10::optional<size_t> id() const;
