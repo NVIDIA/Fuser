@@ -450,7 +450,7 @@ class DebugPrintScope {
 //! c10::complex<float>. For the latter behavior, please use
 //! atenTypeDispatchWithC10Complex below.
 template <typename Functor, typename... Args>
-auto atenTypeDispatch(at::ScalarType type, Functor func, Args... args) {
+auto atenTypeDispatch(at::ScalarType type, Functor func, Args&&... args) {
   switch (type) {
     case at::ScalarType::Int:
       return func
@@ -504,7 +504,7 @@ template <typename Functor, typename... Args>
 auto atenTypeDispatchWithC10Complex(
     at::ScalarType type,
     Functor func,
-    Args... args) {
+    Args&&... args) {
   switch (type) {
     case at::ScalarType::Int:
       return func.template

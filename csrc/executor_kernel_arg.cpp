@@ -54,27 +54,19 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 4, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (5):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 5, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (6):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 6, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (7):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 7, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (8):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 8, nvfuser_index_t>,
           nvfuser_index_t>>();
@@ -204,7 +196,6 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
       val);
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
-    // NOLINTNEXTLINE(bugprone-branch-clone)
     case c10::ScalarType::ComplexDouble:
       arguments_.push_back(
           std::make_unique<ComplexDoubleArg>(scalar_val.toComplexDouble()));
