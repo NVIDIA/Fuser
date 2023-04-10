@@ -55,8 +55,9 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     // part of thread/block do the write to gmem is enough e.g. [B1,I2,B3] is
     // merged to [B1*I2*B3] and parallelized by blockIdx.x. The write pattern
     // should be: write every len(B3) blocks of the first len(I2) * len(B3)
-    // blocks. write_stride_less= ( ( 1 * T1.size[2] ) * T0.size[0] ).
-    // write_stride_mod= ( 1 * T1.size[2] ).
+    // blocks. len(B) is the size of the concretized domain.
+    // write_stride_less = {len(I2) * len(B3), 1}
+    // write_stride_mod = len(B3)
     // generated condition is: blockIdx.x < write_stride_less && blockIdx.x %
     // write_stride_mod < 1
     // Another example, [I1, B2, I3] merged to [I1*B2*I3], the condition is:

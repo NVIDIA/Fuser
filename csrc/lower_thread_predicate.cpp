@@ -581,6 +581,12 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
             std::find(root_domain.begin(), root_domain.end(), merge->outer());
         auto inner_iter =
             std::find(root_domain.begin(), root_domain.end(), merge->inner());
+        // outer_iter and inner_iter should be neighbors in root_domain
+        if (inner_iter != root_domain.end() &&
+            outer_iter != root_domain.end() &&
+            std::distance(outer_iter, inner_iter) != 1) {
+          return std::vector<IterDomain*>();
+        }
         if (inner_iter != root_domain.end()) {
           merged_root_domains.emplace_back(*inner_iter);
           index_root_domain.emplace_back(inner_iter - root_domain.begin());
