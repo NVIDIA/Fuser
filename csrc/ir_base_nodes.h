@@ -327,6 +327,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   inline bool isDefinitionType() const;
 
+  //! Returns the Exprs for which this is an input.
+  //! Note that uses() will occasionally trigger a deferred call to
+  //! resetTvUses() which can be expensive as it requires traversing the graph
+  //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
   bool isFusionInput() const {
@@ -389,6 +393,14 @@ class TORCH_CUDA_CU_API Val : public Statement {
   void setUses(const std::vector<Expr*>& uses) {
     uses_ = uses;
   }
+
+  //! Insert a new expression into uses() if it is not already present and
+  //! return whether an insertion occurred.
+  bool addUse(Expr*);
+
+  //! Remove an expression from uses() if it is already present and return
+  //! whether a removal occurred.
+  bool removeUse(Expr*);
 
  private:
   // There's only one instance where dtype can change, and that's through
