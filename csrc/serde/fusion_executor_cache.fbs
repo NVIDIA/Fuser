@@ -30,18 +30,120 @@ table NvrtcFunction {
 
 }
 
-// TODO
+table GlobalBufferInfo {
+  sizes : [long];
+  strides : [long];
+  type : DataType;
+  zero_init : bool;
+  is_profile_buffer : bool;
+}
+
 table ExecutorEntry {
+    bool init = false;
+    launch_params : LaunchParams;
+    // Aliased output and input mappings
+    output_aliases : [int];
+    input_aliases : [int];
+    outputs : [GlobalBufferInfo];
+    intermediates : [GlobalBufferInfo];
+    rand_offset : ulong;
+};
+
+// TODO 
+// Allocate
+// SyncMap
+// ParallelDimensionMap
+// VectorizedSetInfo
+// TensorView
+// Expr
+
+table KernelSummary {
+  // Count of WAR (write-after-read) hazard barriers
+  war_hazard_syncs_count : int;
+
+  // List of global buffers
+  global_allocations : [Allocate];
+
+  // List of dynamic shared memory buffers
+  dynamic_smem_allocations : [Allocate]
+
+  // List of static shared memory buffers
+  static_smem_allocations : [Allocate];
+
+  // Indicate the need to generate random numbers
+  max_rng_offsets : int = -1;
+
+  // Do we have any block reductions?
+  has_block_reductions : bool;
+
+  // Number of static grid reductions
+  has_grid_reductions : bool;
+
+  // Do we have any grid reduction in a loop, or grid reductions dependent on grid reductions
+  has_cooperative_grid_reduction : bool;
+
+  // Do we have any block broadcasts?
+  has_block_broadcasts : bool;
+
+  // Do we have any grid broadcasts?
+  has_grid_broadcasts : bool;
+
+  // Do we have any welford ops?
+  has_welford : bool;
+
+  // Do we have any block welford ops?
+  has_block_welford : bool;
+
+  // Do we have any grid welford ops?
+  has_grid_welford : bool;
+
+  // Do we have any outer grouped grid welford op?
+  has_outer_grouped_grid_welford : bool;
+
+  // Largest shared memory buffer size of outer grouped grid welford
+  outer_grouped_grid_welford_largest_smem_size : int;
+
+  // Largest shared memory buffer base type
+  largest_smem_data_type : DataType;
+
+  // Do we have allocations of dynamic local memory?
+  has_dynamic_local_memory_allocations : bool;
+
+  // List of dynamic local memory buffers.
+  // Only used for debugging.
+  dynamic_lmem_allocations : [Allocate]
+
+  // ceilDiv extents that must be divisible
+  lhs_splits_to_validate : [long];
+  rhs_splits_to_validate : [long];
+
+  // Effective ParallelTypes of broadcast ops
+  // map<const BroadcastOp*, ParallelTypeBitmap> broadcast_parallel_types;
+  bcast_parallel_types_keys : [ulong]
+  bcast_parallel_type_bitmap : [ulong]
+
+  // Track which tensor views are inputs or outputs of a vectorized operation
+  // and their maximum vectorized access size
+  // map<TensorView*, int> vectorized_accesses;
+  vectorized_accesses_tv_keys : [ulong]
+  vectorized_accesses_size : [int]
+
+  // Sync map is needed to figure out if global memory buffers need to be marked
+  // as volatile because they're used for communication.
+  sync_map : SyncMap
+
+  // Parallel dimension map needed to set the correct properties of grid buffers
+  // (is a dim inactive)
+  parallel_dimension_map : ParallelDimensionMap;
+
+  // Track information on vectorized set operations for runtime validation
+  vectorized_set_info : [VectorizedSetInfo];
 
 }
 
 // skipped potential fields:
-// used_tvs : [TensorView]
 // lowered : GpuLower
-// kernel : Kernel
 table FusionExecutor {
-    launch_params : LaunchParams;
-    compile_params : CompileParams;
     configured_device_smem : ulong;
     maybe_available_smem : ulong;
     device_smem_limit: ulong;
@@ -49,10 +151,14 @@ table FusionExecutor {
     fusion_id: int;
     // shared static value
     fusion_id_counter : int;
-    compiled_kernel : NvrtcFunction;
     kernel_code : string;
     executor_entry_lookup_keys : [ulong]
     executor_entry_lookup_values : [ExecutorEntry]
+    compile_params : CompileParams;
+    compiled_kernel : NvrtcFunction;
+    launch_params : LaunchParams;
+    kernel_summary : KernelSummary;
+    used_tvs : [ulong];
 }
 
 // unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
