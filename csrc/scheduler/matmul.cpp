@@ -121,9 +121,8 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     int residue_unit_count = units_per_row % units_per_memory_row;
 
     // In the case where tile row is a multiple of memory row, the whole memory
-    // row
-    //  is the repeated pattern of swizzle. In the case where tile row is not
-    //  divisible, the residule part is the repeated pattern.
+    //  row is the repeated pattern of swizzle. In the case where tile row is
+    //  not divisible, the residule part is the repeated pattern.
     int repeated_pattern_size_in_units =
         residue_unit_count == 0 ? units_per_memory_row : residue_unit_count;
 
@@ -208,9 +207,8 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     shared_mem_tv->split(-1, col_unit * swizzle_period);
     shared_mem_tv->split(-1, col_unit);
 
-    //        -6        -5           -4              -3        -2       -1
-    // [..., Irow_o, Irow_period, Irow_multiplier, Icol_o, Icol_period,
-    // Icol_unit]
+    //        -6        -5           -4           -3        -2       -1
+    // [..., row_o, row_period, row_multiplier, col_o, col_period, col_unit]
     if (isPowOf2(swizzle_period)) {
       shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
     } else {
@@ -240,6 +238,10 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
 //! 1. Swizzled the shared mem data layout.
 //! 2. Coalesce and vectorize the read write schedule.
 void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
+  shared_mem_tv->setMemoryType(MemoryType::Shared);
+
+  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+
   // Swizzle the shared memory data layout
   prologSwizzle(shared_mem_tv, params);
 
@@ -250,7 +252,16 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   //    current effort tries to focus on generating swizzles.
   shared_mem_tv->merge(-2);
   scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      shared_mem_tv, params.tile_sizes, 8, false);
+      shared_mem_tv, params.tile_sizes, 8, true);
+
+  // Propagate prolog tensors
+  //  propagate up the DAG, and propagate parallel type.
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      shared_mem_tv,
+      -1,
+      {},
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+          .propagateParallelType());
 }
 
 } // namespace
@@ -439,31 +450,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       cc, -1, {acw_smem, bcw_smem}, {c});
 
   // Schedule prolog:
-  //   TODO: this section goes to a separate matmul util,
-  //   and needs more configurability.
+  //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(acw_smem);
-  // [... M, K]
   scheduleProlog(acw_smem, params);
-
-  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(bcw_smem);
-  // [... N, K]
   scheduleProlog(bcw_smem, params);
-
-  // Propagate prolog tensors
-  //  propagate up the DAG, and propagate parallel type.
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      acw_smem,
-      -1,
-      {a},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      bcw_smem,
-      -1,
-      {b},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
 
   // Set computeAt, setup the loop nesting structure on the kernel.
   //   TODO: this section goes to a separate matmul util,
@@ -512,19 +502,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   cc->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
 
-  // Set memory type:
-  acw_smem->setMemoryType(MemoryType::Shared);
-  bcw_smem->setMemoryType(MemoryType::Shared);
-
   // Set parallelization:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
 
   // Vectorize smem stores/loads:
-  acw_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  bcw_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 

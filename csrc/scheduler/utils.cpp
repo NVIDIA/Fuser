@@ -1949,7 +1949,7 @@ bool isFakeBoundaryTensorview(
 //!  transform to by BoundedDirectionalTransformPropagator.
 std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
     TensorView* from_tv,
-    std::vector<TensorView*> boundary_tvs,
+    const std::vector<TensorView*>& boundary_tvs,
     BoundedDirectionalTransformPropagator::Options options,
     PropagateDirection direction) {
   // Prepare to collect all candidate tensorviews
@@ -2061,9 +2061,9 @@ void BoundedDirectionalTransformPropagator::backward(
   if (!options.has_value()) {
     options = Options();
   }
-  TORCH_INTERNAL_ASSERT(
-      !to.empty(),
-      "Propagation needs to be bounded, so no support for empty boundary.");
+  if (to.empty()) {
+    to = ir_utils::inputTvsOf(from);
+  }
 
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
