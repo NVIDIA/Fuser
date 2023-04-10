@@ -9,6 +9,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
+#include <lower_bank_conflict.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -231,8 +232,12 @@ static void SingleMatmulBase(
   cparams.enable_magic_zero = false;
 
   // Compile kernel
+  auto launch_constraints = LaunchParams();
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, LaunchParams(), cparams);
+  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  TORCH_CHECK(
+      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      "Shared memory bank conflict not removed.");
 
   // Warm up run
   auto outputs = fe.runFusion({inputs.first, inputs.second});

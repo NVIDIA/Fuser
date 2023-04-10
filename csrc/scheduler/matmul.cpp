@@ -124,50 +124,13 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     //  row is the repeated pattern of swizzle. In the case where tile row is
     //  not divisible, the residule part is the repeated pattern.
     int repeated_pattern_size_in_units =
-        residue_unit_count == 0 ? units_per_memory_row : residue_unit_count;
+        std::gcd(units_per_memory_row, residue_unit_count);
 
     // Calculate row multiplier, which is defined as minimum number of rows
     //  to look down from an element until the same bank index is observed.
-    c10::optional<int> maybe_row_multiplier = c10::nullopt;
+    int multiplier = units_per_memory_row / repeated_pattern_size_in_units;
 
-    if (units_per_memory_row % repeated_pattern_size_in_units == 0) {
-      maybe_row_multiplier =
-          units_per_memory_row / repeated_pattern_size_in_units;
-    } else if (
-        units_per_memory_row > repeated_pattern_size_in_units &&
-        units_per_memory_row %
-                (units_per_memory_row - repeated_pattern_size_in_units) ==
-            0) {
-      maybe_row_multiplier = units_per_memory_row /
-          (units_per_memory_row - repeated_pattern_size_in_units);
-    }
-
-    // The case where the row multiplier cannot be an integer would be where
-    //  fractional tiling support is needed. Would gradually build out support
-    //  on this one.
-    if (!maybe_row_multiplier.has_value()) {
-      // calculate effective row_period = lcm(row_period, repeated_pattern) /
-      // repeated_pattern_size which is the same as below
-      int row_period = units_per_memory_row /
-          std::gcd(units_per_memory_row, repeated_pattern_size_in_units);
-
-      if (row_period < row_unit) {
-        TORCH_WARN_ONCE(
-            "Fractional pattern not yet implemented for swizzling memory row of size :",
-            units_per_memory_row,
-            " and tile row of size: ",
-            repeated_pattern_size_in_units);
-        // This would not lead to functional issue but just perf regression, so
-        // just do not swizzle anything yet.
-        //  TODO: add support for swizzles with different row and col periods to
-        //  enable this case.
-        return;
-      } else {
-        // This case would not need swizzling at all as the period of
-        //   memory bank index over the row is wider than the access window.
-        return;
-      }
-    } else if (maybe_row_multiplier.value() >= row_unit) {
+    if (multiplier >= row_unit) {
       // No need to swizzle in this case.
       return;
     }
@@ -181,12 +144,11 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     // Do not have to use the max_swizzle period if we already had
     //  enough swizzle to permute a row_unit. This would encourage
     //  usage of power of 2 swizzle periods.
-    if (row_unit % maybe_row_multiplier.value() == 0) {
-      swizzle_period =
-          std::min(swizzle_period, row_unit / maybe_row_multiplier.value());
+    if (row_unit % multiplier == 0) {
+      swizzle_period = std::min(swizzle_period, row_unit / multiplier);
     }
 
-    int row_multiplier = maybe_row_multiplier.value();
+    int row_multiplier = multiplier;
 
     TORCH_INTERNAL_ASSERT(
         tile_size_x % (swizzle_period * row_multiplier) == 0 &&
