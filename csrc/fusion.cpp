@@ -172,13 +172,10 @@ void Fusion::removeExpr(Expr* expr) {
     out->setDefinition(nullptr);
   }
 
+  // Remove uses in inputs
   for (auto inp : expr->inputs()) {
-    auto uses_copy = inp->uses();
-    auto it = std::find(uses_copy.begin(), uses_copy.end(), expr);
-    if (it != uses_copy.end()) {
-      uses_copy.erase(it);
-      inp->setUses(uses_copy);
-    }
+    // Note that if inp is a TensorView, this may call invalidateTvUses
+    inp->removeUse(expr);
   }
 
   IrContainer::removeExpr(expr);
@@ -300,7 +297,8 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       output->setIsFusionOutput(false);
       output->as<TensorView>()->setMemoryType(MemoryType::Local);
     }
-    resetTvUses();
+    // Mark uses invalid so that they will be reset next time uses() is called
+    invalidateTvUses();
   }
 
   // Temporary WAR for issue #1112
@@ -370,17 +368,20 @@ void Fusion::validateInputs() {
   }
 }
 
-void Fusion::print() {
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
   FUSER_PERF_SCOPE("Fusion::print");
-
   FusionGuard fg(this);
-  std::cout << "\n%kernel {\n";
-  IrMathPrinter op_exprs(std::cout);
+  os << "\n%kernel {\n";
+  IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
-  std::cout << "\nTransformPrinter : \n";
-  IrTransformPrinter t_exprs(std::cout);
-  t_exprs.handle(this);
-  std::cout << "}\n\n";
+  if (include_tensor_transforms) {
+    os << "\nTransformPrinter : \n";
+    IrTransformPrinter t_exprs(os);
+    t_exprs.handle(this);
+  }
+  os << "}\n";
+
+  return os;
 }
 
 void Fusion::printKernel(const CompileParams& compile_params) {
@@ -541,16 +542,14 @@ void Fusion::registerExpr(Expr* expr) {
 
   IrContainer::registerExpr(expr);
 
-  bool has_tv = false;
-
   for (Val* input : expr->inputs()) {
-    has_tv = has_tv || input->isA<TensorView>();
     assertInContainer(input, "Input to expr is invalid, ");
-    auto uses_copy = input->uses();
-    if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
-        uses_copy.end()) {
-      uses_copy.push_back(expr);
-      input->setUses(uses_copy);
+    // Don't just add this expr as a use of the input if it's a tensor as the
+    // whole fusion needs to be traversed to rebuild the usage lists
+    if (input->isA<TensorView>()) {
+      invalidateTvUses();
+    } else {
+      input->addUse(expr);
     }
   }
 
@@ -560,18 +559,20 @@ void Fusion::registerExpr(Expr* expr) {
   bool is_ssa = !this->isA<kir::Kernel>();
 
   for (Val* output : expr->outputs()) {
-    has_tv = has_tv || output->isA<TensorView>();
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
       removeExpr(output->definition());
     }
     if (is_ssa || (!is_ssa && output->definition() == nullptr)) {
       output->setDefinition(expr);
+      if (output->isA<TensorView>()) {
+        // Updating the definition might change the path to output TVs.
+        // If that happens, our definition-based traversal can change and
+        // introduce whole new branches, so we need to recompute the uses_
+        // vector after setDefinition.
+        invalidateTvUses();
+      }
     }
-  }
-
-  if (has_tv) {
-    resetTvUses();
   }
 }
 
@@ -592,12 +593,7 @@ void Fusion::resetTvUses() {
   // Same as in register expr
   for (auto expr : used_exprs) {
     for (Val* input : expr->inputs()) {
-      auto uses_copy = input->uses();
-      if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
-          uses_copy.end()) {
-        uses_copy.push_back(expr);
-        input->setUses(uses_copy);
-      }
+      input->addUse(expr);
     }
   }
 
@@ -783,7 +779,7 @@ Val* Fusion::getOutputAlias(Val* output) {
   return nullptr;
 }
 
-std::unordered_set<int> Fusion::getOutputAliasIndices() const {
+std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
   if (io_alias_.empty()) {
     return {};
   }
@@ -798,18 +794,18 @@ std::unordered_set<int> Fusion::getOutputAliasIndices() const {
   return alias_indices;
 }
 
-std::vector<std::pair<int, int>> Fusion::getInputAliasIndices() const {
+std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {
     return {};
   }
 
   std::vector<std::pair<int, int>> alias_indices;
-  for (const auto i : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[i]) != 0) {
+  for (const auto output_idx : c10::irange(outputs_.size())) {
+    if (io_alias_.count(outputs_[output_idx]) != 0) {
       bool found = false;
-      for (const auto j : c10::irange(inputs_.size())) {
-        if (io_alias_.at(outputs_[i]) == inputs_[j]) {
-          alias_indices.emplace_back(i, j);
+      for (const auto input_idx : c10::irange(inputs_.size())) {
+        if (io_alias_.at(outputs_[output_idx]) == inputs_[input_idx]) {
+          alias_indices.emplace_back(output_idx, input_idx);
           found = true;
           break;
         }

@@ -3515,7 +3515,7 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
 
   // The following ops only supports complex
   std::vector<OpTuple> ops_complex_only{
-      // real is supported via UnaryOpType::Set for non-complex types, and
+      // real is supported via LoadStoreOp for non-complex types, and
       // UnaryOpType::Real requires input to be complex
       OpTuple{at::real, UnaryOpType::Real, "real"},
       OpTuple{at::imag, UnaryOpType::Imag, "imag"},

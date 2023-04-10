@@ -1056,11 +1056,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-std::vector<TransposeOp*> findTransposeOps(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  auto transpose_ops = ir_utils::filterByType<TransposeOp>(exprs);
-  return std::vector<TransposeOp*>(transpose_ops.begin(), transpose_ops.end());
-}
 
 static bool checkPatternEquivalence(
     TensorView* out_tv0,

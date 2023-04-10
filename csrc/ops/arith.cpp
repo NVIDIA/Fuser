@@ -562,15 +562,14 @@ TensorView* eye(Val* size, DataType dtype) {
 
 // UNARY OPERATIONS
 
-#define NVFUSER_DEFINE_UNARY_OP(op_name, op_type) \
-  Val* op_name(Val* v) {                          \
-    return unaryOp(UnaryOpType::op_type, v);      \
-  }                                               \
-  TensorView* op_name(TensorView* tv) {           \
-    return unaryOp(UnaryOpType::op_type, tv);     \
+#define NVFUSER_DEFINE_UNARY_OP(operator_name, operator_type) \
+  Val* operator_name(Val* value) {                            \
+    return unaryOp(UnaryOpType::operator_type, value);        \
+  }                                                           \
+  TensorView* operator_name(TensorView* tv) {                 \
+    return unaryOp(UnaryOpType::operator_type, tv);           \
   }
 
-NVFUSER_DEFINE_UNARY_OP(set, Set)
 NVFUSER_DEFINE_UNARY_OP(ceil, Ceil)
 NVFUSER_DEFINE_UNARY_OP(floor, Floor)
 NVFUSER_DEFINE_UNARY_OP(frac, Frac)
@@ -630,9 +629,9 @@ Val* real(Val* v) {
     IrBuilder::create<UnaryOp>(UnaryOpType::Real, out, v);
     return out;
   }
-  // We use UnaryOpType::Set instead of UnaryOpType::Real to support non-complex
+  // We use LoadStoreOp instead of UnaryOpType::Real to support non-complex
   // tensors
-  return unaryOp(UnaryOpType::Set, v);
+  return set(v);
 }
 
 TensorView* real(TensorView* tv) {
@@ -698,12 +697,12 @@ NVFUSER_DEFINE_UNARY_FLOAT_OP(tan, Tan)
 NVFUSER_DEFINE_UNARY_FLOAT_OP(tanh, Tanh)
 #undef NVFUSER_DEFINE_UNARY_FLOAT_OP
 
-#define NVFUSER_DEFINE_UNARY_IS_OP(op_name, op_type) \
-  Val* op_name(Val* v) {                             \
-    return unaryIsOp(UnaryOpType::op_type, v);       \
-  }                                                  \
-  TensorView* op_name(TensorView* tv) {              \
-    return unaryIsOp(UnaryOpType::op_type, tv);      \
+#define NVFUSER_DEFINE_UNARY_IS_OP(operator_name, operator_type) \
+  Val* operator_name(Val* value) {                               \
+    return unaryIsOp(UnaryOpType::operator_type, value);         \
+  }                                                              \
+  TensorView* operator_name(TensorView* tv) {                    \
+    return unaryIsOp(UnaryOpType::operator_type, tv);            \
   }
 
 NVFUSER_DEFINE_UNARY_IS_OP(isfinite, IsFinite)
@@ -1539,7 +1538,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<UnaryOp>(UnaryOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
   } else {
     IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
   }
@@ -1599,7 +1598,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
   if (!expanded) {
-    IrBuilder::create<UnaryOp>(UnaryOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
   } else {
     IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
   }
