@@ -75,6 +75,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
+  KernelIndexMode getIndexMode() const {
+    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
+    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    return indexTypeToMode(index_type.value());
+  }
+
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
@@ -178,7 +184,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  const std::vector<SchedulerEntryPtr>& schedulers();
+  const std::vector<SchedulerEntryPtr>& schedulers() const;
 
   void prepareRuntimeOrder();
 

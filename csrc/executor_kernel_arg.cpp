@@ -32,85 +32,67 @@ std::string TensorArgAbstract::toString() const {
 namespace {
 
 template <typename T, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
-  switch (nDims) {
+std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
+  switch (tensor.ndimension()) {
     case (0):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 0, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(tensor);
     case (1):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 1, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(tensor);
     case (2):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 2, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(tensor);
     case (3):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 3, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(tensor);
     case (4):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 4, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(tensor);
     case (5):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 5, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(tensor);
     case (6):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 6, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(tensor);
     case (7):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 7, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(tensor);
     case (8):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 8, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(tensor);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
           "Tried to generate a tensor to run a generated kernel with ",
-          nDims,
+          tensor.ndimension(),
           " dimensions, however only 0 to 8 dimensional tensor are supported.");
   }
   return nullptr;
 }
 
 template <typename INDEX_MODE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims) {
+std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
+  auto dtype = tensor.scalar_type();
   switch (dtype) {
     case c10::ScalarType::Double:
-      return getTensorArg<double, INDEX_MODE>(nDims);
+      return getTensorArg<double, INDEX_MODE>(tensor);
     case c10::ScalarType::Float:
-      return getTensorArg<float, INDEX_MODE>(nDims);
+      return getTensorArg<float, INDEX_MODE>(tensor);
     case c10::ScalarType::Half:
-      return getTensorArg<at::Half, INDEX_MODE>(nDims);
+      return getTensorArg<at::Half, INDEX_MODE>(tensor);
     case c10::ScalarType::BFloat16:
-      return getTensorArg<at::BFloat16, INDEX_MODE>(nDims);
+      return getTensorArg<at::BFloat16, INDEX_MODE>(tensor);
     case c10::ScalarType::Bool:
-      return getTensorArg<bool, INDEX_MODE>(nDims);
+      return getTensorArg<bool, INDEX_MODE>(tensor);
     case c10::ScalarType::Long:
-      return getTensorArg<int64_t, INDEX_MODE>(nDims);
+      return getTensorArg<int64_t, INDEX_MODE>(tensor);
     case c10::ScalarType::Int:
-      return getTensorArg<int32_t, INDEX_MODE>(nDims);
+      return getTensorArg<int32_t, INDEX_MODE>(tensor);
     case c10::ScalarType::ComplexFloat:
-      return getTensorArg<c10::complex<float>, INDEX_MODE>(nDims);
+      return getTensorArg<c10::complex<float>, INDEX_MODE>(tensor);
     case c10::ScalarType::ComplexDouble:
-      return getTensorArg<c10::complex<double>, INDEX_MODE>(nDims);
+      return getTensorArg<c10::complex<double>, INDEX_MODE>(tensor);
     default:
       TORCH_CHECK(
           false,
@@ -121,14 +103,13 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims,
-    KernelIndexMode index_mode) {
+    KernelIndexMode index_mode,
+    const at::Tensor& tensor) {
   switch (index_mode) {
     case KernelIndexMode::INT32:
-      return getTensorArg<int>(dtype, nDims);
+      return getTensorArg<int>(tensor);
     case KernelIndexMode::INT64:
-      return getTensorArg<int64_t>(dtype, nDims);
+      return getTensorArg<int64_t>(tensor);
     default:
       break;
   }
@@ -184,21 +165,11 @@ void KernelArgumentHolder::promoteIndexMode() {
   for (auto& arg : arguments_) {
     TensorArgAbstract* tensor_arg_old =
         dynamic_cast<TensorArgAbstract*>(arg.get());
-    if (tensor_arg_old == nullptr)
+    if (tensor_arg_old == nullptr) {
       continue;
-    auto tensor = tensor_arg_old->getTensor();
-    int nDims = tensor.ndimension();
-    c10::ScalarType dtype = tensor.scalar_type();
-    std::unique_ptr<TensorArgAbstract> tensor_arg =
-        getTensorArg(dtype, nDims, index_mode_);
-    tensor_arg->setTensor(tensor);
-    tensor_arg->setPointer(tensor.data_ptr());
-    tensor_arg->setDataType(aten_to_data_type(dtype));
-    for (const auto i : c10::irange(nDims)) {
-      tensor_arg->setSize(i, tensor.sizes()[i]);
-      tensor_arg->setStride(i, tensor.strides()[i]);
     }
-    arg = std::move(tensor_arg);
+    auto tensor = tensor_arg_old->getTensor();
+    arg = getTensorArg(index_mode_, tensor);
   }
 }
 
@@ -265,18 +236,8 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
             " not currently supported in code generated kernels.");
     }
   } else {
-    int nDims = (int)tensor.ndimension();
-
-    c10::ScalarType dtype = tensor.scalar_type();
     std::unique_ptr<TensorArgAbstract> tensor_arg =
-        getTensorArg(dtype, nDims, index_mode_);
-    tensor_arg->setTensor(tensor);
-    tensor_arg->setPointer(tensor.data_ptr());
-    tensor_arg->setDataType(aten_to_data_type(dtype));
-    for (const auto i : c10::irange(nDims)) {
-      tensor_arg->setSize(i, tensor.sizes()[i]);
-      tensor_arg->setStride(i, tensor.strides()[i]);
-    }
+        getTensorArg(index_mode_, tensor);
     arguments_.push_back(std::move(tensor_arg));
   }
 }
@@ -286,11 +247,6 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
   if (index_mode_ == KernelIndexMode::INT32 &&
       collectIndexMode({val}) == KernelIndexMode::INT64) {
     promoteIndexMode();
-
-    // TORCH_INTERNAL_ASSERT(
-    //     false,
-    //     "Tried to push that requires 64b indexing to an arg holder configured
-    //     for 32b ");
   }
 
   changed_ = true;
@@ -300,7 +256,6 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
       val);
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
-    // NOLINTNEXTLINE(bugprone-branch-clone)
     case c10::ScalarType::ComplexDouble:
       arguments_.push_back(
           std::make_unique<ComplexDoubleArg>(scalar_val.toComplexDouble()));
@@ -343,6 +298,21 @@ void** KernelArgumentHolder::getBuffer() {
     changed_ = false;
   }
   return void_ptrs_.data();
+}
+
+// TODO: When should this be called?
+void KernelArgumentHolder::setIndexType(PrimDataType index_type) {
+  if (index_mode_ == indexTypeToMode(index_type)) {
+    return;
+  }
+
+  for (auto& arg : arguments_) {
+    if (auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg.get())) {
+      arg = getTensorArg(indexTypeToMode(index_type), tensor_arg->getTensor());
+    }
+  }
+  index_mode_ = indexTypeToMode(index_type);
+  changed_ = true;
 }
 
 void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {

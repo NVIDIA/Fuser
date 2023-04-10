@@ -748,11 +748,110 @@ bool reductionInterferingView(
   return false;
 }
 
+KernelIndexMode getTensorArgIndexMode(const TensorArgAbstract& tensor) {
+  lower_utils::KernelIndexModeCompute index_mode_helper;
+  for (const auto i : c10::irange(tensor.getRank())) {
+    auto size = tensor.getSize(i);
+    auto stride = tensor.getStride(i);
+    index_mode_helper.addDim(size, stride);
+  }
+  return index_mode_helper.getMode();
+}
+
+KernelIndexMode getTensorIndexMode(TensorView* tv, ExpressionEvaluator& ee) {
+  auto non_contig = std::any_of(
+      tv->domain()->contiguity().begin(),
+      tv->domain()->contiguity().end(),
+      [](const auto contig) { return contig.has_value() && !contig.value(); });
+
+  // When a fusion output is non-contiguous, currently there's no
+  // way to obtain its strides. This is an interface problem and
+  // should be fixed.
+  if (tv->isFusionOutput() && non_contig) {
+    return KernelIndexMode::INT64;
+  }
+
+  // Intermediate tensors should be contiguous. There must be
+  // something wrong if not.
+  TORCH_INTERNAL_ASSERT(
+      !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
+
+  int64_t stride = 1;
+  lower_utils::KernelIndexModeCompute index_mode_helper;
+  for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
+    auto id = tv->getMaybeRFactorDomain().at(i - 1);
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+
+    auto extent = ee.evaluate(id->extent());
+    TORCH_INTERNAL_ASSERT(
+        extent.has_value(),
+        "Axis with unknown extent found: ",
+        id->toString(),
+        ", tensor: ",
+        tv->toString());
+
+    index_mode_helper.addDim(extent->as<int64_t>(), stride);
+
+    stride *= extent->as<int64_t>();
+  }
+
+  return index_mode_helper.getMode();
+}
+
+KernelIndexMode getIndexMode(
+    Fusion* fusion,
+    const KernelArgumentHolder& inputs,
+    ExpressionEvaluator& ee) {
+  // Check inputs, outputs and intermediates
+  // Intermediates are contiguous, so strides are not necessary
+  // Inputs and outputs may be non-contiguous, so strides are
+  // required. However, output strides are not available, so if
+  // there's any outputs that are non contiguous, need to use 64bit
+
+  // Note that the index mode of args can be int32 but the fusion
+  // still may need to use int64 due to outputs and intermediates
+  for (auto inp_i : c10::irange(inputs.size())) {
+    auto kernel_arg = inputs[inp_i];
+    if (auto tensor_arg_abstract =
+            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
+      if (getTensorArgIndexMode(*tensor_arg_abstract) ==
+          KernelIndexMode::INT64) {
+        return KernelIndexMode::INT64;
+      }
+    }
+  }
+
+  // TODO: Consider caching
+  auto tvs = ir_utils::allTvs(fusion);
+
+  for (auto tv : tvs) {
+    // Note that at this point tensors are not scheduled yet. Each
+    // tensor may end up being inlined, stored on Shared or Local, but
+    // the index type is determined before any of scheduling decisions
+    // is made.
+
+    // Fusion input tensors are included in the args parameter, and
+    // they are checked separately
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    if (getTensorIndexMode(tv, ee) == KernelIndexMode::INT64) {
+      return KernelIndexMode::INT64;
+    }
+  }
+
+  return KernelIndexMode::INT32;
+}
+
 } // namespace
 
 void SchedulerRuntimeInfo::initialize(
     const KernelArgumentHolder& args,
-    bool create_expr_evaluator) {
+    bool initialize_expr_evaluator,
+    PrecomputedValues* precomputed_values) {
   TORCH_INTERNAL_ASSERT(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
@@ -770,7 +869,7 @@ void SchedulerRuntimeInfo::initialize(
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
       auto dims = tensor_arg_abstract->getRank();
-      auto expected_stride = 1;
+      int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
         auto size = tensor_arg_abstract->getSize(dim);
         if (size <= 1) {
@@ -786,11 +885,16 @@ void SchedulerRuntimeInfo::initialize(
     }
   }
 
+  TORCH_INTERNAL_ASSERT(
+      !(precomputed_values != nullptr && initialize_expr_evaluator));
+
   expression_evaluator_ = std::make_unique<ExpressionEvaluator>();
-  if (create_expr_evaluator) {
-    initializeExpressionEvaluator(args);
+
+  if (precomputed_values || initialize_expr_evaluator) {
+    initializeExpressionEvaluator(args, precomputed_values);
   }
-  index_mode_ = args.getIndexMode();
+
+  index_mode_ = getIndexMode(complete_fusion_, args, *expression_evaluator_);
 }
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -798,7 +902,18 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const KernelArgumentHolder& args,
     bool create_expr_evaluator)
     : complete_fusion_(complete_fusion) {
-  initialize(args, create_expr_evaluator);
+  // Is there any case create_expr_evaluator is false? If not, remove
+  // the parameter
+  TORCH_INTERNAL_ASSERT(create_expr_evaluator, "Unexpected");
+  initialize(args, create_expr_evaluator, nullptr);
+}
+
+SchedulerRuntimeInfo::SchedulerRuntimeInfo(
+    Fusion* complete_fusion,
+    const KernelArgumentHolder& args,
+    PrecomputedValues* precomputed_values)
+    : complete_fusion_(complete_fusion) {
+  initialize(args, false, precomputed_values);
 }
 
 // TODO: remove this one
@@ -806,15 +921,14 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     const at::ArrayRef<c10::IValue>& aten_inputs,
     bool create_expr_evaluator)
-    : complete_fusion_(complete_fusion) {
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
-  initialize(args, create_expr_evaluator);
-}
+    : SchedulerRuntimeInfo(
+          complete_fusion,
+          KernelArgumentHolder::createKernelArgumentHolder(aten_inputs),
+          create_expr_evaluator) {}
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
-size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) {
+size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
     return input_ptrs_.at(tv);
   }
@@ -822,8 +936,13 @@ size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) {
 }
 
 void SchedulerRuntimeInfo::initializeExpressionEvaluator(
-    const KernelArgumentHolder& args) {
-  *expression_evaluator_ = executor_utils::bindInputs(args, complete_fusion_);
+    const KernelArgumentHolder& args,
+    PrecomputedValues* precomputed_values) {
+  if (precomputed_values) {
+    expression_evaluator_->bindPrecomputedValues(precomputed_values);
+  } else {
+    *expression_evaluator_ = executor_utils::bindInputs(args, complete_fusion_);
+  }
 }
 
 size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
@@ -904,8 +1023,7 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size =
-      dataTypeSize(tv->dtype(), indexModeToDtype(getIndexMode()));
+  size_t item_size = dataTypeSize(tv->dtype(), indexModeToDtype(indexMode()));
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1021,8 +1139,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size =
-      dataTypeSize(tv->dtype(), indexModeToDtype(getIndexMode()));
+  size_t item_size = dataTypeSize(tv->dtype(), indexModeToDtype(indexMode()));
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1173,7 +1290,7 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry(ScheduleHeuristic::NoOp) {
-    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexMode());
+    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.indexMode());
   }
 
   //! Check if the no-op heuristics apply in given fusion

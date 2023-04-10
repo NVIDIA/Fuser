@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <evaluator_common.h>
 #include <executor_kernel_arg.h>
 #include <fusion.h>
 #include <scheduler/all_schedulers.h>
@@ -47,13 +48,18 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const KernelArgumentHolder& inputs,
-      bool create_expr_evaluator = false);
+      bool initialize_expr_evaluator);
+
+  SchedulerRuntimeInfo(
+      Fusion* complete_fusion,
+      const KernelArgumentHolder& args,
+      PrecomputedValues* precomputed_values);
 
   // TODO: Remove this guy below. Everything needs to go into the other ctor
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const at::ArrayRef<c10::IValue>& aten_inputs,
-      bool create_expr_evaluator = false);
+      bool initialize_expr_evaluator = false);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
@@ -74,9 +80,9 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   static size_t computeAlignmentSize(size_t ptr_address);
 
   // Return the runtime pointer value for provided tensor view
-  size_t ptrOf(TensorView* tv);
+  size_t ptrOf(TensorView* tv) const;
 
-  KernelIndexMode getIndexMode() {
+  KernelIndexMode indexMode() const {
     return index_mode_;
   }
 
@@ -91,10 +97,15 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
 
  private:
   // Bind full fusion inputs to the internal expression evaluator
-  void initializeExpressionEvaluator(const KernelArgumentHolder& inputs);
+  void initializeExpressionEvaluator(
+      const KernelArgumentHolder& inputs,
+      PrecomputedValues* precomputed_values);
 
   // Initialize SchedulerRuntimeInfo
-  void initialize(const KernelArgumentHolder& args, bool create_expr_evaluator);
+  void initialize(
+      const KernelArgumentHolder& args,
+      bool create_expr_evaluator,
+      PrecomputedValues* precomputed_values);
 
   bool isInputTv(TensorView* tv) {
     return std::find(

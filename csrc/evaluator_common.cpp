@@ -216,7 +216,7 @@ void PrecomputedValues::initializeValueList(
 }
 
 c10::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
-    const Val* val) {
+    const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
     return c10::nullopt;

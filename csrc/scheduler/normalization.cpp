@@ -1079,7 +1079,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
         max_dtype_size,
         dataTypeSize(
             tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode())));
+            indexModeToDtype(runtime_info.indexMode())));
     n_tensor_inputs++;
   }
 
@@ -1096,7 +1096,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       max_persistent_size,
       vectorize_factor,
       project_persistent_buffers);
-  heuristic->cparams.index_type = indexModeToDtype(runtime_info.getIndexMode());
+  heuristic->cparams.index_type = indexModeToDtype(runtime_info.indexMode());
   return heuristic;
 }
 

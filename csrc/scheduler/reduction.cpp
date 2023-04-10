@@ -959,7 +959,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
         max_dtype_size,
         static_cast<int64_t>(dataTypeSize(
             tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode()))));
+            indexModeToDtype(runtime_info.indexMode()))));
     n_tensor_inputs++;
   }
 
@@ -974,7 +974,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       n_tensor_inputs,
       max_dtype_size,
       vectorize_factor);
-  heuristic->cparams.index_type = indexModeToDtype(runtime_info.getIndexMode());
+  heuristic->cparams.index_type = indexModeToDtype(runtime_info.indexMode());
   return heuristic;
 }
 

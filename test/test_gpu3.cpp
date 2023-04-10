@@ -7904,6 +7904,60 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   c10::cuda::CUDACachingAllocator::emptyCache();
 }
 
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = mul(tv2, tv3);
+
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+}
+
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  // auto tv2 = broadcast(tv0, {false, true, false});
+  // auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = mul(tv0, tv1);
+
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 2024}, options);
+  at::Tensor t1 = at::randn({2024, 2024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+}
+
 //! Test whether we can create and use float16 scalars
 TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   auto fusion = std::make_unique<Fusion>();

@@ -212,29 +212,73 @@ TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 template <PrimDataType DT>
 struct DataTypeToNativeType;
 
+template <PrimDataType DT>
+struct DataTypeToAtenType;
+
 template <typename NativeType>
 struct NativeTypeToDataType;
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type) \
-  template <>                                                  \
-  struct DataTypeToNativeType<data_type> {                     \
-    using type = native_type;                                  \
-  };                                                           \
-  template <>                                                  \
-  struct NativeTypeToDataType<native_type> {                   \
-    static constexpr PrimDataType type = data_type;            \
+template <at::ScalarType aten_type>
+struct AtenTypeToDataType;
+
+template <at::ScalarType aten_type>
+struct AtenTypeToNativeType;
+
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, at_type, native_type) \
+  template <>                                                           \
+  struct DataTypeToNativeType<data_type> {                              \
+    using type = native_type;                                           \
+  };                                                                    \
+  template <>                                                           \
+  struct DataTypeToAtenType<data_type> {                                \
+    static constexpr at::ScalarType type = at_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct NativeTypeToDataType<native_type> {                            \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct AtenTypeToDataType<at_type> {                                  \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct AtenTypeToNativeType<at_type> {                                \
+    using type = native_type;                                           \
   };
 
-// TODO: Add more type specializations
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, float);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Double, double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, bool);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexFloat, std::complex<float>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexDouble, std::complex<double>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Double,
+    at::ScalarType::Double,
+    double);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::BFloat16,
+    at::ScalarType::BFloat16,
+    at::BFloat16);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::ComplexFloat,
+    at::ScalarType::ComplexFloat,
+    std::complex<float>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::ComplexDouble,
+    at::ScalarType::ComplexDouble,
+    std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
+
+// c10::complex is used along with std::complex
+template <>
+struct NativeTypeToDataType<c10::complex<float>> {
+  static constexpr PrimDataType type = DataType::ComplexFloat;
+};
+template <>
+struct NativeTypeToDataType<c10::complex<double>> {
+  static constexpr PrimDataType type = DataType::ComplexDouble;
+};
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.

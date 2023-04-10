@@ -1233,7 +1233,6 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 namespace {
 
 // Make sure the index type of Kernel is valid
-// TODO: Check the size of all tensors, not just inputs.
 void validateIndexType(
     kir::Kernel* kernel,
     KernelArgumentHolder& args,
@@ -1587,6 +1586,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
+    auto arg_buffer = args.getBuffer();
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1599,7 +1599,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          args.getBuffer(),
+          arg_buffer,
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
@@ -1613,7 +1613,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          args.getBuffer()));
+          arg_buffer));
     }
   }
 

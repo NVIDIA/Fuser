@@ -384,6 +384,14 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Run segmentation on the copied fusion
   SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, true);
 
+  auto args_index_type_fixed = args;
+  if (runtime_info.indexMode() != args.getIndexMode()) {
+    TORCH_INTERNAL_ASSERT(
+        runtime_info.indexMode() == KernelIndexMode::INT64 &&
+        args.getIndexMode() == KernelIndexMode::INT32);
+    args_index_type_fixed.setIndexType(PrimDataType::Int);
+  }
+
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion_copy.get());
 
@@ -399,14 +407,16 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   if (segmented) {
     // Take ownership and segment transformed fusion
-    segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion_copy), args);
+    segmented_fusion_ = SegmentCandidateFinder::segment(
+        std::move(fusion_copy), args_index_type_fixed);
   } else {
     segmented_fusion_ = SegmentedFusion::fromCompleteFusion(
-        std::move(fusion_copy), maybe_complete_fusion_heuristic.value(), args);
+        std::move(fusion_copy),
+        maybe_complete_fusion_heuristic.value(),
+        args_index_type_fixed);
   }
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(args);
+  heuristics_ = segmented_fusion_->makeInitialHeuristics(args_index_type_fixed);
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
@@ -759,7 +769,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(args.getIndexMode());
+    KernelArgumentHolder group_runtime_inputs(getIndexMode());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
@@ -786,7 +796,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 }
 
 const std::vector<FusionKernelRuntime::SchedulerEntryPtr>& FusionKernelRuntime::
-    schedulers() {
+    schedulers() const {
   return heuristics_->heuristicsList();
 }
 
@@ -807,11 +817,10 @@ c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     getMaybeHeuristicsFor(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
   auto complete_fusion = segmented_fusion_->completeFusion();
-  SchedulerRuntimeInfo runtime_info(complete_fusion, args);
   precomputed_values_->bindInputs(args);
   precomputed_values_->evaluate();
-  runtime_info.expressionEvaluator().bindPrecomputedValues(
-      precomputed_values_.get());
+  SchedulerRuntimeInfo runtime_info(
+      complete_fusion, args, precomputed_values_.get());
 
   c10::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();
