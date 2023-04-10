@@ -4,8 +4,9 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format on
 namespace nvfuser.serde;
+
+include "fusion_executor_cache.fbs";
 
 // This indicates the flatbuffer compatibility. The number will bump up when a
 // breaking change is applied to the schema.

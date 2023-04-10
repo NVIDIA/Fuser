@@ -1,0 +1,92 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+namespace nvfuser.serde;
+
+// This indicates the flatbuffer compatibility. The number will bump up when a
+// breaking change is applied to the schema.
+file_identifier "NV00";
+
+// TODO
+table KernelArgumentHolder {
+
+}
+
+// TODO
+table LaunchParams {
+
+}
+
+// TODO
+table CompileParams {
+
+}
+
+// TODO
+table NvrtcFunction {
+
+}
+
+// TODO
+table ExecutorEntry {
+
+}
+
+// skipped potential fields:
+// used_tvs : [TensorView]
+// lowered : GpuLower
+// kernel : Kernel
+table FusionExecutor {
+    launch_params : LaunchParams;
+    compile_params : CompileParams;
+    configured_device_smem : ulong;
+    maybe_available_smem : ulong;
+    device_smem_limit: ulong;
+    warp_size: int;
+    fusion_id: int;
+    // shared static value
+    fusion_id_counter : int;
+    compiled_kernel : NvrtcFunction;
+    kernel_code : string;
+    executor_entry_lookup_keys : [ulong]
+    executor_entry_lookup_values : [ExecutorEntry]
+}
+
+// unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
+table FusionKernelRuntime {
+    args : KernelArgumentHolder;
+    executors : [FusionExecutor];
+}
+
+struct EncodingEntry {
+  id: ulong;
+  lru_iter: ulong;
+}
+
+table InputsIdLookup {
+  max_cache_size : ulong;
+  currrent_id : ulong;
+  lru_cache : [string];
+
+  // define map<std::string, EncodingEntry> encoding_lookup
+  encoding_lookup_keys : [strings];
+  encoding_lookup_values : [EncodingEntry];
+}
+
+// implicit fields
+// unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
+table FusionExecutorCache {
+  inputs_cache : InputsIdLookup
+
+  // define map<size_t, vector<FusionKernelRuntime>> kernel_runtimes
+  kernel_runtime_keys : [ulong]
+  kernel_runtime_values : [FusionKernelRuntime]
+
+  // define map<size_t, FusionKernelRuntime> id_to_kernel_runtime
+  kernel_cache_keys : [ulong]
+  // indices into kernel_runtime_values
+  kernel_cache_values : [ulong]
+}
