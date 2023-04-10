@@ -2402,7 +2402,7 @@ TensorView* viewAsScalar(TensorView* inp) {
 
   IterDomain* id = IterDomainBuilder(
                        inp_domain[0]->container()->zeroVal(),
-                       IrBuilder::create<Int>((int)vec_size))
+                       IrBuilder::create<Int>((int64_t)vec_size))
                        .iter_type(IterType::VectorComponent)
                        .build();
   out_domain.push_back(id);
