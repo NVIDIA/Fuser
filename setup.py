@@ -62,7 +62,7 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-ninja":
         NO_NINJA = True
         continue
-    if arg.startswith("-versoin-tag="):
+    if arg.startswith("-version-tag="):
         VERSION_TAG = arg.split('=')[1]
         continue
     if arg in ["clean"]:
