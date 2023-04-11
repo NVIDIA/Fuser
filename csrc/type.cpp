@@ -1097,34 +1097,7 @@ size_t dataTypeSize(DataType type) {
       [](auto&& dtype) -> size_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
-          switch (dtype) {
-            case DataType::Bool:
-              return sizeof(bool);
-            case DataType::ComplexDouble:
-              return sizeof(std::complex<double>);
-            case DataType::ComplexFloat:
-              return sizeof(std::complex<float>);
-            case DataType::Double:
-              return sizeof(double);
-            case DataType::Float:
-              return sizeof(float);
-            case DataType::Half:
-              return sizeof(at::Half);
-            case DataType::BFloat16:
-              return sizeof(at::BFloat16);
-            case DataType::Index:
-              TORCH_INTERNAL_ASSERT(
-                  false,
-                  "The actual type of Index is only known at compile time.");
-            case DataType::Int:
-              return sizeof(uint64_t);
-            case DataType::Int32:
-              return sizeof(uint32_t);
-            case DataType::SMemAddress:
-              return sizeof(unsigned);
-            default:
-              TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
-          }
+          return primDataTypeSize(dtype);
         } else if constexpr (std::is_same_v<T, PointerOf>) {
           return sizeof(void*);
         } else if constexpr (std::is_same_v<T, ArrayOf>) {

@@ -143,9 +143,9 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      */
 
     constexpr int items_per_unit = ldmatrix_cols;
-    const int bytes_per_unit = items_per_unit * dataTypeSize(DataType::Half);
-    const int words_per_unit = bytes_per_unit / smem_bytes_per_word;
-    const int num_megabanks = smem_banks / words_per_unit;
+    constexpr int bytes_per_unit = items_per_unit * primDataTypeSize(DataType::Half);
+    constexpr int words_per_unit = bytes_per_unit / smem_bytes_per_word;
+    constexpr int num_megabanks = smem_banks / words_per_unit;
 
     /* In the following example, each CTA tile contains 2 rows and 3 colums of
      * matrices, each 8x8 size:
@@ -159,7 +159,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * with the following stride (in units):
      */
 
-    const int row_stride = tile_size_y / items_per_unit;
+    int row_stride = tile_size_y / items_per_unit;
 
     /* So the bank conflicting problem is now converted to the following game:
      *   I have a clock that has one pointer and `num_megabanks` ticks. I start
@@ -232,6 +232,13 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   ==> j * stride == 0
      * That is, we are interested in finding the minimum j that makes
      *   j * stride == 0
+     *
+     * Further study of equation j * stride == 0 needs knowledge on
+     * "multiplicative group of integers modulo n", which can be found at:
+     * https://en.wikipedia.org/wiki/Multiplicative_group_of_integers_modulo_n
+     * Readers not interested in this detail can skip this paragraph and jump to
+     * conclusions in the next paragraph.
+     * 
      */
 
     // In the case where tile row is a multiple of memory row, the whole memory
