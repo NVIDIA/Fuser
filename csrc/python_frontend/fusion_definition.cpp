@@ -232,7 +232,7 @@ std::string FusionDefinition::cudaCodeFor(
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
     TORCH_CHECK(
-        inputs.size() == 0 || device > -1,
+        inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
@@ -279,7 +279,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
     TORCH_CHECK(
-        inputs.size() == 0 || device > -1,
+        inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
