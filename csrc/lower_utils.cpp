@@ -300,7 +300,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   return c10::nullopt;
 }
 
-std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
+std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
     const Val* val) {
   const TensorView* tv = nullptr;
   if (val->isA<TensorView>()) {
@@ -312,7 +312,7 @@ std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
         false, "Provided val is not TensorIndex or TensorView.");
   }
 
-  std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
+  std::unordered_map<ParallelType, IterDomain*> parallel_domains;
   for (auto d : tv->domain()->domain()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
