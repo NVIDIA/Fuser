@@ -223,12 +223,11 @@ static void SingleMatmulBase(
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
 
-  // Always use 32b indexing mode for now.
-  TORCH_INTERNAL_ASSERT(args.getIndexType() == PrimDataType::Int32);
-
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
+  // Always use 32b indexing mode for now.
+  cparams.index_type = PrimDataType::Int32;
 
   // Compile kernel
   FusionExecutor fe;

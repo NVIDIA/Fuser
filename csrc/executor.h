@@ -74,6 +74,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints);
 
+  //! To compile a fusion with the 32-bit index type, CompileParams
+  //! must be passed in. The index type of KernelArgumentHolder is no
+  //! longer used.
   void compileFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args,
