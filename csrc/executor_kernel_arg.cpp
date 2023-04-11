@@ -79,17 +79,30 @@ struct GetTensorArgWithNativeType {
   };
 };
 
-template <typename INDEX_MODE>
+template <typename INDEX_TYPE>
 std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
   return atenTypeDispatchWithC10Complex(
-      tensor.scalar_type(), GetTensorArgWithNativeType<INDEX_MODE>(), tensor);
+      tensor.scalar_type(), GetTensorArgWithNativeType<INDEX_TYPE>(), tensor);
+}
+
+PrimDataType getIndexType(const at::Tensor& tensor) {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto i : c10::irange(tensor.ndimension())) {
+    index_type_helper.addDim(tensor.sizes()[i], tensor.strides()[i]);
+  }
+  return index_type_helper.getType();
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    std::optional<PrimDataType> index_mode,
+    std::optional<PrimDataType> index_type,
     const at::Tensor& tensor) {
-  if (index_mode.has_value()) {
-    switch (index_mode.value()) {
+  if (index_type.has_value()) {
+    auto tensor_index_type = getIndexType(tensor);
+    TORCH_INTERNAL_ASSERT(
+        !(tensor_index_type == PrimDataType::Int &&
+          index_type.value() == PrimDataType::Int32),
+        "Cannot add a tensor with 64-bit index to 32-bit argument list");
+    switch (index_type.value()) {
       case PrimDataType::Int32:
         return getTensorArg<int>(tensor);
       case PrimDataType::Int:
@@ -99,7 +112,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
         break;
     }
   } else {
-    // return getTensorArgNoIndexType(tensor);
+    // Tentatively create TensorArgAbstract with int64_t
     return getTensorArg<int64_t>(tensor);
   }
 }
@@ -110,6 +123,7 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     const std::optional<PrimDataType>& opt_index_type) {
   if (inputs.empty()) {
+    // default to device 0
     KernelArgumentHolder args(opt_index_type);
     args.setDeviceIndex(0);
     return args;
@@ -219,7 +233,6 @@ void KernelArgumentHolder::setIndexType(PrimDataType index_type) {
   }
 
   index_type_ = index_type;
-
   changed_ = true;
 }
 
@@ -279,15 +292,15 @@ PrimDataType KernelArgumentHolder::getIndexType() const {
     return indexType().value();
   }
 
-  lower_utils::KernelIndexModeCompute index_mode_helper;
+  KernelIndexTypeCompute index_type_helper;
   for (auto inp_i : c10::irange((int64_t)size())) {
     for (const auto dim_i : c10::irange(getRank(inp_i))) {
       auto size = getSize(inp_i, dim_i);
       auto stride = getStride(inp_i, dim_i);
-      index_mode_helper.addDim(size, stride);
+      index_type_helper.addDim(size, stride);
     }
   }
-  return index_mode_helper.getType();
+  return index_type_helper.getType();
 }
 
 bool KernelArgumentHolder::isTensorArg(int64_t arg) const {

@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <lower_utils.h>
 #include <utils.h>
 
 #include <c10/util/string_view.h>
@@ -308,26 +307,6 @@ int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
   } else {
     return index;
   }
-}
-
-KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs) {
-  // Check all runtime inputs, and if any one of
-  //  the input's index exceeds max_int32 will
-  //  fall back to int64 indexing
-  for (auto ivalue_input : inputs) {
-    if (ivalue_input.isTensor()) {
-      auto tensor_input = ivalue_input.toTensor();
-      lower_utils::KernelIndexModeCompute c;
-      for (auto dim_i = 0; dim_i < tensor_input.ndimension(); dim_i++) {
-        if (c.addDim(tensor_input.size(dim_i), tensor_input.stride(dim_i)) ==
-            KernelIndexMode::INT64) {
-          return KernelIndexMode::INT64;
-        }
-      }
-    }
-  }
-  // return index mode as int32
-  return KernelIndexMode::INT32;
 }
 
 bool isDebugDumpEnabled(DebugDumpOption option) {

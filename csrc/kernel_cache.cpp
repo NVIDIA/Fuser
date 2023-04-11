@@ -199,11 +199,14 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
+  // Note: at this point, the index type of KernelArgumentHolder is
+  // undetermined
   KernelArgumentHolder args = prepareInputs(perm_inputs);
 
   auto kernel_runtime = getKernelRuntimeFor(args);
   most_recent_runtime_ = kernel_runtime;
 
+  // Set the index type as it's resolved by FusionKernelRuntime
   args.setIndexType(kernel_runtime->indexType());
 
   int seq_id = 0;
@@ -387,6 +390,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Run segmentation on the copied fusion
   SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, true);
 
+  // Set the argument index type as it's resolved by SchedulerRuntimeInfo
   auto args_index_type_fixed = args;
   args_index_type_fixed.setIndexType(runtime_info.indexType());
 

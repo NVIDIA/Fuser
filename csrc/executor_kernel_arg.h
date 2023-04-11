@@ -76,61 +76,6 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
   }
 };
-#if 0
-template <typename T, int N>
-struct TensorArgCodegenNoIndexType {
-  using data_type = T;
-  static constexpr int ndims = N;
-
-  T* data;
-  std::array<int64_t, N> size;
-  std::array<int64_t, N> stride;
-  constexpr int nDims() const {
-    return N;
-  }
-  void setSize(int64_t i, int64_t s) {
-    size[i] = s;
-  }
-  void setStride(int64_t i, int64_t s) {
-    stride[i] = s;
-  }
-  int64_t getSize(int64_t i) const {
-    return size[i];
-  }
-  int64_t getStride(int64_t i) const {
-    return stride[i];
-  }
-};
-
-
-template <typename T>
-struct TensorArgCodegenNoIndexType<T, 0> {
-  using data_type = T;
-  static constexpr int ndims = 0;
-
-  T& operator[](int64_t ind) {
-    return data[ind];
-  };
-
-  T* data;
-  constexpr int nDims() const {
-    return 0;
-  }
-  void setSize(int64_t, int64_t) {
-    TORCH_INTERNAL_ASSERT(false, "Tried to set size of a 0-dim tensor");
-  }
-  void setStride(int64_t, int64_t) {
-    TORCH_INTERNAL_ASSERT(false, "Tried to set stride of a 0-dim tensor");
-  }
-  int64_t getSize(int64_t i) const {
-    TORCH_INTERNAL_ASSERT(false, "Tried to get size of a 0-dim tensor");
-  }
-  int64_t getStride(int64_t i) const {
-    TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
-  }
-};
-
-#endif
 
 // Specialization for 0-dim case that's easy to pass in a CPU based tensor
 // without memcpy
@@ -377,6 +322,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void setIndexType(PrimDataType index_type);
 
+  //! Computes the index type for the currently held arguments
   PrimDataType getIndexType() const;
 
   std::optional<PrimDataType> indexType() const {

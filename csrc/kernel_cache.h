@@ -75,12 +75,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
-  KernelIndexMode indexMode() const {
-    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
-    TORCH_INTERNAL_ASSERT(index_type.has_value());
-    return indexTypeToMode(index_type.value());
-  }
-
   PrimDataType indexType() const {
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
     TORCH_INTERNAL_ASSERT(index_type.has_value());

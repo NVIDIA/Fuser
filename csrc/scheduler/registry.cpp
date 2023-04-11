@@ -767,10 +767,10 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
       !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
   int64_t stride = 1;
-  lower_utils::KernelIndexModeCompute index_mode_helper;
+  KernelIndexTypeCompute index_type_helper;
   for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
     auto id = tv->getMaybeRFactorDomain().at(i - 1);
-    if (id->isReduction() || id->isStride()) {
+    if (id->isReduction() || id->isStride() || id->isBroadcast()) {
       continue;
     }
 
@@ -782,12 +782,18 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
         ", tensor: ",
         tv->toString());
 
-    index_mode_helper.addDim(extent->as<int64_t>(), stride);
+    auto extent_int = extent->as<int64_t>();
 
-    stride *= extent->as<int64_t>();
+    TORCH_INTERNAL_ASSERT(
+        extent_int >= 0, "Unexpected size of axis: ", extent_int);
+
+    if (extent_int > 0) {
+      index_type_helper.addDim(extent->as<int64_t>(), stride);
+      stride *= extent->as<int64_t>();
+    }
   }
 
-  return index_mode_helper.getType();
+  return index_type_helper.getType();
 }
 
 PrimDataType getIndexType(
