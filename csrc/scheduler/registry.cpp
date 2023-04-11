@@ -1999,7 +1999,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(is_cross_grid && cross_grid_params.has_value())
+    TORCH_INTERNAL_ASSERT(!is_cross_grid || cross_grid_params.has_value())
 
     // Maximum number of iteration dimensions we can have and still be
     // persistent.

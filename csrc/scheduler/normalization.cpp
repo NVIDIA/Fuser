@@ -34,7 +34,7 @@ int64_t roundUpPow2Or8(const int64_t x) {
   if (round_up_pow2 < x) {
     round_up_pow2 *= 2;
   }
-  constexpr int64_t kEight = 8; // clang tidy
+  constexpr int64_t kEight = 8;
   auto round_up_8 = x % kEight == 0 ? x : x + (kEight - x % kEight);
   return std::min(round_up_8, round_up_pow2);
 }
@@ -74,7 +74,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   constexpr int64_t l1_cache = 32l * 1024l;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
-  constexpr int64_t active_threads = 1024l;
+  constexpr int64_t active_threads = 1024;
 
   // if data fits in l2 and we need more parallelization in the reduction dim,
   // we can use a smaller warp size. While thread local data fits in l1, and
@@ -260,7 +260,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
-  constexpr int64_t scheduler_per_sm = 4ll;
+  constexpr int64_t scheduler_per_sm = 4;
   if (outer_reduction_numel == 1 && vectorize) {
     bdimx = std::min(
         scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
@@ -388,9 +388,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // block by a factor of 2
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
-              4ll >
-          255ll * 3ll &&
-      bdimx * bdimy * bdimz * 2ll <= max_threads_in_block &&
+              4l >
+          255l * 3l &&
+      bdimx * bdimy * bdimz * 2l <= max_threads_in_block &&
       batches_per_block_inner_reduction >
           batches_per_block_inner_reduction_max) {
     batches_per_block_inner_reduction = batches_per_block_inner_reduction / 2;
@@ -399,11 +399,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Do the same on the outer reduction dimension
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
-              4ll >
-          255ll * 3ll &&
-      bdimx * bdimy * bdimz * 2ll <= device_max_threads_per_multiprocessor &&
-      batches_per_block_outer_reduction >= 2ll) {
-    batches_per_block_outer_reduction /= 2ll;
+              4l >
+          255l * 3l &&
+      bdimx * bdimy * bdimz * 2l <= device_max_threads_per_multiprocessor &&
+      batches_per_block_outer_reduction >= 2l) {
+    batches_per_block_outer_reduction /= 2l;
   }
 
   auto device_warp_size = (int64_t)at::cuda::warp_size();
@@ -490,7 +490,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   auto rparams = std::make_shared<ReductionParams>();
 
-  rparams->cparams.maxrregcount = nvrtc_register_per_thread;
+  rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
 
