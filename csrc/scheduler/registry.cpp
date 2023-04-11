@@ -820,9 +820,6 @@ PrimDataType getIndexTypeOfKernel(
     const std::vector<TensorView*>& all_tvs,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
-  std::cout << "getIndexTypeOfKernel:\n";
-  fusion->printMath();
-  std::cout << std::endl;
   if (inputs.getSmallestIndexTypeOfArguments() == PrimDataType::Int) {
     return PrimDataType::Int;
   }

@@ -7885,7 +7885,8 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   c10::cuda::CUDACachingAllocator::emptyCache();
 }
 
-TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
+// Make sure the index type is determined both fusion inputs and outputs
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -7901,8 +7902,8 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
 
   fusion.addOutput(tv4);
 
-  fusion.printMath();
-
+  // Inputs are small enough to use 32-bit indexing, but the output is
+  // not
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2024, 1024}, options);
   at::Tensor t1 = at::randn({2024, 1024}, options);
@@ -7913,35 +7914,14 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
 
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
 }
 
+// Make sure the index type is also determined by intermediate
+// tensors. This is not ideal but just tests if the logic produces
+// what is expected at this moment
 TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(fusion_ptr.get());
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
-  fusion.addInput(tv1);
-
-  auto tv2 = mul(tv0, tv1);
-
-  fusion.addOutput(tv2);
-
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({2024, 2024}, options);
-  at::Tensor t1 = at::randn({2024, 2024}, options);
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
-}
-
-TEST_F(NVFuserTest, FusionExecutorCacheIndexType3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -7958,8 +7938,13 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType3_CUDA) {
 
   fusion.addOutput(tv5);
 
-  fusion.printMath();
-
+  // Inputs and outputs are small enough to use 32-bit indexing,
+  // however the intermediate, tv4, should cause the kernel to use
+  // 64-bit indexing. This is not ideal as tv4 should be inlined, and
+  // its allocation size should be small enough to use 32-bit
+  // indexing. However, the current logic should result in forcing
+  // 64-bit indexing. This would need to be fixed for matmul for
+  // example.
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2024, 1024}, options);
   at::Tensor t1 = at::randn({2024, 1024}, options);
