@@ -323,13 +323,13 @@ void FusionExecutor::compileFusion(
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
   // arguments.
-  auto arg_index_type = args.getIndexType();
+  auto arg_index_type = args.indexType();
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
     TORCH_INTERNAL_ASSERT(
         !(compile_params.index_type.value() == DataType::Int32 &&
-          arg_index_type == DataType::Int),
+          arg_index_type.value() == DataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
   } else {
     // If the given compile option doesn't specify the index type, use
@@ -1118,7 +1118,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
   const auto kernel = lowered_->kernel();
 
-  KernelArgumentHolder ret(args.getIndexMode());
+  KernelArgumentHolder ret(args.indexType());
   ret.setDeviceIndex(args.getDeviceIndex());
 
   CompileOptions meta_options = options_;
@@ -1168,7 +1168,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
 
   ExecutorEntry* executor_entry = nullptr;
-  c10::optional<size_t> opt_code = args.getCacheId();
+  auto opt_code = args.getCacheId();
   if (opt_code.has_value()) {
     executor_entry = &executor_entry_lookup_[*opt_code];
   }
@@ -1237,16 +1237,17 @@ void validateIndexType(
     kir::Kernel* kernel,
     KernelArgumentHolder& args,
     const CompileParams& compile_params) {
+  TORCH_INTERNAL_ASSERT(args.isIndexTypeResolved());
   // Currently, once a Fusion is lowered to a Kernel, the index type
   // has to be resolved completely. This means that
   // args.getIndexType() must be equal to the index type of the
   // compiled kernel.
   TORCH_INTERNAL_ASSERT(
-      kernel->indexType() == args.getIndexType(),
+      kernel->indexType() == args.indexType(),
       "Invalid pair of kernel index type and argument index type. Kernel type: ",
       kernel->indexType(),
       ". Argument index type: ",
-      args.getIndexType());
+      args.indexType().value());
 
   // Similarly, if the type of the index type in the given compile
   // parameters doesn't match, that's also an error.

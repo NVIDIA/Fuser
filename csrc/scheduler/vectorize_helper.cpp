@@ -1212,8 +1212,8 @@ size_t getExpandedVectorization(
       SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    auto dtype_size = dataTypeSize(
-        inp_or_out->dtype(), indexModeToDtype(runtime_info.indexMode()));
+    auto dtype_size =
+        dataTypeSize(inp_or_out->dtype(), runtime_info.indexType());
 
     max_expand_size = std::min(
         max_expand_size,

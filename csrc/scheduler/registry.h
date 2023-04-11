@@ -82,8 +82,8 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // Return the runtime pointer value for provided tensor view
   size_t ptrOf(TensorView* tv) const;
 
-  KernelIndexMode indexMode() const {
-    return index_mode_;
+  PrimDataType indexType() const {
+    return index_type_;
   }
 
   Fusion* fusion() {
@@ -140,7 +140,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> inner_vectorword_map_;
 
   // Found index mode kernel needs to be run in
-  KernelIndexMode index_mode_ = KernelIndexMode::INT64;
+  PrimDataType index_type_ = PrimDataType::Int;
 
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;

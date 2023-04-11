@@ -7806,10 +7806,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getIndexMode() == KernelIndexMode::INT64);
+            .indexType() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getIndexMode() == KernelIndexMode::INT32);
+            .indexType() == PrimDataType::Int);
 
     {
       FusionExecutor fe;

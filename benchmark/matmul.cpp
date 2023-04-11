@@ -224,7 +224,7 @@ static void SingleMatmulBase(
       {inputs.first, inputs.second});
 
   // Always use 32b indexing mode for now.
-  TORCH_INTERNAL_ASSERT(args.getIndexMode() == KernelIndexMode::INT32);
+  TORCH_INTERNAL_ASSERT(args.indexType() == PrimDataType::Int32);
 
   // Disable magic zero
   CompileParams cparams;

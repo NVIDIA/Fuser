@@ -748,17 +748,7 @@ bool reductionInterferingView(
   return false;
 }
 
-KernelIndexMode getTensorArgIndexMode(const TensorArgAbstract& tensor) {
-  lower_utils::KernelIndexModeCompute index_mode_helper;
-  for (const auto i : c10::irange(tensor.getRank())) {
-    auto size = tensor.getSize(i);
-    auto stride = tensor.getStride(i);
-    index_mode_helper.addDim(size, stride);
-  }
-  return index_mode_helper.getMode();
-}
-
-KernelIndexMode getTensorIndexMode(TensorView* tv, ExpressionEvaluator& ee) {
+PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   auto non_contig = std::any_of(
       tv->domain()->contiguity().begin(),
       tv->domain()->contiguity().end(),
@@ -768,7 +758,7 @@ KernelIndexMode getTensorIndexMode(TensorView* tv, ExpressionEvaluator& ee) {
   // way to obtain its strides. This is an interface problem and
   // should be fixed.
   if (tv->isFusionOutput() && non_contig) {
-    return KernelIndexMode::INT64;
+    return PrimDataType::Int;
   }
 
   // Intermediate tensors should be contiguous. There must be
@@ -797,10 +787,10 @@ KernelIndexMode getTensorIndexMode(TensorView* tv, ExpressionEvaluator& ee) {
     stride *= extent->as<int64_t>();
   }
 
-  return index_mode_helper.getMode();
+  return index_mode_helper.getType();
 }
 
-KernelIndexMode getIndexMode(
+PrimDataType getIndexType(
     Fusion* fusion,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
@@ -810,17 +800,8 @@ KernelIndexMode getIndexMode(
   // required. However, output strides are not available, so if
   // there's any outputs that are non contiguous, need to use 64bit
 
-  // Note that the index mode of args can be int32 but the fusion
-  // still may need to use int64 due to outputs and intermediates
-  for (auto inp_i : c10::irange(inputs.size())) {
-    auto kernel_arg = inputs[inp_i];
-    if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
-      if (getTensorArgIndexMode(*tensor_arg_abstract) ==
-          KernelIndexMode::INT64) {
-        return KernelIndexMode::INT64;
-      }
-    }
+  if (inputs.getIndexType() == PrimDataType::Int) {
+    return PrimDataType::Int;
   }
 
   // TODO: Consider caching
@@ -838,12 +819,12 @@ KernelIndexMode getIndexMode(
       continue;
     }
 
-    if (getTensorIndexMode(tv, ee) == KernelIndexMode::INT64) {
-      return KernelIndexMode::INT64;
+    if (getTensorIndexType(tv, ee) == PrimDataType::Int) {
+      return PrimDataType::Int;
     }
   }
 
-  return KernelIndexMode::INT32;
+  return PrimDataType::Int32;
 }
 
 } // namespace
@@ -856,26 +837,24 @@ void SchedulerRuntimeInfo::initialize(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
 
-  for (auto inp_i : c10::irange(args.size())) {
-    auto kernel_arg = args[inp_i];
+  for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
     // Note: we are skipping CpuScalar tensor here
-    if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
+    if (args.isTensorArg(inp_i)) {
       auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      auto data_ptr = tensor_arg_abstract->getPointer();
+      auto data_ptr = args.getPointer(inp_i);
       input_ptrs_[fusion_inp] = (size_t)data_ptr;
 
       // find and push discontiguous stride
-      auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
+      auto dtype_size = dataTypeSize(args.getDataType(inp_i));
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getRank();
+      auto dims = args.getRank(inp_i);
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getSize(dim);
+        auto size = args.getSize(inp_i, dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getStride(dim);
+        auto stride = args.getStride(inp_i, dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -894,7 +873,7 @@ void SchedulerRuntimeInfo::initialize(
     initializeExpressionEvaluator(args, precomputed_values);
   }
 
-  index_mode_ = getIndexMode(complete_fusion_, args, *expression_evaluator_);
+  index_type_ = getIndexType(complete_fusion_, args, *expression_evaluator_);
 }
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -1023,7 +1002,7 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size = dataTypeSize(tv->dtype(), indexModeToDtype(indexMode()));
+  size_t item_size = dataTypeSize(tv->dtype(), indexType());
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1139,7 +1118,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size = dataTypeSize(tv->dtype(), indexModeToDtype(indexMode()));
+  size_t item_size = dataTypeSize(tv->dtype(), indexType());
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1290,7 +1269,7 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry(ScheduleHeuristic::NoOp) {
-    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.indexMode());
+    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.indexType());
   }
 
   //! Check if the no-op heuristics apply in given fusion

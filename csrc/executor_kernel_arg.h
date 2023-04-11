@@ -76,6 +76,61 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
   }
 };
+#if 0
+template <typename T, int N>
+struct TensorArgCodegenNoIndexType {
+  using data_type = T;
+  static constexpr int ndims = N;
+
+  T* data;
+  std::array<int64_t, N> size;
+  std::array<int64_t, N> stride;
+  constexpr int nDims() const {
+    return N;
+  }
+  void setSize(int64_t i, int64_t s) {
+    size[i] = s;
+  }
+  void setStride(int64_t i, int64_t s) {
+    stride[i] = s;
+  }
+  int64_t getSize(int64_t i) const {
+    return size[i];
+  }
+  int64_t getStride(int64_t i) const {
+    return stride[i];
+  }
+};
+
+
+template <typename T>
+struct TensorArgCodegenNoIndexType<T, 0> {
+  using data_type = T;
+  static constexpr int ndims = 0;
+
+  T& operator[](int64_t ind) {
+    return data[ind];
+  };
+
+  T* data;
+  constexpr int nDims() const {
+    return 0;
+  }
+  void setSize(int64_t, int64_t) {
+    TORCH_INTERNAL_ASSERT(false, "Tried to set size of a 0-dim tensor");
+  }
+  void setStride(int64_t, int64_t) {
+    TORCH_INTERNAL_ASSERT(false, "Tried to set stride of a 0-dim tensor");
+  }
+  int64_t getSize(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(false, "Tried to get size of a 0-dim tensor");
+  }
+  int64_t getStride(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
+  }
+};
+
+#endif
 
 // Specialization for 0-dim case that's easy to pass in a CPU based tensor
 // without memcpy
@@ -292,28 +347,16 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
-      const std::optional<KernelIndexMode>& index_mode = std::nullopt);
+      const std::optional<PrimDataType>& index_type = std::nullopt);
 
-  KernelIndexMode getIndexMode() const {
-    return index_mode_;
-  }
-
-  void promoteIndexMode();
-
-  PrimDataType getIndexType() const {
-    return indexModeToDtype(index_mode_);
-  }
-
-  explicit KernelArgumentHolder(KernelIndexMode index_mode)
-      : index_mode_(index_mode) {}
-
-  explicit KernelArgumentHolder(PrimDataType index_type)
-      : index_mode_(indexTypeToMode(index_type)) {}
+  explicit KernelArgumentHolder(
+      std::optional<PrimDataType> index_type = std::nullopt)
+      : index_type_(index_type) {}
 
   KernelArgumentHolder(const KernelArgumentHolder& self)
       : device_index_(self.getDeviceIndex()),
         cache_id_(self.getCacheId()),
-        index_mode_(self.getIndexMode()) {
+        index_type_(self.indexType()) {
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
@@ -321,11 +364,23 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder& operator=(const KernelArgumentHolder& self) {
     device_index_ = self.getDeviceIndex();
-    index_mode_ = self.getIndexMode();
+    index_type_ = self.indexType();
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
     return *this;
+  }
+
+  bool isIndexTypeResolved() const {
+    return index_type_.has_value();
+  }
+
+  void setIndexType(PrimDataType index_type);
+
+  PrimDataType getIndexType() const;
+
+  std::optional<PrimDataType> indexType() const {
+    return index_type_;
   }
 
   // Push a tensor to the arguments
@@ -340,9 +395,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // in the buffer
   void** getBuffer();
 
-  // TODO:
-  void** getBuffer(PrimDataType index_type);
-
   void push(const c10::ArrayRef<c10::IValue>& args);
 
   void push(const std::vector<at::Tensor>& tensors);
@@ -355,12 +407,16 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   void push(int64_t val);
 
   const ArgAbstract* back() const {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved(), "Index type not resolved yet");
     return arguments_.back().get();
   }
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
   const ArgAbstract* at(size_t ind) const {
+    TORCH_INTERNAL_ASSERT(
+        !isTensorArg(ind) || isIndexTypeResolved(),
+        "Accessing tensor arg requires index type to be resolved");
     return arguments_.at(ind).get();
   };
 
@@ -388,11 +444,19 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     cache_id_ = id;
   }
 
-  c10::optional<size_t> getCacheId() const {
+  std::optional<size_t> getCacheId() const {
     return cache_id_;
   }
 
-  void setIndexType(PrimDataType index_type);
+  // Dispacher to arguments without revealing the argument
+  // pointers. Safe to use without resolving index type
+  bool isType(int64_t arg, ArgType type) const;
+  bool isTensorArg(int64_t arg) const;
+  void* getPointer(int64_t arg) const;
+  DataType getDataType(int64_t arg) const;
+  int64_t getRank(int64_t arg) const;
+  int64_t getSize(int64_t arg, int64_t dim) const;
+  int64_t getStride(int64_t arg, int64_t dim) const;
 
   std::string toString() const;
 
@@ -402,8 +466,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   bool changed_ = true;
 
   int8_t device_index_ = 0;
-  c10::optional<size_t> cache_id_ = c10::nullopt;
-  KernelIndexMode index_mode_ = KernelIndexMode::INT64;
+  std::optional<size_t> cache_id_ = std::nullopt;
+  // When index type is undefined, it is not allowed to obtain any
+  // pointer to TensorArg as its type is not yet finalized.
+  std::optional<PrimDataType> index_type_ = std::nullopt;
 };
 
 } // namespace nvfuser

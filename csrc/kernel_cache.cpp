@@ -203,6 +203,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   auto kernel_runtime = getKernelRuntimeFor(args);
   most_recent_runtime_ = kernel_runtime;
+
+  args.setIndexType(kernel_runtime->indexType());
+
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
   // the data flow graph
@@ -385,12 +388,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, true);
 
   auto args_index_type_fixed = args;
-  if (runtime_info.indexMode() != args.getIndexMode()) {
-    TORCH_INTERNAL_ASSERT(
-        runtime_info.indexMode() == KernelIndexMode::INT64 &&
-        args.getIndexMode() == KernelIndexMode::INT32);
-    args_index_type_fixed.setIndexType(PrimDataType::Int);
-  }
+  args_index_type_fixed.setIndexType(runtime_info.indexType());
 
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion_copy.get());
@@ -769,7 +767,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(getIndexMode());
+    KernelArgumentHolder group_runtime_inputs(indexType());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
@@ -878,14 +876,6 @@ std::vector<at::Tensor> GraphCache::runGraphWithInputs(
       num_of_outputs_);
 
   return outputs;
-}
-
-std::string KernelArgumentHolder::toString() const {
-  std::stringstream ss;
-  for (const auto& arg : arguments_) {
-    ss << arg->toString() << "\n";
-  }
-  return ss.str();
 }
 
 } // namespace nvfuser

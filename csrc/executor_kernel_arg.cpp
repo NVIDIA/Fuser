@@ -86,74 +86,41 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    KernelIndexMode index_mode,
+    std::optional<PrimDataType> index_mode,
     const at::Tensor& tensor) {
-  switch (index_mode) {
-    case KernelIndexMode::INT32:
-      return getTensorArg<int>(tensor);
-    case KernelIndexMode::INT64:
-      return getTensorArg<int64_t>(tensor);
-    default:
-      break;
+  if (index_mode.has_value()) {
+    switch (index_mode.value()) {
+      case PrimDataType::Int32:
+        return getTensorArg<int>(tensor);
+      case PrimDataType::Int:
+        return getTensorArg<int64_t>(tensor);
+      default:
+        TORCH_INTERNAL_ASSERT(false, "unknown index mode");
+        break;
+    }
+  } else {
+    // return getTensorArgNoIndexType(tensor);
+    return getTensorArg<int64_t>(tensor);
   }
-
-  TORCH_INTERNAL_ASSERT(false, "unknown index mode");
-  return nullptr;
 }
 
 } // namespace
 
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
-    const std::optional<KernelIndexMode>& opt_index_mode) {
+    const std::optional<PrimDataType>& opt_index_type) {
   if (inputs.empty()) {
-    // default to int32 on device 0
-    KernelArgumentHolder args(
-        opt_index_mode.has_value() ? opt_index_mode.value()
-                                   : KernelIndexMode::INT32);
+    KernelArgumentHolder args(opt_index_type);
     args.setDeviceIndex(0);
     return args;
   }
   auto device_index = getCommonDeviceCUDA(inputs);
-  auto input_index_mode = collectIndexMode(inputs);
 
-  auto index_mode = input_index_mode;
-
-  // Use index_mode if given. Make sure it is as large as the index
-  // mode required for the inputs
-  if (opt_index_mode.has_value()) {
-    TORCH_INTERNAL_ASSERT(
-        (opt_index_mode == input_index_mode) ||
-            opt_index_mode == KernelIndexMode::INT64,
-        "Given index mode and argument index mode don't match.",
-        "Index mode: ",
-        opt_index_mode.value(),
-        ", argument index mode: ",
-        input_index_mode);
-    index_mode = opt_index_mode.value();
-  }
-
-  KernelArgumentHolder args(index_mode);
+  KernelArgumentHolder args(opt_index_type);
   args.setDeviceIndex(device_index);
   args.push(inputs);
 
   return args;
-}
-
-void KernelArgumentHolder::promoteIndexMode() {
-  if (index_mode_ == KernelIndexMode::INT64) {
-    return;
-  }
-  index_mode_ = KernelIndexMode::INT64;
-  for (auto& arg : arguments_) {
-    TensorArgAbstract* tensor_arg_old =
-        dynamic_cast<TensorArgAbstract*>(arg.get());
-    if (tensor_arg_old == nullptr) {
-      continue;
-    }
-    auto tensor = tensor_arg_old->getTensor();
-    arg = getTensorArg(index_mode_, tensor);
-  }
 }
 
 namespace {
@@ -175,17 +142,12 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
     arguments_.push_back(atenTypeDispatchWithC10Complex(
         tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
   } else {
-    arguments_.push_back(getTensorArg(index_mode_, tensor));
+    arguments_.push_back(getTensorArg(index_type_, tensor));
   }
 }
 
 // Push a scalar or integer to the arguments
 void KernelArgumentHolder::push(const c10::IValue& val) {
-  if (index_mode_ == KernelIndexMode::INT32 &&
-      collectIndexMode({val}) == KernelIndexMode::INT64) {
-    promoteIndexMode();
-  }
-
   changed_ = true;
   TORCH_INTERNAL_ASSERT(
       val.isScalar(),
@@ -227,6 +189,7 @@ void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
 // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
 // in the buffer
 void** KernelArgumentHolder::getBuffer() {
+  TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
   if (changed_) {
     void_ptrs_ = std::vector<void*>(arguments_.size(), nullptr);
     for (const auto i : c10::irange(arguments_.size())) {
@@ -237,18 +200,26 @@ void** KernelArgumentHolder::getBuffer() {
   return void_ptrs_.data();
 }
 
-// TODO: When should this be called?
 void KernelArgumentHolder::setIndexType(PrimDataType index_type) {
-  if (index_mode_ == indexTypeToMode(index_type)) {
+  if (index_type_.has_value() && index_type_.value() == index_type) {
     return;
   }
 
+  TORCH_INTERNAL_ASSERT(
+      !isIndexTypeResolved(),
+      "Cannot change index type to ",
+      index_type,
+      " as it's already set as ",
+      index_type_.value());
+
   for (auto& arg : arguments_) {
     if (auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg.get())) {
-      arg = getTensorArg(indexTypeToMode(index_type), tensor_arg->getTensor());
+      arg = getTensorArg(index_type, tensor_arg->getTensor());
     }
   }
-  index_mode_ = indexTypeToMode(index_type);
+
+  index_type_ = index_type;
+
   changed_ = true;
 }
 
@@ -293,6 +264,74 @@ void KernelArgumentHolder::appendPhiloxRNGSeed(uint64_t rand_offset) {
             rand_offset);
   }
   push(philox_engine_inputs);
+}
+
+std::string KernelArgumentHolder::toString() const {
+  std::stringstream ss;
+  for (const auto& arg : arguments_) {
+    ss << arg->toString() << "\n";
+  }
+  return ss.str();
+}
+
+PrimDataType KernelArgumentHolder::getIndexType() const {
+  if (isIndexTypeResolved()) {
+    return indexType().value();
+  }
+
+  lower_utils::KernelIndexModeCompute index_mode_helper;
+  for (auto inp_i : c10::irange((int64_t)size())) {
+    for (const auto dim_i : c10::irange(getRank(inp_i))) {
+      auto size = getSize(inp_i, dim_i);
+      auto stride = getStride(inp_i, dim_i);
+      index_mode_helper.addDim(size, stride);
+    }
+  }
+  return index_mode_helper.getType();
+}
+
+bool KernelArgumentHolder::isTensorArg(int64_t arg) const {
+  return dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get()) !=
+      nullptr;
+}
+
+void* KernelArgumentHolder::getPointer(int64_t arg) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getPointer();
+}
+
+DataType KernelArgumentHolder::getDataType(int64_t arg) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getDataType();
+}
+
+int64_t KernelArgumentHolder::getRank(int64_t arg) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getRank();
+}
+
+int64_t KernelArgumentHolder::getSize(int64_t arg, int64_t dim) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getSize(dim);
+}
+
+int64_t KernelArgumentHolder::getStride(int64_t arg, int64_t dim) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getStride(dim);
+}
+
+bool KernelArgumentHolder::isType(int64_t arg, ArgType type) const {
+  return arguments_.at(arg)->isType(type);
 }
 
 } // namespace nvfuser

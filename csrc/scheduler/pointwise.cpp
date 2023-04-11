@@ -84,7 +84,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
-  const auto index_type = indexModeToDtype(runtime_info.indexMode());
+  const auto index_type = runtime_info.indexType();
 
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 

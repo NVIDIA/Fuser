@@ -300,12 +300,21 @@ class KernelIndexModeCompute {
     return getMode();
   }
 
+  // TODO: Deprecate
   inline KernelIndexMode getMode() const {
     if (tensor_most_positive_index_ > most_positive_int32_index ||
         tensor_most_negative_index_ < most_negative_int32_index) {
       return KernelIndexMode::INT64;
     }
     return KernelIndexMode::INT32;
+  }
+
+  inline PrimDataType getType() const {
+    if (tensor_most_positive_index_ > most_positive_int32_index ||
+        tensor_most_negative_index_ < most_negative_int32_index) {
+      return PrimDataType::Int;
+    }
+    return PrimDataType::Int32;
   }
 
  private:
