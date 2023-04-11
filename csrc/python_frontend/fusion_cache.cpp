@@ -129,9 +129,9 @@ void FusionCache::stats(std::ostream& os) const {
   os << "Total Fusions: " << fusions_.size() << "\n";
 
   // Does not make sense to print stats if the cache is disabled.
-  if (fusions_.size() > 0) {
+  if (!fusions_.empty()) {
     os << "Cache Hits by Fusion Id:\n";
-    auto total_cache_hits = 0;
+    size_t total_cache_hits = 0;
     for (size_t i = 0; i < terminal_nodes_.size(); ++i) {
       // The first visit is a miss!
       auto visits = terminal_nodes_[i]->visits - 1;
@@ -199,7 +199,7 @@ c10::optional<size_t> FusionCache::queryUserScheduleId(
   c10::optional<size_t> result = c10::nullopt;
 
   auto& user_scheds = scheds->user_def_schedules;
-  if (user_scheds.size() != 0) {
+  if (!user_scheds.empty()) {
     auto input_id = user_def_input_encodings_.lookupId(inputs);
     auto user_sched = user_scheds.find(input_id.id);
     if (user_sched != user_scheds.end()) {
@@ -214,7 +214,7 @@ const UserSchedule& FusionCache::queryUserSchedule(
     int device) const {
   auto& user_scheds = scheds->user_def_schedules;
   TORCH_CHECK(
-      user_scheds.size() > 0,
+      !user_scheds.empty(),
       "Expecting there to be at least one user schedule!");
   auto user_sched = user_scheds.find(id);
   TORCH_CHECK(
