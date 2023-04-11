@@ -65,7 +65,7 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
-        VERSION_TAG = arg.split('=')[1]
+        VERSION_TAG = arg.split("=")[1]
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -258,13 +258,15 @@ def cmake():
         ]
         subprocess.check_call(cmd_str)
 
+
 def version_tag():
     from tools.gen_nvfuser_version import get_version
+
     version = get_version()
     if OVERWRITE_VERSION:
-        version = version.split('+')[0]
+        version = version.split("+")[0]
         if len(VERSION_TAG) != 0:
-            version = '+'.join([version, VERSION_TAG])
+            version = "+".join([version, VERSION_TAG])
     return version
 
 
