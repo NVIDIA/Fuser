@@ -807,7 +807,6 @@ PrimDataType getIndexTypeOfKernel(
     Fusion* fusion,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
-
   if (inputs.getSmallestIndexTypeOfArguments() == PrimDataType::Int) {
     return PrimDataType::Int;
   }

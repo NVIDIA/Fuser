@@ -7806,10 +7806,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getIndexType() == PrimDataType::Int);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getIndexType() == PrimDataType::Int);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
     {
       FusionExecutor fe;
@@ -7847,7 +7847,9 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, small_inputs);
+      // Lower the kernel with int32 index type.
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
       TORCH_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
@@ -7862,28 +7864,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       EXPECT_THAT(
           [&]() { fe.runFusion(large_inputs); },
           testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
-    }
-
-    {
-      FusionExecutor fe;
-      // Lower the kernel with int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-      TORCH_CHECK(
-          fe.kernel()->indexType() == PrimDataType::Int32,
-          "Unexpected kernel index type: ",
-          fe.kernel()->indexType());
-
-      fe.runFusion(small_inputs);
-
-      // This should fail as the Kernel is already compiled for Int32, but
-      // the arguments are too large
-      EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
+              "Cannot add a tensor with 64-bit index to 32-bit argument list")));
     }
 
     {

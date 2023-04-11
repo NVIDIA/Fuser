@@ -178,7 +178,6 @@ void FusionExecutor::debugCompileFusionFromStr(
 
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
-    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
@@ -246,6 +245,23 @@ void FusionExecutor::compileFusion(
   // TODO: refactor the options_ passed through
   options_.device =
       c10::Device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
+
+  // Set the index type of compile params if not already set. If set,
+  // make sure the compile param type is valid with the given kernel
+  // arguments.
+  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
+  if (compile_params.index_type.has_value()) {
+    // If the int32 compilation is requested, but the arguments demand
+    // int64, that's an error
+    TORCH_INTERNAL_ASSERT(
+        !(compile_params.index_type.value() == PrimDataType::Int32 &&
+          arg_index_type == PrimDataType::Int),
+        "Compilation with int32 is requested but int64 is required for the arguments");
+  } else if (arg_index_type == PrimDataType::Int) {
+    // If the given compile option doesn't specify the index type, and
+    // the arguments require 64-bit indexing, we need to use 64-bit indexing
+    compile_params.index_type = arg_index_type;
+  }
 
   c10::DeviceGuard dg(options_.device);
 
