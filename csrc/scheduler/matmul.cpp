@@ -263,12 +263,41 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
       return; // No need to swizzle in this case.
     }
 
-    /* Now we are ready to implement our swizzle
+    /* Now we have the idea about how to remove bank conflict: We can do an
+     * inner split of our row dimension by `repeated_pattern_size`, then
+     * different indices of the outer row dimension will be using the same
+     * megabank, and different indices of the inner row dimension will be using
+     * different megabank. We don't need to touch the inner dimension, but we
+     * need to play with the outer dimension to interleave it with matrice ids
+     * so that each matrix is distributed across different banks.
+     *
+     * For example, if we have repeated_pattern_size = 4, we would want to do
+     * something like below:
+     *    +----------+----------+
+     *   0|          |          |
+     *   1| matrix 0 | matrix 1 |
+     *   2|          |          |
+     *   3|          |          |
+     *    +----------+----------+
+     *   4|          |          |
+     *   5| matrix 1 | matrix 0 |
+     *   6|          |          |
+     *   7|          |          |
+     *    +----------+----------+
      */
+
+    //   -2   -1
+    // [row, col]
+    TORCH_INTERNAL_ASSERT(tile_size_x % repeated_pattern_size);
+    shared_mem_tv->split(-2, repeated_pattern_size);
+    TORCH_INTERNAL_ASSERT(tile_size_y % ldmatrix_cols);
+    shared_mem_tv->split(-1, ldmatrix_cols);
+    //      -4         -3        -2       -1
+    // [pattern id, pattern, matrix id, matrix]
 
     // Calculate swizzle period, only equal row/col periods at the moment:
     //  TODO: aperiodic swizzle could also be supported in a follow up:
-    int max_swizzle_period = repeated_pattern_size_in_units;
+    int max_swizzle_period = g;
 
     int swizzle_period = max_swizzle_period;
 
