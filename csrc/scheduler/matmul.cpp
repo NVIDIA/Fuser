@@ -91,46 +91,160 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
 
   if (isTuring(params.mma_op) || isAmpere(params.mma_op)) {
     // TODO: right now, we are assuming ldmatrix access, which only supports
-    // 16bit load according to offical doc:
+    // sizeof(T) == 16bit (i.e. half/bfloat16) load according to offical doc:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
     // In the future, when we start adding support for tf32(different macro),
     // fp32(ffma), double, int8, fp8, etc. we need to update this function.
     TORCH_INTERNAL_ASSERT(dataTypeSize(*shared_mem_tv->getDataType()) == 2);
 
-    // Each ldmatrix access is 8x8
-    int row_unit = 8;
-    int col_unit = 8;
+    // ldmatrix loads a ldmatrix_rows x ldmatrix_cols = 8 x 8 matrix each time,
+    constexpr int ldmatrix_rows = 8;
+    constexpr int ldmatrix_cols = 8;
 
     // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
     TORCH_INTERNAL_ASSERT(
-        tile_size_x >= row_unit && tile_size_x % row_unit == 0 &&
-            tile_size_y >= col_unit && tile_size_y % col_unit == 0,
+        tile_size_x >= ldmatrix_rows && tile_size_x % ldmatrix_rows == 0 &&
+            tile_size_y >= ldmatrix_cols && tile_size_y % ldmatrix_cols == 0,
         "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
         tile_size_x,
         "x",
         tile_size_y);
 
-    int units_per_row = tile_size_y / col_unit;
+    /* Note [How to remove bank conflict for ldmatrix?]
+     *
+     * **This note is interleaved with code, I suggest reading this note like
+     *   reading a jupyter notebook**
+     *
+     * Our task is to make sure different rows does not fall into the same
+     * bank of shared memory.
+     *
+     * Introduction to bank conflict can be found at page 54-72 of:
+     * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
+     *
+     * When we talk about bank conflict removal, we are talking about the
+     * following task:
+     *   "there are 32 banks, and each bank contains one 4-byte word, we want to
+     *    make sure different lanes in a warp does not access different words in
+     *    the same bank"
+     */
 
-    // Number of column units that can fit in a conflict free shared mem wave
-    //  with memory width = 128 Byte assumed.
-    const int units_per_memory_row =
-        128 / dataTypeSize(DataType::Half) / col_unit;
+    constexpr int smem_bytes_per_word = 4;
+    constexpr int smem_banks = 32;
 
-    // Calculate swizzle period:
-    int residue_unit_count = units_per_row % units_per_memory_row;
+    /* but here, for our convenience, because ldmatrix always use vectorized
+     * access of 8 items = 16 bytes = 4 words, we further group words into
+     * units: we consider each 4 words as a "unit", and each 4 banks as a
+     * "megabank". So we can rephrase our task as:
+     *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
+     *    want to make sure different lanes in a warp does not access different
+     *    units in the same megabank"
+     * In this terminology, each matrix has 8 rows, and each row has exactly one
+     * unit.
+     */
+
+    constexpr int items_per_unit = ldmatrix_cols;
+    const int bytes_per_unit = items_per_unit * dataTypeSize(DataType::Half);
+    const int words_per_unit = bytes_per_unit / smem_bytes_per_word;
+    const int num_megabanks = smem_banks / words_per_unit;
+
+    /* In the following example, each CTA tile contains 2 rows and 3 colums of
+     * matrices, each 8x8 size:
+     *   +----------+----------+----------+
+     *   | matrix 0 | matrix 1 | matrix 2 |
+     *   +----------+----------+----------+
+     *   | matrix 3 | matrix 4 | matrix 5 |
+     *   +----------+----------+----------+
+     * The addresses of different rows in the same matrix are offseted by 3
+     * units. In this perspective, loading a matrix is a strided memory access
+     * with the following stride (in units):
+     */
+
+    const int row_stride = tile_size_y / items_per_unit;
+
+    /* So the bank conflicting problem is now converted to the following game:
+     *   I have a clock that has one pointer and `num_megabanks` ticks. I start
+     *   my game by making my pointer pointing to somewhere, and turn forward
+     *   the pointer `ldmatrix_rows` times, each time by `row_stride` ticks.
+     * This problem can be well modeled by modular arithmetic in number theory
+     * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
+     * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
+     * Additions and multiplications are defined in a cyclic manner:
+     *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
+     *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
+     * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
+     *
+     * It worth mention that Z/nZ is a "commutative ring", that is, we can use
+     * addition and multiplication rules just like using normal integers:
+     *   a + b = b + a, a * (b + c) = a * b + a * c, ...
+     * In short, we can reason about Z/nZ just like we are reasoning about
+     * integers, except that every number is automatically "% n".
+     *
+     * Reference:
+     * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
+     * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
+     *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
+     *     we are only interested in non-negative numbers here, so there is no
+     *     need to worry about this problem
+     */
+
+    // row_stride in Z/nZ, where n is num_megabanks:
+    // assert(row_stride >= 0);
+    // assert(num_megabanks >= 0);
+    int row_stride_znz = row_stride % num_megabanks;
+
+    /* Consider the following function in Z/nZ:
+     *   f(i) = init + i * stride
+     * where init is the initial position of the pointer in the clock when we
+     * start the game, and stride is the number of ticks we move forward each
+     * time, and i is the number of times we move forward.
+     *
+     * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
+     * `init` is the megabank of the 0th row of the matrix.
+     *
+     * One very important property of f(i) is:
+     * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
+     * This property is true because:
+     *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
+     *
+     * The above property tells us, as we turn the clock forward:
+     * - initially, we will go to a never-visited tick in each turn, but,
+     * - at some point, we will return back to our original position, and,
+     * - after we return, we start repeat the pervious pattern again and again.
+     *
+     * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
+     *     i  0 1 2 3 4 5 6 7
+     *   f(i) 0 6 4 2 0 6 4 2
+     * We can see that f(i) is repeating a pattern of four unique numbers
+     * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
+     * different megabanks, and we have a 2-way conflict.
+     *
+     * The question of interest is, does the above observation generalize? That
+     * is, does f(i) always repeat a pattern of p unique numbers q times? Note
+     * that p and q must satisfy p * q = n.
+     *
+     * The answer to the above question is: yes! Consider the following
+     * equation:
+     *    f(i1 + j) == f(i1)
+     * We want to know what is the smallest j that makes the above equation
+     * true. Because this tells us in how many steps we will see repeat. This
+     * equation can be simplified as:
+     *   f(i1 + j) == f(i1) + j * stride == f(i1)
+     *   ==> j * stride == 0
+     * That is, we are interested in finding the minimum j that makes
+     *   j * stride == 0
+     */
 
     // In the case where tile row is a multiple of memory row, the whole memory
     //  row is the repeated pattern of swizzle. In the case where tile row is
     //  not divisible, the residule part is the repeated pattern.
     int repeated_pattern_size_in_units =
-        std::gcd(units_per_memory_row, residue_unit_count);
+        std::gcd(num_megabanks, row_stride_znz);
 
     // Calculate row multiplier, which is defined as minimum number of rows
     //  to look down from an element until the same bank index is observed.
-    int multiplier = units_per_memory_row / repeated_pattern_size_in_units;
+    int multiplier = num_megabanks / repeated_pattern_size_in_units;
 
-    if (multiplier >= row_unit) {
+    if (multiplier >= ldmatrix_rows) {
       // No need to swizzle in this case.
       return;
     }
@@ -142,35 +256,36 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     int swizzle_period = max_swizzle_period;
 
     // Do not have to use the max_swizzle period if we already had
-    //  enough swizzle to permute a row_unit. This would encourage
+    //  enough swizzle to permute a ldmatrix_rows. This would encourage
     //  usage of power of 2 swizzle periods.
-    if (row_unit % multiplier == 0) {
-      swizzle_period = std::min(swizzle_period, row_unit / multiplier);
+    if (ldmatrix_rows % multiplier == 0) {
+      swizzle_period = std::min(swizzle_period, ldmatrix_rows / multiplier);
     }
 
     int row_multiplier = multiplier;
 
     TORCH_INTERNAL_ASSERT(
         tile_size_x % (swizzle_period * row_multiplier) == 0 &&
-            tile_size_y % (swizzle_period * col_unit) == 0,
+            tile_size_y % (swizzle_period * ldmatrix_cols) == 0,
         "need aperiodic swizzle config for tile size ",
         tile_size_x,
         "x",
         tile_size_y,
         "with units ",
-        row_unit,
+        ldmatrix_rows,
         "x",
-        col_unit);
+        ldmatrix_cols);
 
     // add the swizzling op:
     shared_mem_tv->split(-2, row_multiplier * swizzle_period);
     shared_mem_tv->split(-2, row_multiplier);
 
-    shared_mem_tv->split(-1, col_unit * swizzle_period);
-    shared_mem_tv->split(-1, col_unit);
+    shared_mem_tv->split(-1, ldmatrix_cols * swizzle_period);
+    shared_mem_tv->split(-1, ldmatrix_cols);
 
     //        -6        -5           -4           -3        -2       -1
-    // [..., row_o, row_period, row_multiplier, col_o, col_period, col_unit]
+    // [..., row_o, row_period, row_multiplier, col_o, col_period,
+    // ldmatrix_cols]
     if (isPowOf2(swizzle_period)) {
       shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
     } else {
