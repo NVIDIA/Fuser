@@ -162,7 +162,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
     const auto input = inputs[i];
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       if (args.isTensorArg(i)) {
-        bindTensorMetaData(tensor_input, args.getSizes(i));
+        bindTensorMetaData(tensor_input, args, i);
       } else {
         TORCH_CHECK(
             args.isType(i, ArgType::CpuScalarTensor),
@@ -303,16 +303,17 @@ void PrecomputedValues::validate() {
 
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
-    const std::vector<int64_t>& sizes) {
+    const KernelArgumentHolder& args,
+    int64_t arg_idx) {
   // const TensorArgAbstract* tensor_arg_abstract) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(
-      sizes.size() == root_domain.size(),
+      args.getRank(arg_idx) == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = sizes[dim];
+    auto value = args.getSize(arg_idx, static_cast<int64_t>(dim));
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();

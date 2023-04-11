@@ -796,7 +796,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   return index_type_helper.getType();
 }
 
-PrimDataType getIndexType(
+PrimDataType getIndexTypeOfKernel(
     Fusion* fusion,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
@@ -806,7 +806,7 @@ PrimDataType getIndexType(
   // required. However, output strides are not available, so if
   // there's any outputs that are non contiguous, need to use 64bit
 
-  if (inputs.getIndexType() == PrimDataType::Int) {
+  if (inputs.getSmallestIndexTypeOfArguments() == PrimDataType::Int) {
     return PrimDataType::Int;
   }
 
@@ -879,7 +879,8 @@ void SchedulerRuntimeInfo::initialize(
     initializeExpressionEvaluator(args, precomputed_values);
   }
 
-  index_type_ = getIndexType(complete_fusion_, args, *expression_evaluator_);
+  index_type_ =
+      getIndexTypeOfKernel(complete_fusion_, args, *expression_evaluator_);
 }
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -1008,7 +1009,7 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size = dataTypeSize(tv->dtype(), indexType());
+  size_t item_size = dataTypeSize(tv->dtype(), getIndexType());
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1124,7 +1125,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
     return 1;
   }
 
-  size_t item_size = dataTypeSize(tv->dtype(), indexType());
+  size_t item_size = dataTypeSize(tv->dtype(), getIndexType());
 
   // Alignment should always at least be the data type size
   TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
@@ -1275,7 +1276,7 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry(ScheduleHeuristic::NoOp) {
-    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.indexType());
+    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
   }
 
   //! Check if the no-op heuristics apply in given fusion

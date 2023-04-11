@@ -791,20 +791,6 @@ std::vector<Val*> DependencyCheck::getAllValsBetween(
   return Dependencies::getAllVals(dependencies, of);
 }
 
-std::vector<TensorView*> DependencyCheck::getAllTvsBetween(
-    const std::unordered_set<Val*>& dependencies,
-    const std::vector<Val*>& of) {
-  auto allVals = Dependencies::getAllVals(dependencies, of);
-  auto filter = ir_utils::filterByType<Expr>(allVals.begin(), allVals.end());
-  std::vector<TensorView*> exprs;
-  exprs.reserve(filter.size());
-  for (auto it = filter.begin(); it != filter.end(); ++it) {
-    exprs.emplace_back((*it)->as<TensorView>());
-  }
-
-  return exprs;
-}
-
 std::vector<Expr*> DependencyCheck::getAllExprsBetween(
     const std::unordered_set<Val*>& dependencies,
     const std::vector<Val*>& of) {

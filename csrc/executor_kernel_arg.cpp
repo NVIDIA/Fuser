@@ -287,9 +287,9 @@ std::string KernelArgumentHolder::toString() const {
   return ss.str();
 }
 
-PrimDataType KernelArgumentHolder::getIndexType() const {
+PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   if (isIndexTypeResolved()) {
-    return indexType().value();
+    return getIndexType().value();
   }
 
   KernelIndexTypeCompute index_type_helper;

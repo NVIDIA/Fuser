@@ -7806,10 +7806,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .indexType() == PrimDataType::Int);
+            .getIndexType() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .indexType() == PrimDataType::Int);
+            .getIndexType() == PrimDataType::Int);
 
     {
       FusionExecutor fe;
@@ -7916,7 +7916,7 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
 
   auto tv2 = broadcast(tv0, {false, true, false});
   auto tv3 = broadcast(tv1, {true, false, false});
-  auto tv4 = mul(tv2, tv3);
+  auto tv4 = add(tv2, tv3);
 
   fusion.addOutput(tv4);
 
@@ -7929,6 +7929,9 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
 }
 
 TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
@@ -7941,13 +7944,9 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
-  // auto tv2 = broadcast(tv0, {false, true, false});
-  // auto tv3 = broadcast(tv1, {true, false, false});
-  auto tv4 = mul(tv0, tv1);
+  auto tv2 = mul(tv0, tv1);
 
-  fusion.addOutput(tv4);
-
-  fusion.printMath();
+  fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2024, 2024}, options);
@@ -7956,6 +7955,40 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
+}
+
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = sum(tv4, {-1});
+
+  fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
 }
 
 //! Test whether we can create and use float16 scalars

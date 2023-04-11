@@ -141,6 +141,7 @@ void FusionExecutorCache::compileFusionAsync(
 
   KernelArgumentHolder args = prepareInputs(inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);
+  args.setIndexType(kernel_runtime->getIndexType());
 
   kernel_runtime->startAsyncCompile(args);
 }
@@ -207,7 +208,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   most_recent_runtime_ = kernel_runtime;
 
   // Set the index type as it's resolved by FusionKernelRuntime
-  args.setIndexType(kernel_runtime->indexType());
+  args.setIndexType(kernel_runtime->getIndexType());
 
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
@@ -392,7 +393,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Set the argument index type as it's resolved by SchedulerRuntimeInfo
   auto args_index_type_fixed = args;
-  args_index_type_fixed.setIndexType(runtime_info.indexType());
+  args_index_type_fixed.setIndexType(runtime_info.getIndexType());
 
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion_copy.get());
@@ -745,6 +746,17 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
 
+  TORCH_INTERNAL_ASSERT(
+      args.isIndexTypeResolved(),
+      "Expected to receive a KernelArgumentHolder with index type resolved");
+
+  TORCH_INTERNAL_ASSERT(
+      args.getIndexType() == getIndexType(),
+      "FusionKernelRuntime index type: ",
+      getIndexType(),
+      ", argument index type: ",
+      args.getIndexType().value());
+
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
       mapFusionInputsToArgs(args);
 
@@ -771,7 +783,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(indexType());
+    KernelArgumentHolder group_runtime_inputs(args.getIndexType());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());

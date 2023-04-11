@@ -265,10 +265,6 @@ class TORCH_CUDA_CU_API DependencyCheck {
       const std::unordered_set<Val*>& dependencies,
       const std::vector<Val*>& of);
 
-  static std::vector<TensorView*> getAllTvsBetween(
-      const std::unordered_set<Val*>& dependencies,
-      const std::vector<Val*>& of);
-
   // Returns all dependent exprs that exist between
   //  the provided vals
   static std::vector<Expr*> getAllExprsBetween(

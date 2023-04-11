@@ -1213,7 +1213,7 @@ size_t getExpandedVectorization(
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.indexType());
+        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
 
     max_expand_size = std::min(
         max_expand_size,

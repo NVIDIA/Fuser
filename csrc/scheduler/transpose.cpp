@@ -584,7 +584,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
-  const auto index_type = runtime_info.indexType();
+  const auto index_type = runtime_info.getIndexType();
 
   auto domain_map_entry = getDomainMap(data_cache, fusion);
   auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());

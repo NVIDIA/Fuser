@@ -810,7 +810,7 @@ PersistentBufferSizeReturn persistentBufferSize(
         ? 0
         : persistent_buffer_sizes[buffer_i] *
             dataTypeSize(
-                buffer->getDataType().value(), runtime_info.indexType());
+                buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
   // Buffers involved in normal persistence

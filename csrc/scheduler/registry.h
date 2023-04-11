@@ -82,7 +82,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // Return the runtime pointer value for provided tensor view
   size_t ptrOf(TensorView* tv) const;
 
-  PrimDataType indexType() const {
+  PrimDataType getIndexType() const {
     return index_type_;
   }
 

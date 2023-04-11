@@ -17,6 +17,45 @@
 
 namespace nvfuser {
 
+// TODO: macro this and the printer below
+enum class ArgType {
+  PhiloxCudaState,
+  Long,
+  Double,
+  ComplexDouble,
+  Bool,
+  Tensor,
+  CpuScalarTensor
+};
+
+inline std::string argTypeToString(ArgType type) {
+  std::string ret;
+  switch (type) {
+    case ArgType::PhiloxCudaState:
+      ret = "PhiloxCudaState";
+      break;
+    case ArgType::Long:
+      ret = "Long";
+      break;
+    case ArgType::Double:
+      ret = "Double";
+      break;
+    case ArgType::ComplexDouble:
+      ret = "ComplexDouble";
+      break;
+    case ArgType::Bool:
+      ret = "Bool";
+      break;
+    case ArgType::Tensor:
+      ret = "Tensor";
+      break;
+    case ArgType::CpuScalarTensor:
+      ret = "CpuScalarTensor";
+      break;
+  }
+  return ret;
+}
+
 // This should match the tensor used in the code generation (almost exactly)
 template <typename T, int N, typename nvfuser_index_t>
 struct TensorArgCodegen {
@@ -87,45 +126,6 @@ struct CpuScalarTensorCodegen {
 
   T data;
 };
-
-// TODO: macro this and the printer below
-enum class ArgType {
-  PhiloxCudaState,
-  Long,
-  Double,
-  ComplexDouble,
-  Bool,
-  Tensor,
-  CpuScalarTensor
-};
-
-inline std::string argTypeToString(ArgType type) {
-  std::string ret;
-  switch (type) {
-    case ArgType::PhiloxCudaState:
-      ret = "PhiloxCudaState";
-      break;
-    case ArgType::Long:
-      ret = "Long";
-      break;
-    case ArgType::Double:
-      ret = "Double";
-      break;
-    case ArgType::ComplexDouble:
-      ret = "ComplexDouble";
-      break;
-    case ArgType::Bool:
-      ret = "Bool";
-      break;
-    case ArgType::Tensor:
-      ret = "Tensor";
-      break;
-    case ArgType::CpuScalarTensor:
-      ret = "CpuScalarTensor";
-      break;
-  }
-  return ret;
-}
 
 struct ArgAbstract {
   virtual ~ArgAbstract() = default;
@@ -309,7 +309,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   KernelArgumentHolder(const KernelArgumentHolder& self)
       : device_index_(self.getDeviceIndex()),
         cache_id_(self.getCacheId()),
-        index_type_(self.indexType()) {
+        index_type_(self.getIndexType()) {
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
@@ -317,7 +317,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder& operator=(const KernelArgumentHolder& self) {
     device_index_ = self.getDeviceIndex();
-    index_type_ = self.indexType();
+    index_type_ = self.getIndexType();
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
@@ -330,10 +330,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void setIndexType(PrimDataType index_type);
 
-  //! Computes the index type for the currently held arguments
-  PrimDataType getIndexType() const;
+  //! Computes the smallest index type for the currently held
+  //! arguments. It does not consider any other tensors used in a kernel.
+  PrimDataType getSmallestIndexTypeOfArguments() const;
 
-  std::optional<PrimDataType> indexType() const {
+  //! Return the index type of this argument holder
+  std::optional<PrimDataType> getIndexType() const {
     return index_type_;
   }
 

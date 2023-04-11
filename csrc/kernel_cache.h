@@ -75,7 +75,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
-  PrimDataType indexType() const {
+  //! Note htat all heuristics use the same index type.
+  PrimDataType getIndexType() const {
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
     TORCH_INTERNAL_ASSERT(index_type.has_value());
     return index_type.value();

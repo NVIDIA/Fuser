@@ -250,7 +250,7 @@ void FusionExecutor::compileFusion(
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
   // arguments.
-  auto arg_index_type = args.indexType();
+  auto arg_index_type = args.getIndexType();
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
@@ -1036,7 +1036,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
   const auto kernel = lowered_->kernel();
 
-  KernelArgumentHolder ret(args.indexType());
+  KernelArgumentHolder ret(args.getIndexType());
   ret.setDeviceIndex(args.getDeviceIndex());
 
   CompileOptions meta_options = options_;
@@ -1161,11 +1161,11 @@ void validateIndexType(
   // args.getIndexType() must be equal to the index type of the
   // compiled kernel.
   TORCH_INTERNAL_ASSERT(
-      kernel->indexType() == args.indexType(),
+      kernel->indexType() == args.getIndexType(),
       "Invalid pair of kernel index type and argument index type. Kernel type: ",
       kernel->indexType(),
       ". Argument index type: ",
-      args.indexType().value());
+      args.getIndexType().value());
 
   // Similarly, if the type of the index type in the given compile
   // parameters doesn't match, that's also an error.
