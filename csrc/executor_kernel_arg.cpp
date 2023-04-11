@@ -71,35 +71,18 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
   return nullptr;
 }
 
+template <typename nvfuser_index_t>
+struct GetTensorArgWithNativeType {
+  template <typename T>
+  std::unique_ptr<TensorArgAbstract> operator()(const at::Tensor& tensor) {
+    return getTensorArg<T, nvfuser_index_t>(tensor);
+  };
+};
+
 template <typename INDEX_MODE>
 std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
-  auto dtype = tensor.scalar_type();
-  switch (dtype) {
-    case c10::ScalarType::Double:
-      return getTensorArg<double, INDEX_MODE>(tensor);
-    case c10::ScalarType::Float:
-      return getTensorArg<float, INDEX_MODE>(tensor);
-    case c10::ScalarType::Half:
-      return getTensorArg<at::Half, INDEX_MODE>(tensor);
-    case c10::ScalarType::BFloat16:
-      return getTensorArg<at::BFloat16, INDEX_MODE>(tensor);
-    case c10::ScalarType::Bool:
-      return getTensorArg<bool, INDEX_MODE>(tensor);
-    case c10::ScalarType::Long:
-      return getTensorArg<int64_t, INDEX_MODE>(tensor);
-    case c10::ScalarType::Int:
-      return getTensorArg<int32_t, INDEX_MODE>(tensor);
-    case c10::ScalarType::ComplexFloat:
-      return getTensorArg<c10::complex<float>, INDEX_MODE>(tensor);
-    case c10::ScalarType::ComplexDouble:
-      return getTensorArg<c10::complex<double>, INDEX_MODE>(tensor);
-    default:
-      TORCH_CHECK(
-          false,
-          "Dtype: ",
-          dtype,
-          " not currently supported in code generated kernels.");
-  }
+  return atenTypeDispatchWithC10Complex(
+      tensor.scalar_type(), GetTensorArgWithNativeType<INDEX_MODE>(), tensor);
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
@@ -175,8 +158,8 @@ void KernelArgumentHolder::promoteIndexMode() {
 
 namespace {
 
-template <typename T>
-struct CpuScalarDipatch {
+struct MakeCpuScalarTensor {
+  template <typename T>
   std::unique_ptr<ArgAbstract> operator()(const at::Tensor& tensor) const {
     return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(
         tensor.data_ptr<T>()[0]);
@@ -189,8 +172,8 @@ struct CpuScalarDipatch {
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
   changed_ = true;
   if (is_cpu_scalar(tensor)) {
-    arguments_.push_back(atenTypeDispatchWithC10Complex<CpuScalarDipatch>(
-        tensor.scalar_type(), tensor));
+    arguments_.push_back(atenTypeDispatchWithC10Complex(
+        tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
   } else {
     arguments_.push_back(getTensorArg(index_mode_, tensor));
   }

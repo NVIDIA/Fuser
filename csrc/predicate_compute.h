@@ -67,8 +67,7 @@ class ParallelizedDomainPredicate {
 
   //! Returns predicate information for parallelied domains of an
   //! expression.
-  static std::unordered_map<ParallelType, PredicateInfo, TypeHash>
-  getPredicateMap(
+  static std::unordered_map<ParallelType, PredicateInfo> getPredicateMap(
       const Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
       kir::ForLoop* unswitched_loop = nullptr);
@@ -117,8 +116,7 @@ class UnswitchPredicateKey {
   //! Predicated concrete domain
   IterDomain* predicated_concrete_id_ = nullptr;
   //! Store parallelized concrete domains
-  std::unordered_map<ParallelType, IterDomain*, TypeHash>
-      parallel_concrete_ids_;
+  std::unordered_map<ParallelType, IterDomain*> parallel_concrete_ids_;
 };
 
 struct UnswitchPredicateKeyHash {
@@ -183,10 +181,7 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
   std::vector<MergedPredicates> pending_predicates_;
 
   //! Track which parallelized domains have been predicated
-  std::unordered_map<
-      ParallelType,
-      ParallelizedDomainPredicate::PredicateInfo,
-      TypeHash>
+  std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
       parallelized_dom_predicates_;
 
   //! The predicates that have been generated.
