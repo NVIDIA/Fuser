@@ -1136,7 +1136,7 @@ namespace {
 // Make sure the index type of Kernel is valid
 void validateIndexType(
     kir::Kernel* kernel,
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     const CompileParams& compile_params) {
   TORCH_INTERNAL_ASSERT(args.isIndexTypeResolved());
   // Currently, once a Fusion is lowered to a Kernel, the index type

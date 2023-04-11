@@ -77,6 +77,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   //! Note htat all heuristics use the same index type.
   PrimDataType getIndexType() const {
+    // No scheduler means nothing to run. It may still be unsafe to
+    // save tensor sizes and strides in Int32
+    if (schedulers().empty()) {
+      return PrimDataType::Int;
+    }
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
     TORCH_INTERNAL_ASSERT(index_type.has_value());
     return index_type.value();

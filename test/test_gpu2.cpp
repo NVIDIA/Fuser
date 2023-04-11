@@ -5134,7 +5134,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
 
   std::vector<at::Tensor> aten_inputs = {t0, t1};
 
-  KernelArgumentHolder args(PrimDataType::Int32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
 
@@ -5468,7 +5468,7 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(PrimDataType::Int32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
 
@@ -5512,7 +5512,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(PrimDataType::Int32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
   c10::IValue scalar = 1.0;
@@ -5557,7 +5557,7 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(PrimDataType::Int32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
 
@@ -8188,7 +8188,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
 
   c10::IValue val = at_d56;
 
-  KernelArgumentHolder args(PrimDataType::Int32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
   args.push(val);

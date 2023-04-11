@@ -766,6 +766,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   TORCH_INTERNAL_ASSERT(
       !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
+  // TODO: This may be too conservative. Do not do this for now.
   int64_t stride = 1;
   KernelIndexTypeCompute index_type_helper;
   for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
@@ -796,15 +797,16 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   return index_type_helper.getType();
 }
 
+// Check inputs, outputs and intermediates
+// Intermediates are contiguous, so strides are not necessary
+// Strides are required for inputs and also maybe for outputs as
+// they may be non-contiguous. However, in our current interface,
+// output strides are not available, so if there's any outputs that
+// are non contiguous, need to fall back to 64-bit indexing
 PrimDataType getIndexTypeOfKernel(
     Fusion* fusion,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
-  // Check inputs, outputs and intermediates
-  // Intermediates are contiguous, so strides are not necessary
-  // Inputs and outputs may be non-contiguous, so strides are
-  // required. However, output strides are not available, so if
-  // there's any outputs that are non contiguous, need to use 64bit
 
   if (inputs.getSmallestIndexTypeOfArguments() == PrimDataType::Int) {
     return PrimDataType::Int;

@@ -305,7 +305,6 @@ void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
     const KernelArgumentHolder& args,
     int64_t arg_idx) {
-  // const TensorArgAbstract* tensor_arg_abstract) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(

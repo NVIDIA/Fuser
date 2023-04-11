@@ -288,10 +288,6 @@ std::string KernelArgumentHolder::toString() const {
 }
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
-  if (isIndexTypeResolved()) {
-    return getIndexType().value();
-  }
-
   KernelIndexTypeCompute index_type_helper;
   for (auto inp_i : c10::irange((int64_t)size())) {
     if (!isTensorArg(inp_i)) {
@@ -337,13 +333,6 @@ int64_t KernelArgumentHolder::getSize(int64_t arg, int64_t dim) const {
   auto tensor_arg =
       dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
   return tensor_arg->getSize(dim);
-}
-
-std::vector<int64_t> KernelArgumentHolder::getSizes(int64_t arg) const {
-  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
-  auto tensor_arg =
-      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
-  return tensor_arg->getSizes();
 }
 
 int64_t KernelArgumentHolder::getStride(int64_t arg, int64_t dim) const {

@@ -200,7 +200,6 @@ struct BoolArg : public ArgAbstract {
 struct TensorArgAbstract : ArgAbstract {
   virtual int64_t getRank() const = 0;
   virtual int64_t getSize(int64_t i) const = 0;
-  virtual std::vector<int64_t> getSizes() const = 0;
   virtual int64_t getStride(int64_t i) const = 0;
   virtual void* getPointer() const = 0;
   virtual DataType getDataType() const = 0;
@@ -211,7 +210,6 @@ struct TensorArgAbstract : ArgAbstract {
 };
 
 template <typename TENSOR_TYPE>
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
   at::Tensor tensor_;
@@ -239,13 +237,6 @@ struct TensorArg : public TensorArgAbstract {
 
   int64_t getSize(int64_t i) const override {
     return instance_.getSize(i);
-  }
-  std::vector<int64_t> getSizes() const override {
-    if constexpr (TENSOR_TYPE::ndims == 0) {
-      return {};
-    } else {
-      return std::vector<int64_t>(instance_.size.begin(), instance_.size.end());
-    }
   }
   int64_t getStride(int64_t i) const override {
     return instance_.getStride(i);
@@ -412,7 +403,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   DataType getDataType(int64_t arg) const;
   int64_t getRank(int64_t arg) const;
   int64_t getSize(int64_t arg, int64_t dim) const;
-  std::vector<int64_t> getSizes(int64_t arg) const;
   int64_t getStride(int64_t arg, int64_t dim) const;
 
   std::string toString() const;

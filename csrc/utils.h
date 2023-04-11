@@ -32,7 +32,6 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 // TODO: merge these two
 // check if input is compatible with 32b index mode
 int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
-PrimDataType collectIndexType(const at::ArrayRef<c10::IValue>& inputs);
 
 //! Types of debug print-outs
 //!
