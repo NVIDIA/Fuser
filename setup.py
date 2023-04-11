@@ -44,6 +44,7 @@ NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
 PATCH_NVFUSER = True
+OVERWRITE_VERSION = False
 VERSION_TAG = None
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -63,6 +64,7 @@ for i, arg in enumerate(sys.argv):
         NO_NINJA = True
         continue
     if arg.startswith("-version-tag="):
+        OVERWRITE_VERSION = True
         VERSION_TAG = arg.split('=')[1]
         continue
     if arg in ["clean"]:
@@ -259,10 +261,10 @@ def cmake():
 def version_tag():
     from tools.gen_nvfuser_version import get_version
     version = get_version()
-    if VERSION_TAG is not None:
-        version_git = version.split('+')
-        version_git.insert(1, VERSION_TAG)
-        version = '+'.join(version_git)
+    if OVERWRITE_VERSION:
+        version = version.split('+')[0]
+        if len(VERSION_TAG) != 0:
+            version = '+'.join([version, VERSION_TAG])
     return version
 
 
