@@ -35,7 +35,7 @@ class TORCH_CUDA_CU_API ParallelDimensionMap {
 
   std::string toString() const;
 
-  const std::unordered_map<ParallelType, Val*, TypeHash>& getMap() const {
+  const std::unordered_map<ParallelType, Val*>& getMap() const {
     return dim_map_;
   }
 
@@ -47,10 +47,10 @@ class TORCH_CUDA_CU_API ParallelDimensionMap {
  private:
   //! Maps from parallel types to dimensions, which are constant if
   //! a unique value is found.
-  std::unordered_map<ParallelType, Val*, TypeHash> dim_map_;
+  std::unordered_map<ParallelType, Val*> dim_map_;
   //! Set of parallel types whose dimensions are identified to be
   //! exactly the same as extents of mapped domains.
-  std::unordered_set<ParallelType, TypeHash> exact_types_;
+  std::unordered_set<ParallelType> exact_types_;
 };
 
 } // namespace nvfuser

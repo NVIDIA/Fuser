@@ -54,27 +54,19 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 4, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (5):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 5, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (6):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 6, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (7):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 7, nvfuser_index_t>,
           nvfuser_index_t>>();
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     case (8):
-      // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
       return std::make_unique<TensorArg<
           TensorArgCodegen<T, 8, nvfuser_index_t>,
           nvfuser_index_t>>();
@@ -88,36 +80,20 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
   return nullptr;
 }
 
+template <typename nvfuser_index_t>
+struct GetTensorArgWithNativeType {
+  template <typename T>
+  std::unique_ptr<TensorArgAbstract> operator()(int ndims) {
+    return getTensorArg<T, nvfuser_index_t>(ndims);
+  };
+};
+
 template <typename INDEX_MODE>
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     c10::ScalarType dtype,
     int nDims) {
-  switch (dtype) {
-    case c10::ScalarType::Double:
-      return getTensorArg<double, INDEX_MODE>(nDims);
-    case c10::ScalarType::Float:
-      return getTensorArg<float, INDEX_MODE>(nDims);
-    case c10::ScalarType::Half:
-      return getTensorArg<at::Half, INDEX_MODE>(nDims);
-    case c10::ScalarType::BFloat16:
-      return getTensorArg<at::BFloat16, INDEX_MODE>(nDims);
-    case c10::ScalarType::Bool:
-      return getTensorArg<bool, INDEX_MODE>(nDims);
-    case c10::ScalarType::Long:
-      return getTensorArg<int64_t, INDEX_MODE>(nDims);
-    case c10::ScalarType::Int:
-      return getTensorArg<int32_t, INDEX_MODE>(nDims);
-    case c10::ScalarType::ComplexFloat:
-      return getTensorArg<c10::complex<float>, INDEX_MODE>(nDims);
-    case c10::ScalarType::ComplexDouble:
-      return getTensorArg<c10::complex<double>, INDEX_MODE>(nDims);
-    default:
-      TORCH_CHECK(
-          false,
-          "Dtype: ",
-          dtype,
-          " not currently supported in code generated kernels.");
-  }
+  return atenTypeDispatchWithC10Complex(
+      dtype, GetTensorArgWithNativeType<INDEX_MODE>(), nDims);
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
@@ -176,68 +152,24 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
   return args;
 }
 
+namespace {
+
+struct MakeCpuScalarTensor {
+  template <typename T>
+  std::unique_ptr<ArgAbstract> operator()(const at::Tensor& tensor) const {
+    return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(
+        tensor.data_ptr<T>()[0]);
+  }
+};
+
+} // namespace
+
 // Push a tensor to the arguments
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
   changed_ = true;
   if (is_cpu_scalar(tensor)) {
-    switch (tensor.scalar_type()) {
-      case c10::ScalarType::ComplexDouble:
-        arguments_.push_back(std::make_unique<CpuScalarTensorArg<
-                                 CpuScalarTensorCodegen<c10::complex<double>>>>(
-            tensor.data_ptr<c10::complex<double>>()[0]));
-        break;
-      case c10::ScalarType::ComplexFloat:
-        arguments_.push_back(std::make_unique<CpuScalarTensorArg<
-                                 CpuScalarTensorCodegen<c10::complex<float>>>>(
-            tensor.data_ptr<c10::complex<float>>()[0]));
-        break;
-      case c10::ScalarType::Double:
-        arguments_.push_back(
-            std::make_unique<
-                CpuScalarTensorArg<CpuScalarTensorCodegen<double>>>(
-                tensor.data_ptr<double>()[0]));
-        break;
-      case c10::ScalarType::Float:
-        arguments_.push_back(
-            std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<float>>>(
-                tensor.data_ptr<float>()[0]));
-        break;
-      case c10::ScalarType::Half:
-        arguments_.push_back(
-            std::make_unique<
-                CpuScalarTensorArg<CpuScalarTensorCodegen<at::Half>>>(
-                tensor.data_ptr<at::Half>()[0]));
-        break;
-      case c10::ScalarType::BFloat16:
-        arguments_.push_back(
-            std::make_unique<
-                CpuScalarTensorArg<CpuScalarTensorCodegen<at::BFloat16>>>(
-                tensor.data_ptr<at::BFloat16>()[0]));
-        break;
-      case c10::ScalarType::Bool:
-        arguments_.push_back(
-            std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<bool>>>(
-                tensor.data_ptr<bool>()[0]));
-        break;
-      case c10::ScalarType::Long:
-        arguments_.push_back(
-            std::make_unique<
-                CpuScalarTensorArg<CpuScalarTensorCodegen<int64_t>>>(
-                tensor.data_ptr<int64_t>()[0]));
-        break;
-      case c10::ScalarType::Int:
-        arguments_.push_back(
-            std::make_unique<
-                CpuScalarTensorArg<CpuScalarTensorCodegen<int32_t>>>(
-                tensor.data_ptr<int32_t>()[0]));
-        break;
-      default:
-        TORCH_CHECK(
-            false,
-            "Dtype: ",
-            tensor.scalar_type(),
-            " not currently supported in code generated kernels.");
-    }
+    arguments_.push_back(atenTypeDispatchWithC10Complex(
+        tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
   } else {
     int nDims = (int)tensor.ndimension();
 
@@ -264,7 +196,6 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
       val);
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
-    // NOLINTNEXTLINE(bugprone-branch-clone)
     case c10::ScalarType::ComplexDouble:
       arguments_.push_back(
           std::make_unique<ComplexDoubleArg>(scalar_val.toComplexDouble()));
