@@ -3166,6 +3166,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dims"));
   nvf_sched.def(
+      "reorder",
+      [](FusionDefinition::SchedOperators& self, Tensor arg, std::unordered_map<int, int>& old2new) {
+        FUSER_PERF_SCOPE("SchedOperators.reorder");
+        TORCH_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->reorder(old2new);
+      },
+      py::arg("arg"),
+      py::arg("old2new"));
+  nvf_sched.def(
       "split",
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
