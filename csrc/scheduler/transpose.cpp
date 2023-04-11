@@ -571,7 +571,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 

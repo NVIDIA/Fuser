@@ -389,7 +389,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
 
   // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, true);
+  SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args);
 
   // Set the argument index type as it's resolved by SchedulerRuntimeInfo
   auto args_index_type_fixed = args;

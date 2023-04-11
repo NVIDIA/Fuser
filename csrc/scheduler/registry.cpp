@@ -838,8 +838,13 @@ PrimDataType getIndexTypeOfKernel(
 
 void SchedulerRuntimeInfo::initialize(
     const KernelArgumentHolder& args,
-    bool initialize_expr_evaluator,
-    PrecomputedValues* precomputed_values) {
+    PrecomputedValues* precomputed_values) {}
+
+SchedulerRuntimeInfo::SchedulerRuntimeInfo(
+    Fusion* complete_fusion,
+    const KernelArgumentHolder& args,
+    PrecomputedValues* precomputed_values)
+    : complete_fusion_(complete_fusion) {
   TORCH_INTERNAL_ASSERT(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
@@ -871,14 +876,7 @@ void SchedulerRuntimeInfo::initialize(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      !(precomputed_values != nullptr && initialize_expr_evaluator));
-
-  expression_evaluator_ = std::make_unique<ExpressionEvaluator>();
-
-  if (precomputed_values || initialize_expr_evaluator) {
-    initializeExpressionEvaluator(args, precomputed_values);
-  }
+  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
   index_type_ =
       getIndexTypeOfKernel(complete_fusion_, args, *expression_evaluator_);
@@ -886,32 +884,16 @@ void SchedulerRuntimeInfo::initialize(
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const KernelArgumentHolder& args,
-    bool create_expr_evaluator)
-    : complete_fusion_(complete_fusion) {
-  // Is there any case create_expr_evaluator is false? If not, remove
-  // the parameter
-  TORCH_INTERNAL_ASSERT(create_expr_evaluator, "Unexpected");
-  initialize(args, create_expr_evaluator, nullptr);
-}
+    const KernelArgumentHolder& args)
+    : SchedulerRuntimeInfo(complete_fusion, args, nullptr) {}
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const KernelArgumentHolder& args,
-    PrecomputedValues* precomputed_values)
-    : complete_fusion_(complete_fusion) {
-  initialize(args, false, precomputed_values);
-}
-
-// TODO: remove this one
-SchedulerRuntimeInfo::SchedulerRuntimeInfo(
-    Fusion* complete_fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
-    bool create_expr_evaluator)
+    const at::ArrayRef<c10::IValue>& aten_inputs)
     : SchedulerRuntimeInfo(
           complete_fusion,
           KernelArgumentHolder::createKernelArgumentHolder(aten_inputs),
-          create_expr_evaluator) {}
+          nullptr) {}
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
@@ -922,14 +904,18 @@ size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   return max_alignment_size_in_byte;
 }
 
-void SchedulerRuntimeInfo::initializeExpressionEvaluator(
-    const KernelArgumentHolder& args,
-    PrecomputedValues* precomputed_values) {
+std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
+    getExpressionEvaluator(
+        const KernelArgumentHolder& args,
+        PrecomputedValues* precomputed_values) {
+  std::unique_ptr<ExpressionEvaluator> ee =
+      std::make_unique<ExpressionEvaluator>();
   if (precomputed_values) {
-    expression_evaluator_->bindPrecomputedValues(precomputed_values);
+    ee->bindPrecomputedValues(precomputed_values);
   } else {
-    *expression_evaluator_ = executor_utils::bindInputs(args, complete_fusion_);
+    *ee = executor_utils::bindInputs(args, complete_fusion_);
   }
+  return ee;
 }
 
 size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {

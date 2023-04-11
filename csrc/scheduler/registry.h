@@ -47,8 +47,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //!  additional encoding for kernel cache lookup.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const KernelArgumentHolder& inputs,
-      bool initialize_expr_evaluator);
+      const KernelArgumentHolder& inputs);
 
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
@@ -58,8 +57,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Remove this guy below. Everything needs to go into the other ctor
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs,
-      bool initialize_expr_evaluator = false);
+      const at::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
@@ -96,15 +94,9 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
  private:
-  // Bind full fusion inputs to the internal expression evaluator
-  void initializeExpressionEvaluator(
+  // Build and bind full fusion inputs to an expression evaluator
+  std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
       const KernelArgumentHolder& inputs,
-      PrecomputedValues* precomputed_values);
-
-  // Initialize SchedulerRuntimeInfo
-  void initialize(
-      const KernelArgumentHolder& args,
-      bool create_expr_evaluator,
       PrecomputedValues* precomputed_values);
 
   bool isInputTv(TensorView* tv) {

@@ -1103,7 +1103,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getPersistentHeuristicsFromIValue");
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getPersistentHeuristics(fusion, runtime_info, data_cache);
 }
 

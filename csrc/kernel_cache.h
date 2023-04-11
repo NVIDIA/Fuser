@@ -364,6 +364,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
+  //! TODO: Consider adding an option to force index type selection as
+  //! our analysis of required index type may be conservative
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs);
 

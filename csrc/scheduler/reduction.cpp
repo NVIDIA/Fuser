@@ -883,7 +883,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getReductionHeuristics");
 
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
 }

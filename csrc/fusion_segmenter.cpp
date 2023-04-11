@@ -2285,7 +2285,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
     translateSingleWelford(welford_to_translate);
   }
 
-  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_, true);
+  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_);
   // If we are looking at a segment of fusion,
   //  we maintain the segmented group boundary,
   //  one set for in_progress copy and one set
@@ -3000,7 +3000,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs, true),
+      runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
@@ -3503,7 +3503,7 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
 std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
     const KernelArgumentHolder& inputs) {
   auto ret = std::make_unique<FusionHeuristics>();
-  SchedulerRuntimeInfo runtime_info(completeFusion(), inputs, true);
+  SchedulerRuntimeInfo runtime_info(completeFusion(), inputs);
   for (auto g : groups()) {
     ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
   }
