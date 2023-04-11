@@ -151,7 +151,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   std::unordered_set<void*> raw_ptrs_;
 
   // Values names counters
-  std::unordered_map<ValType, StmtNameType, TypeHash> val_type_name_map_;
+  std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
