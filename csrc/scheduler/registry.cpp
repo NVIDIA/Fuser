@@ -766,7 +766,16 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   TORCH_INTERNAL_ASSERT(
       !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
-  // TODO: This may be too conservative. Do not do this for now.
+  // Note that at this point tensors are not scheduled yet. Each
+  // tensor may end up being inlined, stored on Shared or Local, but
+  // the index type is currently supposed to be determined before
+  // any of scheduling decisions is made, so we may end up making a
+  // conservative decision.
+  // TODO: Consider index type resolution after segmentation and
+  // scheduling. At that point we have the final scheduled fusions
+  // with which we can make more precise analyses. It would require
+  // that the scheduling and segmentation should not have any
+  // assumption about the index type as it may change.
   int64_t stride = 1;
   KernelIndexTypeCompute index_type_helper;
   for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
@@ -815,11 +824,6 @@ PrimDataType getIndexTypeOfKernel(
   auto tvs = ir_utils::allTvs(fusion);
 
   for (auto tv : tvs) {
-    // Note that at this point tensors are not scheduled yet. Each
-    // tensor may end up being inlined, stored on Shared or Local, but
-    // the index type is determined before any of scheduling decisions
-    // is made.
-
     // Fusion input tensors are included in the args parameter, and
     // they are checked separately
     if (tv->isFusionInput()) {

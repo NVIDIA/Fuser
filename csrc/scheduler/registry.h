@@ -41,10 +41,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   static constexpr size_t max_alignment_size_in_byte = 16;
 
   //! Create runtime info for given fusion and input. Creating and binding
-  //!  evaluator is optional. The evaluator is used to manage intermediate
-  //!  integers in the fusion. We need them for segmenter and schedulers,
-  //!  but we don't need them when we are just using this class to provide
-  //!  additional encoding for kernel cache lookup.
+  //! evaluator is optional. The evaluator is used to manage intermediate
+  //! integers in the fusion. We need them for segmenter and schedulers,
+  //! but we don't need them when we are just using this class to provide
+  //! additional encoding for kernel cache lookup.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const KernelArgumentHolder& inputs,
