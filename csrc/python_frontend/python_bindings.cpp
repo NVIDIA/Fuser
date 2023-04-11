@@ -361,7 +361,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
             for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
               TORCH_CHECK(
-                  symbolic_sizes[i] == -1 || symbolic_sizes[i] == 1,
+                  symbolic_sizes[i] > -1,
                   "The value ",
                   symbolic_sizes[i],
                   " at index ",
@@ -3149,9 +3149,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dim"));
   nvf_sched.def(
-      "rFactor",
+      "reduction_factor",
       [](FusionDefinition::SchedOperators& self, Tensor arg, std::vector<int>& dims) -> Tensor {
-        FUSER_PERF_SCOPE("SchedOperators.rFactor");
+        FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
         TORCH_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
