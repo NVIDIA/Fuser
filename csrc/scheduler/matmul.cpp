@@ -263,13 +263,50 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
       return; // No need to swizzle in this case.
     }
 
-    /* Now we have the idea about how to remove bank conflict: We can do an
-     * inner split of our row dimension by `repeated_pattern_size`, then
-     * different indices of the outer row dimension will be using the same
-     * megabank, and different indices of the inner row dimension will be using
-     * different megabank. We don't need to touch the inner dimension, but we
-     * need to play with the outer dimension to interleave it with matrice ids
-     * so that each matrix is distributed across different banks.
+    /* We've just studied the behavior of f(i) w.r.t. different `i`s, and f(i)
+     * repeat with a period of n / gcd(stride, n). With fixed stride, for each
+     * given `init`, the values f(i) at different `i` form a "pattern". Now we
+     * would study the behavior of f(i) for different `init` values. In other
+     * word, we just studied the megabank usage behavior of different rows of
+     * the same matrix, now we study the megabank usage behavior of the same row
+     * of different matrices.
+     *
+     * Let's slightly change our notation f(i) as f(i;init) for convenience.
+     * Because Z/nZ has n items, each pattern has n / gcd(stride, n) different
+     * items, so we have in total gcd(stride, n) different patterns. in Z/nZ,
+     * `init` has n possible values, we want to know when different `init`
+     * correspond to different patterns and when they correspond to the same
+     * pattern.
+     *
+     * Consider the equation
+     *   f(i1; init1) == f(i2; init2)
+     * which simplifies to
+     *   init1 + i1 * stride == init2 + i2 * stride
+     *   ==> init1 - init2 = (i2 - i1) * stride
+     *   ==> init1 - init2 = (i2 - i1) * s * gcd(stride, n)
+     * Let si = (i2 - i1) * s, because s coprime with n, we know that for an
+     * arbitrary value in Z/nZ, there exist an i1 and i2 to make si take that
+     * value. That said, for init values that are off by a multiple of
+     * gcd(stride, n) they correspond to the same pattern, otherwise they
+     * belongs to different patterns. So, we can use
+     *   init = 0, 1, ..., gcd(stride, n) - 1
+     * to canonically represent gcd(stride, n) patterns. Let's call the above
+     * `init` values "pattern id".
+     *
+     * For the example of stride = 6 under Z/8Z, we have different patterns
+     *        f(i): 01234567
+     *   pattern 0: x_x_x_x_
+     *   pattern 1: _x_x_x_x
+     *   (x => occupied, _ => unoccupied)
+     *
+     * Now we have the idea about how to remove bank conflict: We can do an
+     * inner split of our row dimension by `repeated_pattern_size` to get
+     * (repeat, pattern), then different indices of the "repeat" dimension will
+     * be using the same megabank, and different indices of the "pattern"
+     * dimension will be using different megabank. We don't need to touch the
+     * "pattern" dimension, but we need to play with the "repeat" dimension to
+     * interleave it with matrice ids so that each matrix is distributed across
+     * different banks.
      *
      * For example, if we have repeated_pattern_size = 4, we would want to do
      * something like below:
@@ -288,32 +325,23 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
 
     //   -2   -1
     // [row, col]
-    TORCH_INTERNAL_ASSERT(tile_size_x % repeated_pattern_size);
-    shared_mem_tv->split(-2, repeated_pattern_size);
-    TORCH_INTERNAL_ASSERT(tile_size_y % ldmatrix_cols);
-    shared_mem_tv->split(-1, ldmatrix_cols);
-    //      -4         -3        -2       -1
-    // [pattern id, pattern, matrix id, matrix]
-
-    // Calculate swizzle period, only equal row/col periods at the moment:
-    //  TODO: aperiodic swizzle could also be supported in a follow up:
-    int max_swizzle_period = g;
-
-    int swizzle_period = max_swizzle_period;
-
-    // Do not have to use the max_swizzle period if we already had
-    //  enough swizzle to permute a ldmatrix_rows. This would encourage
-    //  usage of power of 2 swizzle periods.
-    if (ldmatrix_rows % repeated_pattern_size == 0) {
-      swizzle_period =
-          std::min(swizzle_period, ldmatrix_rows / repeated_pattern_size);
-    }
-
-    int row_multiplier = repeated_pattern_size;
-
     TORCH_INTERNAL_ASSERT(
-        tile_size_x % (swizzle_period * row_multiplier) == 0 &&
-            tile_size_y % (swizzle_period * ldmatrix_cols) == 0,
+        tile_size_x % ldmatrix_rows == 0, "Partial matrices not supported");
+    shared_mem_tv->split(-2, ldmatrix_rows);
+    TORCH_INTERNAL_ASSERT(
+        tile_size_y % ldmatrix_cols == 0, "Partial matrices not supported");
+    shared_mem_tv->split(-1, ldmatrix_cols);
+    //     -4        -3      -2         -1
+    // [matrix id, matrix, matrix id, matrix]
+    TORCH_INTERNAL_ASSERT(
+        ldmatrix_rows % repeated_pattern_size == 0,
+        "ldmatrix_rows is assumed to be a multiple of repeated_pattern_size");
+    shared_mem_tv->split(-3, repeated_pattern_size);
+    //     -5        -4      -3       -2         -1
+    // [matrix id, repeat, pattern, matrix id, matrix]
+    int swizzle_period = ldmatrix_rows / repeated_pattern_size;
+    TORCH_INTERNAL_ASSERT(
+        tile_size_y % (swizzle_period * ldmatrix_cols) == 0,
         "need aperiodic swizzle config for tile size ",
         tile_size_x,
         "x",
@@ -322,17 +350,10 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
         ldmatrix_rows,
         "x",
         ldmatrix_cols);
-
-    // add the swizzling op:
-    shared_mem_tv->split(-2, row_multiplier * swizzle_period);
-    shared_mem_tv->split(-2, row_multiplier);
-
-    shared_mem_tv->split(-1, ldmatrix_cols * swizzle_period);
-    shared_mem_tv->split(-1, ldmatrix_cols);
-
-    //        -6        -5           -4           -3        -2       -1
-    // [..., row_o, row_period, row_multiplier, col_o, col_period,
-    // ldmatrix_cols]
+    shared_mem_tv->split(-2, swizzle_period);
+    //     -6        -5      -4            -3           -2         -1
+    // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix]
+    // swizzle repeat with pattern id to make repeat no longer repeat
     if (isPowOf2(swizzle_period)) {
       shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
     } else {
