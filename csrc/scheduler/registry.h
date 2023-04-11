@@ -47,14 +47,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //! additional encoding for kernel cache lookup.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const KernelArgumentHolder& inputs);
-
-  SchedulerRuntimeInfo(
-      Fusion* complete_fusion,
       const KernelArgumentHolder& args,
-      PrecomputedValues* precomputed_values);
+      PrecomputedValues* precomputed_values = nullptr,
+      const std::vector<TensorView*>& all_tvs = {});
 
-  // TODO: Remove this guy below. Everything needs to go into the other ctor
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const at::ArrayRef<c10::IValue>& aten_inputs);

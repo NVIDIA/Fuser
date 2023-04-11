@@ -85,23 +85,10 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
       tensor.scalar_type(), GetTensorArgWithNativeType<INDEX_TYPE>(), tensor);
 }
 
-PrimDataType getIndexType(const at::Tensor& tensor) {
-  KernelIndexTypeCompute index_type_helper;
-  for (const auto i : c10::irange(tensor.ndimension())) {
-    index_type_helper.addDim(tensor.sizes()[i], tensor.strides()[i]);
-  }
-  return index_type_helper.getType();
-}
-
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     std::optional<PrimDataType> index_type,
     const at::Tensor& tensor) {
   if (index_type.has_value()) {
-    auto tensor_index_type = getIndexType(tensor);
-    TORCH_INTERNAL_ASSERT(
-        !(tensor_index_type == PrimDataType::Int &&
-          index_type.value() == PrimDataType::Int32),
-        "Cannot add a tensor with 64-bit index to 32-bit argument list");
     switch (index_type.value()) {
       case PrimDataType::Int32:
         return getTensorArg<int>(tensor);
@@ -147,6 +134,14 @@ struct MakeCpuScalarTensor {
   }
 };
 
+PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto i : c10::irange(tensor.ndimension())) {
+    index_type_helper.addDim(tensor.sizes()[i], tensor.strides()[i]);
+  }
+  return index_type_helper.getType();
+}
+
 } // namespace
 
 // Push a tensor to the arguments
@@ -156,6 +151,13 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
     arguments_.push_back(atenTypeDispatchWithC10Complex(
         tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
   } else {
+    if (index_type_.has_value()) {
+      auto tensor_index_type = getIndexTypeOfAtenTensor(tensor);
+      TORCH_INTERNAL_ASSERT(
+          !(tensor_index_type == PrimDataType::Int &&
+            index_type_.value() == PrimDataType::Int32),
+          "Cannot add a tensor with 64-bit index to 32-bit argument list");
+    }
     arguments_.push_back(getTensorArg(index_type_, tensor));
   }
 }
@@ -226,6 +228,7 @@ void KernelArgumentHolder::setIndexType(PrimDataType index_type) {
       " as it's already set as ",
       index_type_.value());
 
+  // Replace unresolved TensorArgAbstract with the correct index type
   for (auto& arg : arguments_) {
     if (auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg.get())) {
       arg = getTensorArg(index_type, tensor_arg->getTensor());

@@ -388,8 +388,10 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  on this copy
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
 
+  all_tvs_ = ir_utils::allTvs(fusion_copy.get());
+
   // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args);
+  SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, nullptr, all_tvs_);
 
   // Set the argument index type as it's resolved by SchedulerRuntimeInfo
   auto args_index_type_fixed = args;
@@ -834,7 +836,7 @@ c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   precomputed_values_->bindInputs(args);
   precomputed_values_->evaluate();
   SchedulerRuntimeInfo runtime_info(
-      complete_fusion, args, precomputed_values_.get());
+      complete_fusion, args, precomputed_values_.get(), all_tvs_);
 
   c10::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();

@@ -221,6 +221,9 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Utility to speed up value evaluation at runtime
   std::unique_ptr<PrecomputedValues> precomputed_values_;
 
+  //! Cache of all tensors in the complete fusion
+  std::vector<TensorView*> all_tvs_;
+
   // States for profiling support
   bool profiling_ = false;
 

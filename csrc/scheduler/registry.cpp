@@ -785,6 +785,9 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
     }
 
     auto extent = ee.evaluate(id->extent());
+    // We could also just conservatively use 64-bit indexing if the
+    // extent size is not determined, but this should be possible to
+    // evaluate.
     TORCH_INTERNAL_ASSERT(
         extent.has_value(),
         "Axis with unknown extent found: ",
@@ -814,16 +817,17 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
 // are non contiguous, need to fall back to 64-bit indexing
 PrimDataType getIndexTypeOfKernel(
     Fusion* fusion,
+    const std::vector<TensorView*>& all_tvs,
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee) {
+  std::cout << "getIndexTypeOfKernel:\n";
+  fusion->printMath();
+  std::cout << std::endl;
   if (inputs.getSmallestIndexTypeOfArguments() == PrimDataType::Int) {
     return PrimDataType::Int;
   }
 
-  // TODO: Consider caching
-  auto tvs = ir_utils::allTvs(fusion);
-
-  for (auto tv : tvs) {
+  for (auto tv : all_tvs) {
     // Fusion input tensors are included in the args parameter, and
     // they are checked separately
     if (tv->isFusionInput()) {
@@ -843,7 +847,8 @@ PrimDataType getIndexTypeOfKernel(
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     const KernelArgumentHolder& args,
-    PrecomputedValues* precomputed_values)
+    PrecomputedValues* precomputed_values,
+    const std::vector<TensorView*>& all_tvs)
     : complete_fusion_(complete_fusion) {
   TORCH_INTERNAL_ASSERT(
       complete_fusion_->inputs().size() == args.size(),
@@ -878,22 +883,19 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
-  index_type_ =
-      getIndexTypeOfKernel(complete_fusion_, args, *expression_evaluator_);
+  index_type_ = getIndexTypeOfKernel(
+      complete_fusion_,
+      all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+      args,
+      *expression_evaluator_);
 }
-
-SchedulerRuntimeInfo::SchedulerRuntimeInfo(
-    Fusion* complete_fusion,
-    const KernelArgumentHolder& args)
-    : SchedulerRuntimeInfo(complete_fusion, args, nullptr) {}
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     const at::ArrayRef<c10::IValue>& aten_inputs)
     : SchedulerRuntimeInfo(
           complete_fusion,
-          KernelArgumentHolder::createKernelArgumentHolder(aten_inputs),
-          nullptr) {}
+          KernelArgumentHolder::createKernelArgumentHolder(aten_inputs)) {}
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
