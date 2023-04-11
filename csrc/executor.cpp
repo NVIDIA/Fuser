@@ -259,7 +259,10 @@ void FusionExecutor::compileFusion(
         "Compilation with int32 is requested but int64 is required for the arguments");
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
-    // the arguments require 64-bit indexing, we need to use 64-bit indexing
+    // the arguments require 64-bit indexing, we need to use 64-bit
+    // indexing. Note that if the arg type is 32-bit, it doesn't mean
+    // it's safe to use 32-bit for the whole kernel, so unless it's
+    // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
   }
 
