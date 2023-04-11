@@ -143,7 +143,8 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      */
 
     constexpr int items_per_unit = ldmatrix_cols;
-    constexpr int bytes_per_unit = items_per_unit * primDataTypeSize(DataType::Half);
+    constexpr int bytes_per_unit =
+        items_per_unit * primDataTypeSize(DataType::Half);
     constexpr int words_per_unit = bytes_per_unit / smem_bytes_per_word;
     constexpr int num_megabanks = smem_banks / words_per_unit;
 
@@ -225,36 +226,45 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * The answer to the above question is: yes! Consider the following
      * equation:
      *    f(i1 + j) == f(i1)
-     * We want to know what is the smallest j that makes the above equation
-     * true. Because this tells us in how many steps we will see repeat. This
-     * equation can be simplified as:
+     * We want to know what is the smallest positive number j that makes the
+     * above equation true. Because this tells us in how many steps we will see
+     * repeat. This equation can be simplified as:
      *   f(i1 + j) == f(i1) + j * stride == f(i1)
      *   ==> j * stride == 0
-     * That is, we are interested in finding the minimum j that makes
-     *   j * stride == 0
      *
-     * Further study of equation j * stride == 0 needs knowledge on
-     * "multiplicative group of integers modulo n", which can be found at:
-     * https://en.wikipedia.org/wiki/Multiplicative_group_of_integers_modulo_n
-     * Readers not interested in this detail can skip this paragraph and jump to
-     * conclusions in the next paragraph.
-     * 
+     * An important tool to study this equation is multiplicative inverse:
+     * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+     * stride has an multiplicative inverse if and only if stride coprime with
+     * n, that is, gcd(stride, n) == 1. In such case, the solution to our
+     * equation j * stride == 0 is j = stride^(-1) * 0 = 0, that is: f(i) does
+     * not repeat, that is: there is no bank conflict.
      */
 
-    // In the case where tile row is a multiple of memory row, the whole memory
-    //  row is the repeated pattern of swizzle. In the case where tile row is
-    //  not divisible, the residule part is the repeated pattern.
-    int repeated_pattern_size_in_units =
-        std::gcd(num_megabanks, row_stride_znz);
-
-    // Calculate row multiplier, which is defined as minimum number of rows
-    //  to look down from an element until the same bank index is observed.
-    int multiplier = num_megabanks / repeated_pattern_size_in_units;
-
-    if (multiplier >= ldmatrix_rows) {
-      // No need to swizzle in this case.
-      return;
+    int g = std::gcd(num_megabanks, row_stride_znz);
+    if (g == 1) {
+      return; // No need to swizzle in this case.
     }
+
+    /* If stride does not coprime with n, then we can write stride as:
+     *   stride = s * gcd(stride, n)
+     * where s coprime with n. Then the equation j * stride == 0 becomes:
+     *   j * s * gcd(stride, n) == 0
+     * which can be simplified as
+     *   j * gcd(stride, n) == s^(-1) * 0
+     *   ==> j * gcd(stride, n) == 0
+     * It is easy to see that j is n / gcd(stride, n).
+     * That is: f(i) always repeat a pattern of n / gcd(stride, n) unique
+     * numbers gcd(stride, n) times
+     */
+
+    int repeated_pattern_size = num_megabanks / g;
+
+    if (repeated_pattern_size >= ldmatrix_rows) {
+      return; // No need to swizzle in this case.
+    }
+
+    /* Now we are ready to implement our swizzle
+     */
 
     // Calculate swizzle period, only equal row/col periods at the moment:
     //  TODO: aperiodic swizzle could also be supported in a follow up:
@@ -265,11 +275,12 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     // Do not have to use the max_swizzle period if we already had
     //  enough swizzle to permute a ldmatrix_rows. This would encourage
     //  usage of power of 2 swizzle periods.
-    if (ldmatrix_rows % multiplier == 0) {
-      swizzle_period = std::min(swizzle_period, ldmatrix_rows / multiplier);
+    if (ldmatrix_rows % repeated_pattern_size == 0) {
+      swizzle_period =
+          std::min(swizzle_period, ldmatrix_rows / repeated_pattern_size);
     }
 
-    int row_multiplier = multiplier;
+    int row_multiplier = repeated_pattern_size;
 
     TORCH_INTERNAL_ASSERT(
         tile_size_x % (swizzle_period * row_multiplier) == 0 &&
