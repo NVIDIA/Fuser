@@ -9162,7 +9162,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   std::vector<c10::IValue> aten_inputs({aten_input});
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   TORCH_CHECK(SchedulerEntry::canSchedule(
       ScheduleHeuristic::Persistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
@@ -9350,7 +9350,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation1_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9413,7 +9413,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9497,7 +9497,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   at::Tensor aten_t5 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0, aten_t5}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0, aten_t5});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9576,7 +9576,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9699,7 +9699,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
         tv->toString());
   }
 
-  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_info);
 

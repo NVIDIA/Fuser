@@ -840,10 +840,6 @@ PrimDataType getIndexTypeOfKernel(
 
 } // namespace
 
-void SchedulerRuntimeInfo::initialize(
-    const KernelArgumentHolder& args,
-    PrecomputedValues* precomputed_values) {}
-
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     const KernelArgumentHolder& args,
