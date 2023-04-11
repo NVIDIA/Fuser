@@ -33,7 +33,7 @@
 
 namespace nvfuser {
 
-int FusionExecutor::fusion_id_counter_ = 0; // NOLINT
+int FusionExecutor::fusion_id_counter_ = 0;
 
 bool fill_allocation_with_nan_ = false;
 
@@ -92,9 +92,18 @@ static const std::string& includeStdComplex() {
 
 } // namespace
 
+std::unique_ptr<PrecomputedValues>& FusionExecutor::
+    evaluatorPrecomputedValues() {
+  if (!evaluator_precomputed_values_) {
+    evaluator_precomputed_values_ =
+        std::make_unique<PrecomputedValues>(lowered_->kernel());
+  }
+  return evaluator_precomputed_values_;
+}
+
 std::string FusionExecutor::getStructuredCode(
     const std::string& kernel_str,
-    PrimDataType index_type) {
+    PrimDataType index_type) const {
   // generating cuda code;
   std::string code = "";
   if (shouldAssertOutOfBound()) {
@@ -125,6 +134,10 @@ std::string FusionExecutor::getStructuredCode(
   }
 
   return code;
+}
+
+std::string FusionExecutor::getStructuredCode() const {
+  return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
 // TODO: come up with a more user friendly interface
@@ -174,7 +187,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::nvrtcCompile(c10::nullopt, code, name, fusion_id_);
+      executor_utils::getCompiledKernel(c10::nullopt, code, name, fusion_id_);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
@@ -306,7 +319,7 @@ void FusionExecutor::compileFusion(
   auto external_code_path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
   const auto structured_code = external_code_path
       ? load_external_code(external_code_path)
-      : getStructuredCode(kernel_code_, kernel->indexType());
+      : getStructuredCode();
 
   const auto& kernel_summary = kernel->summary();
 
@@ -315,7 +328,6 @@ void FusionExecutor::compileFusion(
   //  needed in later development.
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
-    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
@@ -350,18 +362,18 @@ void FusionExecutor::compileFusion(
   // Basically setting high water martk as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the first
   // run - not great. We should have better heuristics.
-  block_size_high_water_mark = std::max<int64_t>(
+  block_size_high_water_mark_ = std::max<int64_t>(
       (block_size.has_value() ? block_size.value() : 1),
-      block_size_high_water_mark);
-  maxrregcount_high_water_mark = compile_params.maxrregcount;
+      block_size_high_water_mark_);
+  maxrregcount_high_water_mark_ = compile_params.maxrregcount;
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::nvrtcCompile(
+      executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
-          (kernelNamespace() + "::" + kernelName()).c_str(),
+          getCanonicalKernelName(),
           fusion_id_,
           block_size,
-          maxrregcount_high_water_mark,
+          maxrregcount_high_water_mark_,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
@@ -417,6 +429,8 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
+// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
+// is used by FusionKernelRuntime::dryRunKernelWithInput
 at::Tensor inferAndAlloc(
     const TensorView* tv,
     const std::vector<Val*>& sizes,
@@ -496,6 +510,8 @@ at::Tensor inferAndAlloc(
   }
 }
 
+// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
+// is used by FusionKernelRuntime::dryRunKernelWithInput
 at::Tensor inferAndAllocOutput(
     const TensorView* tv,
     ExpressionEvaluator& expr_eval,
@@ -521,6 +537,178 @@ at::Tensor inferAndAllocOutput(
   return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
 }
 
+std::vector<int64_t> getContiguousStrides(
+    const std::vector<int64_t>& sizes,
+    const std::vector<bool>& expand_flags) {
+  TORCH_INTERNAL_ASSERT(sizes.size() == expand_flags.size());
+
+  std::vector<int64_t> strides(sizes.size());
+  int64_t cur_stride = 1;
+  for (auto i = sizes.size(); i > 0; --i) {
+    auto size = sizes.at(i - 1);
+    TORCH_INTERNAL_ASSERT(
+        size >= 0,
+        "Positive size is assumed non-negative but received: ",
+        size);
+
+    int64_t stride = cur_stride;
+
+    // If expanded, stride is 0
+    if (expand_flags.at(i - 1)) {
+      stride = 0;
+    } else if (size == 0) {
+      // If the size is 0, the stride is 1
+      stride = 1;
+    } else {
+      cur_stride *= size;
+    }
+
+    strides.at(i - 1) = stride;
+  }
+
+  return strides;
+}
+
+// Infer the size and stride of each dimension
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+    const TensorView* tv,
+    std::vector<Val*> symbolic_sizes,
+    std::vector<bool> expand_flags,
+    ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("inferShape");
+
+  // Allocate should be provided for intermediates. We just need to
+  // grab a chunk of memory of the size dicatated by
+  // Allocate::shape(). Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
+
+  for (const auto i : c10::irange(symbolic_sizes.size())) {
+    auto symbolic_size = symbolic_sizes.at(i);
+    const auto inferred_val = expr_eval.evaluate(symbolic_size);
+    TORCH_INTERNAL_ASSERT(
+        inferred_val.has_value(),
+        "Could not launch kernel as program could not infer ",
+        symbolic_size->toInlineString(),
+        "(",
+        symbolic_size->toString(),
+        ") for the buffer ",
+        tv->toString());
+
+    auto concrete_size = inferred_val->as<int64_t>();
+    concrete_sizes.at(i) = concrete_size;
+  }
+
+  auto strides = getContiguousStrides(concrete_sizes, expand_flags);
+
+  return {concrete_sizes, strides};
+}
+
+// Infer the shape of an intemediate tensor using kir::Allocate
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
+    const TensorView* tv,
+    const kir::Allocate* alloc,
+    ExpressionEvaluator& expr_eval) {
+  // Allocate should be provided for intermediates. We just need to
+  // grab a chunk of memory of the size dicatated by
+  // Allocate::shape().
+  TORCH_INTERNAL_ASSERT(alloc != nullptr);
+
+  const auto& symbolic_sizes = alloc->shape();
+  // For intermediate tensors, we just need to allocate a memory chunk
+  // of the specified size. Broadcast expansion does not need to be considered.
+  const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
+
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
+
+// Infer the sizes and strides of an output tensor
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    const TensorView* tv,
+    ExpressionEvaluator& expr_eval) {
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the rfactor domain
+  for (const auto id : tv->getMaybeRFactorDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    if (id->hasExpandedExtent()) {
+      TORCH_INTERNAL_ASSERT(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
+
+// Allocate output tensos for a given kernel. Outputs may alias inputs, in
+// that case output tensors are shallow copies of the aliased inputs
+std::vector<at::Tensor> allocOutputs(
+    const kir::Kernel* kernel,
+    const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
+    const std::vector<std::pair<int, int>>& output_to_input_aliases,
+    const KernelArgumentHolder& inputs,
+    const c10::Device& device) {
+  FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
+
+  std::vector<at::Tensor> outputs;
+
+  for (const auto output_idx : c10::irange(output_info.size())) {
+    const auto& buf_info = output_info.at(output_idx);
+
+    auto alias_it = std::find_if(
+        output_to_input_aliases.begin(),
+        output_to_input_aliases.end(),
+        [&](const auto output_to_input) {
+          return output_to_input.first == (int)output_idx;
+        });
+
+    // Note: aliased output is not returned as output. But we still need it
+    // for kernel execution, so would need to push them to args
+    if (alias_it != output_to_input_aliases.end()) {
+      auto aliased_input_index = alias_it->second;
+      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(
+          inputs.at(aliased_input_index));
+      TORCH_INTERNAL_ASSERT(
+          tensor_arg_abstract, "alias io only supports tensor");
+      outputs.emplace_back(tensor_arg_abstract->getTensor());
+    } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
+      // pushing empty tensor for trivial forwarding. Since we handle this in
+      // integration, see step 1 - note [trivial forwarding]
+      const auto tensor_options =
+          at::TensorOptions().dtype(at::kFloat).device(device);
+      outputs.emplace_back(at::empty({0}, tensor_options));
+    } else {
+      outputs.emplace_back(at::native::empty_strided_cuda(
+          buf_info.sizes,
+          buf_info.strides,
+          buf_info.type,
+          c10::nullopt,
+          device,
+          c10::nullopt));
+      if (shouldFillAllocationWithNan()) {
+        fillTensorWithNan(outputs.back());
+      }
+    }
+  }
+
+  return outputs;
+}
+
 } // namespace
 
 uint64_t FusionExecutor::computeSharedMemory(
@@ -538,11 +726,7 @@ uint64_t FusionExecutor::computeSharedMemory(
         const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
         // Add padding to align dynamic shared memory
         if (align_padding) {
-#ifndef USE_ROCM
           const int align_size = 16; // always align to 16B/128b.
-#else
-          const int align_size = 8; // see codegen.cpp for HIP
-#endif
           total = ceilDiv((int64_t)total, align_size) * align_size;
         }
         total += inferred_val->as<int64_t>() * data_size;
@@ -691,7 +875,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
     }
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   const uint64_t dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
@@ -732,12 +915,15 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::AllocGlobalVals");
-  GlobalBuffers global_buffers;
+std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
+    getIntermediateBufferInfo(ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("FusionExecutor::GetIntermediateBufferInfo");
+
+  std::vector<GlobalBufferInfo> global_buffers;
+
   const auto kernel = lowered_->kernel();
   const auto& kernel_summary = kernel->summary();
+
   for (auto alloc : kernel_summary.global_allocations) {
     TORCH_INTERNAL_ASSERT(
         alloc->buffer()->isA<TensorView>(),
@@ -746,20 +932,19 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
     if (tv->isFusionOutput()) {
       continue;
     }
-    if (alloc->zeroInit()) {
-      global_buffers.buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, {}, options_, true));
-      global_buffers.zero_init.push_back(true);
-    } else {
-      global_buffers.buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, {}, options_, false));
-      global_buffers.zero_init.push_back(false);
-    }
+    GlobalBufferInfo info;
+    info.zero_init = alloc->zeroInit();
+    std::tie(info.sizes, info.strides) =
+        inferShapeOfIntermediate(tv, alloc, expr_eval);
+    info.type = data_type_to_aten(tv->dtype());
+
     // Remember the tensor buffer used for storing kernel profile
     if (isOptionEnabled(EnableOption::KernelProfile) &&
         tv == kernel->profile().getBuffer()) {
-      global_buffers.profile_buffer = global_buffers.buffers.back();
+      info.is_profile_buffer = true;
     }
+
+    global_buffers.emplace_back(info);
   }
 
   return global_buffers;
@@ -770,43 +955,68 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
   auto expr_eval =
       executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-  auto outputs = allocOutputs(kernel_inputs, expr_eval);
-  return outputs;
+
+  auto input_alias_indices_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::InputAliasIndices>(
+          compileTimeDataCache(), [&]() {
+            return std::make_unique<std::vector<std::pair<int, int>>>(
+                fusion_->getOutputToInputAliasIndices());
+          });
+
+  const auto& output_to_input_aliases = input_alias_indices_entry.get();
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
+
+  return allocOutputs(
+      kernel(),
+      output_info,
+      output_to_input_aliases,
+      kernel_inputs,
+      options_.device);
 }
 
-std::vector<at::Tensor> FusionExecutor::allocOutputs(
-    const KernelArgumentHolder& args,
-    ExpressionEvaluator& expr_eval,
-    const std::unordered_set<int>& alias_indices) {
-  FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
+std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
+    getOutputBufferInfo(
+        const KernelArgumentHolder& args,
+        ExpressionEvaluator& expr_eval,
+        const std::vector<std::pair<int, int>>& output_to_input_aliases) {
+  FUSER_PERF_SCOPE("FusionExecutor::GetOutbufferInfo");
   const auto kernel = lowered_->kernel();
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<at::Tensor> outputs;
+  std::vector<GlobalBufferInfo> outputs;
   TORCH_INTERNAL_ASSERT(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
+    GlobalBufferInfo info;
     if (kernel->outputs()[out_i]->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
-      c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty({0}, tensor_options));
+      info.type = at::kFloat;
+      info.sizes = {0};
     } else {
       TORCH_INTERNAL_ASSERT(
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count((int)out_i) != 0) {
-        // aliasing to inputs, no need to allocate real output, just push empty
-        // tensor here.
-        outputs.emplace_back();
+      auto alias_it = std::find_if(
+          output_to_input_aliases.begin(),
+          output_to_input_aliases.end(),
+          [&](const auto output_to_input) {
+            return output_to_input.first == (int)out_i;
+          });
+      if (alias_it != output_to_input_aliases.end()) {
+        // Aliased to an input, no need to gather allocation
+        // info. Leave it as is
       } else {
-        outputs.push_back(
-            inferAndAllocOutput(output, expr_eval, options_, false));
+        std::tie(info.sizes, info.strides) =
+            inferShapeOfOutput(output, expr_eval);
+        info.type = data_type_to_aten(output->dtype());
+        info.zero_init = false;
       }
     }
+    outputs.emplace_back(info);
   }
   return outputs;
 }
@@ -818,6 +1028,7 @@ void FusionExecutor::setUsedTVs() {
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
 }
 
+// TODO: replace use of inferAndAllocOutput
 KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
     const KernelArgumentHolder& args,
     ExpressionEvaluator& expr_eval,
@@ -892,14 +1103,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   // would be resolved with FakeTensor
   // executor_utils::validateKernelInputs(fusion_, args, options_.device);
 
-  if (!evaluator_precomputed_values_) {
-    evaluator_precomputed_values_ =
-        std::make_unique<PrecomputedValues>(lowered_->kernel());
-  }
-
   ExpressionEvaluator expr_eval;
-  evaluator_precomputed_values_->bindInputs(args);
-  expr_eval.precomputedValues() = evaluator_precomputed_values_.get();
+  evaluatorPrecomputedValues()->bindInputs(args);
+  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
 
   // I think this binds something to expr_eval, so even though we are not using
   // launch_params_, we still need this in order to infer output shapes.
@@ -913,18 +1119,17 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
       executor_utils::caching::InputAliasIndices>(
       compileTimeDataCache(), [&]() {
         return std::make_unique<std::vector<std::pair<int, int>>>(
-            fusion_->getInputAliasIndices());
+            fusion_->getOutputToInputAliasIndices());
       });
 
   auto& alias_indices = alias_indices_entry.get();
 
-  // NOLINTNEXTLINE(bugprone-branch-clone)
   auto output_alias_indices_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::OutputAliasIndices>(
           compileTimeDataCache(), [&]() {
             return std::make_unique<std::unordered_set<int>>(
-                fusion_->getOutputAliasIndices());
+                fusion_->getIndicesOfAliasedOutputs());
           });
 
   auto& output_alias_indices = output_alias_indices_entry.get();
@@ -973,13 +1178,203 @@ void validateIndexType(
       compile_params.index_type.value());
 }
 
+void validateCooperativeLaunch(
+    CUfunction kernel,
+    const LaunchParams& launch_params,
+    int64_t device_index) {
+  int num_blocks_per_SM = -1;
+  CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &num_blocks_per_SM,
+      kernel,
+      (int)(launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz()),
+      (size_t)launch_params.smem()));
+
+  TORCH_INTERNAL_ASSERT(
+      (int64_t)(num_blocks_per_SM * at::cuda::getDeviceProperties(device_index)->multiProcessorCount) >=
+          launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "what can be resident on the GPU at once. Need: ",
+      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      " (",
+      launch_params.gdimx(),
+      " * ",
+      launch_params.gdimy(),
+      " * ",
+      launch_params.gdimz(),
+      ") but limited to ",
+      num_blocks_per_SM,
+      " * ",
+      at::cuda::getDeviceProperties(device_index)->multiProcessorCount);
+}
+
+// Dump fusion inputs and outputs as well as some useful fusion
+// information. Note that inputs and outputs are those that are passed
+// to FusionExecutor::runFusion, so outputs may not be given.
+void dumpFusionArgs(
+    int fusion_id,
+    const KernelArgumentHolder& args,
+    const LaunchParams& launch_constraints,
+    const CompileParams& compile_params,
+    const std::vector<at::Tensor>& outputs) {
+  std::cout << "Arguments for fusion" << fusion_id << ":" << std::endl
+            << "Inputs:" << std::endl;
+  for (auto i : c10::irange(args.size())) {
+    std::cout << "  " << args[i]->toString() << std::endl;
+  }
+  std::cout << "Outputs:" << std::endl;
+  for (const auto& output : outputs) {
+    std::cout << "  " << output.scalar_type() << " " << output.sizes()
+              << " (strides = " << output.strides() << ")" << std::endl;
+  }
+  std::cout << launch_constraints.toString();
+  std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+}
+
+// Dump arguments that are passed to a CUDA kernel call, which include
+// the inputs and outputs of the fusion as well as temporary
+// global-memory buffers. Unlike dumpFusionArgs, which dumps inputs
+// and outputs passed to FusionExecutor::runFusion, this function
+// dumps those that are passed to a CUDA kernel.
+void dumpKernelArgs(
+    int fusion_id,
+    const KernelArgumentHolder& args,
+    size_t num_inputs,
+    const std::vector<at::Tensor>& allocated_outputs,
+    const std::vector<at::Tensor>& intermediates,
+    const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
+  std::cout << "Arguments for kernel" << fusion_id << ":" << std::endl
+            << "Inputs:" << std::endl;
+  for (auto i : c10::irange(num_inputs)) {
+    std::cout << "  " << args[i]->toString() << std::endl;
+  }
+  std::cout << "Outputs:" << std::endl;
+  // note: add aliased outputs here.
+  for (const auto& output : allocated_outputs) {
+    std::cout << "  " << output.scalar_type() << " " << output.sizes()
+              << " (strides = " << output.strides()
+              << ", address = " << output.data_ptr() << ")" << std::endl;
+  }
+  std::cout << "Intermediate global buffers:" << std::endl;
+  for (const auto i : c10::irange(intermediates.size())) {
+    const auto& buffer = intermediates.at(i);
+    const auto& zero_init = intermediates_info.at(i).zero_init;
+    std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
+              << " is_zero_initialized: " << zero_init << std::endl;
+  }
+}
+
+FusionExecutor::GlobalBufferInfo getGlobalBufferAllocationInfo(
+    const at::Tensor& at_tensor) {
+  FusionExecutor::GlobalBufferInfo info{
+      .sizes = at_tensor.sizes().vec(),
+      .strides = at_tensor.strides().vec(),
+      .type = at_tensor.scalar_type()};
+  return info;
+}
+
 } // namespace
+
+void FusionExecutor::initializeExecutorEntry(
+    ExecutorEntry& executor_entry,
+    const KernelArgumentHolder& args,
+    const LaunchParams& launch_constraints,
+    const CompileParams& compile_params,
+    const std::vector<at::Tensor>& outputs) {
+  FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
+
+  // code path to take when either:
+  //   1. no opt_code is provided or
+  //   2. `executor_entry` is not initialized
+  executor_utils::validateKernelInputs(fusion_, args, options_.device);
+
+  ExpressionEvaluator expr_eval;
+  evaluatorPrecomputedValues()->bindInputs(args);
+  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+
+  auto launch_params =
+      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+
+  executor_utils::validateVectorizedTensors(
+      kernel(), args, outputs, compileTimeDataCache(), expr_eval);
+
+  auto input_alias_indices_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::InputAliasIndices>(
+          compileTimeDataCache(), [&]() {
+            return std::make_unique<std::vector<std::pair<int, int>>>(
+                fusion_->getOutputToInputAliasIndices());
+          });
+
+  const auto& output_to_input_aliases = input_alias_indices_entry.get();
+
+  std::vector<GlobalBufferInfo> output_info;
+
+  if (outputs.empty()) {
+    output_info = getOutputBufferInfo(args, expr_eval, output_to_input_aliases);
+  } else {
+    // Need to save the information necessary for allocations as
+    // future uses of this ExecutorEntry may not be provided with
+    // allocated outputs
+    for (const auto& output : outputs) {
+      output_info.emplace_back(getGlobalBufferAllocationInfo(output));
+    }
+  }
+
+  auto intermediates = getIntermediateBufferInfo(expr_eval);
+
+  uint64_t rand_offset = 0;
+  if (kernel()->summary().max_rng_offsets >= 0) {
+    // NOTE: this is how we map offset to PW kernels in order to have
+    // identical random number generator to match native PyTorch results.
+    // But it doesn't really work as it takes assumption how threads are
+    // binded but is not generally how we handle that in scheduler.
+    // Refer to `Philox` in generated kernel to understand how the mapping
+    // works.
+    rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
+  }
+
+  // All information is gathered. Save it to ExecutorEntry
+  executor_entry.launch_params = launch_params;
+  executor_entry.output_to_input_aliases = output_to_input_aliases;
+  executor_entry.outputs = output_info;
+  executor_entry.intermediates = intermediates;
+  executor_entry.rand_offset = rand_offset;
+  executor_entry.init = true;
+}
+
+void FusionExecutor::recompileKernel(
+    const LaunchParams& new_launch_params,
+    const CompileParams& new_compile_params) {
+  if (new_launch_params.nThreads() <= block_size_high_water_mark_ &&
+      new_compile_params.maxrregcount == maxrregcount_high_water_mark_) {
+    return;
+  }
+
+  const auto structured_code = getStructuredCode();
+  block_size_high_water_mark_ = new_launch_params.nThreads();
+  maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
+
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+      executor_utils::getCompiledKernel(
+          kernel_code_,
+          structured_code,
+          getCanonicalKernelName(),
+          fusion_id_,
+          block_size_high_water_mark_,
+          maxrregcount_high_water_mark_,
+          save_compiled_binary_);
+
+  if (kernel()->summary().has_cooperative_grid_reduction) {
+    validateCooperativeLaunch(
+        compiled_kernel_.function, new_launch_params, options_.device.index());
+  }
+}
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    const std::vector<at::Tensor>& outputs) {
+    std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
   TORCH_INTERNAL_ASSERT(compiled());
   TORCH_INTERNAL_ASSERT(
@@ -990,271 +1385,90 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   validateIndexType(kernel(), args, compile_params);
 
-  size_t num_inputs = args.size();
+  const auto num_inputs = args.size();
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
-    std::cout << "Arguments for fusion" << fusion_id_ << ":" << std::endl
-              << "Inputs:" << std::endl;
-    for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[i]->toString() << std::endl;
-    }
-    std::cout << "Outputs:" << std::endl;
-    for (const auto& output : outputs) {
-      std::cout << "  " << output.scalar_type() << " " << output.sizes()
-                << " (strides = " << output.strides() << ")" << std::endl;
-    }
-    std::cout << launch_constraints.toString();
-    std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
-  }
-
-  ExecutorEntry* executor_entry = nullptr;
-  if (args.getCacheId().has_value()) {
-    executor_entry = &executor_entry_lookup_[*args.getCacheId()];
+    dumpFusionArgs(
+        fusion_id_, args, launch_constraints, compile_params, outputs);
   }
 
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();
   TORCH_INTERNAL_ASSERT(lowered_);
-  launch_params_ = LaunchParams();
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<at::Tensor> allocated_outputs;
-  GlobalBuffers global_buffers;
-  uint64_t rand_offset = 0;
 
-  if (executor_entry && executor_entry->init && !disable_parameter_cache_) {
-    {
-      // context manager to disable auto grad for `empty_cuda` calls later
-      at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-      // take the short-cut for launch if we see a recorded input set again
-      launch_params_ = executor_entry->launch_params;
-      // only allocate outputs when not given
-      if (outputs.empty()) {
-        FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
-        for (const auto i : c10::irange(executor_entry->output_sizes.size())) {
-          allocated_outputs.push_back(at::native::empty_strided_cuda(
-              executor_entry->output_sizes[i],
-              executor_entry->output_strides[i],
-              executor_entry->output_types[i],
-              c10::nullopt,
-              options_.device,
-              c10::nullopt));
-          if (shouldFillAllocationWithNan()) {
-            fillTensorWithNan(allocated_outputs.back());
-          }
-        }
-        // Note: aliased output is not returned as output. But we still need it
-        // for kernel execution, so would need to push them to args
-        for (const auto& entry : executor_entry->io_alias_indices) {
-          auto aliased_output_index = entry.first;
-          auto aliased_input_index = entry.second;
-          auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(args[aliased_input_index]);
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_abstract, "alias io only supports tensor");
-          allocated_outputs[aliased_output_index] =
-              tensor_arg_abstract->getTensor();
-        }
-        args.push(allocated_outputs);
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            outputs.size() == fusion_->outputs().size(),
-            __func__,
-            " provided number of outputs does match fusion output");
-        allocated_outputs = outputs;
-        args.push(outputs);
-      }
+  // Placeholder for the case where parameter cache is not used
+  ExecutorEntry temporary_executor_entry;
 
-      {
-        FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
-        for (const auto i : c10::irange(executor_entry->buffer_sizes.size())) {
-          if (executor_entry->buffer_zero_init[i]) {
-            global_buffers.buffers.push_back(at::zeros(
-                executor_entry->buffer_sizes[i],
-                at::TensorOptions()
-                    .dtype(executor_entry->buffer_types[i])
-                    .device(options_.device)));
-            global_buffers.zero_init.push_back(true);
-          } else {
-            global_buffers.buffers.push_back(at::native::empty_cuda(
-                executor_entry->buffer_sizes[i],
-                executor_entry->buffer_types[i],
-                c10::nullopt,
-                options_.device,
-                c10::nullopt));
-            if (shouldFillAllocationWithNan()) {
-              fillTensorWithNan(global_buffers.buffers.back());
-            }
-            global_buffers.zero_init.push_back(false);
-          }
-        }
-      }
-    }
-    rand_offset = executor_entry->rand_offset;
-  } else {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::ValidateAndInitialize");
-    // code path to take when either:
-    //   1. no opt_code is provided or
-    //   2. `executor_entry` is not initialized
-    executor_utils::validateKernelInputs(fusion_, args, options_.device);
+  ExecutorEntry* executor_entry =
+      args.getCacheId().has_value() && !disable_parameter_cache_
+      ? &executor_entry_lookup_[*args.getCacheId()]
+      : &temporary_executor_entry;
 
-    if (!evaluator_precomputed_values_) {
-      evaluator_precomputed_values_ =
-          std::make_unique<PrecomputedValues>(lowered_->kernel());
-    }
+  // Initialize the executor entry if not initlized
+  if (!executor_entry->init) {
+    initializeExecutorEntry(
+        *executor_entry, args, launch_constraints, compile_params, outputs);
+  }
 
-    ExpressionEvaluator expr_eval;
-    evaluator_precomputed_values_->bindInputs(args);
-    expr_eval.precomputedValues() = evaluator_precomputed_values_.get();
+  recompileKernel(executor_entry->launch_params, compile_params);
 
-    launch_params_ =
-        computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+  // TODO: Why does this need to be stored in the class?
+  launch_params_ = executor_entry->launch_params;
 
-    // Recompile the kernel if the number of threads in the block has increased
-    // or maxrregcount has changed
-    if (launch_params_.nThreads() > block_size_high_water_mark ||
-        compile_params.maxrregcount != maxrregcount_high_water_mark) {
-      const auto kernel = lowered_->kernel();
-      kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
-      const auto structured_code =
-          getStructuredCode(kernel_code_, kernel->indexType());
-      block_size_high_water_mark = launch_params_.nThreads();
-      maxrregcount_high_water_mark = compile_params.maxrregcount;
+  // context manager to disable auto grad for `empty_cuda` calls later
+  at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-      std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-          executor_utils::nvrtcCompile(
-              kernel_code_,
-              structured_code,
-              (kernelNamespace() + "::" + kernelName()).c_str(),
-              fusion_id_,
-              block_size_high_water_mark,
-              maxrregcount_high_water_mark,
-              save_compiled_binary_);
-    }
-
-    if (kernel()->summary().has_cooperative_grid_reduction) {
-      int num_blocks_per_SM = -1;
-      CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
-          &num_blocks_per_SM,
-          compiled_kernel_.function,
-          (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
-          (size_t)launch_params_.smem()));
-
-      TORCH_INTERNAL_ASSERT(
-          (int64_t)(
-              num_blocks_per_SM *
-              at::cuda::getDeviceProperties(options_.device.index())
-                  ->multiProcessorCount) >= launch_params_.gdimx() *
-                  launch_params_.gdimy() * launch_params_.gdimz(),
-          "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
-          "what can be resident on the GPU at once. Need: ",
-          launch_params_.gdimx() * launch_params_.gdimy() *
-              launch_params_.gdimz(),
-          " (",
-          launch_params_.gdimx(),
-          " * ",
-          launch_params_.gdimy(),
-          " * ",
-          launch_params_.gdimz(),
-          ") but limited to ",
-          num_blocks_per_SM,
-          " * ",
-          at::cuda::getDeviceProperties(options_.device.index())
-              ->multiProcessorCount);
-    }
-
-    executor_utils::validateVectorizedTensors(
-        lowered_.get()->kernel(),
+  // only allocate outputs when not given
+  if (outputs.empty()) {
+    outputs = allocOutputs(
+        kernel(),
+        executor_entry->outputs,
+        executor_entry->output_to_input_aliases,
         args,
-        outputs,
-        compileTimeDataCache(),
-        expr_eval);
+        options_.device);
+  } else {
+    // TODO: Use validateKernelOutputs
+    TORCH_INTERNAL_ASSERT(
+        outputs.size() == fusion_->outputs().size(),
+        __func__,
+        " provided number of outputs does not match fusion output");
+  }
+  args.push(outputs);
 
-    auto alias_indices_entry =
-        executor_utils::caching::ExecutorCompileTimeEntry<
-            executor_utils::caching::InputAliasIndices>(
-            compileTimeDataCache(), [&]() {
-              return std::make_unique<std::vector<std::pair<int, int>>>(
-                  fusion_->getInputAliasIndices());
-            });
-
-    auto& alias_indices = alias_indices_entry.get();
-
-    // NOLINTNEXTLINE(bugprone-branch-clone)
-    if (outputs.empty()) {
-      auto output_alias_indices_entry =
-          executor_utils::caching::ExecutorCompileTimeEntry<
-              executor_utils::caching::OutputAliasIndices>(
-              compileTimeDataCache(), [&]() {
-                return std::make_unique<std::unordered_set<int>>(
-                    fusion_->getOutputAliasIndices());
-              });
-
-      auto& output_alias_indices = output_alias_indices_entry.get();
-
-      allocated_outputs = allocOutputs(args, expr_eval, output_alias_indices);
-
-      for (const auto& entry : alias_indices) {
-        auto aliased_output_index = entry.first;
-        auto aliased_input_index = entry.second;
-        auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[aliased_input_index]);
-        TORCH_INTERNAL_ASSERT(
-            tensor_arg_abstract, "alias io only supports tensor");
-        allocated_outputs[aliased_output_index] =
-            tensor_arg_abstract->getTensor();
+  std::vector<at::Tensor> intermediates;
+  at::Tensor profile_buffer;
+  {
+    FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
+    for (const auto i : c10::irange(executor_entry->intermediates.size())) {
+      const auto& buf_info = executor_entry->intermediates.at(i);
+      at::Tensor intermediate_buffer;
+      if (buf_info.zero_init) {
+        intermediate_buffer = at::zeros(
+            buf_info.sizes,
+            at::TensorOptions().dtype(buf_info.type).device(options_.device));
+      } else {
+        intermediate_buffer = at::native::empty_cuda(
+            buf_info.sizes,
+            buf_info.type,
+            c10::nullopt,
+            options_.device,
+            c10::nullopt);
+        if (shouldFillAllocationWithNan()) {
+          fillTensorWithNan(intermediate_buffer);
+        }
       }
-      args.push(allocated_outputs);
-    } else {
-      allocated_outputs = outputs;
-      args.push(outputs);
-      executor_utils::validateKernelOutputs(
-          fusion_, allocated_outputs, options_.device);
-    }
-
-    global_buffers = allocGlobalVals(expr_eval);
-
-    if (kernel()->summary().max_rng_offsets >= 0) {
-      // NOTE: this is how we map offset to PW kernels in order to have
-      // identical random number generator to match native PyTorch results.
-      // But it doesn't really work as it takes assumption how threads are
-      // binded but is not generally how we handle that in scheduler.
-      // Refer to `Philox` in generated kernel to understand how the mapping
-      // works.
-      rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
-    }
-
-    // This is the entry when we have provided `opt_code` but the entry has not
-    // been initialized yet.
-    if (executor_entry) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::FillCacheEntry");
-      // record the the short-cut executor entry for the given input set;
-      executor_entry->launch_params = launch_params_;
-      executor_entry->io_alias_indices = alias_indices;
-      for (const auto& output : allocated_outputs) {
-        executor_entry->output_sizes.push_back(output.sizes().vec());
-        executor_entry->output_strides.push_back(output.strides().vec());
-        executor_entry->output_types.push_back(output.scalar_type());
+      args.push(intermediate_buffer);
+      intermediates.push_back(intermediate_buffer);
+      if (buf_info.is_profile_buffer) {
+        profile_buffer = intermediate_buffer;
       }
-
-      for (const auto& i : c10::irange(global_buffers.buffers.size())) {
-        executor_entry->buffer_sizes.push_back(
-            global_buffers.buffers[i].sizes().vec());
-        executor_entry->buffer_types.push_back(
-            global_buffers.buffers[i].scalar_type());
-        executor_entry->buffer_zero_init.push_back(global_buffers.zero_init[i]);
-      }
-      executor_entry->rand_offset = rand_offset;
-      executor_entry->init = true;
     }
   }
 
-  // push back global buffers
-  args.push(global_buffers.buffers);
-
   // push back RNG state if needed
   if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    args.appendPhiloxRNGSeed(rand_offset);
+    args.appendPhiloxRNGSeed(executor_entry->rand_offset);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1262,28 +1476,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-    std::cout << "Arguments for kernel" << fusion_id_ << ":" << std::endl
-              << "Inputs:" << std::endl;
-    for (auto i : c10::irange(num_inputs)) {
-      std::cout << "  " << args[i]->toString() << std::endl;
-    }
-    std::cout << "Outputs:" << std::endl;
-    // note: add aliased outputs here.
-    for (const auto& output : allocated_outputs) {
-      std::cout << "  " << output.scalar_type() << " " << output.sizes()
-                << " (strides = " << output.strides()
-                << ", address = " << output.data_ptr() << ")" << std::endl;
-    }
-    std::cout << "Reduction and semaphore buffers:" << std::endl;
-    TORCH_INTERNAL_ASSERT(
-        global_buffers.buffers.size() == global_buffers.zero_init.size(),
-        "global_buffer buffer & zero_init container should have identical sizes");
-    for (const auto i : c10::irange(global_buffers.buffers.size())) {
-      const auto& buffer = global_buffers.buffers[i];
-      const auto& zero_init = global_buffers.zero_init[i];
-      std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
-                << " is_zero_initialized: " << zero_init << std::endl;
-    }
+    dumpKernelArgs(
+        fusion_id_,
+        args,
+        num_inputs,
+        outputs,
+        intermediates,
+        executor_entry->intermediates);
   }
 
   cudaEvent_t start_event = {};
@@ -1356,7 +1555,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
             (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
       }
     }
-    for (const auto& output : allocated_outputs) {
+    for (const auto& output : outputs) {
       bytes_processed_ += output.numel() *
           (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
     }
@@ -1371,10 +1570,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    std::cout << kernel()->profile().toString(global_buffers.profile_buffer);
+    std::cout << kernel()->profile().toString(profile_buffer);
   }
 
-  return allocated_outputs;
+  return outputs;
 }
 
 void FusionExecutor::compileRtc(
@@ -1396,7 +1595,7 @@ void FusionExecutor::compileRtc(
   fusion_id_ = 1;
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::nvrtcCompile(c10::nullopt, scode, name, fusion_id_);
+      executor_utils::getCompiledKernel(c10::nullopt, scode, name, fusion_id_);
 }
 
 float FusionExecutor::runRtc(

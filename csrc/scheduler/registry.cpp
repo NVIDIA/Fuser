@@ -14,6 +14,7 @@
 #include <ir_utils.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
@@ -1055,11 +1056,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-std::vector<TransposeOp*> findTransposeOps(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  auto transpose_ops = ir_utils::filterByType<TransposeOp>(exprs);
-  return std::vector<TransposeOp*>(transpose_ops.begin(), transpose_ops.end());
-}
 
 static bool checkPatternEquivalence(
     TensorView* out_tv0,
@@ -1270,8 +1266,22 @@ class ReductionScheduler : public SchedulerEntry {
       return false;
     }
 
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "Scheduling not supported with no input");
+      return false;
+    }
+
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Reduction)) {
+      return false;
+    }
+
+    // Fusions handled by reduction scheduler cannot have MmaOp.
+    if (!ir_utils::getMmaOps(fusion).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction, "no support for mma ops.");
       return false;
     }
 
@@ -1431,6 +1441,13 @@ class TransposeScheduler : public SchedulerEntry {
       return false;
     }
 
+    // Fusions handled by transpose scheduler cannot have MmaOp.
+    if (!ir_utils::getMmaOps(fusion).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Transpose, "no support for mma ops.");
+      return false;
+    }
+
     for (auto select : ir_utils::getSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           select->input(0)->as<TensorView>()->getMaybeRFactorDomain());
@@ -1546,6 +1563,13 @@ class PointWiseScheduler : public SchedulerEntry {
       return false;
     }
 
+    // Fusions handled by pointwise scheduler cannot have MmaOp.
+    if (!ir_utils::getMmaOps(fusion).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::PointWise, "no support for mma ops.");
+      return false;
+    }
+
     if (!ir_utils::getViewOps(fusion).empty()) {
       ComputeAtMap ca_map(fusion);
       if (requiresForwardViewReplay(fusion, ca_map)) {
@@ -1631,8 +1655,22 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
+    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent,
+          "Scheduling not supported with no input");
+      return false;
+    }
+
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Persistent)) {
+      return false;
+    }
+
+    // Fusions handled by persistent kernel scheduler cannot have MmaOp.
+    if (!ir_utils::getMmaOps(fusion).empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent, "no support for mma ops.");
       return false;
     }
 
@@ -2056,6 +2094,57 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 };
 
+class MatmulScheduler : public SchedulerEntry {
+ public:
+  explicit MatmulScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr)
+      : SchedulerEntry(ScheduleHeuristic::Matmul) {
+    computeHeuristics(fusion, runtime_info);
+  }
+
+  void schedule(Fusion* fusion) override {
+    FUSER_PERF_SCOPE("Schedule Matmul Fusion");
+    scheduleMatmul(fusion, matmulParams());
+  }
+
+  static bool canScheduleCompileTime(Fusion* fusion) {
+    const auto msg = getMatmulCompileTimeRejectReason(fusion);
+    if (!msg.empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Matmul, msg);
+      return false;
+    }
+
+    return true;
+  }
+
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr) {
+    FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+    auto reason =
+        getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
+    if (!reason.empty()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Matmul, reason);
+      return false;
+    }
+    return true;
+  }
+
+ private:
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr) {
+    params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+  }
+};
+
 // Schedule Table
 const std::vector<ScheduleHeuristic>& all_heuristics() {
   static const std::vector<ScheduleHeuristic> hlist = {
@@ -2063,7 +2152,8 @@ const std::vector<ScheduleHeuristic>& all_heuristics() {
       ScheduleHeuristic::Reduction,
       ScheduleHeuristic::Transpose,
       ScheduleHeuristic::PointWise,
-      ScheduleHeuristic::Persistent};
+      ScheduleHeuristic::Persistent,
+      ScheduleHeuristic::Matmul};
   return hlist;
 }
 
@@ -2116,6 +2206,9 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::Transpose:
       return checkCanSchedule<TransposeScheduler>(
           fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::Matmul:
+      return checkCanSchedule<MatmulScheduler>(
+          fusion, runtime_info, data_cache);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
       return false;
@@ -2149,6 +2242,10 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
     case ScheduleHeuristic::Transpose:
       scheduler_entry = std::make_unique<TransposeScheduler>(
           fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::Matmul:
+      scheduler_entry =
+          std::make_unique<MatmulScheduler>(fusion, runtime_info, data_cache);
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
@@ -2186,6 +2283,8 @@ std::string toString(ScheduleHeuristic sh) {
       return "persistent";
     case ScheduleHeuristic::Transpose:
       return "transpose";
+    case ScheduleHeuristic::Matmul:
+      return "matmul";
     default:
       TORCH_INTERNAL_ASSERT(false, "undefined schedule");
   }
@@ -2244,6 +2343,15 @@ HeuristicSummary::HeuristicSummary(
       getTransposeHeuristics(fusion, runtime_info, this);
       TransposeScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
+    case ScheduleHeuristic::Matmul: {
+      const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
+      TORCH_INTERNAL_ASSERT(heuristics, "Failed to get matmul heuristics");
+      const auto canSchedule =
+          MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      TORCH_INTERNAL_ASSERT(
+          canSchedule, "Could not schedule matmul (run time)");
+      break;
+    }
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown heuristic");
   }
@@ -2316,6 +2424,10 @@ void HeuristicSummary::validate() const {
       TORCH_INTERNAL_ASSERT(
           !persistent_buffer_info->persistent_buffers.empty() &&
           entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
+      break;
+    }
+    case ScheduleHeuristic::Matmul: {
+      // TODO: add a proper set of checks
       break;
     }
     default:

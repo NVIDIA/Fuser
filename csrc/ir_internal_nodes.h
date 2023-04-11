@@ -1092,40 +1092,6 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   void configureOptions(MmaOptions options);
 };
 
-class TORCH_CUDA_CU_API TransposeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  TransposeOp(
-      IrBuilderPasskey,
-      TensorView* out,
-      TensorView* in,
-      std::vector<int64_t> new2old);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "TransposeOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
-  }
-
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
-  }
-
-  const std::vector<int64_t>& new2old() const {
-    return attribute(0)->as<Attribute<std::vector<int64_t>>>()->value;
-  }
-
-  std::vector<int64_t> old2new() const;
-};
-
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
@@ -1338,6 +1304,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   virtual const char* getOpString() const override {
     return "LoadStoreOp";
   }
+
+  virtual std::vector<EvaluatorValue> evaluate(
+      const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -2195,6 +2164,38 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Check if this is something like T0.stride[1]
   bool isTensorStride() const;
+
+  //! Check if this is threadIdx.{x,y,z}
+  bool isThreadIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is blockIdx.{x,y,z}
+  bool isBlockIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
+
+  //! Check if this is blockDim.{x,y,z}
+  bool isBlockDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is gridDim.{x,y,z}
+  bool isGridDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
 
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   //! WARNING: Only works with Fusion container at the moment

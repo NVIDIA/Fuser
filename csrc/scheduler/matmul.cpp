@@ -7,7 +7,14 @@
 // clang-format on
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/registry.h>
 #include <scheduler/utils.h>
+
+// NOTE: included to avoid compilation error caused by missing destructor in
+// 'SchedulerRuntimeInfo'
+#include <executor_utils.h>
+
+#include <sstream>
 
 namespace nvfuser {
 
@@ -46,14 +53,35 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 
 } // namespace
 
-void scheduleMatmul(
-    TensorView* c,
-    TensorView* a,
-    TensorView* b,
-    MatmulParam& params) {
-  // Unpack from params.
-  auto& mma_builder = params.mma_builder;
-  auto& gemm_tile = params.tile_sizes;
+void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  const auto& inputs = fusion->inputs();
+  const auto& outputs = fusion->outputs();
+
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 2,
+      "scheduleMatmul supports only fusions with two inputs");
+  TORCH_INTERNAL_ASSERT(
+      outputs.size() == 1,
+      "scheduleMatmul supports only fusions with single output");
+
+  TORCH_INTERNAL_ASSERT(
+      inputs[0]->isA<TensorView>(),
+      "fusion's first inpus is not an instance of TensorView class");
+  TORCH_INTERNAL_ASSERT(
+      inputs[1]->isA<TensorView>(),
+      "fusion's second inpus is not an instance of TensorView class");
+  TORCH_INTERNAL_ASSERT(
+      outputs[0]->isA<TensorView>(),
+      "fusion's output is not an instance of TensorView class");
+
+  TensorView* a = inputs[0]->as<TensorView>();
+  TensorView* b = inputs[1]->as<TensorView>();
+  TensorView* c = outputs[0]->as<TensorView>();
+
+  // Collect mma swizzle info
+  auto mma_builder =
+      MmaBuilder(params.mma_op, params.tile_sizes).layout(params.layout);
+  const auto& gemm_tile = params.tile_sizes;
 
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
@@ -83,16 +111,12 @@ void scheduleMatmul(
 
   // Currently only support a, b, c as fusion inputs/outputs
   //  aka. no prolog and epilog fusion yet.
-  TORCH_CHECK(
-      c->isFusionOutput() && a->isFusionInput() && b->isFusionInput(),
-      "not supporting matmul fusion yet");
-  TORCH_CHECK(c->definition() && c->definition()->isA<MmaOp>());
 
   mma_builder.configureMma(c);
 
   // TODO:
   // Beyond this point, mma_builder really just becomes a populated
-  //  list of parameters to describes the mma swizzles that should
+  //  list of parameters to describe the mma swizzles that should
   //  be annotated on the tensor domain. Conceptually the mma builder
   //  object should be separated to 2 parts, one as scheduler utility
   //  and the other as matmul heuristic parameters, which we are
@@ -106,8 +130,7 @@ void scheduleMatmul(
   auto cc = c->cacheBefore();
 
   // Get the input to the mma op.
-  auto mma = dynamic_cast<MmaOp*>(cc->definition());
-  TORCH_INTERNAL_ASSERT(mma != nullptr);
+  auto mma = cc->definition()->as<MmaOp>();
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
 
@@ -162,7 +185,7 @@ void scheduleMatmul(
 
   } else {
     // Use cp.async as requested in scheduler params.
-    c10::optional<LoadStoreOpType> load_op = c10::nullopt;
+    LoadStoreOpType load_op = LoadStoreOpType::Set;
     if (params.async_gmem_load_operands) {
       load_op = LoadStoreOpType::CpAsyncCg;
     }
@@ -184,8 +207,7 @@ void scheduleMatmul(
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
-    if (params.rasterization_order ==
-        MatmulParam::TileRasterizationOrder::RowMajor) {
+    if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
       cc->split(1, factor);
       // [I1, I2/factor, factor]
       cc->reorder({{1, 2}});
@@ -193,8 +215,7 @@ void scheduleMatmul(
       cc->merge(0);
       // [I1*factor, I2/factor]
     } else if (
-        params.rasterization_order ==
-        MatmulParam::TileRasterizationOrder::ColumnMajor) {
+        params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
       cc->split(0, factor);
       // [I1/factor, factor, I2]
       cc->reorder({{1, 2}});
@@ -311,18 +332,18 @@ void scheduleMatmul(
 
   //  0   1  2  3   4   5   6  7  8  9  10
   // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  if (params.rasterization_order ==
-      MatmulParam::TileRasterizationOrder::RowMajor) {
-    cc->axis(0)->parallelize(ParallelType::BIDx);
-    cc->axis(1)->parallelize(ParallelType::BIDy);
-  } else if (
-      params.rasterization_order ==
-      MatmulParam::TileRasterizationOrder::ColumnMajor) {
-    cc->axis(0)->parallelize(ParallelType::BIDy);
-    cc->axis(1)->parallelize(ParallelType::BIDx);
-  } else {
-    TORCH_CHECK(
-        false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
+  switch (params.cta_order) {
+    case MatmulParams::TileRasterizationOrder::RowMajor:
+      cc->axis(0)->parallelize(ParallelType::BIDx);
+      cc->axis(1)->parallelize(ParallelType::BIDy);
+      break;
+    case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      cc->axis(0)->parallelize(ParallelType::BIDy);
+      cc->axis(1)->parallelize(ParallelType::BIDx);
+      break;
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
   cc->axis(4)->parallelize(ParallelType::TIDz);
@@ -330,11 +351,11 @@ void scheduleMatmul(
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
-    TORCH_CHECK(
+    TORCH_INTERNAL_ASSERT(
         params.double_buffer_options.smem_double_buffer_stage > 1,
         "Invalid buffer stage config")
     if (params.double_buffer_options.smem_double_buffer_stage > 2) {
-      TORCH_CHECK(
+      TORCH_INTERNAL_ASSERT(
           params.async_gmem_load_operands,
           "Circular buffer only supports async load");
     }

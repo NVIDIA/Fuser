@@ -1425,7 +1425,7 @@ void SegmentedFusion::print() const {
   std::cout << this << "\n";
 }
 
-std::string toString(SegmentedFusion* segmented_fusion) {
+std::string toString(const SegmentedFusion* segmented_fusion) {
   std::stringstream ss;
   ss << segmented_fusion;
   return ss.str();
@@ -2414,7 +2414,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
       IrBuilder::create<Double>(0.0),
       out_var,
       x_mean_sub_pow);
-  IrBuilder::create<UnaryOp>(UnaryOpType::Set, out_N, num_features);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
 
   // out_avg, out_N are now outputs of a pointwise ops and we
   //  need to clear out its reduction domains.
