@@ -225,9 +225,7 @@ class PrecomputedValues {
     return defined_[index] || is_constant_[index];
   }
 
-  void bindTensorMetaData(
-      TensorView* tv,
-      const TensorArgAbstract* tensor_arg_abstract);
+  void bindTensorMetaData(TensorView* tv, const std::vector<int64_t>& sizes);
 
  private:
   friend NaiveValueMachine;

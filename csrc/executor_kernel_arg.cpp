@@ -294,6 +294,9 @@ PrimDataType KernelArgumentHolder::getIndexType() const {
 
   KernelIndexTypeCompute index_type_helper;
   for (auto inp_i : c10::irange((int64_t)size())) {
+    if (!isTensorArg(inp_i)) {
+      continue;
+    }
     for (const auto dim_i : c10::irange(getRank(inp_i))) {
       auto size = getSize(inp_i, dim_i);
       auto stride = getStride(inp_i, dim_i);
@@ -334,6 +337,13 @@ int64_t KernelArgumentHolder::getSize(int64_t arg, int64_t dim) const {
   auto tensor_arg =
       dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
   return tensor_arg->getSize(dim);
+}
+
+std::vector<int64_t> KernelArgumentHolder::getSizes(int64_t arg) const {
+  TORCH_INTERNAL_ASSERT(isTensorArg(arg));
+  auto tensor_arg =
+      dynamic_cast<const TensorArgAbstract*>(arguments_.at(arg).get());
+  return tensor_arg->getSizes();
 }
 
 int64_t KernelArgumentHolder::getStride(int64_t arg, int64_t dim) const {

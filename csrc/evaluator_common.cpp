@@ -158,19 +158,18 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   TORCH_INTERNAL_ASSERT(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
-    const ArgAbstract* arg = args[i];
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
-      if (const auto& tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(arg)) {
-        bindTensorMetaData(tensor_input, tensor_arg_abstract);
+      if (args.isTensorArg(i)) {
+        bindTensorMetaData(tensor_input, args.getSizes(i));
       } else {
         TORCH_CHECK(
-            arg->isType(ArgType::CpuScalarTensor),
+            args.isType(i, ArgType::CpuScalarTensor),
             "binding input to TensorView expects input arg to be of tensor type");
       }
     } else if (input->isScalar()) {
+      const ArgAbstract* arg = args[i];
       if (input->getDataType() == DataType::Int) {
         TORCH_CHECK(
             arg->isType(ArgType::Long),
@@ -304,15 +303,16 @@ void PrecomputedValues::validate() {
 
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
-    const TensorArgAbstract* tensor_arg_abstract) {
+    const std::vector<int64_t>& sizes) {
+  // const TensorArgAbstract* tensor_arg_abstract) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(
-      tensor_arg_abstract->getRank() == static_cast<int>(root_domain.size()),
+      sizes.size() == root_domain.size(),
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = tensor_arg_abstract->getSize((int)dim);
+    auto value = sizes[dim];
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
