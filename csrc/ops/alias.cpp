@@ -127,17 +127,17 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
-      start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
+      start_dim >= 0 && start_dim < (int64_t)inp_domain.size(),
       "Invalid start_dim ",
       start_dim);
   TORCH_CHECK(
-      end_dim >= 0 && end_dim < int64_t(inp_domain.size()),
+      end_dim >= 0 && end_dim < (int64_t)inp_domain.size(),
       "Invalid end_dim ",
       end_dim);
   TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
@@ -305,7 +305,7 @@ TensorView* unsqueeze(TensorView* x, int dim) {
 
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  if (new2old.size() == 0) {
+  if (new2old.empty()) {
     return set(x);
   }
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
@@ -319,7 +319,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       new2old.size());
 
   // Return scalar tensors immediately
-  if (inp_domain.size() == 0) {
+  if (inp_domain.empty()) {
     return set(x);
   }
 
@@ -502,13 +502,13 @@ TensorView* pad(
 // account for the size difference between each of the inputs and the
 // output. All of the inputs to CatOp have the same shape as the
 // output shape.
-TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
+TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
   TORCH_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
   std::vector<std::vector<IterDomain*>> inp_doms;
-  int ndims = -1;
+  int64_t ndims = -1;
 
   for (auto inp : inputs) {
     TORCH_CHECK(
@@ -519,7 +519,7 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
         inp->getDataType().value());
     inp_doms.emplace_back(
         TensorDomain::noReductions(inp->getMaybeRFactorDomain()));
-    auto i_ndims = static_cast<int>(inp_doms.back().size());
+    auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
       ndims = i_ndims;
     } else {

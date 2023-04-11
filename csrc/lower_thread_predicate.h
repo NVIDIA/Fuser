@@ -41,10 +41,8 @@ namespace nvfuser {
 //! tensor.
 class TORCH_CUDA_CU_API ThreadPredicateMap {
  public:
-  using SourceMap = std::unordered_map<
-      ParallelType,
-      std::unordered_set<const TensorView*>,
-      TypeHash>;
+  using SourceMap =
+      std::unordered_map<ParallelType, std::unordered_set<const TensorView*>>;
 
   //! Thread predicate information for each tensor
   struct PredicateInfo {

@@ -141,8 +141,7 @@ class ParallelBindingIterDomains {
 //!    iterdomains corresponding to each used parallel type.
 class ParallelIterExtentMap {
  public:
-  using DataType =
-      std::unordered_map<ParallelType, std::vector<const Val*>, TypeHash>;
+  using DataType = std::unordered_map<ParallelType, std::vector<const Val*>>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::PARALLEL_ITER_EXTENT_MAP;
 };
@@ -284,7 +283,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs);
 
 using ParallelExtentMap =
-    std::unordered_map<ParallelType, std::vector<const Val*>, TypeHash>;
+    std::unordered_map<ParallelType, std::vector<const Val*>>;
 
 //! Returns the extents of all parallel binding iterdomains corresponding
 //!  to each parallel type.

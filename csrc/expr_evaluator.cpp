@@ -133,6 +133,14 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
+c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(ParallelType pt) {
+  auto it = known_named_scalars_.find(stringifyThreadSize(pt));
+  if (it != known_named_scalars_.end()) {
+    return it->second;
+  }
+  return c10::nullopt;
+}
+
 c10::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
   TORCH_INTERNAL_ASSERT(
       value->isIntegralScalar() || value->isFloatingPointScalar() ||
