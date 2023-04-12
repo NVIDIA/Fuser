@@ -20,6 +20,11 @@
 #   --no-ninja
 #     In case you want to use make instead of ninja for build
 #
+#   -version-tag=TAG
+#     Specify the tag for build nvfuser version, this is used for pip wheel
+#     package nightly where we might want to add a date tag
+#     nvfuser-VERSION+TAG+gitSHA1-....-whl
+#
 
 import multiprocessing
 import os
@@ -39,6 +44,8 @@ NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
 PATCH_NVFUSER = True
+OVERWRITE_VERSION = False
+VERSION_TAG = None
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -55,6 +62,10 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg.startswith("-version-tag="):
+        OVERWRITE_VERSION = True
+        VERSION_TAG = arg.split("=")[1]
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -248,6 +259,17 @@ def cmake():
         subprocess.check_call(cmd_str)
 
 
+def version_tag():
+    from tools.gen_nvfuser_version import get_version
+
+    version = get_version()
+    if OVERWRITE_VERSION:
+        version = version.split("+")[0]
+        if len(VERSION_TAG) != 0:
+            version = "+".join([version, VERSION_TAG])
+    return version
+
+
 def main():
     if BUILD_SETUP:
         cmake()
@@ -267,11 +289,9 @@ def main():
             "cmake/NvfuserConfig*",
         ]
 
-        from tools.gen_nvfuser_version import get_version
-
         setup(
             name="nvfuser",
-            version=get_version(),
+            version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser", "nvfuser_python_utils"],
