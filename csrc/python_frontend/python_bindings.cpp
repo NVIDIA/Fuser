@@ -209,6 +209,37 @@ void initNvFuserPythonBindings(PyObject* module) {
             return ss.str();
           })
       .def(
+          "to_graphviz",
+          [](FusionDefinition& self, std::string detail_level) -> std::string {
+            // map detail_level to IrGraphGenerator::DetailLevel
+            IrGraphGenerator::DetailLevel dl =
+                IrGraphGenerator::DetailLevel::ComputeOnly;
+            std::transform( // convert to lower case
+                detail_level.begin(),
+                detail_level.end(),
+                detail_level.begin(),
+                [](unsigned char c) { return std::tolower(c); });
+            if (detail_level == "computeonly") {
+              dl = IrGraphGenerator::DetailLevel::ComputeOnly;
+            } else if (detail_level == "basic") {
+              dl = IrGraphGenerator::DetailLevel::Basic;
+            } else if (detail_level == "explicit") {
+              dl = IrGraphGenerator::DetailLevel::Explicit;
+            } else if (detail_level == "verbose") {
+              dl = IrGraphGenerator::DetailLevel::Verbose;
+            }
+
+            return self.toGraphviz(dl);
+          },
+          R""""(
+Convert a Fusion graph to a string in GraphViz's .dot format.
+
+Args:
+    detail_level (str): Case-insensitive name of detail level from these choices: ComputeOnly, Basic, Explicit, Verbose. Default: ComputeOnly.
+)"""",
+          py::arg("detail_level") = "ComputeOnly",
+          py::return_value_policy::reference)
+      .def(
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
