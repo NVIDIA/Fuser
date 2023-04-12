@@ -124,8 +124,14 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * When we talk about bank conflict removal, we are talking about the
      * following task:
      *   "there are 32 banks, and each bank contains one 4-byte word, we want to
-     *    make sure different lanes in a warp does not access different words in
-     *    the same bank"
+     *    make sure different lanes in a warp does not access different word
+     *    addresses in the same bank"
+     * For example, if thread 0 is accessing word address 1, and thread 1 is
+     * accessing word address 33, then these two threads will have a bank
+     * conflict because they are accessing different word addresses in the same
+     * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
+     * accessing byte address 6 then there will be no bank conflict because 4
+     * and 6 both belong to word 1.
      */
 
     constexpr int smem_bytes_per_word = 4;
@@ -137,7 +143,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * "megabank". So we can rephrase our task as:
      *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
      *    want to make sure different lanes in a warp does not access different
-     *    units in the same megabank"
+     *    unit addresses in the same megabank"
      * In this terminology, each matrix has 8 rows, and each row has exactly one
      * unit.
      */
