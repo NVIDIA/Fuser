@@ -9,6 +9,7 @@
 #include <iostream>
 
 #include <c10/macros/Export.h>
+#include <ir_graphviz.h>
 #include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
 
@@ -119,6 +120,10 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Prints a python function representing the definition
   void print(std::ostream& os) const;
+  //! Return a string for scheduled fusion in .dot format at given detail level
+  std::string toGraphviz(
+      IrGraphGenerator::DetailLevel detail_level =
+          IrGraphGenerator::DetailLevel::ComputeOnly) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,

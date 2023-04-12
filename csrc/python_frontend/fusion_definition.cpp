@@ -169,6 +169,15 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
+std::string FusionDefinition::toGraphviz(
+    IrGraphGenerator::DetailLevel detail_level) const {
+  TORCH_CHECK(
+      id().has_value(), "Cannot create graphviz until definition is complete.");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto fusion = scheds->preschedFusion();
+  return IrGraphGenerator::toGraphviz(fusion, detail_level);
+}
+
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule) const {

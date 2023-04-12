@@ -13,6 +13,7 @@
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
+#include <ir_graphviz.h>
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <python_frontend/fusion_cache.h>
@@ -20,8 +21,12 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
+
+#include <algorithm>
+#include <cctype>
 #include <complex>
 #include <iostream>
+#include <string>
 #include <tuple>
 
 namespace nvfuser::python_frontend {
@@ -168,70 +173,102 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "_setup_definition",
           [](FusionDefinition& self) -> FusionDefinition* {
-            // Instrumentation to mark the beginning of a FusionDefinition
-            inst::Trace::instance()->beginEvent("FusionDefinition Definition");
-            return self.setupDefinition();
+    // Instrumentation to mark the beginning of a FusionDefinition
+    inst::Trace::instance()->beginEvent("FusionDefinition Definition");
+    return self.setupDefinition();
           })
       .def(
           "_finalize_definition",
           [](FusionDefinition& self) {
-            self.finalizeDefinition();
-            // Mark the end of a definition
-            inst::Trace::instance()->endEvent(nullptr);
+    self.finalizeDefinition();
+    // Mark the end of a definition
+    inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
           "_setup_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
-            // Instrumentation to mark the beginning of a schedule
-            inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
-            }
-            self.setupSchedule(inputs);
+    // Instrumentation to mark the beginning of a schedule
+    inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
+    std::vector<c10::IValue> inputs;
+    for (py::handle obj : iter) {
+      inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+    self.setupSchedule(inputs);
           })
       .def(
           "_finalize_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
-            }
-            self.finalizeSchedule(inputs);
-            // Mark the end of a schedule
-            inst::Trace::instance()->endEvent(nullptr);
+    std::vector<c10::IValue> inputs;
+    for (py::handle obj : iter) {
+      inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+    self.finalizeSchedule(inputs);
+    // Mark the end of a schedule
+    inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
           "__repr__",
           [](FusionDefinition& self) {
-            std::stringstream ss;
-            self.print(ss);
-            return ss.str();
+    std::stringstream ss;
+    self.print(ss);
+    return ss.str();
           })
+      .def(
+          "to_graphviz",
+          [](FusionDefinition& self, std::string detail_level) -> std::string {
+    // map detail_level to IrGraphGenerator::DetailLevel
+    IrGraphGenerator::DetailLevel dl =
+        IrGraphGenerator::DetailLevel::ComputeOnly;
+    std::transform( // convert to lower case
+        detail_level.begin(),
+        detail_level.end(),
+        etail_level.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+    if (detail_level == "computeonly") {
+      dl = IrGraphGenerator::DetailLevel::ComputeOnly;
+    } else if (detail_level == "basic") {
+      dl = IrGraphGenerator::DetailLevel::Basic;
+    } else if (detail_level == "explicit") {
+      dl = IrGraphGenerator::DetailLevel::Explicit;
+    } else if (detail_level == "verbose") {
+      dl = IrGraphGenerator::DetailLevel::Verbose;
+    }
+
+    return self.toGraphviz(dl);
+          },
+          R""""(
+Convert a Fusion graph to a string in GraphViz's .dot format.
+
+Args:
+    detail_level (str): Case-insensitive name of detail level from these choices: ComputeOnly, Basic, Explicit, Verbose. Default: ComputeOnly.
+)"""",
+          py::arg("detail_level") = "ComputeOnly"
+
       .def(
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
              bool override_user_schedule) {
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
-            }
-            return self.execute(inputs, override_user_schedule);
+    std::vector<c10::IValue> inputs;
+    for (py::handle obj : iter) {
+      inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+    return self.execute(inputs, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
-          [](FusionDefinition& self) { return self.fusionIr(); },
+          [](FusionDefinition& self) {
+    return self.fusionIr(); },
           py::return_value_policy::reference)
       .def(
           "_last_cuda_code",
           [](FusionDefinition& self,
              bool intrinsic_code,
              bool override_user_schedule) {
-            return self.lastCudaCode(intrinsic_code, override_user_schedule);
+    return self.lastCudaCode(intrinsic_code, override_user_schedule);
           },
           py::arg("intrinsic_code") = false,
           py::arg("override_user_schedule") = false,
@@ -242,12 +279,11 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter,
              bool intrinsic_code,
              bool override_user_schedule) {
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
-            }
-            return self.cudaCodeFor(
-                inputs, intrinsic_code, override_user_schedule);
+    std::vector<c10::IValue> inputs;
+    for (py::handle obj : iter) {
+      inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+    return self.cudaCodeFor(inputs, intrinsic_code, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("intrinsic_code") = false,
@@ -258,8 +294,8 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              bool tensor_transforms,
              bool override_user_schedule) {
-            return self.lastScheduledFusionIr(
-                tensor_transforms, override_user_schedule);
+    return self.lastScheduledFusionIr(
+        tensor_transforms, override_user_schedule);
           },
           py::arg("tensor_transforms") = false,
           py::arg("override_user_schedule") = false,
@@ -270,12 +306,12 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter,
              bool tensor_transforms,
              bool override_user_schedule) {
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
-            }
-            return self.scheduledFusionIrFor(
-                inputs, tensor_transforms, override_user_schedule);
+    std::vector<c10::IValue> inputs;
+    for (py::handle obj : iter) {
+      inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+    return self.scheduledFusionIrFor(
+        inputs, tensor_transforms, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("tensor_transforms") = false,
@@ -284,17 +320,16 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "id",
           [](FusionDefinition& self) -> c10::optional<size_t> {
-            return self.id();
+    return self.id();
           })
       .def(
           "add_output",
           [](FusionDefinition& self, Scalar output) {
-            FUSER_PERF_SCOPE("FusionDefinition.add_output (scalar)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            self.defineRecord(new OutputRecord<Val>(
-                {self.recordingState(output())}, serde::RecordType_OutputVal));
+    FUSER_PERF_SCOPE("FusionDefinition.add_output (scalar)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    self.defineRecord(new OutputRecord<Val>(
+        {self.recordingState(output())}, serde::RecordType_OutputVal));
           },
           py::arg("output"))
       .def(
@@ -302,19 +337,18 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              Tensor output,
              c10::optional<Tensor> alias_input = c10::nullopt) {
-            FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            if (alias_input.has_value()) {
-              self.defineRecord(new OutputRecord<TensorView>(
-                  {self.recordingState(output()),
-                   self.recordingState(alias_input.value()())},
-                  serde::RecordType_OutputTv));
-            } else {
-              self.defineRecord(new OutputRecord<TensorView>(
-                  {self.recordingState(output())}, serde::RecordType_OutputTv));
-            }
+    FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    if (alias_input.has_value()) {
+      self.defineRecord(new OutputRecord<TensorView>(
+          {self.recordingState(output()),
+           self.recordingState(alias_input.value()())},
+          serde::RecordType_OutputTv));
+    } else {
+      self.defineRecord(new OutputRecord<TensorView>(
+          {self.recordingState(output())}, serde::RecordType_OutputTv));
+    }
           },
           py::arg("output"),
           py::arg("alias_input") = py::none())
@@ -323,27 +357,26 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              Tensor output,
              std::vector<int64_t> stride_order) {
-            FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            TORCH_CHECK(
-                stride_order.empty() || output.dims == stride_order.size(),
-                "stride_order needs to be either empty or the same length of Tensor `output`");
-            int64_t duplicate_check = 0;
-            for (const auto& v : stride_order) {
-              TORCH_CHECK(
-                  v >= 0 && v < (int64_t)stride_order.size(),
-                  "stride_order elements need to be within [0, stride_order.size())");
-              duplicate_check |= 1 << v;
-            }
-            TORCH_CHECK(
-                duplicate_check == (1 << stride_order.size()) - 1,
-                "duplicated elements in stride_order detected!");
-            self.defineRecord(new OutputRecord<TensorView>(
-                {self.recordingState(output())},
-                serde::RecordType_OutputTv,
-                stride_order));
+    FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    TORCH_CHECK(
+        stride_order.empty() || output.dims == stride_order.size(),
+        "stride_order needs to be either empty or the same length of Tensor `output`");
+    int64_t duplicate_check = 0;
+    for (const auto& v : stride_order) {
+      TORCH_CHECK(
+          v >= 0 && v < (int64_t)stride_order.size(),
+          "stride_order elements need to be within [0, stride_order.size())");
+      duplicate_check |= 1 << v;
+    }
+    TORCH_CHECK(
+        duplicate_check == (1 << stride_order.size()) - 1,
+        "duplicated elements in stride_order detected!");
+    self.defineRecord(new OutputRecord<TensorView>(
+        {self.recordingState(output())},
+        serde::RecordType_OutputTv,
+        stride_order));
           },
           py::arg("output"),
           py::arg("stride_order"))
@@ -354,30 +387,29 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<c10::optional<bool>>& contiguous,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
-            FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
+    FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
-              TORCH_CHECK(
-                  symbolic_sizes[i] == -1 || symbolic_sizes[i] == 1,
-                  "The value ",
-                  symbolic_sizes[i],
-                  " at index ",
-                  i,
-                  " was neither broadcast(1) or symbolic(-1).");
-            }
+    for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
+      TORCH_CHECK(
+          symbolic_sizes[i] == -1 || symbolic_sizes[i] == 1,
+          "The value ",
+          symbolic_sizes[i],
+          " at index ",
+          i,
+          " was neither broadcast(1) or symbolic(-1).");
+    }
 
-            Tensor out = self.defineTensor(symbolic_sizes.size());
-            self.defineRecord(new TensorRecord(
-                {self.recordingState(out())},
-                symbolic_sizes,
-                contiguous,
-                dtype,
-                is_cpu));
+    Tensor out = self.defineTensor(symbolic_sizes.size());
+    self.defineRecord(new TensorRecord(
+        {self.recordingState(out())},
+        symbolic_sizes,
+        contiguous,
+        dtype,
+        is_cpu));
 
-            return out;
+    return out;
           },
           py::arg("symbolic_sizes"),
           py::arg("contiguous"),
@@ -391,45 +423,44 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<int64_t>& strides,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
-            FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            TORCH_CHECK(
-                sizes.size() == strides.size(),
-                "The number of sizes does not match the number of strides.",
-                sizes.size(),
-                strides.size());
+    FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    TORCH_CHECK(
+        sizes.size() == strides.size(),
+        "The number of sizes does not match the number of strides.",
+        sizes.size(),
+        strides.size());
 
-            // TensorViewBuilder assumes any dim with a compile time constant
-            // size == 1 is a "maybe broadcast" axis, symbolic sizes are
-            // identified by -1, and size == 0 is not supported.
+    // TensorViewBuilder assumes any dim with a compile time constant
+    // size == 1 is a "maybe broadcast" axis, symbolic sizes are
+    // identified by -1, and size == 0 is not supported.
 
-            // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> maybe_symbolic_sizes;
-            maybe_symbolic_sizes.reserve(sizes.size());
-            for (const auto i : c10::irange(sizes.size())) {
-              TORCH_INTERNAL_ASSERT(
-                  sizes[i] >= 0,
-                  "Size of ",
-                  sizes[i],
-                  " is not supported in nvFuser. Expected size >= 0.");
-              if (sizes[i] == 1) {
-                maybe_symbolic_sizes.push_back(1);
-              } else {
-                maybe_symbolic_sizes.push_back(-1);
-              }
-            }
+    // Translate to TensorViewBuilder's view of the world.
+    std::vector<int64_t> maybe_symbolic_sizes;
+    maybe_symbolic_sizes.reserve(sizes.size());
+    for (const auto i : c10::irange(sizes.size())) {
+      TORCH_INTERNAL_ASSERT(
+          sizes[i] >= 0,
+          "Size of ",
+          sizes[i],
+          " is not supported in nvFuser. Expected size >= 0.");
+      if (sizes[i] == 1) {
+        maybe_symbolic_sizes.push_back(1);
+      } else {
+        maybe_symbolic_sizes.push_back(-1);
+      }
+    }
 
-            Tensor out = self.defineTensor(sizes.size());
-            self.defineRecord(new TensorRecord(
-                {self.recordingState(out())},
-                std::move(maybe_symbolic_sizes),
-                computeContiguity(sizes, strides),
-                dtype,
-                is_cpu));
+    Tensor out = self.defineTensor(sizes.size());
+    self.defineRecord(new TensorRecord(
+        {self.recordingState(out())},
+        std::move(maybe_symbolic_sizes),
+        computeContiguity(sizes, strides),
+        dtype,
+        is_cpu));
 
-            return out;
+    return out;
           },
           py::arg("sizes"),
           py::arg("strides"),
@@ -441,17 +472,16 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              double val,
              PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (double)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Double, double>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantDouble,
-                val,
-                dtype));
-            return out;
+    FUSER_PERF_SCOPE("FusionDefinition.define_constant (double)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    Scalar out = self.defineScalar();
+    self.defineRecord(new ConstantRecord<Double, double>(
+        {self.recordingState(out())},
+        serde::RecordType_ConstantDouble,
+        val,
+        dtype));
+    return out;
           },
           py::arg("val"),
           py::arg("dtype") = DataType::Double,
@@ -461,18 +491,16 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              std::complex<double> val,
              PrimDataType dtype = DataType::ComplexDouble) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (complex)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ConstantRecord<ComplexDouble, std::complex<double>>(
-                    {self.recordingState(out())},
-                    serde::RecordType_ConstantComplexDouble,
-                    val,
-                    dtype));
-            return out;
+    FUSER_PERF_SCOPE("FusionDefinition.define_constant (complex)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    Scalar out = self.defineScalar();
+    self.defineRecord(new ConstantRecord<ComplexDouble, std::complex<double>>(
+        {self.recordingState(out())},
+        serde::RecordType_ConstantComplexDouble,
+        val,
+        dtype));
+    return out;
           },
           py::arg("val"),
           py::arg("dtype") = DataType::ComplexDouble,
@@ -482,17 +510,16 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              bool val,
              PrimDataType dtype = DataType::Bool) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (bool)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Bool, bool>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantBool,
-                val,
-                dtype));
-            return out;
+    FUSER_PERF_SCOPE("FusionDefinition.define_constant (bool)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    Scalar out = self.defineScalar();
+    self.defineRecord(new ConstantRecord<Bool, bool>(
+        {self.recordingState(out())},
+        serde::RecordType_ConstantBool,
+        val,
+        dtype));
+    return out;
           },
           py::arg("val"),
           py::arg("dtype") = DataType::Bool,
@@ -502,17 +529,16 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              int64_t val,
              PrimDataType dtype = DataType::Int) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (int)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Int, int64_t>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
-                val,
-                dtype));
-            return out;
+    FUSER_PERF_SCOPE("FusionDefinition.define_constant (int)");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    Scalar out = self.defineScalar();
+    self.defineRecord(new ConstantRecord<Int, int64_t>(
+        {self.recordingState(out())},
+        serde::RecordType_ConstantInt,
+        val,
+        dtype));
+    return out;
           },
           py::arg("val"),
           py::arg("dtype") = DataType::Int,
@@ -521,14 +547,12 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_scalar",
           [](FusionDefinition& self,
              PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ScalarRecord({self.recordingState(out())}, dtype));
-            return out;
+    FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+    TORCH_CHECK(
+        !self.completed(), "Attempting to add to a completed definition!");
+    Scalar out = self.defineScalar();
+    self.defineRecord(new ScalarRecord({self.recordingState(out())}, dtype));
+    return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
@@ -2213,39 +2237,39 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar eps,
          bool training,
          bool channels_last) -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.batch_norm");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        Tensor mean = fd->defineTensor(1);
-        Tensor invstd = fd->defineTensor(1);
-        auto weight_state = weight.has_value()
-            ? fd->recordingState(weight.value()())
-            : State(0, serde::StateType::StateType_None);
-        auto bias_state = bias.has_value()
-            ? fd->recordingState(bias.value()())
-            : State(0, serde::StateType::StateType_None);
-        auto running_mean_state = running_mean.has_value()
-            ? fd->recordingState(running_mean.value()())
-            : State(0, serde::StateType::StateType_None);
-        auto running_var_state = running_var.has_value()
-            ? fd->recordingState(running_var.value()())
-            : State(0, serde::StateType::StateType_None);
-        fd->defineRecord(new BatchNormOpRecord(
-            {fd->recordingState(arg()),
-             weight_state,
-             bias_state,
-             running_mean_state,
-             running_var_state,
-             fd->recordingState(momentum()),
-             fd->recordingState(eps())},
-            {fd->recordingState(output()),
-             fd->recordingState(mean()),
-             fd->recordingState(invstd())},
-            training,
-            channels_last));
-        return std::make_tuple(output, mean, invstd);
+    FUSER_PERF_SCOPE("Operators.batch_norm");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    Tensor mean = fd->defineTensor(1);
+    Tensor invstd = fd->defineTensor(1);
+    auto weight_state = weight.has_value()
+        ? fd->recordingState(weight.value()())
+        : State(0, serde::StateType::StateType_None);
+    auto bias_state = bias.has_value()
+        ? fd->recordingState(bias.value()())
+        : State(0, serde::StateType::StateType_None);
+    auto running_mean_state = running_mean.has_value()
+        ? fd->recordingState(running_mean.value()())
+        : State(0, serde::StateType::StateType_None);
+    auto running_var_state = running_var.has_value()
+        ? fd->recordingState(running_var.value()())
+        : State(0, serde::StateType::StateType_None);
+    fd->defineRecord(new BatchNormOpRecord(
+        {fd->recordingState(arg()),
+         weight_state,
+         bias_state,
+         running_mean_state,
+         running_var_state,
+         fd->recordingState(momentum()),
+         fd->recordingState(eps())},
+        {fd->recordingState(output()),
+         fd->recordingState(mean()),
+         fd->recordingState(invstd())},
+        training,
+        channels_last));
+    return std::make_tuple(output, mean, invstd);
       },
       py::arg("arg"),
       py::arg("weight").none(true),
@@ -2268,36 +2292,36 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar eps,
          bool training,
          bool channels_last) -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.batch_norm");
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        Tensor mean = fd->defineTensor(1);
-        Tensor invstd = fd->defineTensor(1);
-        auto weight_state = weight.has_value()
-            ? fd->recordingState(weight.value()())
-            : State(0, serde::StateType_None);
-        auto bias_state = bias.has_value() ? fd->recordingState(bias.value()())
-                                           : State(0, serde::StateType_None);
-        auto running_mean_state = running_mean.has_value()
-            ? fd->recordingState(running_mean.value()())
-            : State(0, serde::StateType_None);
-        auto running_var_state = running_var.has_value()
-            ? fd->recordingState(running_var.value()())
-            : State(0, serde::StateType_None);
-        fd->defineRecord(new BatchNormOpRecord(
-            {fd->recordingState(arg()),
-             weight_state,
-             bias_state,
-             running_mean_state,
-             running_var_state,
-             fd->recordingState(momentum()),
-             fd->recordingState(eps())},
-            {fd->recordingState(output()),
-             fd->recordingState(mean()),
-             fd->recordingState(invstd())},
-            training,
-            channels_last));
-        return std::make_tuple(output, mean, invstd);
+    FUSER_PERF_SCOPE("Operators.batch_norm");
+    FusionDefinition* fd = arg.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    Tensor mean = fd->defineTensor(1);
+    Tensor invstd = fd->defineTensor(1);
+    auto weight_state = weight.has_value()
+        ? fd->recordingState(weight.value()())
+        : State(0, serde::StateType_None);
+    auto bias_state = bias.has_value() ? fd->recordingState(bias.value()())
+                                       : State(0, serde::StateType_None);
+    auto running_mean_state = running_mean.has_value()
+        ? fd->recordingState(running_mean.value()())
+        : State(0, serde::StateType_None);
+    auto running_var_state = running_var.has_value()
+        ? fd->recordingState(running_var.value()())
+        : State(0, serde::StateType_None);
+    fd->defineRecord(new BatchNormOpRecord(
+        {fd->recordingState(arg()),
+         weight_state,
+         bias_state,
+         running_mean_state,
+         running_var_state,
+         fd->recordingState(momentum()),
+         fd->recordingState(eps())},
+        {fd->recordingState(output()),
+         fd->recordingState(mean()),
+         fd->recordingState(invstd())},
+        training,
+        channels_last));
+    return std::make_tuple(output, mean, invstd);
       },
       py::arg("weight").none(true),
       py::arg("bias").none(true),
@@ -2315,22 +2339,22 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& output_shape,
          std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            std::move(output_shape),
-            std::move(broadcast_dims)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+    FusionDefinition* fd = self.fusion_definition;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    TORCH_CHECK(
+        output_shape.size() >= broadcast_dims.size(),
+        "broadcast_dims vector size is too big for output shape!");
+    Tensor output = fd->defineTensor(output_shape.size());
+    fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast_in_dim",
+        serde::RecordType_BroadcastInDim,
+        std::move(output_shape),
+        std::move(broadcast_dims)));
+    return output;
       },
       py::arg("arg"),
       py::arg("output_shape"),
@@ -2341,20 +2365,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor arg,
          std::vector<int64_t>& output_shape,
          std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            output_shape,
-            broadcast_dims));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        output_shape.size() >= broadcast_dims.size(),
+        "broadcast_dims vector size is too big for output shape!");
+    Tensor output = fd->defineTensor(output_shape.size());
+    fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast_in_dim",
+        serde::RecordType_BroadcastInDim,
+        output_shape,
+        broadcast_dims));
+    return output;
       },
       py::arg("output_shape"),
       py::arg("broadcast_dims"),
@@ -2366,29 +2390,29 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<Scalar>& output_shape,
          std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+    FusionDefinition* fd = self.fusion_definition;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    TORCH_CHECK(
+        output_shape.size() >= broadcast_dims.size(),
+        "broadcast_dims vector size is too big for output shape!");
+    Tensor output = fd->defineTensor(output_shape.size());
+    std::vector<State> output_shape_states(
+        output_shape.size(), State(0, serde::StateType_Scalar));
+    std::transform(
+        output_shape.begin(),
+        output_shape.end(),
+        output_shape_states.begin(),
+        [&fd](const Scalar& s) { return fd->recordingState(s()); });
+    fd->defineRecord(new BroadcastInDimOpRecord<State>(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast_in_dim",
+        serde::RecordType_BroadcastInDimSymbolic,
+        std::move(output_shape_states),
+        std::move(broadcast_dims)));
+    return output;
       },
       py::arg("arg"),
       py::arg("output_shape"),
@@ -2399,27 +2423,27 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor arg,
          std::vector<Scalar>& output_shape,
          std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        output_shape.size() >= broadcast_dims.size(),
+        "broadcast_dims vector size is too big for output shape!");
+    Tensor output = fd->defineTensor(output_shape.size());
+    std::vector<State> output_shape_states(
+        output_shape.size(), State(0, serde::StateType_Scalar));
+    std::transform(
+        output_shape.begin(),
+        output_shape.end(),
+        output_shape_states.begin(),
+        [&fd](const Scalar& s) { return fd->recordingState(s()); });
+    fd->defineRecord(new BroadcastInDimOpRecord<State>(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast_in_dim",
+        serde::RecordType_BroadcastInDimSymbolic,
+        std::move(output_shape_states),
+        std::move(broadcast_dims)));
+    return output;
       },
       py::arg("output_shape"),
       py::arg("broadcast_dims"),
@@ -2429,17 +2453,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<bool>& is_broadcast_dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new BroadcastOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast",
-            std::move(is_broadcast_dim)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new BroadcastOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast",
+        std::move(is_broadcast_dim)));
+    return output;
       },
       py::arg("arg"),
       py::arg("is_broadcast_dim"),
@@ -2447,15 +2471,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def(
       "broadcast",
       [](Tensor arg, std::vector<bool>& is_broadcast_dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast");
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new BroadcastOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast",
-            is_broadcast_dim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.broadcast");
+    FusionDefinition* fd = arg.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new BroadcastOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        "ops.broadcast",
+        is_broadcast_dim));
+    return output;
       },
       py::arg("is_broadcast_dim"),
       py::return_value_policy::reference);
@@ -2464,20 +2488,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          std::vector<Tensor> tensors,
          int64_t dim) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            !tensors.empty(), "Attempting to concatenate empty list of tensors")
-        Tensor output = fd->defineTensor(tensors[0].dims);
-        std::vector<State> tensor_states;
-        tensor_states.reserve(tensors.size());
-        for (auto& t : tensors) {
-          tensor_states.push_back(fd->recordingState(t()));
-        }
-        self.fusion_definition->defineRecord(new CatOpRecord(
-            tensor_states, {fd->recordingState(output())}, dim));
-        return output;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    TORCH_CHECK(
+        !tensors.empty(), "Attempting to concatenate empty list of tensors")
+    Tensor output = fd->defineTensor(tensors[0].dims);
+    std::vector<State> tensor_states;
+    tensor_states.reserve(tensors.size());
+    for (auto& t : tensors) {
+      tensor_states.push_back(fd->recordingState(t()));
+    }
+    self.fusion_definition->defineRecord(
+        new CatOpRecord(tensor_states, {fd->recordingState(output())}, dim));
+    return output;
       },
       py::arg("tensors"),
       py::arg("dim"),
@@ -2488,19 +2512,19 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          Tensor index,
          int64_t dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.index_select");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new IndexSelectOpRecord(
-            {
-                fd->recordingState(arg()),
-                fd->recordingState(index()),
-            },
-            {fd->recordingState(output())},
-            dim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.index_select");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new IndexSelectOpRecord(
+        {
+            fd->recordingState(arg()),
+            fd->recordingState(index()),
+        },
+        {fd->recordingState(output())},
+        dim));
+    return output;
       },
       py::arg("arg"),
       py::arg("index"),
@@ -2512,19 +2536,19 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg1,
          Tensor index,
          int64_t dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.gather");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
-            {
-                fd->recordingState(arg1()),
-                fd->recordingState(index()),
-            },
-            {fd->recordingState(output())},
-            dim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.gather");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg1.dims);
+    fd->defineRecord(new TorchGatherOpRecord(
+        {
+            fd->recordingState(arg1()),
+            fd->recordingState(index()),
+        },
+        {fd->recordingState(output())},
+        dim));
+    return output;
       },
       py::arg("arg1"),
       py::arg("index"),
@@ -2533,17 +2557,17 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def(
       "gather",
       [](Tensor arg1, Tensor index, int64_t dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.gather");
-        FusionDefinition* fd = arg1.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
-            {
-                fd->recordingState(arg1()),
-                fd->recordingState(index()),
-            },
-            {fd->recordingState(output())},
-            dim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.gather");
+    FusionDefinition* fd = arg1.fusion_definition;
+    Tensor output = fd->defineTensor(arg1.dims);
+    fd->defineRecord(new TorchGatherOpRecord(
+        {
+            fd->recordingState(arg1()),
+            fd->recordingState(index()),
+        },
+        {fd->recordingState(output())},
+        dim));
+    return output;
       },
       py::arg("index"),
       py::arg("dim"),
@@ -2554,22 +2578,21 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& pad_widths,
          c10::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            pad_widths.size() <= 2 * arg.dims,
-            "Number of pad widths must be at most twice the input dimension");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType_None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.pad");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    TORCH_CHECK(
+        pad_widths.size() <= 2 * arg.dims,
+        "Number of pad widths must be at most twice the input dimension");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    auto value_state = value.has_value() ? fd->recordingState(value.value()())
+                                         : State(0, serde::StateType_None);
+    fd->defineRecord(new PadOpRecord(
+        {fd->recordingState(arg()), value_state},
+        {fd->recordingState(output())},
+        std::move(pad_widths)));
+    return output;
       },
       py::arg("arg"),
       py::arg("pad_widths"),
@@ -2580,19 +2603,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor arg,
          std::vector<int64_t>& pad_widths,
          c10::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            !fd->completed(), "Attempting to add to a completed definition!");
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType_None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.pad");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        !fd->completed(), "Attempting to add to a completed definition!");
+    Tensor output = fd->defineTensor(arg.dims);
+    auto value_state = value.has_value() ? fd->recordingState(value.value()())
+                                         : State(0, serde::StateType_None);
+    fd->defineRecord(new PadOpRecord(
+        {fd->recordingState(arg()), value_state},
+        {fd->recordingState(output())},
+        std::move(pad_widths)));
+    return output;
       },
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
@@ -2602,15 +2624,15 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& dims) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        self.fusion_definition->defineRecord(new PermuteOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(dims)));
-        return output;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    self.fusion_definition->defineRecord(new PermuteOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        std::move(dims)));
+    return output;
       },
       py::arg("arg"),
       py::arg("dims"),
@@ -2618,11 +2640,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def(
       "permute",
       [](Tensor arg, std::vector<int64_t>& dims) -> Tensor {
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new PermuteOpRecord(
-            {fd->recordingState(arg())}, {fd->recordingState(output())}, dims));
-        return output;
+    FusionDefinition* fd = arg.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new PermuteOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, dims));
+    return output;
       },
       py::arg("dims"),
       py::return_value_policy::reference);
@@ -2638,73 +2660,72 @@ void initNvFuserPythonBindings(PyObject* module) {
          // default value.
          std::optional<std::vector<int64_t>> opt_strides =
              std::nullopt) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.slice");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
+    FUSER_PERF_SCOPE("Operators.slice");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
 
-        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
-        if (opt_strides.has_value()) {
-          TORCH_CHECK(
-              start_indices.size() == opt_strides.value().size(),
-              "Slice start_indices and strides don't match! Start Indices: ",
-              start_indices.size(),
-              " Strides: ",
-              opt_strides.value().size());
-          strides.assign(
-              opt_strides.value().begin(), opt_strides.value().end());
-        }
-        TORCH_CHECK(
-            arg.dims == start_indices.size(),
-            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
-            arg.dims,
-            " Slice-dims: ",
-            start_indices.size());
-        TORCH_CHECK(
-            start_indices.size() == end_indices.size(),
-            "Slice indexing attribute dimensions don't match! Start Indices: ",
-            start_indices.size(),
-            " End Indices: ",
-            end_indices.size(),
-            " Strides: ",
-            strides.size());
-        for (const auto i : c10::irange(arg.dims)) {
-          auto start_idx = start_indices[i];
-          auto end_idx = end_indices[i];
-          auto stride = strides[i];
-          TORCH_CHECK(
-              start_idx >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              end_idx >= start_idx,
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              stride == 1,
-              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-        }
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new SliceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            start_indices,
-            end_indices,
-            strides));
-        return output;
+    std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+    if (opt_strides.has_value()) {
+      TORCH_CHECK(
+          start_indices.size() == opt_strides.value().size(),
+          "Slice start_indices and strides don't match! Start Indices: ",
+          start_indices.size(),
+          " Strides: ",
+          opt_strides.value().size());
+      strides.assign(opt_strides.value().begin(), opt_strides.value().end());
+    }
+    TORCH_CHECK(
+        arg.dims == start_indices.size(),
+        "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+        arg.dims,
+        " Slice-dims: ",
+        start_indices.size());
+    TORCH_CHECK(
+        start_indices.size() == end_indices.size(),
+        "Slice indexing attribute dimensions don't match! Start Indices: ",
+        start_indices.size(),
+        " End Indices: ",
+        end_indices.size(),
+        " Strides: ",
+        strides.size());
+    for (const auto i : c10::irange(arg.dims)) {
+      auto start_idx = start_indices[i];
+      auto end_idx = end_indices[i];
+      auto stride = strides[i];
+      TORCH_CHECK(
+          start_idx >= 0,
+          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+      TORCH_CHECK(
+          end_idx >= start_idx,
+          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+      TORCH_CHECK(
+          stride == 1,
+          "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+    }
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new SliceOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        start_indices,
+        end_indices,
+        strides));
+    return output;
       },
       py::arg("arg"),
       py::arg("start_indices"),
@@ -2722,73 +2743,72 @@ void initNvFuserPythonBindings(PyObject* module) {
          // default value.
          std::optional<std::vector<int64_t>> opt_strides =
              std::nullopt) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.slice");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            fd->ops.validUse(), "Attempting to add to a completed definition!");
+    FUSER_PERF_SCOPE("Operators.slice");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
 
-        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
-        if (opt_strides.has_value()) {
-          TORCH_CHECK(
-              start_indices.size() == opt_strides.value().size(),
-              "Slice start_indices and strides don't match! Start Indices: ",
-              start_indices.size(),
-              " Strides: ",
-              opt_strides.value().size());
-          strides.assign(
-              opt_strides.value().begin(), opt_strides.value().end());
-        }
-        TORCH_CHECK(
-            arg.dims == start_indices.size(),
-            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
-            arg.dims,
-            " Slice-dims: ",
-            start_indices.size());
-        TORCH_CHECK(
-            start_indices.size() == end_indices.size(),
-            "Slice indexing attribute dimensions don't match! Start Indices: ",
-            start_indices.size(),
-            " End Indices: ",
-            end_indices.size(),
-            " Strides: ",
-            strides.size());
-        for (const auto i : c10::irange(arg.dims)) {
-          auto start_idx = start_indices[i];
-          auto end_idx = end_indices[i];
-          auto stride = strides[i];
-          TORCH_CHECK(
-              start_idx >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              end_idx >= start_idx,
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              stride == 1,
-              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-        }
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new SliceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            start_indices,
-            end_indices,
-            strides));
-        return output;
+    std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+    if (opt_strides.has_value()) {
+      TORCH_CHECK(
+          start_indices.size() == opt_strides.value().size(),
+          "Slice start_indices and strides don't match! Start Indices: ",
+          start_indices.size(),
+          " Strides: ",
+          opt_strides.value().size());
+      strides.assign(opt_strides.value().begin(), opt_strides.value().end());
+    }
+    TORCH_CHECK(
+        arg.dims == start_indices.size(),
+        "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+        arg.dims,
+        " Slice-dims: ",
+        start_indices.size());
+    TORCH_CHECK(
+        start_indices.size() == end_indices.size(),
+        "Slice indexing attribute dimensions don't match! Start Indices: ",
+        start_indices.size(),
+        " End Indices: ",
+        end_indices.size(),
+        " Strides: ",
+        strides.size());
+    for (const auto i : c10::irange(arg.dims)) {
+      auto start_idx = start_indices[i];
+      auto end_idx = end_indices[i];
+      auto stride = strides[i];
+      TORCH_CHECK(
+          start_idx >= 0,
+          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+      TORCH_CHECK(
+          end_idx >= start_idx,
+          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+      TORCH_CHECK(
+          stride == 1,
+          "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
+          start_indices,
+          " End Indices: ",
+          end_indices,
+          " Strides: ",
+          strides);
+    }
+    Tensor output = fd->defineTensor(arg.dims);
+    fd->defineRecord(new SliceOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        start_indices,
+        end_indices,
+        strides));
+    return output;
       },
       py::arg("start_indices"),
       py::arg("end_indices"),
@@ -2800,17 +2820,17 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.squeeze");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims - 1);
-        fd->defineRecord(new SqueezeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(original_shape),
-            std::move(dims)));
-        return output;
+    FUSER_PERF_SCOPE("Operators.squeeze");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(arg.dims - 1);
+    fd->defineRecord(new SqueezeOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        std::move(original_shape),
+        std::move(dims)));
+    return output;
       },
       py::arg("arg"),
       py::arg("original_shape"),
@@ -2821,17 +2841,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor arg,
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.squeeze");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            !fd->completed(), "Attempting to add to a completed definition!");
-        Tensor output = fd->defineTensor(arg.dims - 1);
-        fd->defineRecord(new SqueezeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            original_shape,
-            dims));
-        return output;
+    FUSER_PERF_SCOPE("Operators.squeeze");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        !fd->completed(), "Attempting to add to a completed definition!");
+    Tensor output = fd->defineTensor(arg.dims - 1);
+    fd->defineRecord(new SqueezeOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        original_shape,
+        dims));
+    return output;
       },
       py::arg("original_shape"),
       py::arg("dims"),
@@ -2839,36 +2859,36 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_ops.def(
       "tensor_sizes",
       [](FusionDefinition::Operators& self, Tensor arg) -> std::vector<Scalar> {
-        FUSER_PERF_SCOPE("Operators.tensor_sizes");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        std::vector<Scalar> outputs;
-        std::vector<State> output_state;
-        for (const auto idx : c10::irange(arg.dims)) {
-          outputs.push_back(fd->defineScalar());
-          output_state.push_back(fd->recordingState(outputs[idx]()));
-        }
-        fd->defineRecord(
-            new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-        return outputs;
+    FUSER_PERF_SCOPE("Operators.tensor_sizes");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    std::vector<Scalar> outputs;
+    std::vector<State> output_state;
+    for (const auto idx : c10::irange(arg.dims)) {
+      outputs.push_back(fd->defineScalar());
+      output_state.push_back(fd->recordingState(outputs[idx]()));
+    }
+    fd->defineRecord(
+        new TensorSizesRecord({fd->recordingState(arg())}, output_state));
+    return outputs;
       },
       py::arg("arg"),
       py::return_value_policy::reference);
   tensor_class.def(
       "tensor_sizes",
       [](Tensor arg) -> std::vector<Scalar> {
-        FUSER_PERF_SCOPE("Operators.tensor_sizes");
-        FusionDefinition* fd = arg.fusion_definition;
-        std::vector<Scalar> outputs;
-        std::vector<State> output_state;
-        for (const auto idx : c10::irange(arg.dims)) {
-          outputs.push_back(fd->defineScalar());
-          output_state.push_back(fd->recordingState(outputs[idx]()));
-        }
-        fd->defineRecord(
-            new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-        return outputs;
+    FUSER_PERF_SCOPE("Operators.tensor_sizes");
+    FusionDefinition* fd = arg.fusion_definition;
+    std::vector<Scalar> outputs;
+    std::vector<State> output_state;
+    for (const auto idx : c10::irange(arg.dims)) {
+      outputs.push_back(fd->defineScalar());
+      output_state.push_back(fd->recordingState(outputs[idx]()));
+    }
+    fd->defineRecord(
+        new TensorSizesRecord({fd->recordingState(arg())}, output_state));
+    return outputs;
       },
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -2877,16 +2897,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& new_shape) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
-        self.fusion_definition->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(original_shape),
-            std::move(new_shape)));
-        return output;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(new_shape.size());
+    self.fusion_definition->defineRecord(new ReshapeOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        std::move(original_shape),
+        std::move(new_shape)));
+    return output;
       },
       py::arg("arg"),
       py::arg("original_shape"),
@@ -2897,14 +2917,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor arg,
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& new_shape) -> Tensor {
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
-        fd->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            original_shape,
-            new_shape));
-        return output;
+    FusionDefinition* fd = arg.fusion_definition;
+    Tensor output = fd->defineTensor(new_shape.size());
+    fd->defineRecord(new ReshapeOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        original_shape,
+        new_shape));
+    return output;
       },
       py::arg("original_shape"),
       py::arg("new_shape"),
@@ -2915,16 +2935,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& size,
          Scalar arg,
          PrimDataType dtype) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(size.size());
-        fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(size),
-            dtype));
-        return output;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(size.size());
+    fd->defineRecord(new FullOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        std::move(size),
+        dtype));
+    return output;
       },
       py::arg("size"),
       py::arg("arg"),
@@ -2937,20 +2957,19 @@ void initNvFuserPythonBindings(PyObject* module) {
          c10::optional<Scalar> start,
          c10::optional<Scalar> step,
          PrimDataType dtype) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(1);
-        auto start_state = start.has_value()
-            ? fd->recordingState(start.value()())
-            : State(0, serde::StateType_None);
-        auto step_state = step.has_value() ? fd->recordingState(step.value()())
-                                           : State(0, serde::StateType_None);
-        fd->defineRecord(new IotaOpRecord(
-            {fd->recordingState(length()), start_state, step_state},
-            {fd->recordingState(output())},
-            dtype));
-        return output;
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(1);
+    auto start_state = start.has_value() ? fd->recordingState(start.value()())
+                                         : State(0, serde::StateType_None);
+    auto step_state = step.has_value() ? fd->recordingState(step.value()())
+                                       : State(0, serde::StateType_None);
+    fd->defineRecord(new IotaOpRecord(
+        {fd->recordingState(length()), start_state, step_state},
+        {fd->recordingState(output())},
+        dtype));
+    return output;
       },
       py::arg("length"),
       py::arg("start").none(true),
@@ -2964,19 +2983,19 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int>& axes,
          int64_t correction,
          bool keepdim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.var");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor output = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(axes),
-            correction,
-            keepdim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.var");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+    Tensor output = fd->defineTensor(ndims);
+    fd->defineRecord(new VarianceOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        std::move(axes),
+        correction,
+        keepdim));
+    return output;
       },
       py::arg("arg"),
       py::arg("axes"),
@@ -2987,17 +3006,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var",
       [](Tensor arg, std::vector<int>& axes, int64_t correction, bool keepdim)
           -> Tensor {
-        FUSER_PERF_SCOPE("Operators.var");
-        FusionDefinition* fd = arg.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor output = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            axes,
-            correction,
-            keepdim));
-        return output;
+    FUSER_PERF_SCOPE("Operators.var");
+    FusionDefinition* fd = arg.fusion_definition;
+    size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+    Tensor output = fd->defineTensor(ndims);
+    fd->defineRecord(new VarianceOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(output())},
+        axes,
+        correction,
+        keepdim));
+    return output;
       },
       py::arg("axes"),
       py::arg("correction"),
@@ -3010,20 +3029,20 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int>& axes,
          int64_t correction,
          bool keepdim) -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.var_mean");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor var = fd->defineTensor(ndims);
-        Tensor mean = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceMeanOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(var()), fd->recordingState(mean())},
-            std::move(axes),
-            correction,
-            keepdim));
-        return std::make_tuple(var, mean);
+    FUSER_PERF_SCOPE("Operators.var_mean");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+    Tensor var = fd->defineTensor(ndims);
+    Tensor mean = fd->defineTensor(ndims);
+    fd->defineRecord(new VarianceMeanOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(var()), fd->recordingState(mean())},
+        std::move(axes),
+        correction,
+        keepdim));
+    return std::make_tuple(var, mean);
       },
       py::arg("arg"),
       py::arg("axes"),
@@ -3034,21 +3053,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       "var_mean",
       [](Tensor arg, std::vector<int>& axes, int64_t correction, bool keepdim)
           -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.var_mean");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            !fd->completed(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor var = fd->defineTensor(ndims);
-        Tensor mean = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceMeanOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(var()), fd->recordingState(mean())},
-            axes,
-            correction,
-            keepdim));
-        return std::make_tuple(var, mean);
+    FUSER_PERF_SCOPE("Operators.var_mean");
+    FusionDefinition* fd = arg.fusion_definition;
+    TORCH_CHECK(
+        !fd->completed(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
+    Tensor var = fd->defineTensor(ndims);
+    Tensor mean = fd->defineTensor(ndims);
+    fd->defineRecord(new VarianceMeanOpRecord(
+        {fd->recordingState(arg())},
+        {fd->recordingState(var()), fd->recordingState(mean())},
+        axes,
+        correction,
+        keepdim));
+    return std::make_tuple(var, mean);
       },
       py::arg("axes"),
       py::arg("correction"),
@@ -3061,28 +3080,28 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar maxval,
          std::vector<Scalar>& shape,
          PrimDataType dtype) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.uniform");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(minval()),
-                fd->recordingState(maxval()),
-            },
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.uniform",
-            dtype));
-        return output;
+    FUSER_PERF_SCOPE("Operators.uniform");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(shape.size());
+    std::vector<State> output_shape_states(
+        shape.size(), State(0, serde::StateType_Scalar));
+    std::transform(
+        shape.begin(),
+        shape.end(),
+        output_shape_states.begin(),
+        [&fd](const Scalar& s) { return fd->recordingState(s()); });
+    fd->defineRecord(new RandomOpRecord(
+        {
+            fd->recordingState(minval()),
+            fd->recordingState(maxval()),
+        },
+        {fd->recordingState(output())},
+        output_shape_states,
+        "ops.uniform",
+        dtype));
+    return output;
       },
       py::arg("minval"),
       py::arg("maxval"),
@@ -3096,28 +3115,28 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar std,
          std::vector<Scalar>& shape,
          PrimDataType dtype) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.normal");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(mean()),
-                fd->recordingState(std()),
-            },
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.normal",
-            dtype));
-        return output;
+    FUSER_PERF_SCOPE("Operators.normal");
+    TORCH_CHECK(
+        self.validUse(), "Attempting to add to a completed definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    Tensor output = fd->defineTensor(shape.size());
+    std::vector<State> output_shape_states(
+        shape.size(), State(0, serde::StateType_Scalar));
+    std::transform(
+        shape.begin(),
+        shape.end(),
+        output_shape_states.begin(),
+        [&fd](const Scalar& s) { return fd->recordingState(s()); });
+    fd->defineRecord(new RandomOpRecord(
+        {
+            fd->recordingState(mean()),
+            fd->recordingState(std()),
+        },
+        {fd->recordingState(output())},
+        output_shape_states,
+        "ops.normal",
+        dtype));
+    return output;
       },
       py::arg("mean"),
       py::arg("std"),
@@ -3137,14 +3156,13 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "merge",
       [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
-        FUSER_PERF_SCOPE("SchedOperators.merge");
-        TORCH_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->merge(dim);
+    FUSER_PERF_SCOPE("SchedOperators.merge");
+    TORCH_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
+    input_tv->merge(dim);
       },
       py::arg("arg"),
       py::arg("dim"));
@@ -3156,14 +3174,13 @@ void initNvFuserPythonBindings(PyObject* module) {
          unsigned int factor,
          bool inner_split,
          bool trim_out_of_bounds) {
-        FUSER_PERF_SCOPE("SchedOperators.split");
-        TORCH_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->split(dim, factor, inner_split, trim_out_of_bounds);
+    FUSER_PERF_SCOPE("SchedOperators.split");
+    TORCH_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
+    input_tv->split(dim, factor, inner_split, trim_out_of_bounds);
       },
       py::arg("arg"),
       py::arg("dim"),
@@ -3173,3 +3190,4 @@ void initNvFuserPythonBindings(PyObject* module) {
 }
 
 } // namespace nvfuser::python_frontend
+ 

@@ -8,6 +8,7 @@
 #pragma once
 #include <c10/macros/Export.h>
 
+#include <ir_graphviz.h>
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
 

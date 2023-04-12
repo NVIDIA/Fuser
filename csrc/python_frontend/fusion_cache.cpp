@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <ir_graphviz.h>
 #include <python_frontend/fusion_cache.h>
 #include <serde/fusion_record_serde.h>
 
