@@ -46,7 +46,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       Fusion* fusion,
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -140,9 +141,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   // Try to compute heuristics based on the SegmentedFusion managed
   //  in this kernel runtime, and will return a nullopt if either
   //  any segment cannot be scheduled or the parameters don't match
+  //
+  // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
-      const KernelArgumentHolder& args);
+      const KernelArgumentHolder& args,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
@@ -367,10 +371,15 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
-  //! TODO: Consider adding an option to force index type selection as
-  //! our analysis of required index type may be conservative
+  //!
+  //! If given, the index type of forced_index_type is used no matter
+  //! what inputs and the fusion look like. This may be useful in some
+  //! cases as our analysis of index type may be overly conservative
+  //! for intermediate tensors.
+  //! WARING: Correctness is not guaranteed.
   std::vector<at::Tensor> runFusionWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! async, there's some restriction on the user side. e.g. Do not overlap
@@ -462,7 +471,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! entry in `FusionExecutor`
   void evictCache(size_t cache_id);
 
-  FusionKernelRuntime* getKernelRuntimeFor(const KernelArgumentHolder& inputs);
+  //! The index type of forced_index_type is used to get a kernel
+  //! runtime no matter what sizes inputs have
+  FusionKernelRuntime* getKernelRuntimeFor(
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
  private:
   //! original un-scheduled `Fusion`;

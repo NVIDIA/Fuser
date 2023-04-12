@@ -45,11 +45,16 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //! integers in the fusion. We need them for segmenter and schedulers,
   //! but we don't need them when we are just using this class to provide
   //! additional encoding for kernel cache lookup.
+  //!
+  //! The index type of forced_index_type is used if given, no matter
+  //! how large the actual arguments and fusion tensors
+  //! are. CORRECTNESS IS NOT GUARANTEED.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
       const KernelArgumentHolder& args,
       PrecomputedValues* precomputed_values = nullptr,
-      const std::vector<TensorView*>& all_tvs = {});
+      const std::vector<TensorView*>& all_tvs = {},
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,

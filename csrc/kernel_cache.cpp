@@ -180,7 +180,8 @@ void FusionExecutorCache::compileFusionAsync(
 // For details on Part_2, refer to the implementation note. [ Permutation
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   // Permute input tensor for kernel execution.
@@ -204,8 +205,15 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // undetermined
   KernelArgumentHolder args = prepareInputs(perm_inputs);
 
-  auto kernel_runtime = getKernelRuntimeFor(args);
+  auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
   most_recent_runtime_ = kernel_runtime;
+
+  // Make sure the forced index type is indeed used
+  if (forced_index_type.has_value()) {
+    TORCH_INTERNAL_ASSERT(kernel_runtime->getIndexType() ==
+                          forced_index_type.value(),
+                          "Enforcing index type of ", forced_index_type.value(), " failed");
+  }
 
   // Set the index type as it's resolved by FusionKernelRuntime
   args.setIndexType(kernel_runtime->getIndexType());
@@ -333,12 +341,18 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
 }
 
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
-    const KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args,
+    std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case
   auto unique_id = *args.getCacheId();
   auto id_it = id_to_kernel_runtime_.find(unique_id);
   if (id_it != id_to_kernel_runtime_.end()) {
-    return id_it->second;
+    // If the forced index type is given, don't use the cached runtime
+    // if its index type does not match with the forced type
+    if (!forced_index_type.has_value() ||
+        forced_index_type.value() == id_it->second->getIndexType()) {
+      return id_it->second;
+    }
   }
 
   // Access kernels associated with the common device id
@@ -352,8 +366,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   auto reuse_it = std::find_if(
       kernel_runtimes.begin(),
       kernel_runtimes.end(),
-      [&args, &new_heuristics](auto& kernel_runtime) {
-        auto maybe_heuristics = kernel_runtime->getMaybeHeuristicsFor(args);
+      [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+        auto maybe_heuristics =
+            kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
         if (!maybe_heuristics.has_value()) {
           return false;
         }
@@ -367,8 +382,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
   } else {
     // graph miss, need to re-build an optimized graph for this case
-    kernel_runtimes.emplace_back(
-        std::make_unique<FusionKernelRuntime>(fusion_.get(), args));
+    kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
+        fusion_.get(), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
     if (profiling_) {
       kernel_runtime->profile(true);
@@ -381,7 +396,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
 FusionKernelRuntime::FusionKernelRuntime(
     Fusion* fusion,
-    const KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args,
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   // Make a copy of fusion and do segmentation and translation
@@ -830,13 +846,19 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
 }
 
 c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
-    getMaybeHeuristicsFor(const KernelArgumentHolder& args) {
+    getMaybeHeuristicsFor(
+        const KernelArgumentHolder& args,
+        std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
   auto complete_fusion = segmented_fusion_->completeFusion();
   precomputed_values_->bindInputs(args);
   precomputed_values_->evaluate();
   SchedulerRuntimeInfo runtime_info(
-      complete_fusion, args, precomputed_values_.get(), all_tvs_);
+      complete_fusion,
+      args,
+      precomputed_values_.get(),
+      all_tvs_,
+      forced_index_type);
 
   c10::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();

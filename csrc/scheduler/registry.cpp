@@ -845,7 +845,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* precomputed_values,
-    const std::vector<TensorView*>& all_tvs)
+    const std::vector<TensorView*>& all_tvs,
+    std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
   TORCH_INTERNAL_ASSERT(
       complete_fusion_->inputs().size() == args.size(),
@@ -880,11 +881,15 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
-  index_type_ = getIndexTypeOfKernel(
-      complete_fusion_,
-      all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
-      args,
-      *expression_evaluator_);
+  if (forced_index_type.has_value()) {
+    index_type_ = forced_index_type.value();
+  } else {
+    index_type_ = getIndexTypeOfKernel(
+        complete_fusion_,
+        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        args,
+        *expression_evaluator_);
+  }
 }
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
