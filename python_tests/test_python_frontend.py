@@ -2121,6 +2121,34 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_graphviz(self):
+        inputs = [
+            torch.ones(2, 4, 8, device="cuda"),
+            torch.ones(2, 4, 8, device="cuda"),
+        ]
+
+        with FusionDefinition() as fd:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_constant(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+            t3 = fd.ops.mul(t2, c0)
+            t4 = fd.ops.sum(t3, [-1], False, DataType.Float)
+
+            fd.add_output(t4)
+
+        # test generating a dot file before execution
+        pre_exec = fd.to_graphviz()
+
+        _ = fd.execute(inputs)
+
+        # test generating a dot file after execution with different detail levels
+        co = fd.to_graphviz("computeOnly")
+        b = fd.to_graphviz("basic")
+        # e = fd.to_graphviz("Explicit")
+        # v = fd.to_graphviz("VERBOSE")
+
 
 if __name__ == "__main__":
     run_tests()
