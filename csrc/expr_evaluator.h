@@ -46,6 +46,9 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   //! Try to evaluate a Fusion IR value
   c10::optional<EvaluatorValue> evaluate(const Val* value);
 
+  //! Try to evaluate a parallel dimension
+  c10::optional<EvaluatorValue> evaluate(ParallelType pt);
+
   //! Debugging helper, prints all the currently known values
   void print() const;
 

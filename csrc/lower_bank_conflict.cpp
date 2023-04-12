@@ -117,10 +117,13 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(
     const std::vector<kir::ForLoop*>& for_loops,
-    c10::optional<LaunchParams> launch_params,
-    const ExpressionEvaluator& expr_eval_common,
+    ExpressionEvaluator expr_eval_common,
     LoadStoreOp* ldst,
     bool is_producer) {
+  auto bdimx = expr_eval_common.evaluate(ParallelType::TIDx);
+  auto bdimy = expr_eval_common.evaluate(ParallelType::TIDy);
+  auto bdimz = expr_eval_common.evaluate(ParallelType::TIDz);
+
   std::vector<int64_t> addresses;
   auto consumer = ldst->output(0)->as<kir::TensorIndex>();
   auto ti = (is_producer ? ldst->input(0)->as<kir::TensorIndex>() : consumer);
@@ -133,10 +136,8 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = getLdMatrixNumThreads(getVectorizeSize(consumer));
   } else {
     word_size = getVectorizeSize(consumer);
-    num_threads =
-        (launch_params.has_value()
-             ? std::min<int64_t>(32l, launch_params->nThreads())
-             : 32l);
+    num_threads = (bdimx ? bdimx->as<int64_t>() : 1) *
+        (bdimy ? bdimy->as<int64_t>() : 1) * (bdimz ? bdimz->as<int64_t>() : 1);
   }
   int64_t dtype_size = dataTypeSize(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
@@ -147,11 +148,13 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     int64_t tidx = linear_tidx;
     int64_t tidy = 0;
     int64_t tidz = 0;
-    if (launch_params.has_value()) {
-      tidy = tidx / launch_params->bdimx();
-      tidx = tidx % launch_params->bdimx();
-      tidz = tidy / launch_params->bdimy();
-      tidy = tidy % launch_params->bdimy();
+    if (bdimx.has_value()) {
+      tidy = tidx / bdimx->as<int64_t>();
+      tidx = tidx % bdimx->as<int64_t>();
+    }
+    if (bdimy.has_value()) {
+      tidz = tidy / bdimy->as<int64_t>();
+      tidy = tidy % bdimy->as<int64_t>();
     }
     // make a copy of the expression evaluator
     ExpressionEvaluator expr_eval = expr_eval_common;
@@ -194,97 +197,67 @@ int getConflictWays(const std::vector<int64_t>& addresses) {
   return conflict;
 }
 
-class InferLaunchParams : public kir::IrVisitor {
- public:
-  static c10::optional<LaunchParams> get(
-      const std::vector<Expr*>& exprs,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    if (exprs.empty()) {
-      return c10::nullopt;
-    }
-    return InferLaunchParams(exprs, known_values).launch_params_;
-  }
-
- private:
-  InferLaunchParams(
-      const std::vector<Expr*>& exprs,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    for (const auto& pair : known_values) {
-      expr_eval_.bind(pair.first, pair.second);
-    }
-    handle(exprs);
-  }
-
-  using kir::IrVisitor::handle;
-
-  void handle(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
-      return;
-    }
-
-    for (auto fl : for_loops_) {
-      if (fl->index()->isA<NamedScalar>()) {
-        auto ns = fl->index()->as<NamedScalar>();
-        if (ns->isThreadIdx() || ns->isBlockIdx()) {
-          auto ptype = *ns->getParallelIndex();
-          auto stop = expr_eval_.evaluate(fl->stop());
-          if (stop.has_value()) {
-            if (!launch_params_.has_value()) {
-              launch_params_ = LaunchParams();
-            }
-            if (launch_params_->getRawVal(ptype) ==
-                LaunchParams::UNINITIALIZED_VAL) {
-              launch_params_->bind(stop->as<int64_t>(), ptype);
-            } else {
-              TORCH_INTERNAL_ASSERT(
-                  launch_params_->getDim(ptype) == stop->as<int64_t>(),
-                  "Unable to infer launch parameters");
-            }
-          }
-        }
-      }
-    }
-  }
-
-  ExpressionEvaluator expr_eval_;
-  c10::optional<LaunchParams> launch_params_;
-};
-
 class BankConflictInfo : public kir::IrVisitor {
  public:
   static std::unordered_map<const Expr*, std::pair<int, int>> get(
-      const std::vector<Expr*>& exprs,
-      c10::optional<LaunchParams> launch_params,
+      const kir::Kernel* kernel,
+      LaunchParams launch_params,
       const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    if (exprs.empty()) {
+    if (kernel->topLevelExprs().empty()) {
       return {};
     }
-    return BankConflictInfo(exprs, launch_params, known_values)
+    return BankConflictInfo(kernel, launch_params, known_values)
         .bank_conflict_info_;
   }
 
  private:
   BankConflictInfo(
-      const std::vector<Expr*>& exprs,
-      c10::optional<LaunchParams> launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values)
-      : launch_params_(launch_params) {
-    expr_eval_common_.bind("blockIdx.x", 0);
-    expr_eval_common_.bind("blockIdx.y", 0);
-    expr_eval_common_.bind("blockIdx.z", 0);
-    if (launch_params.has_value()) {
-      expr_eval_common_.bind("blockDim.x", launch_params->bdimx());
-      expr_eval_common_.bind("blockDim.y", launch_params->bdimy());
-      expr_eval_common_.bind("blockDim.z", launch_params->bdimz());
-      expr_eval_common_.bind("gridDim.x", launch_params->gdimx());
-      expr_eval_common_.bind("gridDim.y", launch_params->gdimy());
-      expr_eval_common_.bind("gridDim.z", launch_params->gdimz());
+      const kir::Kernel* kernel,
+      LaunchParams launch_params,
+      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+    bindValues(launch_params, known_values);
+    inferLaunchParams(kernel);
+    handle(kernel->topLevelExprs());
+  }
+
+  void bindValues(
+      LaunchParams launch_params,
+      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+    expr_eval_.bind("blockIdx.x", 0);
+    expr_eval_.bind("blockIdx.y", 0);
+    expr_eval_.bind("blockIdx.z", 0);
+    if (launch_params.bdimx() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::TIDx, launch_params.bdimx());
+    }
+    if (launch_params.bdimy() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::TIDy, launch_params.bdimy());
+    }
+    if (launch_params.bdimz() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::TIDz, launch_params.bdimz());
+    }
+    if (launch_params.gdimx() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::BIDx, launch_params.gdimx());
+    }
+    if (launch_params.gdimy() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::BIDy, launch_params.gdimy());
+    }
+    if (launch_params.gdimz() != LaunchParams::UNINITIALIZED_VAL) {
+      expr_eval_.bind(ParallelType::BIDz, launch_params.gdimz());
     }
     for (const auto& pair : known_values) {
-      expr_eval_common_.bind(pair.first, pair.second);
+      expr_eval_.bind(pair.first, pair.second);
     }
-    handle(exprs);
+  }
+
+  void inferLaunchParams(const kir::Kernel* kernel) {
+    const auto& parallel_dimension_map =
+        kernel->summary().parallel_dimension_map_.getMap();
+    for (const auto& [p, v] : parallel_dimension_map) {
+      auto inferred_parallel_dim = expr_eval_.evaluate(v);
+      if (inferred_parallel_dim.has_value()) {
+        expr_eval_.bind(p, inferred_parallel_dim->as<int64_t>());
+      }
+    }
   }
 
   using kir::IrVisitor::handle;
@@ -299,12 +272,12 @@ class BankConflictInfo : public kir::IrVisitor {
       auto ldst = expr->as<LoadStoreOp>();
       std::pair<int, int> conflict_ways{0, 0};
       if (isSmemTensorIndex(ldst->in())) {
-        conflict_ways.first = getConflictWays(evaluateAddressesOnFirstPhase(
-            for_loops_, launch_params_, expr_eval_common_, ldst, true));
+        conflict_ways.first = getConflictWays(
+            evaluateAddressesOnFirstPhase(for_loops_, expr_eval_, ldst, true));
       }
       if (isSmemTensorIndex(ldst->out())) {
-        conflict_ways.second = getConflictWays(evaluateAddressesOnFirstPhase(
-            for_loops_, launch_params_, expr_eval_common_, ldst, false));
+        conflict_ways.second = getConflictWays(
+            evaluateAddressesOnFirstPhase(for_loops_, expr_eval_, ldst, false));
       }
       if (conflict_ways.first > 1 || conflict_ways.second > 1) {
         bank_conflict_info_[expr] = conflict_ways;
@@ -313,15 +286,14 @@ class BankConflictInfo : public kir::IrVisitor {
   }
 
   std::unordered_map<const Expr*, std::pair<int, int>> bank_conflict_info_;
-  c10::optional<LaunchParams> launch_params_;
-  ExpressionEvaluator expr_eval_common_;
+  ExpressionEvaluator expr_eval_;
 };
 
 } // namespace
 
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
-    kir::Kernel* kernel,
-    c10::optional<LaunchParams> launch_params,
+    const kir::Kernel* kernel,
+    LaunchParams launch_params,
     const std::unordered_map<Val*, EvaluatorValue>& known_values) {
   for (const auto& pair : known_values) {
     if (auto ns = dynamic_cast<NamedScalar*>(pair.first)) {
@@ -339,12 +311,7 @@ std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
           "gridDim.{x,y,z} should be provided by launch_params");
     }
   }
-  if (!launch_params.has_value()) {
-    launch_params =
-        InferLaunchParams::get(kernel->topLevelExprs(), known_values);
-  }
-  return BankConflictInfo::get(
-      kernel->topLevelExprs(), launch_params, known_values);
+  return BankConflictInfo::get(kernel, launch_params, known_values);
 }
 
 } // namespace nvfuser
