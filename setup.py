@@ -17,16 +17,24 @@
 #   --no-benchmark
 #     Skips benchmark target `nvfuser_bench`
 #
+#   --no-ninja
+#     In case you want to use make instead of ninja for build
+#
+#   -version-tag=TAG
+#     Specify the tag for build nvfuser version, this is used for pip wheel
+#     package nightly where we might want to add a date tag
+#     nvfuser-VERSION+TAG+gitSHA1-....-whl
+#
 
-import sys
-import subprocess
-import os
 import multiprocessing
+import os
 import shutil
+import subprocess
+import sys
 
 import setuptools
 import setuptools.command.build_ext
-from setuptools import setup, Extension
+from setuptools import Extension, setup
 
 # pick args used by this script
 CMAKE_ONLY = False
@@ -34,6 +42,10 @@ BUILD_SETUP = True
 NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
+NO_NINJA = False
+PATCH_NVFUSER = True
+OVERWRITE_VERSION = False
+VERSION_TAG = None
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -48,9 +60,19 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-benchmark":
         NO_BENCHMARK = True
         continue
+    if arg == "--no-ninja":
+        NO_NINJA = True
+        continue
+    if arg.startswith("-version-tag="):
+        OVERWRITE_VERSION = True
+        VERSION_TAG = arg.split("=")[1]
+        continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         BUILD_SETUP = False
+    if arg in ["bdist_wheel"]:
+        # bdist_wheel doesn't install entry-points, so we can't really patch it yet
+        PATCH_NVFUSER = False
     forward_args.append(arg)
 sys.argv = forward_args
 
@@ -153,7 +175,6 @@ else:
     class build_whl(bdist_wheel):
         def run(self):
             with concat_third_party_license() as tp_licenses:
-
                 if len(tp_licenses) != 0:
                     with open("LICENSE", "a") as f:
                         f.write("\n\n")
@@ -203,7 +224,16 @@ def cmake():
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     # generate cmake directory
-    cmd_str = [get_cmake_bin(), pytorch_cmake_config, "-B", build_dir_name, "."]
+    cmd_str = [
+        get_cmake_bin(),
+        pytorch_cmake_config,
+        "-B",
+        build_dir_name,
+    ]
+    if not NO_NINJA:
+        cmd_str.append("-G")
+        cmd_str.append("Ninja")
+    cmd_str.append(".")
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
@@ -229,6 +259,17 @@ def cmake():
         subprocess.check_call(cmd_str)
 
 
+def version_tag():
+    from tools.gen_nvfuser_version import get_version
+
+    version = get_version()
+    if OVERWRITE_VERSION:
+        version = version.split("+")[0]
+        if len(VERSION_TAG) != 0:
+            version = "+".join([version, VERSION_TAG])
+    return version
+
+
 def main():
     if BUILD_SETUP:
         cmake()
@@ -240,12 +281,10 @@ def main():
             "lib/*.so",
         ]
 
-        from tools.gen_nvfuser_version import get_version
-
         setup(
             name="nvfuser",
-            # query nvfuser version
-            version=get_version(),
+            version=version_tag(),
+            url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser", "nvfuser_python_utils"],
             ext_modules=[Extension(name=str("nvfuser._C"), sources=[])],
@@ -263,9 +302,10 @@ def main():
                     "patch-nvfuser = nvfuser_python_utils:patch_installation",
                 ],
             },
+            license="BSD-3-Clause",
         )
 
-        if BUILD_SETUP:
+        if BUILD_SETUP and PATCH_NVFUSER:
             subprocess.check_call(["patch-nvfuser"])
 
 

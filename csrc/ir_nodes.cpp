@@ -353,9 +353,6 @@ std::vector<EvaluatorValue> UnaryOp::evaluate(
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
-    case UnaryOpType::Set:
-      return {in};
-      break;
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
         return {EvaluatorValue(in.cast<int64_t>())};
@@ -1407,65 +1404,6 @@ void MmaOp::configureOptions(MmaOptions options) {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
 
-TransposeOp::TransposeOp(
-    IrBuilderPasskey passkey,
-    TensorView* out,
-    TensorView* in,
-    std::vector<int64_t> new2old)
-    : Expr(passkey) {
-  // Sanity check of the input parameters. Maybe not necessary as they
-  // should be checked at function transpose.
-
-  TORCH_INTERNAL_ASSERT(
-      TensorDomain::noReductions(in->getMaybeRFactorDomain()).size() ==
-      out->getMaybeRFactorDomain().size());
-
-  TORCH_INTERNAL_ASSERT(new2old.size() == out->getMaybeRFactorDomain().size());
-
-  // Make sure the entries of new2old are unique and range from 0 to
-  // N-1, where N == new2old.size().
-  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
-  TORCH_INTERNAL_ASSERT(old_positions.size() == new2old.size());
-  // old_positions is sorted, so the first entry must be 0.
-  TORCH_INTERNAL_ASSERT(
-      *(old_positions.begin()) == 0,
-      "Invalid new2old vector detected: ",
-      new2old);
-  // The last entry must be N-1, since old_positions is sorted, starts
-  // with 0, and its length is N.
-  TORCH_INTERNAL_ASSERT(
-      *(old_positions.rbegin()) == (int)(new2old.size() - 1),
-      "Invalid new2old vector detected: ",
-      new2old);
-
-  addOutput(out);
-  addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int64_t>>>(
-      passkey.ir_container_, std::move(new2old)));
-}
-
-std::string TransposeOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = transpose( "
-                          << in()->toString() << " )\n";
-  return ss.str();
-}
-
-std::string TransposeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
-}
-
-std::vector<int64_t> TransposeOp::old2new() const {
-  std::vector<int64_t> old2new(new2old().size());
-  for (auto new_axis : c10::irange(new2old().size())) {
-    auto old_axis = new2old().at(new_axis);
-    old2new[old_axis] = (int64_t)new_axis;
-  }
-  return old2new;
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(TransposeOp)
-
 ExpandOp::ExpandOp(
     IrBuilderPasskey passkey,
     TensorView* out,
@@ -1684,11 +1622,34 @@ LoadStoreOp::LoadStoreOp(
       passkey.ir_container_, op_type));
 }
 
+std::vector<EvaluatorValue> LoadStoreOp::evaluate(
+    const std::vector<EvaluatorValue>& inputs) const {
+  return inputs;
+}
+
 std::string LoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
+  std::string modifier = "";
+  { // Get modifier
+    TensorView* tv = dynamic_cast<TensorView*>(out());
+    if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
+      tv = ti->view();
+    }
+    if (tv != nullptr && tv->hasRFactor()) {
+      modifier = ".Permute";
+    }
+  }
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1)
-      << " = " << opType() << "( " << in()->toString() << " )\n";
+      << " = " << optype << modifier << "( " << in()->toString();
+  // Fusion IR does not have predicate
+  if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
+    ss << ", " << std::endl;
+    indent(ss, indent_size + 1)
+        << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
+  }
+  ss << " )\n";
   return ss.str();
 }
 

@@ -44,6 +44,10 @@ struct FusionSchedules {
   //!        InputsIdLookup struct found inside of the FusionCache.
   //! Value: A vector based on device_id of User Defined Fusion Schedules.
   std::unordered_map<size_t, std::vector<UserSchedule>> user_def_schedules;
+  //! Keeps a pointer to the last scheduled Fusion IR for printing
+  Fusion* last_user_def_scheduled_ir;
+  //! Keeps a pointer to the last executed executor for printing its cuda kernel
+  FusionExecutor* last_user_def_executor;
   //! For thread-Safe locking of Fusion Schedules
   std::mutex scheds_lock;
 };
@@ -62,11 +66,16 @@ struct TORCH_CUDA_CU_API TrieNode {
   // Queries whether the entry denotes a leaf node which also represents
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
+  //! Serialize TrieNode using flatbuffers
+  flatbuffers::Offset<serde::TrieNode> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::map<RecordFunctor*, size_t>&
+          map_record_functor_to_trie_node_id);
 
   //! An entry's primary data is the record it holds
   std::unique_ptr<RecordFunctor> record;
   //! A hash map of the children for the current node.
-  //! The hash map hashs a pointer to a RecordFunctor because
+  //! The hash map hashes a pointer to a RecordFunctor because
   //! the hash function is virtual.
   std::unordered_map<RecordFunctor*, std::unique_ptr<TrieNode>> children;
   //! An index into FusionCache's vector of nvFuser object that holds an
@@ -121,6 +130,10 @@ class TORCH_CUDA_CU_API FusionCache {
   void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
   static void reset();
+  //! Serialize Fusion Cache using flatbuffers
+  void serialize(std::string filename) const;
+  //! Deserialize Fusion Cache using flatbuffers
+  void deserialize(std::string filename);
 
   //! The rest of the public methods are only used in C++
 
