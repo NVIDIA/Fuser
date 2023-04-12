@@ -10,25 +10,85 @@ namespace nvfuser.serde;
 // breaking change is applied to the schema.
 file_identifier "NV00";
 
-// TODO
+enum ArgType:int {
+  PhiloxCudaState,
+  Long,
+  Double,
+  ComplexDouble,
+  Bool,
+  Tensor,
+  CpuScalarTensor
+}
+
+enum KernelIndexMode:int {
+  INT32,
+  INT64
+}
+
+union ArgAbstractData {
+  Long,
+  Double,
+  ComplexDouble,
+  Bool,
+  PhiloxCudaState,
+  Tensor,
+  CpuScalarTensor
+}
+
+// TODO CpuScalarTensor
+
+table PhiloxCudaState {
+  seed : ulong;
+  offset : ulong;
+}
+
+table TensorArgCodegen {
+  alignment_size : ulong;
+  size : [long];
+  stride : [long];
+  ndims : long;
+  dtype: DataType;
+}
+
+table ArgAbstract {
+  type : ArgType;
+  data  : ArgAbstractData;
+}
+
 table KernelArgumentHolder {
-
+  arguments : [ArgAbstract];
+  device_index : char;
+  cache_id : ulong;
+  index_mode : KernelIndexMode;
 }
 
-// TODO
 table LaunchParams {
-
+  gdimx : int64_t;
+  gdimy : int64_t;
+  gdimz : int64_t;
+  bdimx : int64_t;
+  bdimy : int64_t;
+  bdimz : int64_t;
+  smem : int64_t;
+  output_sizes : [[long]];
 }
 
-// TODO
 table CompileParams {
-
+  index_type : PrimDataType;
+  maxrregcount : int;
+  enable_magic_zero : bool;
 }
 
-// TODO
-table NvrtcFunction {
+// struct NvrtcFunction
+// CUmodule module
+// CUfunction function
+struct NvrtcFunction {
+  module : [char];
+  function : [char];
 
-}
+  CUmodule module = CUmodule();
+  CUfunction function = CUfunction();
+};
 
 table GlobalBufferInfo {
   sizes : [long];
@@ -49,78 +109,37 @@ table ExecutorEntry {
     rand_offset : ulong;
 };
 
-// TODO 
-// Allocate
-// SyncMap
-// ParallelDimensionMap
 // VectorizedSetInfo
-// TensorView
-// Expr
+table VectorizedSetInfo {
+  // Producer of a vectorized set
+  TensorView* producer_tv = nullptr;
+
+  // Consumer of a vectorized set
+  TensorView* consumer_tv = nullptr;
+
+  // Number of elements to vectorize
+  int word_size = -1;
+
+  // Vectorized domain
+  IterDomain* vectorized_leaf_id = nullptr;
+
+  // Right-most root dependent domain of the leaf domain
+  IterDomain* vectorized_root_id = nullptr;
+  
+  // All of the dependent root domains that are contiguously merged
+  std::unordered_set<IterDomain*> contig_root_ids;
+};
 
 table KernelSummary {
-  // Count of WAR (write-after-read) hazard barriers
-  war_hazard_syncs_count : int;
-
-  // List of global buffers
-  global_allocations : [Allocate];
-
-  // List of dynamic shared memory buffers
-  dynamic_smem_allocations : [Allocate]
-
-  // List of static shared memory buffers
-  static_smem_allocations : [Allocate];
-
   // Indicate the need to generate random numbers
   max_rng_offsets : int = -1;
-
-  // Do we have any block reductions?
-  has_block_reductions : bool;
-
-  // Number of static grid reductions
-  has_grid_reductions : bool;
 
   // Do we have any grid reduction in a loop, or grid reductions dependent on grid reductions
   has_cooperative_grid_reduction : bool;
 
-  // Do we have any block broadcasts?
-  has_block_broadcasts : bool;
-
-  // Do we have any grid broadcasts?
-  has_grid_broadcasts : bool;
-
-  // Do we have any welford ops?
-  has_welford : bool;
-
-  // Do we have any block welford ops?
-  has_block_welford : bool;
-
-  // Do we have any grid welford ops?
-  has_grid_welford : bool;
-
-  // Do we have any outer grouped grid welford op?
-  has_outer_grouped_grid_welford : bool;
-
-  // Largest shared memory buffer size of outer grouped grid welford
-  outer_grouped_grid_welford_largest_smem_size : int;
-
-  // Largest shared memory buffer base type
-  largest_smem_data_type : DataType;
-
-  // Do we have allocations of dynamic local memory?
-  has_dynamic_local_memory_allocations : bool;
-
-  // List of dynamic local memory buffers.
-  // Only used for debugging.
-  dynamic_lmem_allocations : [Allocate]
-
   // ceilDiv extents that must be divisible
   lhs_splits_to_validate : [long];
   rhs_splits_to_validate : [long];
-
-  // Effective ParallelTypes of broadcast ops
-  // map<const BroadcastOp*, ParallelTypeBitmap> broadcast_parallel_types;
-  bcast_parallel_types_keys : [ulong]
-  bcast_parallel_type_bitmap : [ulong]
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -128,17 +147,8 @@ table KernelSummary {
   vectorized_accesses_tv_keys : [ulong]
   vectorized_accesses_size : [int]
 
-  // Sync map is needed to figure out if global memory buffers need to be marked
-  // as volatile because they're used for communication.
-  sync_map : SyncMap
-
-  // Parallel dimension map needed to set the correct properties of grid buffers
-  // (is a dim inactive)
-  parallel_dimension_map : ParallelDimensionMap;
-
   // Track information on vectorized set operations for runtime validation
   vectorized_set_info : [VectorizedSetInfo];
-
 }
 
 // skipped potential fields:
