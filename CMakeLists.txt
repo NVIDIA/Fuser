@@ -28,10 +28,7 @@ if (PROJECT_IS_TOP_LEVEL)
   if(BUILD_NVFUSER_BENCHMARK)
     include(cmake/Dependencies.cmake)
   endif()
-  set(CMAKE_INSTALL_PREFIX "${NVFUSER_ROOT}/build")
-  set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
-  set(NVFUSER_CMAKE_DIR "${NVFUSER_ROOT}/nvfuser/cmake")
-  file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})
+  set(CMAKE_INSTALL_PREFIX "${NVFUSER_ROOT}/nvfuser")
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
@@ -211,7 +208,7 @@ if (PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
   # TODO: setup header and lib installation
   # installing nvfuser lib
-  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${NVFUSER_LIB_DIR}")
+  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
@@ -221,14 +218,14 @@ else()
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
   	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
           FILES_MATCHING PATTERN "*.py" )
-  # installing nvfuser headers
-  install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-          DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-          FILES_MATCHING PATTERN "*.h" )
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
-
 endif()
+
+# installing nvfuser headers
+install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+      FILES_MATCHING PATTERN "*.h" )
 
 #-----------------------------
 # build nvfuser python library
@@ -283,7 +280,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
-    install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${NVFUSER_LIB_DIR})
+    install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION lib)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
 
@@ -377,7 +374,9 @@ if(BUILD_TEST)
     set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
   endif()
 
-  install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
+  if (NOT PROJECT_IS_TOP_LEVEL)
+    install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
+  endif()
 endif()
 
 # -- build benchmark
@@ -429,7 +428,9 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
-  install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
+  if (NOT PROJECT_IS_TOP_LEVEL)
+      install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
+  endif()
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 
 endif()
@@ -496,7 +497,7 @@ endforeach()
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
 
 # -- install nvfuser cmake config files and symlink to build binaries
-install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION "${NVFUSER_CMAKE_DIR}")
+install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION cmake)
 if (PROJECT_IS_TOP_LEVEL)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 else()
