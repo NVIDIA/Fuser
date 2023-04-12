@@ -91,7 +91,8 @@ void FusionState::addOutput(
     const std::vector<int64_t>& permutation) {
   TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
-  fusion_->setPermutationOnOutput(fusion_->outputs().size() - 1, permutation);
+  fusion_->setPermutationOnOutput(
+      (int)fusion_->outputs().size() - 1, permutation);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
