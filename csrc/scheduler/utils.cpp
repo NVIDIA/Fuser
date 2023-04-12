@@ -2052,10 +2052,8 @@ bool revertUseOfInputCacheInResize(
     MemoryType promoted_memory_type,
     const std::vector<TensorView*>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
-    if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-      if (uop->getUnaryOpType() == UnaryOpType::Set) {
-        return uop->in()->as<TensorView>();
-      }
+    if (auto uop = dynamic_cast<LoadStoreOp*>(tv->definition())) {
+      return uop->in()->as<TensorView>();
     }
     return nullptr;
   };
