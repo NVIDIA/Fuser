@@ -3150,7 +3150,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"));
   nvf_sched.def(
       "reduction_factor",
-      [](FusionDefinition::SchedOperators& self, Tensor arg, std::vector<int>& dims) -> Tensor {
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         std::vector<int>& dims) -> Tensor {
         FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
         TORCH_CHECK(
             self.validUse(),
@@ -3167,7 +3169,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dims"));
   nvf_sched.def(
       "reorder",
-      [](FusionDefinition::SchedOperators& self, Tensor arg, std::unordered_map<int, int>& old2new) {
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         std::unordered_map<int, int>& old2new) {
         FUSER_PERF_SCOPE("SchedOperators.reorder");
         TORCH_CHECK(
             self.validUse(),

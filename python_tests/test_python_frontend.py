@@ -960,7 +960,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
-    
+
     def test_rfactor_user_schedule(self):
         inputs = [
             torch.randn(16, 16, device="cuda"),
@@ -969,7 +969,9 @@ class TestNvFuserFrontend(TestCase):
         class UserDefSched(FusionDefinition):
             def definition(self):
                 self.t0 = fd.define_tensor(
-                    symbolic_sizes=[16, 16], contiguous=[True, True], dtype=DataType.Float
+                    symbolic_sizes=[16, 16],
+                    contiguous=[True, True],
+                    dtype=DataType.Float,
                 )
                 self.t1 = self.ops.sum(self.t0, axis=-1)
                 self.add_output(self.t1)
@@ -982,7 +984,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
-    
+
     def test_zero_size_dim(self):
         inputs = [
             torch.ones(0, 0, device="cuda"),
@@ -998,7 +1000,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
-    
+
     def test_normal(self):
         input_size = [64, 128, 1024]
         dtype = torch.float32

@@ -69,7 +69,9 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
 }
 
 void FusionState::addFusionState(size_t index, Val* val) {
-  TORCH_CHECK(index == fusion_state_.size(), "Fusion State index does not match the size!");
+  TORCH_CHECK(
+      index == fusion_state_.size(),
+      "Fusion State index does not match the size!");
   fusion_state_.push_back(val);
 }
 
