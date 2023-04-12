@@ -1473,11 +1473,11 @@ bool TensorView::isEmptyTensor() const {
 void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
-      mma_util::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
-      mma_util::WarpMmaSwizzler::scheduleOperandRead(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown operand flag");

@@ -385,7 +385,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
 void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
-  scheduler_utils::matmul_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   prologSwizzle(shared_mem_tv, params);
@@ -396,7 +396,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   //   The vectorizable width logic would be in a separate PR as the
   //    current effort tries to focus on generating swizzles.
   shared_mem_tv->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
+  mma_utils::scheduleContiguousVectorLoad(
       shared_mem_tv, params.tile_sizes, 8, true);
 
   // Propagate prolog tensors
@@ -558,9 +558,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Make a CTA tile
   // ------------------------------------------------------------------
-  scheduler_utils::matmul_utils::canonicalizeMmaTvOrdering(cc);
+  mma_utils::canonicalizeMmaTvOrdering(cc);
   // [... M,N,K]
-  scheduler_utils::matmul_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
+  mma_utils::makeTile(cc, gemm_tile.cta_tile.toVector());
 
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
@@ -588,7 +588,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::transformPropagateToAllFrom(cc, -1);
 
   // Schedule warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(cc, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(cc, gemm_tile);
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
