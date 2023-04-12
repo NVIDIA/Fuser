@@ -7951,10 +7951,14 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
+  executor_cache.runFusionWithInputs(aten_inputs);
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  // Running again with forced type of Int32
+  executor_cache.runFusionWithInputs(aten_inputs, PrimDataType::Int32);
+  kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
 
 //! Test whether we can create and use float16 scalars

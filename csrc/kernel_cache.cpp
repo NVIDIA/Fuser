@@ -210,9 +210,11 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
-    TORCH_INTERNAL_ASSERT(kernel_runtime->getIndexType() ==
-                          forced_index_type.value(),
-                          "Enforcing index type of ", forced_index_type.value(), " failed");
+    TORCH_INTERNAL_ASSERT(
+        kernel_runtime->getIndexType() == forced_index_type.value(),
+        "Enforcing index type of ",
+        forced_index_type.value(),
+        " failed");
   }
 
   // Set the index type as it's resolved by FusionKernelRuntime
@@ -407,7 +409,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   all_tvs_ = ir_utils::allTvs(fusion_copy.get());
 
   // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(fusion_copy.get(), args, nullptr, all_tvs_);
+  SchedulerRuntimeInfo runtime_info(
+      fusion_copy.get(), args, nullptr, all_tvs_, forced_index_type);
 
   // Set the argument index type as it's resolved by SchedulerRuntimeInfo
   auto args_index_type_fixed = args;
@@ -437,7 +440,9 @@ FusionKernelRuntime::FusionKernelRuntime(
         args_index_type_fixed);
   }
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(args_index_type_fixed);
+  heuristics_ = segmented_fusion_->makeInitialHeuristics(
+      args_index_type_fixed, runtime_info);
+
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();

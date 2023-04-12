@@ -3501,9 +3501,9 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
 }
 
 std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs) {
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
   auto ret = std::make_unique<FusionHeuristics>();
-  SchedulerRuntimeInfo runtime_info(completeFusion(), inputs);
   for (auto g : groups()) {
     ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
   }
