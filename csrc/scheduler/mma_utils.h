@@ -12,7 +12,7 @@
 
 namespace nvfuser {
 
-namespace mma_util {
+namespace mma_utils {
 
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
@@ -209,6 +209,6 @@ void checkDimSize(
 // Returns if the loopnest is initializing for an mma op.
 bool isMmaInitLoop(const kir::ForLoop* loop);
 
-} // namespace mma_util
+} // namespace mma_utils
 
 } // namespace nvfuser

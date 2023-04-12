@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-namespace mma_util {
+namespace mma_utils {
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // Assumes
@@ -30,7 +30,7 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
 
   int num_warp_k = cta_tile.k / warp_tile.k;
 
-  mma_util::checkDimSize(
+  mma_utils::checkDimSize(
       tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
 
   if (num_warp_k == 1) {
@@ -92,7 +92,7 @@ void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
-  mma_util::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
+  mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
   TORCH_CHECK(
       cta_tile.k % warp_tile.k == 0,
@@ -1186,9 +1186,9 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   TORCH_CHECK(
       mma != nullptr, "canonicalizeMmaTvOrdering : only support mma op output");
 
-  auto m_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::M);
-  auto n_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::N);
-  auto k_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::K);
+  auto m_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::M);
+  auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
+  auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
   std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
@@ -1249,6 +1249,6 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   tv->reorder(order_map);
 }
 
-} // namespace mma_util
+} // namespace mma_utils
 
 } // namespace nvfuser
