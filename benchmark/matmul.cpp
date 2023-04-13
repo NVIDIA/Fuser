@@ -235,9 +235,13 @@ static void SingleMatmulBase(
   auto launch_constraints = LaunchParams();
   FusionExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
-  TORCH_CHECK(
-      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
-      "Shared memory bank conflict not removed.");
+  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
+  if (properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5)) {
+    TORCH_CHECK(
+        getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+        "Shared memory bank conflict not removed.");
+  }
 
   // Warm up run
   auto outputs = fe.runFusion({inputs.first, inputs.second});
