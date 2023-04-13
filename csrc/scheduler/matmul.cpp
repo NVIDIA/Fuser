@@ -299,11 +299,14 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   init1 + i1 * stride == init2 + i2 * stride
      *   ==> init1 - init2 = (i2 - i1) * stride
      *   ==> init1 - init2 = (i2 - i1) * s * g
-     * Let si = (i2 - i1) * s, because s coprime with (m = n / g), we know that
-     * for an arbitrary value in Z/mZ, there exist an i1 and i2 to make si take
-     * that value. That said, for init values that are off by a multiple of g
-     * they correspond to the same pattern, otherwise they belongs to different
+     * Let m = n / g, according to Theorem 4.13 in [The Mathematics of
+     * Integer Arithmetic], ((i2 - i1) * stride) % n = ((i2 - i1) * s) % m * g.
+     * Let si = (i2 - i1) * s, because s coprime with m, we know that for an
+     * arbitrary value in Z/mZ, there exist an i1 and i2 to make si take that
+     * value. That said, for init values that are off by a multiple of g they
+     * correspond to the same pattern, otherwise they belongs to different
      * patterns. So, we can use
+     *
      *   init = 0, 1, ..., g - 1
      * to canonically represent g patterns. Let's call the above
      * `init` values "pattern id".
