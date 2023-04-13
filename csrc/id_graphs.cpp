@@ -2069,7 +2069,6 @@ void IterDomainGraphs::buildAlmostExactMap() {
   // Build almost exact map by forwarding through broadcast axes
   idGraph(IdMappingMode::ALMOSTEXACT) = idGraph(IdMappingMode::EXACT);
   idGraph(IdMappingMode::ALMOSTEXACT).mapThroughTrivialExprs();
-  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IterDomainGraphs::validateAndPropagatePType() const {
@@ -2142,6 +2141,11 @@ void IterDomainGraphs::build(
   buildAlmostExactMap();
   std::cout << "buildPermissiveMap" << std::endl;
   buildPermissiveMap(tv_exprs);
+  // Permissive graph needs the trivial exprs from the almost exact graph to
+  // build correctly. Once built though we can remove the trivial expressions
+  // from the almost exact graph.
+  idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
+
   std::cout << "built non lowering graphs" << std::endl;
 
   // Only build loop map during lowering
