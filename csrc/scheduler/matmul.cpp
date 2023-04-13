@@ -21,7 +21,7 @@ namespace nvfuser {
 namespace {
 
 // Returns true if given number is power of 2
-bool isPowOf2(int x) {
+constexpr bool isPowOf2(int x) {
   return x > 1 && (x & (x - 1)) == 0;
 }
 
@@ -241,7 +241,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * An important tool to study this equation is multiplicative inverse:
      * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
      * stride has an multiplicative inverse if and only if stride coprime with
-     * n, that is, gcd(stride, n) == 1. In such case, the solution to our
+     * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
      * equation j * stride == 0 is j = stride^(-1) * 0 = 0, that is: f(i) does
      * not repeat, that is: there is no bank conflict.
      */
@@ -251,16 +251,26 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
       return; // No need to swizzle in this case.
     }
 
-    /* If stride does not coprime with n, then we can write stride as:
-     *   stride = s * gcd(stride, n)
+    /* For the case where stride does not coprime with n, if n is a power of a
+     * prime, then we can write stride as:
+     *   stride = s * g
      * where s coprime with n. Then the equation j * stride == 0 becomes:
-     *   j * s * gcd(stride, n) == 0
+     *   j * s * g == 0
      * which can be simplified as
-     *   j * gcd(stride, n) == s^(-1) * 0
-     *   ==> j * gcd(stride, n) == 0
-     * It is easy to see that j is n / gcd(stride, n).
-     * That is: f(i) always repeat a pattern of n / gcd(stride, n) unique
-     * numbers gcd(stride, n) times
+     *   j * g == s^(-1) * 0
+     *   ==> j * g == 0
+     *
+     * It is easy to see that j is n / g.
+     * That is: f(i) always repeat a pattern of n / g unique numbers g times
+     *
+     * For our application here, n is always 8, which is a power of 2. So this
+     * conclusion holds.
+     * (Actually, if n is not a power of a prime, we can decompose the ring Z/nZ
+     *  into the direct product of Z/p1^k1Z x Z/p2^k2Z x ... according to the
+     *  Chinese remainder theorem, and repeat the above proof in each ring, we
+     *  will get the same conclusion here. I will not go deep into the details
+     *  about this here as it is unrelated, but on the other hand I will not add
+     *  static_assert(isPowOf2(num_megabanks)); here either)
      */
 
     int repeated_pattern_size = num_megabanks / g;
@@ -270,33 +280,32 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     }
 
     /* We've just studied the behavior of f(i) w.r.t. different `i`s, and f(i)
-     * repeat with a period of n / gcd(stride, n). With fixed stride, for each
-     * given `init`, the values f(i) at different `i` form a "pattern". Now we
-     * would study the behavior of f(i) for different `init` values. In other
-     * word, we just studied the megabank usage behavior of different rows of
-     * the same matrix, now we study the megabank usage behavior of the same row
-     * of different matrices.
+     * repeat with a period of n / g. With fixed stride, for each given `init`,
+     * the values f(i) at different `i` form a "pattern". Now we would study the
+     * behavior of f(i) for different `init` values. In other word, we just
+     * studied the megabank usage behavior of different rows of the same matrix,
+     * now we study the megabank usage behavior of the same row of different
+     * matrices.
      *
      * Let's slightly change our notation f(i) as f(i;init) for convenience.
-     * Because Z/nZ has n items, each pattern has n / gcd(stride, n) different
-     * items, so we have in total gcd(stride, n) different patterns. in Z/nZ,
-     * `init` has n possible values, we want to know when different `init`
-     * correspond to different patterns and when they correspond to the same
-     * pattern.
+     * Because Z/nZ has n items, each pattern has n / g different items, so we
+     * have in total g different patterns. in Z/nZ, `init` has n possible
+     * values, we want to know when different `init` correspond to different
+     * patterns and when they correspond to the same pattern.
      *
      * Consider the equation
      *   f(i1; init1) == f(i2; init2)
      * which simplifies to
      *   init1 + i1 * stride == init2 + i2 * stride
      *   ==> init1 - init2 = (i2 - i1) * stride
-     *   ==> init1 - init2 = (i2 - i1) * s * gcd(stride, n)
-     * Let si = (i2 - i1) * s, because s coprime with n, we know that for an
-     * arbitrary value in Z/nZ, there exist an i1 and i2 to make si take that
-     * value. That said, for init values that are off by a multiple of
-     * gcd(stride, n) they correspond to the same pattern, otherwise they
-     * belongs to different patterns. So, we can use
-     *   init = 0, 1, ..., gcd(stride, n) - 1
-     * to canonically represent gcd(stride, n) patterns. Let's call the above
+     *   ==> init1 - init2 = (i2 - i1) * s * g
+     * Let si = (i2 - i1) * s, because s coprime with (m = n / g), we know that
+     * for an arbitrary value in Z/mZ, there exist an i1 and i2 to make si take
+     * that value. That said, for init values that are off by a multiple of g
+     * they correspond to the same pattern, otherwise they belongs to different
+     * patterns. So, we can use
+     *   init = 0, 1, ..., g - 1
+     * to canonically represent g patterns. Let's call the above
      * `init` values "pattern id".
      *
      * For the example of stride = 6 under Z/8Z, we have different patterns
