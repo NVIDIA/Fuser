@@ -11,7 +11,11 @@ import torch
 sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
 
 cmake_prefix_path = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "nvfuser", "cmake"
+    os.path.dirname(os.path.dirname(__file__)),
+    "nvfuser",
+    "share",
+    "cmake",
+    "nvfuser",
 )
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with

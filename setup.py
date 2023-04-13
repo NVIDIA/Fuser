@@ -286,7 +286,7 @@ def main():
             "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde*.h",
-            "cmake/NvfuserConfig*",
+            "share/cmake/nvfuser/NvfuserConfig*",
         ]
 
         setup(
