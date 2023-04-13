@@ -262,7 +262,9 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   ==> j * g == 0
      *
      * It is easy to see that j is n / g.
-     * That is: f(i) always repeat a pattern of n / g unique numbers g times
+     * That is: f(i) always repeat a pattern of n / g unique numbers g times.
+     * In other word: we are using n/g megabanks, and we have a g-way bank
+     * conflict.
      *
      * For our application here, n is always 8, which is a power of 2. So this
      * conclusion holds.
@@ -307,7 +309,6 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * value. That said, for init values that are off by a multiple of g they
      * correspond to the same pattern, otherwise they belongs to different
      * patterns. So, we can use
-     *
      *   init = 0, 1, ..., g - 1
      * to canonically represent g patterns. Let's call the above
      * `init` values "pattern id".
