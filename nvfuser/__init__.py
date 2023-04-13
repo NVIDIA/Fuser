@@ -75,7 +75,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
-            static_sizes (bool)  : Interprets sizes as static rather than 
+            static_sizes (bool)  : Interprets sizes as static rather than
                                    as symbolic for dynamic shape usage
 
         Returns:
