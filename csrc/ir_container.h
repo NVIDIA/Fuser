@@ -96,6 +96,15 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
 
+  //! Return the current value of the name counter for a given ValType
+  StmtNameType getNumVals(ValType vtype) const {
+    auto nit = val_type_name_map_.find(vtype);
+    if (nit == val_type_name_map_.end()) {
+      return 0;
+    }
+    return nit->second;
+  }
+
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 

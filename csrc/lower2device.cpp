@@ -270,6 +270,98 @@ void dumpExprsIfEnabled(
   }
 }
 
+//! This class tracks a single notion of Val equivalence over all Vals in an
+//! IrContainer
+template <typename IndexType>
+class ValEquivalences {
+ public:
+  ValEquivalences(ValType vtype, IrContainer& container)
+      : vtype_(vtype), container_(container), uf_(0), blacklist_(0) {
+    // TODO: do we even need vals_? If so, doesn't this belong in IrContainer?
+    find_vals();
+  }
+
+  //! Mark val as ineligible for extraction
+  void blacklist(Val* val) {
+    auto name = val->name();
+    if (name >= size()) {
+      enlarge(name + 1);
+    }
+    blacklist_[name] = true;
+  }
+
+  //! Merge the sets containing a and b
+  void merge(Val* a, Val* b) {
+    uf_.merge((IndexType)a->name(), (IndexType)b->name());
+  }
+
+  //! Return a canonical representative of the set containing val
+  //! This is the Val* which is at the root of the tree having val as a node.
+  Val* canonicalize(Val* val) {
+    return vals_[uf_.find((IndexType)val->name())];
+  }
+
+  //! Perform extraction
+  std::vector<Val*> extract() {}
+
+ private:
+  //! How many Vals are we currently tracking? This may differ from the number
+  //! in the container
+  size_t size() {
+    return uf_.size();
+  }
+
+  //! Grow this datastructure to a new size
+  void enlarge(size_t new_size) {
+    uf_.enlarge(new_size);
+    blacklist_.resize(new_size);
+  }
+
+  void find_vals() {
+    enlarge(container_.getNumVals(vtype_));
+    // Look through all Vals to find
+    for (auto v : container_.vals()) {
+      auto vt = v->getValType();
+      if (vt.has_value() && vt.value() == vtype_) {
+        TORCH_CHECK(
+            v->name() < size(),
+            "Found Val of type ",
+            vt,
+            " with name()=",
+            v->name(),
+            " but current size()=",
+            size());
+        vals_[v->name()] = v;
+      }
+    }
+  }
+
+ private:
+  ValType vtype_;
+  IrContainer& container_;
+  UnionFind<IndexType> uf_;
+  std::vector<bool> blacklist_;
+  // Keep a vector mapping from ints back to Val*
+  std::vector<Val*> vals_;
+}
+
+//! This merely holds ValEquivalences objects for each ValType
+class AllTypesValEquivalences {
+ public:
+  ValEquivalences(IrContainer& container) : container_(container) {
+    auto all_val_types = {ValType::TensorView};
+    for (ValType vt : all_val_types) {
+      valtype_uf_.emplace(vt, container_.getNumVals(vt));
+      valtype__.emplace(vt, container_.getNumVals(vt));
+    }
+  }
+
+ private:
+  IrContainer& container_;
+  std::unordered_map<ValType, ValEquivalences> valtype_equivs_;
+}
+
+
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
