@@ -29,13 +29,12 @@ class UnionFind {
         "Tried to enlarge UnionFind to size ",
         new_size,
         " which is greater than this IndexType's capacity of ",
-        (size_t)(std::numeric_limits<IndexType>::max() + 1));
+        std::to_string(std::numeric_limits<IndexType>::max() + 1));
     auto old_size = parent_.size();
     parent_.resize(new_size);
-    rank_.resize(new_size);
-    for (size_t i = old_size; i < new_size; ++i) {
-      parent_[i] = i;
-      rank_[i] = 0;
+    rank_.resize(new_size, 0);
+    for (auto i = old_size; i < new_size; ++i) {
+      parent_[i] = (IndexType)i;
     }
   }
 
@@ -107,9 +106,10 @@ class UnionFind {
     if (rank_a == rank_b) {
       rank_[root_a]++;
       return parent_[root_b] = root_a;
-    } else if (rank_a < rank_b) {
-      return parent_[root_a] = root_b;
     } else {
+      if (rank_a < rank_b) {
+        std::swap(root_a, root_b);
+      }
       return parent_[root_b] = root_a;
     }
   }
@@ -122,8 +122,8 @@ class UnionFind {
   }
 
  private:
-  std::vector<IndexType> parent_;
-  std::vector<IndexType> rank_;
+  std::vector<IndexType> parent_{std::vector<IndexType>()};
+  std::vector<IndexType> rank_{std::vector<IndexType>()};
 };
 
 } // namespace nvfuser
