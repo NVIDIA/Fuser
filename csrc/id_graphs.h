@@ -46,6 +46,12 @@ class TORCH_CUDA_CU_API IdGraph {
   // Same as getDisjointIdSet but for the Expression sets.
   std::pair<ExprGroup, bool> disjointExprSet(Expr* expr) const;
 
+  // TODO: Audit usage of toGroups:
+  //   Being used when only a single expr or id, break that into a separate
+  //   function.
+  //   There may be an assumption that the size of incoming vector is same as
+  //   output, that is not the case.
+
   // Convert unique vector of expressions to unique vector of its groups
   ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
 
@@ -381,14 +387,18 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(const std::vector<IterDomain*>& new_inputs, Expr* expr);
 
-  // Similar to addReplayAs, but in the reverse direction. Also addReplayAs can
-  // generate output ids by using the IterDomain::transform functions. For
-  // backwards because of merge the input iter domains of the transform are just
-  // cloned with IterDomain::cloneWithoutRFactor, and the transform Expr is
-  // generated with IrBuilder copying over all the attributes.
-  Expr* addReplayAsBackward(
-      const std::vector<IterDomain*>& new_outputs,
-      Expr* expr);
+  // Similar to addReplayAs, but clones the expr exactly instead of replaying it
+  // forward. It's up to the calling code to make sure the replacements are
+  // valid for the provided expr. It's generally recommended that the
+  // IterDomains exactly match those in the expr.
+  //
+  // "forward" dictates the same argument for mapThroughExpr. If forward the
+  // function will apply mapThroughExpr forward if inputs map in each
+  // initialized map. Else does the same but backwards through the expression
+  // from outputs.
+  Expr* addExprWithReplacement(
+      const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
+      Expr* old_expr);
 
   // Make a new expr matching that provided but using the outputs provided.
   // IterDomainGraphss will be updated for all maps that have entries. Adding

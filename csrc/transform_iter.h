@@ -68,19 +68,27 @@ class ReplayTransform : OptInConstDispatch {
   const std::vector<IterDomain*>& input_ids_;
 };
 
-class BackwardTransformCloner : OptInConstDispatch {
+class ReplacementTransformCloner : OptInConstDispatch {
  public:
-  // Generates a copy of expression_to_match with provided output
-  // IterDomains, cloning the inputs in expression_to_match.
+  // Generates a copy of expression_to_match with inputs and/or outputs replaced
+  // by entries provided in the map. Inputs and outputs are expected to be
+  // "clones". Not literally, but it's up to the envoking code to make the
+  // input/output replacements are safe to use in the cloned expression. No
+  // validation is done on provided inputs/outputs.
+  //
+  // In other words a split i0{I0}->i1{I0//2}, i2{2} with a map:
+  // i2{2} -> i3{48} wouldn't throw an error, but would not bevalid.
   static Expr* clone(
-      const std::vector<IterDomain*>& ordered_outputs,
+      const std::unordered_map<IterDomain*, IterDomain*>&
+          provided_expr_val_2_replacement_val,
       const Expr* expression_to_match);
 
  private:
-  BackwardTransformCloner() = delete;
+  ReplacementTransformCloner() = delete;
 
-  BackwardTransformCloner(
-      const std::vector<IterDomain*>& ordered_outputs,
+  ReplacementTransformCloner(
+      const std::unordered_map<IterDomain*, IterDomain*>&
+          expr_to_match_2_replacement,
       const Expr* expression_to_match);
 
   using OptInConstDispatch::handle;
@@ -100,7 +108,8 @@ class BackwardTransformCloner : OptInConstDispatch {
   void handle(const Resize* resize) override;
 
   Expr* new_expr_ = nullptr;
-  const std::vector<IterDomain*>& output_ids_;
+  const std::unordered_map<IterDomain*, IterDomain*>&
+      provided_expr_val_2_replacement_val_;
 };
 
 // Uses the history of _target_domain, and replays that history using the

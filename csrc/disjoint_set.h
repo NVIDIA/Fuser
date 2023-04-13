@@ -456,6 +456,9 @@ class DisjointSets {
       disjoint_set_maps_;
 
   // Keep a list of disjoint_sets that's deterministic to iterate over
+  //
+  // TODO: Should this just be a
+  // VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries ?
   std::vector<std::shared_ptr<VectorOfUniqueEntries<T, Hash>>> disjoint_sets_;
 };
 

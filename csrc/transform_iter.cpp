@@ -89,31 +89,52 @@ void ReplayTransformations::handle(Expr* e) {
   IterVisitor::handle(e);
 }
 
-Expr* BackwardTransformCloner::clone(
-    const std::vector<IterDomain*>& ordered_outputs,
+Expr* ReplacementTransformCloner::clone(
+    const std::unordered_map<IterDomain*, IterDomain*>&
+        provided_expr_val_2_replacement_val,
     const Expr* expression_to_match) {
-  BackwardTransformCloner replay(ordered_outputs, expression_to_match);
+  ReplacementTransformCloner replay(
+      provided_expr_val_2_replacement_val, expression_to_match);
   return replay.new_expr_;
 }
 
-BackwardTransformCloner::BackwardTransformCloner(
-    const std::vector<IterDomain*>& ordered_outputs,
+ReplacementTransformCloner::ReplacementTransformCloner(
+    const std::unordered_map<IterDomain*, IterDomain*>&
+        provided_expr_val_2_replacement_val,
     const Expr* expression_to_match)
-    : output_ids_(ordered_outputs) {
+    : provided_expr_val_2_replacement_val_(
+          provided_expr_val_2_replacement_val) {
   OptOutConstDispatch::handle(expression_to_match);
 }
 
 // We're going to replay this split operation on the corresponding ID
-void BackwardTransformCloner::handle(const Split* split) {
-  TORCH_INTERNAL_ASSERT(
-      output_ids_.size() == 2,
-      "Expected two outputs to match split: ",
-      split->toString());
+void ReplacementTransformCloner::handle(const Split* split) {
+  // Replace or clone
+  auto split_in = split->in();
+  split_in = provided_expr_val_2_replacement_val_.find(split_in) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(split_in)
+      : split_in->cloneWithoutRFactor();
+
+  auto split_outer = split->outer();
+  split_outer = provided_expr_val_2_replacement_val_.find(split_outer) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(split_outer)
+      : split_outer->cloneWithoutRFactor();
+
+  auto split_inner = split->inner();
+  split_inner = provided_expr_val_2_replacement_val_.find(split_inner) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(split_inner)
+      : split_inner->cloneWithoutRFactor();
+
+  // TODO: Should we check inner/outer matches the factor if
+  // innerSplit()/!innerSplit()?
 
   new_expr_ = IrBuilder::create<Split>(
-      output_ids_[0],
-      output_ids_[1],
-      split->in()->cloneWithoutRFactor(),
+      split_outer,
+      split_inner,
+      split_in,
       split->factor(),
       split->innerSplit(),
       split->startOffset(),
@@ -121,44 +142,84 @@ void BackwardTransformCloner::handle(const Split* split) {
 }
 
 // We're going to replay this merge operation on the corresponding IDs
-void BackwardTransformCloner::handle(const Merge* merge) {
-  TORCH_INTERNAL_ASSERT(
-      output_ids_.size() == 1,
-      "Expected one output to match merge: ",
-      merge->toString());
+void ReplacementTransformCloner::handle(const Merge* merge) {
+  // Replace or clone
+  auto merge_outer = merge->outer();
+  merge_outer = provided_expr_val_2_replacement_val_.find(merge_outer) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(merge_outer)
+      : merge_outer->cloneWithoutRFactor();
 
-  new_expr_ = IrBuilder::create<Merge>(
-      output_ids_[0],
-      merge->outer()->cloneWithoutRFactor(),
-      merge->inner()->cloneWithoutRFactor());
+  auto merge_inner = merge->inner();
+  merge_inner = provided_expr_val_2_replacement_val_.find(merge_inner) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(merge_inner)
+      : merge_inner->cloneWithoutRFactor();
+
+  auto merge_out = merge->out();
+  merge_out = provided_expr_val_2_replacement_val_.find(merge_out) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(merge_out)
+      : merge_out->cloneWithoutRFactor();
+
+  new_expr_ = IrBuilder::create<Merge>(merge_out, merge_outer, merge_inner);
 }
 
 // We're going to replay this swizzle operation on the corresponding IDs
 //  if replaying swizzle is enabled.
-void BackwardTransformCloner::handle(const Swizzle2D* swizzle_2d) {
-  TORCH_INTERNAL_ASSERT(
-      output_ids_.size() == 2,
-      "Expected two outputs to match swizzle: ",
-      swizzle_2d->toString());
+void ReplacementTransformCloner::handle(const Swizzle2D* swizzle_2d) {
+  // Replace or clone
+  auto swizzle_inx = swizzle_2d->inX();
+  swizzle_inx = provided_expr_val_2_replacement_val_.find(swizzle_inx) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(swizzle_inx)
+      : swizzle_inx->cloneWithoutRFactor();
+
+  // Replace or clone
+  auto swizzle_iny = swizzle_2d->inY();
+  swizzle_iny = provided_expr_val_2_replacement_val_.find(swizzle_iny) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(swizzle_iny)
+      : swizzle_iny->cloneWithoutRFactor();
+
+  // Replace or clone
+  auto swizzle_outx = swizzle_2d->outX();
+  swizzle_outx = provided_expr_val_2_replacement_val_.find(swizzle_outx) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(swizzle_outx)
+      : swizzle_outx->cloneWithoutRFactor();
+
+  // Replace or clone
+  auto swizzle_outy = swizzle_2d->outY();
+  swizzle_outy = provided_expr_val_2_replacement_val_.find(swizzle_outy) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(swizzle_outy)
+      : swizzle_outy->cloneWithoutRFactor();
+
   new_expr_ = IrBuilder::create<Swizzle2D>(
-      output_ids_[0],
-      output_ids_[1],
-      swizzle_2d->inX()->cloneWithoutRFactor(),
-      swizzle_2d->inY()->cloneWithoutRFactor(),
+      swizzle_outx,
+      swizzle_outy,
+      swizzle_inx,
+      swizzle_iny,
       swizzle_2d->swizzleType(),
       swizzle_2d->swizzleMode());
 }
 
-void BackwardTransformCloner::handle(const Resize* resize) {
-  TORCH_INTERNAL_ASSERT(
-      output_ids_.size() == 1,
-      "Expected one output to match resize: ",
-      resize->toString());
+void ReplacementTransformCloner::handle(const Resize* resize) {
+  auto resize_in = resize->in();
+  resize_in = provided_expr_val_2_replacement_val_.find(resize_in) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(resize_in)
+      : resize_in->cloneWithoutRFactor();
+
+  auto resize_out = resize->out();
+  resize_out = provided_expr_val_2_replacement_val_.find(resize_out) !=
+          provided_expr_val_2_replacement_val_.end()
+      ? provided_expr_val_2_replacement_val_.at(resize_out)
+      : resize_out->cloneWithoutRFactor();
+
   new_expr_ = IrBuilder::create<Resize>(
-      output_ids_[0],
-      resize->in()->cloneWithoutRFactor(),
-      resize->leftExpand(),
-      resize->rightExpand());
+      resize_out, resize_in, resize->leftExpand(), resize->rightExpand());
 }
 
 // We're going to replay this split operation on the corresponding ID
