@@ -144,8 +144,8 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
      *    want to make sure different lanes in a warp does not access different
      *    unit addresses in the same megabank"
-     * In this terminology, each matrix has 8 rows, and each row has exactly one
-     * unit.
+     * In this terminology, matrices are in the row major format, each matrix
+     * has 8 rows, and each row has exactly one unit.
      */
 
     constexpr int items_per_unit = ldmatrix_cols;
@@ -161,11 +161,12 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   +----------+----------+----------+
      *   | matrix 3 | matrix 4 | matrix 5 |
      *   +----------+----------+----------+
-     * The addresses of different rows in the same matrix are offseted by 3
-     * units. In this perspective, loading a matrix is a strided memory access
-     * with the following stride (in units):
+     * The addresses of different rows in the same matrix are offset by 3 units.
+     * In this perspective, loading a matrix is a strided memory access with the
+     * following stride (in units):
      */
 
+    // number of units per row
     int row_stride = tile_size_y / items_per_unit;
 
     /* So the bank conflicting problem is now converted to the following game:
