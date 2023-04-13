@@ -349,6 +349,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
+    ${NVFUSER_ROOT}/test/test_union_find.cpp
   )
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
