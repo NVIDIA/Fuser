@@ -578,15 +578,26 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
         {root_domain.begin(), root_domain.end()}, {ld});
     for (auto expr : all_exp) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
-        auto outer_iter_im =
-            std::find(intermediate_domains.begin(), intermediate_domains.end(), merge->outer());
-        auto inner_iter_im =
-            std::find(intermediate_domains.begin(), intermediate_domains.end(), merge->inner());
-        TORCH_INTERNAL_ASSERT(outer_iter_im != intermediate_domains.end(), "Couldn't find ", merge->outer());
-        TORCH_INTERNAL_ASSERT(inner_iter_im != intermediate_domains.end(), "Couldn't find ", merge->inner());
+        auto outer_iter_im = std::find(
+            intermediate_domains.begin(),
+            intermediate_domains.end(),
+            merge->outer());
+        auto inner_iter_im = std::find(
+            intermediate_domains.begin(),
+            intermediate_domains.end(),
+            merge->inner());
+        TORCH_INTERNAL_ASSERT(
+            outer_iter_im != intermediate_domains.end(),
+            "Couldn't find ",
+            merge->outer());
+        TORCH_INTERNAL_ASSERT(
+            inner_iter_im != intermediate_domains.end(),
+            "Couldn't find ",
+            merge->inner());
         int dist = std::distance(inner_iter_im, outer_iter_im);
-        if(std::abs(dist) != 1) {
-          // if the merged domains are not adjacent, return empty so the predication is not applied.
+        if (std::abs(dist) != 1) {
+          // if the merged domains are not adjacent, return empty so the
+          // predication is not applied.
           return std::vector<IterDomain*>();
         }
         // insert after erase so the beg iter is not invalidated
@@ -613,8 +624,9 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
           merged_root_domains.emplace_back(*outer_iter);
           index_root_domain.emplace_back(outer_iter - root_domain.begin());
         }
-      }else{
-        // current analysis of predication is only valid if all the exprs between this lead domain and root domains are merge
+      } else {
+        // current analysis of predication is only valid if all the exprs
+        // between this lead domain and root domains are merge
         return std::vector<IterDomain*>();
       }
     }
