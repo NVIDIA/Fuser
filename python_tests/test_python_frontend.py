@@ -1001,6 +1001,22 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
+    def test_static_tensor_sizes(self):
+        inputs = [
+            torch.randn(4, 5, 1, device="cuda"),
+            torch.randn(1, 5, 6, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0], static_sizes=True)
+            t1 = fd.from_pytorch(inputs[1], static_sizes=True)
+            t2 = fd.ops.mul(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.mul(inputs[0], inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_normal(self):
         input_size = [64, 128, 1024]
         dtype = torch.float32

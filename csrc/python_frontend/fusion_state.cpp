@@ -68,15 +68,16 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
   fusion_state_.resize(size, nullptr);
 }
 
-void FusionState::addFusionState(size_t index, Val* val) {
-  TORCH_CHECK(
-      index == fusion_state_.size(),
-      "Fusion State index does not match the size!");
+void FusionState::addFusionState(Val* val) {
   fusion_state_.push_back(val);
 }
 
 Val* FusionState::getFusionState(size_t index) const {
   return fusion_state_.at(index);
+}
+
+size_t FusionState::numFusionStates() const {
+  return fusion_state_.size();
 }
 
 void FusionState::setFusionState(size_t index, Val* val) {
