@@ -23,7 +23,7 @@ class UnionFind {
  public:
   //! Resize the data-structure to equal or larger size than current
   void enlarge(size_t new_size) {
-    TORCH_CHECK(new_size >= parent_.size(), "Cannot shrink a UnionFind");
+    TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
     TORCH_CHECK(
         new_size <= std::numeric_limits<IndexType>::max() + 1,
         "Tried to enlarge UnionFind to size ",
@@ -39,14 +39,19 @@ class UnionFind {
     }
   }
 
+  //! Return the number of elements in this data structure.
+  size_t size() const {
+    return parent_.size();
+  }
+
   //! Determine root of element a
   IndexType find(IndexType a) {
     TORCH_CHECK(
-        a < parent_.size(),
+        a < size(),
         "Tried to find root of element ",
         a,
         " but total size of UnionFind is ",
-        parent_.size());
+        size());
     // This implementation avoids recursion by doing two passes
     // The equivalent recursive definition is:
     //   auto p = parent_[a];
@@ -90,7 +95,6 @@ class UnionFind {
     if (root_a == root_b) {
       return root_a;
     }
-    assert(rank_.size() == parent_.size());
     // Rank is a surrogate for "height" of each subtree. It is actually an
     // upper bound on height, since path compression can reduce the height of a
     // subtree without updating rank_. When merging trees, we try to place the

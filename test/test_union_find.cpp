@@ -37,6 +37,7 @@ TEST_F(NVFuserTest, FusionUnionFind) {
   EXPECT_ANY_THROW(uf.enlarge(270); // Try to enlarge past capacity of IndexType
   );
 
+  assert(uf.size() == 8);
   EXPECT_ANY_THROW(uf.find(8); // Try to index past current size
   );
 }
