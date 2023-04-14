@@ -497,11 +497,14 @@ table TrieNode {
 // its leaves. For serialization, we flatten the trie structure using
 // breadth-first search.
 //
-// TODO serialize Fusion cpp container
+// skipped potential fields because we need to serialize the schedule operations.
+// fusion_schedules
+// user_def_input_encodings
 table FusionCache {
   max_fusions: ulong;
   structure: [TrieNode];
   terminal_nodes: [ulong];
+  auto_gen_schedules : [FusionExecutorCache];
 }
 
 root_type FusionCache;

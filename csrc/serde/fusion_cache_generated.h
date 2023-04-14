@@ -4506,7 +4506,8 @@ struct FusionCache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_MAX_FUSIONS = 4,
     VT_STRUCTURE = 6,
-    VT_TERMINAL_NODES = 8
+    VT_TERMINAL_NODES = 8,
+    VT_AUTO_GEN_SCHEDULES = 10
   };
   uint64_t max_fusions() const {
     return GetField<uint64_t>(VT_MAX_FUSIONS, 0);
@@ -4519,6 +4520,13 @@ struct FusionCache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<uint64_t>* terminal_nodes() const {
     return GetPointer<const flatbuffers::Vector<uint64_t>*>(VT_TERMINAL_NODES);
   }
+  const flatbuffers::Vector<
+      flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>>*
+  auto_gen_schedules() const {
+    return GetPointer<const flatbuffers::Vector<
+        flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>>*>(
+        VT_AUTO_GEN_SCHEDULES);
+  }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_MAX_FUSIONS) &&
@@ -4526,7 +4534,11 @@ struct FusionCache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         verifier.VerifyVector(structure()) &&
         verifier.VerifyVectorOfTables(structure()) &&
         VerifyOffset(verifier, VT_TERMINAL_NODES) &&
-        verifier.VerifyVector(terminal_nodes()) && verifier.EndTable();
+        verifier.VerifyVector(terminal_nodes()) &&
+        VerifyOffset(verifier, VT_AUTO_GEN_SCHEDULES) &&
+        verifier.VerifyVector(auto_gen_schedules()) &&
+        verifier.VerifyVectorOfTables(auto_gen_schedules()) &&
+        verifier.EndTable();
   }
 };
 
@@ -4547,6 +4559,12 @@ struct FusionCacheBuilder {
       flatbuffers::Offset<flatbuffers::Vector<uint64_t>> terminal_nodes) {
     fbb_.AddOffset(FusionCache::VT_TERMINAL_NODES, terminal_nodes);
   }
+  void add_auto_gen_schedules(
+      flatbuffers::Offset<flatbuffers::Vector<
+          flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>>>
+          auto_gen_schedules) {
+    fbb_.AddOffset(FusionCache::VT_AUTO_GEN_SCHEDULES, auto_gen_schedules);
+  }
   explicit FusionCacheBuilder(flatbuffers::FlatBufferBuilder& _fbb)
       : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4563,9 +4581,12 @@ inline flatbuffers::Offset<FusionCache> CreateFusionCache(
     uint64_t max_fusions = 0,
     flatbuffers::Offset<flatbuffers::Vector<
         flatbuffers::Offset<nvfuser::serde::TrieNode>>> structure = 0,
-    flatbuffers::Offset<flatbuffers::Vector<uint64_t>> terminal_nodes = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<uint64_t>> terminal_nodes = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<
+        nvfuser::serde::FusionExecutorCache>>> auto_gen_schedules = 0) {
   FusionCacheBuilder builder_(_fbb);
   builder_.add_max_fusions(max_fusions);
+  builder_.add_auto_gen_schedules(auto_gen_schedules);
   builder_.add_terminal_nodes(terminal_nodes);
   builder_.add_structure(structure);
   return builder_.Finish();
@@ -4576,15 +4597,22 @@ inline flatbuffers::Offset<FusionCache> CreateFusionCacheDirect(
     uint64_t max_fusions = 0,
     const std::vector<flatbuffers::Offset<nvfuser::serde::TrieNode>>*
         structure = nullptr,
-    const std::vector<uint64_t>* terminal_nodes = nullptr) {
+    const std::vector<uint64_t>* terminal_nodes = nullptr,
+    const std::vector<flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>>*
+        auto_gen_schedules = nullptr) {
   auto structure__ = structure
       ? _fbb.CreateVector<flatbuffers::Offset<nvfuser::serde::TrieNode>>(
             *structure)
       : 0;
   auto terminal_nodes__ =
       terminal_nodes ? _fbb.CreateVector<uint64_t>(*terminal_nodes) : 0;
+  auto auto_gen_schedules__ = auto_gen_schedules
+      ? _fbb.CreateVector<
+            flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>>(
+            *auto_gen_schedules)
+      : 0;
   return nvfuser::serde::CreateFusionCache(
-      _fbb, max_fusions, structure__, terminal_nodes__);
+      _fbb, max_fusions, structure__, terminal_nodes__, auto_gen_schedules__);
 }
 
 inline bool VerifyRecordData(
