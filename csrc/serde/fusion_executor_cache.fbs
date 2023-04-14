@@ -26,10 +26,10 @@ enum KernelIndexMode:int {
 }
 
 union ArgAbstractData {
-  Long,
-  Double,
-  ComplexDouble,
   Bool,
+  ComplexDouble,
+  Double,
+  Int,
   PhiloxCudaState,
   Tensor,
   CpuScalar
@@ -66,28 +66,28 @@ table ArgAbstract {
 
 table KernelArgumentHolder {
   arguments : [ArgAbstract];
-  device_index : char;
+  device_index : byte;
   cache_id : ulong;
   index_mode : KernelIndexMode;
 }
 
-struct TensorShape {
+table TensorShape {
   shape : [long];
 }
 
 table LaunchParams {
-  gdimx : int64_t;
-  gdimy : int64_t;
-  gdimz : int64_t;
-  bdimx : int64_t;
-  bdimy : int64_t;
-  bdimz : int64_t;
-  smem : int64_t;
+  gdimx : long;
+  gdimy : long;
+  gdimz : long;
+  bdimx : long;
+  bdimy : long;
+  bdimz : long;
+  smem : long;
   output_sizes : [TensorShape];
 }
 
 table CompileParams {
-  index_type : PrimDataType;
+  index_type : DataType;
   maxrregcount : int;
   enable_magic_zero : bool;
 }
@@ -95,10 +95,10 @@ table CompileParams {
 // struct NvrtcFunction
 // CUmodule module
 // CUfunction function
-struct NvrtcFunction {
-  module : [char];
-  function : [char];
-};
+table NvrtcFunction {
+  module : [byte];
+  function : [byte];
+}
 
 table GlobalBufferInfo {
   sizes : [long];
@@ -109,7 +109,7 @@ table GlobalBufferInfo {
 }
 
 table ExecutorEntry {
-    bool init = false;
+    init : bool;
     launch_params : LaunchParams;
     // Aliased output and input mappings
     output_aliases : [int];
@@ -117,21 +117,21 @@ table ExecutorEntry {
     outputs : [GlobalBufferInfo];
     intermediates : [GlobalBufferInfo];
     rand_offset : ulong;
-};
+}
 
 // Do not serialize if there is misaligned vectorized tensors.
 table VectorizedTensorInfo {
   // Aligned vectorized fusion inputs
-  aligned_vectorized_inp_tensor_pos : [ulong];
+  aligned_vectorized_inp_tensor_pos : [long];
 
   // Aligned vectorized fusion outputs
-  aligned_vectorized_out_tensor_pos : [ulong];
+  aligned_vectorized_out_tensor_pos : [long];
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size.
   // Analogous to map<TensorView*, int> kernel_summary.vectorized_accesses.
-  aligned_vectorized_inp_tensor_word_size : [ulong];
-  aligned_vectorized_out_tensor_word_size : [ulong];
+  aligned_vectorized_inp_tensor_word_size : [long];
+  aligned_vectorized_out_tensor_word_size : [long];
 }
 
 table KernelSummary {
@@ -160,8 +160,8 @@ table FusionExecutor {
     // shared static value
     fusion_id_counter : int;
     kernel_code : string;
-    executor_entry_lookup_keys : [ulong]
-    executor_entry_lookup_values : [ExecutorEntry]
+    executor_entry_lookup_keys : [ulong];
+    executor_entry_lookup_values : [ExecutorEntry];
     compile_params : CompileParams;
     compiled_kernel : NvrtcFunction;
     launch_params : LaunchParams;
@@ -186,21 +186,21 @@ table InputsIdLookup {
   lru_cache : [string];
 
   // define map<std::string, EncodingEntry> encoding_lookup
-  encoding_lookup_keys : [strings];
+  encoding_lookup_keys : [string];
   encoding_lookup_values : [EncodingEntry];
 }
 
 // implicit fields
 // unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
 table FusionExecutorCache {
-  inputs_cache : InputsIdLookup
+  inputs_cache : InputsIdLookup;
 
   // define map<size_t, vector<FusionKernelRuntime>> kernel_runtimes
-  kernel_runtime_keys : [ulong]
-  kernel_runtime_values : [FusionKernelRuntime]
+  kernel_runtime_keys : [ulong];
+  kernel_runtime_values : [FusionKernelRuntime];
 
   // define map<size_t, FusionKernelRuntime> id_to_kernel_runtime
-  kernel_cache_keys : [ulong]
+  kernel_cache_keys : [ulong];
   // indices into kernel_runtime_values
-  kernel_cache_values : [ulong]
+  kernel_cache_values : [ulong];
 }
