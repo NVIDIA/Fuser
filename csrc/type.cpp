@@ -950,9 +950,6 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
     case Swizzle2DType::ZShape:
       os << "ZShape";
       break;
-    case Swizzle2DType::Transpose:
-      os << "Transpose";
-      break;
     case Swizzle2DType::XOR:
       os << "Xor";
       break;

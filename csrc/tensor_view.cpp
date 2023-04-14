@@ -939,8 +939,7 @@ TensorView* TensorView::swizzle(
     int in_y_size = (int)y_id->extent()->evaluateInt();
 
     // Check size constraints based on swizzle type
-    if (swizzle_type == Swizzle2DType::Transpose ||
-        swizzle_type == Swizzle2DType::XOR ||
+    if (swizzle_type == Swizzle2DType::XOR ||
         swizzle_type == Swizzle2DType::CyclicShift) {
       TORCH_INTERNAL_ASSERT(
           in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");

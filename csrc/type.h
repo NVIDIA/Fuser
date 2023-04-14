@@ -529,7 +529,6 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 enum class Swizzle2DType {
   NoSwizzle = 0,
   ZShape,
-  Transpose,
   XOR,
   CyclicShift
 };
