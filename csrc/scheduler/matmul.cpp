@@ -240,9 +240,15 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *
      * An important tool to study this equation is multiplicative inverse:
      * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+     * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
+     * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
+     * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
+     * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
+     *   (2 * 8) % 15 = 1
+     *
      * stride has an multiplicative inverse if and only if stride coprime with
      * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
-     * equation j * stride == 0 is j = stride^(-1) * 0 = 0, that is: f(i) does
+     * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
      * not repeat, that is: there is no bank conflict.
      */
 
@@ -310,7 +316,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
      *   (i * stride) % n = (i * s) % m * g
      * Because s coprime with m, we know that for an arbitrary value `j` in
-     * Z/mZ, we can take `i = s^(-1) * j` to make `i * s == j`.
+     * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
      *
      * That said, for init values that are off by a multiple of g they
      * correspond to the same pattern, otherwise they belongs to different
