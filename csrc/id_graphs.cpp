@@ -650,12 +650,6 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     terminating_outputs = all_id_groups.subtract(not_outputs);
   }
 
-  std::cout << "Term inp: "
-            << debug_string::idGroupsStringShort(terminating_inputs)
-            << std::endl;
-  std::cout << "Term out: "
-            << debug_string::idGroupsStringShort(terminating_outputs)
-            << std::endl;
   // Track all expressions to get from outputs to this IterDomain. We
   // traverse backwards as that's the direction of indexing expressions. An
   // index is assigned to each leaf of a domain and as we traverse backwards
@@ -2135,22 +2129,18 @@ void IterDomainGraphs::build(
   // expressions.
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
-  std::cout << "buildExactMap" << std::endl;
   buildExactMap(tv_exprs);
-  std::cout << "buildAlmostExactMap" << std::endl;
   buildAlmostExactMap();
-  std::cout << "buildPermissiveMap" << std::endl;
   buildPermissiveMap(tv_exprs);
+
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions
   // from the almost exact graph.
   idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 
-  std::cout << "built non lowering graphs" << std::endl;
-
   // Only build loop map during lowering
   if (FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
-    FusionGuard::getCurFusion()->print();
+    FusionGuard::getCurFusion()->print(std::cout, true);
     // Find loops that need to be promoted because of broadcast resolution,
     // figure out what that resolution should look like, compute IDs for it if
     // necessary.
@@ -2720,8 +2710,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
       std::cout << "  ***REPLAY***:\n    " << iel_expr->front()
                 << "    As:" << replay->toString();
-    } else {
-      std::cout << "  Matched replay found: " << replay->toString();
     }
 
     auto out_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
@@ -2870,10 +2858,17 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     loop_graph_copy_promotion_map[loop_group] = loop_promotion_id;
   }
 
+  std::cout << "Loop promotion:" << std::endl;
+  for (auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()) {
+    std::cout << debug_string::idGroupStringShort(loop_group) << " -> "
+              << loop_graph_copy_promotion_map[loop_group]->toString()
+              << std::endl;
+  }
+
   // Reset the promotion map for the second pass
   iel_promotion_map.clear();
 
-  std::cout << "\n\nForward replay iel graph:" << std::endl;
+  std::cout << "\n\nSecond replay:" << std::endl;
 
   IdGraphStmtSort iel_stmt_sort2(intersection_exact_loop_graph);
   for (auto iel_expr : iel_stmt_sort2.exprs()) {
@@ -2973,8 +2968,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
       std::cout << "  ***REPLAY2***:\n    " << iel_expr->front()
                 << "    As:" << replay->toString();
-    } else {
-      std::cout << "  Matched replay found: " << replay->toString();
     }
 
     auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
@@ -3183,7 +3176,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
   // *************** STOP: Code copied verbatim from above ********************
 
-  std::cout << "Loop graph copy promotion map: " << std::endl;
+  std::cout << "Promotion map from concrete id pass: " << std::endl;
   for (auto group : loop_graph_copy.disjointIdSets().disjointSets()) {
     if (loop_graph_copy_promotion_map.find(group) ==
         loop_graph_copy_promotion_map.end()) {
@@ -3193,6 +3186,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
               << loop_graph_copy_promotion_map.at(group)->toString()
               << std::endl;
   }
+
   // Indexing traversal must start at leaf nodes of TensorViews as that's where
   // the loop indices are defined. For indexing we need to propagate leaves to
   // root domains. We want the indexing graph easy to traverse. Easy to traverse
@@ -3368,6 +3362,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
+
   std::cout << "Leaf iter domains that share a promoted iter domain."
             << std::endl;
   for (auto disjoint_set : shared_promoted_id.disjointSets()) {
@@ -3456,6 +3451,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   // just be removed.
   idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 
+  std::cout << "\n\nThird and final replay" << std::endl;
   std::cout << "Building promoted tensor view domains:" << std::endl;
   // Need to "replay" all of the indexing expressions to make sure roots are
   // connected to the promoted leaves, in a way we can index directly on the
@@ -3475,8 +3471,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     auto promoted_domain = get_promoted_domain(tv->domain());
     // replay from root to promoted leaves.
     std::cout << "\n\n  Processing: TV" << tv->name() << "\n    Root: TV"
-              << tv->getRootDomain() << "\n    Promoted: " << promoted_domain
-              << std::endl;
+              << tv->getRootDomain()
+              << "\n    Domain promoted to: " << promoted_domain << std::endl;
 
     // The promoted leaf iter domains are where indexing starts. We're going to
     // start at those expressions and replay transformations for this tensor
@@ -3604,14 +3600,20 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         bool inps_match = true;
         for (auto inp_id : index_def_inputs) {
           IterDomain* promoted_inp = nullptr;
-          auto ae_inp_group = ae_graph.toGroups({inp_id}).front();
-          auto promoted_inp_it = ae_group_2_id.find(ae_inp_group);
-          if (promoted_inp_it == ae_group_2_id.end()) {
+          std::cout << inp_id->toString() << std::endl;
+          auto ae_group_pair = ae_graph.disjointIdSet(inp_id);
+
+          std::cout << inp_id->toString() << std::endl;
+          if (ae_group_pair.second &&
+              ae_group_2_id.find(ae_group_pair.first) != ae_group_2_id.end()) {
+            promoted_inp = ae_group_2_id.at(ae_group_pair.first);
+          } else {
+            // TODO: Should this be here or should we continue below. Check
+            // Indexing20 test.
+
             // This input is already almost exact mapped, and we don't need this
             // input to map exactly in the index map.
             continue;
-          } else {
-            promoted_inp = promoted_inp_it->second;
           }
 
           inps_match = inps_match &&
@@ -3647,18 +3649,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
           }
         }
 
-        // std::cout << "      Replay: " << ae_expr->front();
-        // std::cout << "        With promoted inputs: " << promoted_inputs
-        //           << std::endl;
         replay = addExprWithReplacement(replacement_map, ae_expr->front());
-        // std::cout << "      ***REPLAY3***:\n        " << ae_expr->front()
-        //           << "        As:" << replay->toString();
         std::cout << "      ***REPLAY3***:\n        "
-                  << "        " << replay->toString();
-        std::cout << debug_string::idGroups(idGraph(IdMappingMode::INDEX))
-                  << std::endl;
-      } else {
-        std::cout << "      ***MATCHED3***:\n        "
                   << "        " << replay->toString();
       }
 
@@ -3686,11 +3678,11 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
   }
 
-  std::cout << "All indexing expressions that need to be processed: "
-            << std::endl;
-  for (auto expr : all_index_exprs) {
-    std::cout << expr->toString();
-  }
+  // std::cout << "All indexing expressions that need to be processed: "
+  //           << std::endl;
+  // for (auto expr : all_index_exprs) {
+  //   std::cout << expr->toString();
+  // }
 
   std::cout << "All indexing expressions (on the index graph): " << std::endl;
   auto index_expr_groups =
