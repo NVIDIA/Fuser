@@ -253,16 +253,16 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     /* For the case where stride does not coprime with n, we note that
      * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
      * can write stride and n as:
-     *   stride = s * g, n = k * g
+     *   stride = s * g, n = m * g
      * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
      * have:
      *   (j * stride) % n = 0
-     *   ==> (j * s) % k * g = 0
-     *   ==> (j * s) % k = 0
-     * which is equivalent to j * s == 0 in Z/kZ. Because s coprime with k, we
+     *   ==> (j * s) % m * g = 0
+     *   ==> (j * s) % m = 0
+     * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
      * further get:
-     *   j == 0 (in Z/kZ)
-     * That is, j is a multiple of k in Z. So the smallest positive j that make
+     *   j == 0 (in Z/mZ)
+     * That is, j is a multiple of m in Z. So the smallest positive j that make
      * the equation hold is n / g.
      *
      * That is: f(i) always repeat a pattern of n/g unique numbers g times.
