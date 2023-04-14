@@ -252,28 +252,24 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
       return; // No need to swizzle in this case.
     }
 
-    /* For the case where stride does not coprime with n, if n is a power of a
-     * prime, then we can write stride as:
-     *   stride = s * g
-     * where s coprime with n. Then the equation j * stride == 0 becomes:
-     *   j * s * g == 0
-     * which can be simplified as
-     *   j * g == s^(-1) * 0
-     *   ==> j * g == 0
+    /* For the case where stride does not coprime with n, we note that
+     * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
+     * can write stride and n as:
+     *   stride = s * g, n = k * g
+     * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
+     * have:
+     *   (j * stride) % n = 0
+     *   ==> (j * s) % k * g = 0
+     *   ==> (j * s) % k = 0
+     * which is equivalent to j * s == 0 in Z/kZ. Because s coprime with k, we
+     * further get:
+     *   j == 0 (in Z/kZ)
+     * That is, j is a multiple of k in Z. So the smallest positive j that make
+     * the equation hold is n / g.
      *
-     * It is easy to see that j is n / g.
-     * That is: f(i) always repeat a pattern of n / g unique numbers g times.
+     * That is: f(i) always repeat a pattern of n/g unique numbers g times.
      * In other word: we are using n/g megabanks, and we have a g-way bank
      * conflict.
-     *
-     * For our application here, n is always 8, which is a power of 2. So this
-     * conclusion holds.
-     * (Actually, if n is not a power of a prime, we can decompose the ring Z/nZ
-     *  into the direct product of Z/p1^k1Z x Z/p2^k2Z x ... according to the
-     *  Chinese remainder theorem, and repeat the above proof in each ring, we
-     *  will get the same conclusion here. I will not go deep into the details
-     *  about this here as it is unrelated, but on the other hand I will not add
-     *  static_assert(isPowOf2(num_megabanks)); here either)
      */
 
     int repeated_pattern_size = num_megabanks / g;
