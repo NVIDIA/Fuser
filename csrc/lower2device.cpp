@@ -280,19 +280,10 @@ class ValEquivalence {
   ValEquivalence(IrContainer& container)
       : container_(container), uf_(0), blacklist_(0) {}
 
-  //! Mark val as ineligible for extraction
-  void blacklist(Val* val) {
-    auto num = val->number();
-    if (num >= size()) {
-      enlarge(num + 1);
-    }
-    blacklist_[num] = true;
-  }
-
   //! Merge the sets containing a and b
   void merge(Val* a, Val* b) {
     TORCH_CHECK(
-        selected_vals_.empty(),
+        selected_.empty(),
         "Cannot merge equivalence classes after selection/extraction has begun");
     IndexType anum = a->number();
     IndexType bnum = b->number();
@@ -303,48 +294,24 @@ class ValEquivalence {
       enlarge(bnum + 1);
     }
     uf_.merge(anum, bnum);
-  }
-
-  //! Return number() of a representative of the set containing val.
-  //! This is the Val* which is at the root of the tree having
-  //! val as a node.
-  IndexType getRepresentativeNumber(IndexType num) {
-    // num might be beyond the current size of uf_, if we have added Vals to
-    // container_ since the last time we enlarged uf_. In this case, we know
-    // that nothing has been merged, so val is the representative.
-    if (num >= uf_.size()) {
-      return num;
+    if (!selected_.empty()) {
+      // Setting this flag will notify selection and extraction
+      merged_since_selection_ = true;
     }
-    return uf_.find(num);
   }
 
-  //! Return number() of a representative of the set containing val.
-  //! This is the Val* which is at the root of the tree having
-  //! val as a node.
-  IndexType getRepresentativeNumber(Val* val) {
-    return getRepresentativeNumber(getNumberFor(val));
+  //! Mark val as ineligible for extraction
+  void blacklist(Val* val) {
+    auto num = val->number();
+    if (num >= size()) {
+      enlarge(num + 1);
+    }
+    blacklist_[num] = true;
   }
 
-  //! Return a representative of the set containing val.
-  //! This is the Val* which is at the root of the tree having val as a node.
-  Val* getRepresentativeVal(Val* val) {
-    return container_.vals()[getRepresentativeNumber(val)];
-  }
-
-  //! How many Vals are we currently tracking? This may differ from the number
-  //! in the container
-  size_t size() {
-    return uf_.size();
-  }
-
-  //! Grow this datastructure to a new size
-  void enlarge(size_t new_size) {
-    uf_.enlarge(new_size);
-    blacklist_.resize(new_size);
-  }
-
-  //! Extract lowest-cost Val of each equivalence class, recursively
-  void extractInPlace(std::vector<Statement*> stmts) {
+  //! Map all given Statements (Exprs or Vals), recursively mapping Vals to
+  //! selected vals, modifying Vals and Exprs in place.
+  void extractInPlace(std::vector<Expr*>& exprs) {
     // First pass: extract height zero Vals
     for (auto val : container_.vals()) {
       // special cases for Scalars (have to specify each concrete type)
@@ -357,6 +324,38 @@ class ValEquivalence {
         // For non-scalars,
       }
     }
+  }
+
+ private:
+  //! Return number() of a representative of the set containing val.
+  //! Note that this number might change if this set is merged with another.
+  IndexType getClassNumber(IndexType num) {
+    // num might be beyond the current size of uf_, if we have added Vals to
+    // container_ since the last time we enlarged uf_. In this case, we know
+    // that nothing has been merged, so val is the representative.
+    if (num >= uf_.size()) {
+      return num;
+    }
+    return uf_.find(num);
+  }
+
+  //! Return number() of a representative of the set containing val.
+  //! This is the Val* which is at the root of the tree having
+  //! val as a node.
+  IndexType getClassNumber(Val* val) {
+    return getClassNumber(getNumberFor(val));
+  }
+
+  //! How many Vals are we currently tracking? This may differ from the number
+  //! in the container
+  size_t size() {
+    return uf_.size();
+  }
+
+  //! Grow this datastructure to a new size
+  void enlarge(size_t new_size) {
+    uf_.enlarge(new_size);
+    blacklist_.resize(new_size);
   }
 
   IndexType getNumberFor(Val* val) {
@@ -372,27 +371,42 @@ class ValEquivalence {
     return (IndexType)rawnum;
   }
 
+  //! Return number of currently selected Val corresponding to given Val.
+  //! This will return nullopt for unselected vals.
+  std::optional<IndexType> selectedNumber(IndexType num) const {
+    // get representative (will match this ValType)
+    auto eclass = getClassNumber(num);
+    if (eclass >= selected_.size()) {
+      return nullptr;
+    }
+    // Note that selection might not match original ValType
+    return selected_[eclass];
+  }
+
   //! Return currently selected Val corresponding to given Val.
   //! Note that this Val does not necessarily have its history rewritten.
   //! This will return nullptr for unselected vals.
   Val* selectedVal(Val* val) const {
     // get representative (will match this ValType)
-    auto repnum = getRepresentativeNumber(val);
-    if (repnum >= selected_vals_.size()) {
-      return nullptr;
-    }
-    // Note that selection might not match original ValType
-    return selected_vals_[repnum];
+    auto selnum = selectedNumber(getNumberFor(val));
+    auto vals = container_.vals();
+    TORCH_CHECK(
+        selnum < vals.size(),
+        "Found invalid selection number ",
+        selnum,
+        " but vals.size()=",
+        vals.size());
+    return vals[selnum];
   }
 
   //! Select a Val to replace any Vals in its equivalence class
   void select(Val* val) {
     auto num = getNumberFor(val);
-    auto repnum = getRepresentativeNumber(num);
-    if (repnum >= selected_vals_.size()) {
-      selected_vals_.resize(repnum + 1);
+    auto repnum = getClassNumber(num);
+    if (repnum >= selected_.size()) {
+      selected_.resize(repnum + 1);
     }
-    selected_vals_[repnum] = num;
+    selected_[repnum] = num;
   }
 
  private:
@@ -400,7 +414,13 @@ class ValEquivalence {
   UnionFind<IndexType> uf_;
   std::vector<bool> blacklist_;
   // denotes a "selected" value for each representative
-  std::vector<IndexType> selected_vals_;
+  std::vector<std::optional<IndexType>> selected_;
+
+  // Flag to trigger a scan of merged selections. This is necessary if we merge
+  // during extraction, since we might merge two eclasses which each have a
+  // selection. In that case, we will need to reselect in the merged class,
+  // choosing one of the selections based on our precedence rules.
+  bool merged_since_selection_ = false;
 };
 
 void GpuLower::lower(Fusion* fusion) {
@@ -427,6 +447,8 @@ void GpuLower::lower(Fusion* fusion) {
   kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
+
+  ValEquivalence<uint16_t> val_equiv(*fusion_);
 
   // Convert tensor views of DataType::Index type to either Int or Int32
   for (auto tv : ir_utils::allTvs(fusion_)) {
@@ -657,8 +679,17 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
 
-  const auto exprs_sync_aligned = convertAlignedBlockSync(exprs_instrumented);
+  auto exprs_sync_aligned = convertAlignedBlockSync(exprs_instrumented);
   dumpExprsIfEnabled(exprs_sync_aligned, "convertAlignedBlockSync");
+
+  // Now that we've done all inserting/merging/blacklisting in the preceding
+  // stages, we are ready to extract the simplest expressions for each
+  // equivalence class of Vals. This works by re-interpreting each Expr as a
+  // relation not between concrete Vals, but between their equivalence classes.
+  // Extraction then occurs "bottom-up", by selecting things like constant
+  // scalars in lieu of more complicated definitions, and otherwise minimizing
+  // a heuristic estimate of definition complexity.
+  val_equiv.extractInPlace(exprs_sync_aligned);
 
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from
