@@ -199,10 +199,11 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     int row_stride_znz = row_stride % num_megabanks;
 
     /* Consider the following function in Z/nZ:
-     *   f(i) = init + i * stride
+     *   f(i; init) = init + i * stride
      * where init is the initial position of the pointer in the clock when we
      * start the game, and stride is the number of ticks we move forward each
-     * time, and i is the number of times we move forward.
+     * time, and i is the number of times we move forward. For a fixed init, we
+     * abbrivate f(i; init) as f(i).
      *
      * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
      * `init` is the megabank of the 0th row of the matrix.
@@ -268,6 +269,15 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * That is: f(i) always repeat a pattern of n/g unique numbers g times.
      * In other word: we are using n/g megabanks, and we have a g-way bank
      * conflict.
+     *
+     * Let's use the word "pattern" to refer to the set of values of `f` at
+     * different `i`, that is:
+     *   pattern k = { f(i; init=k) | i in Z/nZ }
+     * For the example of stride = 6 under Z/8Z, we have the following patterns
+     *        f(i): 01234567
+     *   pattern 0: x_x_x_x_
+     *   pattern 1: _x_x_x_x
+     *   (x => occupied, _ => unoccupied)
      */
 
     int repeated_pattern_size = num_megabanks / g;
@@ -276,42 +286,38 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
       return; // No need to swizzle in this case.
     }
 
-    /* We've just studied the behavior of f(i) w.r.t. different `i`s, and f(i)
-     * repeat with a period of n / g. With fixed stride, for each given `init`,
-     * the values f(i) at different `i` form a "pattern". Now we would study the
-     * behavior of f(i) for different `init` values. In other word, we just
-     * studied the megabank usage behavior of different rows of the same matrix,
-     * now we study the megabank usage behavior of the same row of different
-     * matrices.
+    /* Now we know that we have a g-way bank conflict. How do we remove this
+     * bank conflict? The answer is to mix the storage of different matrices.
+     * We first split the matrices along the row axis into g pieces, each piece
+     * has n/g rows. With this split, each piece occupies exactly one pattern.
+     * We want to use some non-traditional storage to let different pieces of
+     * the same matrix to occupy different patterns.
      *
-     * Let's slightly change our notation f(i) as f(i;init) for convenience.
-     * Because Z/nZ has n items, each pattern has n / g different items, so we
-     * have in total g different patterns. in Z/nZ, `init` has n possible
-     * values, we want to know when different `init` correspond to different
-     * patterns and when they correspond to the same pattern.
+     * Because Z/nZ has n items, each pattern has n/g different items, so we
+     * have in total g different patterns. We want to find the corresponding
+     * `init` values of these g different patterns.
      *
-     * Consider the equation
-     *   f(i1; init1) == f(i2; init2)
+     * Consider two different init values `init1` and `init2`. When do they
+     * represent the same pattern? They represent the same pattern if and only
+     * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
+     * i such that
+     *   f(i; init1) == f(0; init2)
      * which simplifies to
-     *   init1 + i1 * stride == init2 + i2 * stride
-     *   ==> init1 - init2 = (i2 - i1) * stride
-     *   ==> init1 - init2 = (i2 - i1) * s * g
-     * Let m = n / g, according to Theorem 4.13 in [The Mathematics of
-     * Integer Arithmetic], ((i2 - i1) * stride) % n = ((i2 - i1) * s) % m * g.
-     * Let si = (i2 - i1) * s, because s coprime with m, we know that for an
-     * arbitrary value in Z/mZ, there exist an i1 and i2 to make si take that
-     * value. That said, for init values that are off by a multiple of g they
+     *   init1 + i * stride == init2
+     *   ==> init2 - init1 == i * stride
+     * What values can `i * stride` be? It can be an arbitrary multiple of g:
+     * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
+     * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
+     *   (i * stride) % n = (i * s) % m * g
+     * Because s coprime with m, we know that for an arbitrary value `j` in
+     * Z/mZ, we can take `i = s^(-1) * j` to make `i * s == j`.
+     *
+     * That said, for init values that are off by a multiple of g they
      * correspond to the same pattern, otherwise they belongs to different
      * patterns. So, we can use
      *   init = 0, 1, ..., g - 1
      * to canonically represent g patterns. Let's call the above
      * `init` values "pattern id".
-     *
-     * For the example of stride = 6 under Z/8Z, we have different patterns
-     *        f(i): 01234567
-     *   pattern 0: x_x_x_x_
-     *   pattern 1: _x_x_x_x
-     *   (x => occupied, _ => unoccupied)
      *
      * Now we have the idea about how to remove bank conflict: We can do an
      * inner split of our row dimension by `repeated_pattern_size` to get
