@@ -37,6 +37,7 @@
 #include <union_find.h>
 #include <utils.h>
 
+#include <deque>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -312,16 +313,48 @@ class ValEquivalence {
   //! Map all given Statements (Exprs or Vals), recursively mapping Vals to
   //! selected vals, modifying Vals and Exprs in place.
   void extractInPlace(std::vector<Expr*>& exprs) {
-    // First pass: extract height zero Vals
-    for (auto val : container_.vals()) {
-      // special cases for Scalars (have to specify each concrete type)
-      if (auto scalar_val = val->as<Int>()) {
-        // prefer immediate constants
-        if (scalar_val->isConst()) {
-          select(scalar_val);
+    // maintain a stack of Statements to process
+    std::deque<Statement*> stmt_stack(exprs.begin(), exprs.end());
+    stmt_stack.pop_back();
+
+    while (!stmt_stack.empty()) {
+      auto stmt = stmt_stack.back();
+      TORCH_CHECK(
+          stmt != nullptr, "extractInPlace encountered null Statement pointer");
+
+      if (stmt->isExpr()) {
+        auto expr = stmt->as<Expr>();
+        // Replace Statement members with selections and mark for processing
+        for (auto outp : expr->outputs()) {
+          // Replace outp with its selected val
+          // mark selected val for further processing
+          auto sel = selectedVal(outp);
+          if (sel != outp) {
+            // swap sel in, in place of outp
+          }
+          stmt_stack.push_back(sel);
         }
+        for (auto inp : expr->inputs()) {
+          stmt_stack.push_back(inp);
+        }
+        for (auto attr : expr->attributes()) {
+          stmt_stack.push_back(attr);
+        }
+        stmt_stack.push_back(expr->predicate());
+        stmt_stack.push_back(expr->writePredicate());
+        continue;
       } else {
-        // For non-scalars,
+        TORCH_CHECK(
+            stmt->isVal(),
+            "extractInPlace encountered unknown statement of unknown type: ",
+            stmt->toString());
+
+        // For Vals, we only need to worry about updating its definition.
+        auto val = stmt->as<Val>();
+
+        if (val->definition()) {
+          stmt_stack.push_back(val->definition());
+        }
       }
     }
   }
@@ -348,7 +381,7 @@ class ValEquivalence {
 
   //! How many Vals are we currently tracking? This may differ from the number
   //! in the container
-  size_t size() {
+  size_t size() const {
     return uf_.size();
   }
 
@@ -358,7 +391,7 @@ class ValEquivalence {
     blacklist_.resize(new_size);
   }
 
-  IndexType getNumberFor(Val* val) {
+  IndexType getNumberFor(Val* val) const {
     size_t rawnum = val->number();
     TORCH_CHECK(
         rawnum <= std::numeric_limits<IndexType>::max(),
@@ -371,11 +404,22 @@ class ValEquivalence {
     return (IndexType)rawnum;
   }
 
-  //! Return number of currently selected Val corresponding to given Val.
-  //! This will return nullopt for unselected vals.
-  std::optional<IndexType> selectedNumber(IndexType num) const {
-    // get representative (will match this ValType)
-    auto eclass = getClassNumber(num);
+  //! Tests if the indicated Val is the one selected for its equivalence class.
+  bool isSelected(IndexType num) const {
+    if (num >= selected_.size()) {
+      return false;
+    }
+    return selected_[num] == num;
+  }
+
+  //! Tests if the indicated Val is the one selected for its equivalence class.
+  bool isSelected(Val* val) const {
+    return isSelected(getNumberFor(val));
+  }
+
+  //! Return number of currently selected Val corresponding to given equivalence
+  //! class. This will return nullopt for eclasses without selections.
+  std::optional<IndexType> selectedNumber(IndexType eclass) const {
     if (eclass >= selected_.size()) {
       return nullptr;
     }
@@ -383,30 +427,72 @@ class ValEquivalence {
     return selected_[eclass];
   }
 
+  //! Get val by number, with bounds checking
+  Val* getVal(IndexType num) {
+    auto vals = container_.vals();
+    TORCH_CHECK(
+        num < vals.size(),
+        "Requestion Val number ",
+        num,
+        " but vals.size()=",
+        vals.size());
+    return vals[num];
+  }
+
   //! Return currently selected Val corresponding to given Val.
   //! Note that this Val does not necessarily have its history rewritten.
   //! This will return nullptr for unselected vals.
   Val* selectedVal(Val* val) const {
     // get representative (will match this ValType)
-    auto selnum = selectedNumber(getNumberFor(val));
-    auto vals = container_.vals();
-    TORCH_CHECK(
-        selnum < vals.size(),
-        "Found invalid selection number ",
-        selnum,
-        " but vals.size()=",
-        vals.size());
-    return vals[selnum];
+    return getVal(selectedNumber(getClassNumber(val)));
   }
 
   //! Select a Val to replace any Vals in its equivalence class
-  void select(Val* val) {
-    auto num = getNumberFor(val);
+  void select(IndexType num) {
     auto repnum = getClassNumber(num);
     if (repnum >= selected_.size()) {
       selected_.resize(repnum + 1);
     }
     selected_[repnum] = num;
+  }
+
+  void select(Val* val) {
+    select(getNumberFor(val));
+  }
+
+  //! Update the selected_ vector to indicate a Val for every class
+  void makeSelections() {
+    for (IndexType i = 0; i < container_.vals().size(); ++i) {
+      auto val = container_.vals()[i];
+
+      auto eclass = getClassNumber(i);
+      auto selected_num = selectedNumber(eclass);
+      if (!selected_num.has_value()) {
+        select(i); // Make a default selection
+        continue;
+      }
+
+      auto selected_val = getVal(selected_num);
+
+      // Current selection is immediate constant
+      if (selected_val->isScalar() && selected_val->isConst()) {
+        // If we've already selected a constant scalar, we will keep this
+        // selection.
+        if (val->isScalar() && val->isConst()) {
+          // If val is _also_ a constant scalar, we do a consistency check
+          TORCH_CHECK(
+              simplifyExpr(eq(val, selected_val))->getBool() == true,
+              "Unequal constant Vals ",
+              val->toString(),
+              " and ",
+              selected_val->toString(),
+              " are marked as equivalent.");
+        }
+        continue;
+      }
+      if (selected_val->isNamedScalar()) {
+      }
+    }
   }
 
  private:
@@ -415,6 +501,7 @@ class ValEquivalence {
   std::vector<bool> blacklist_;
   // denotes a "selected" value for each representative
   std::vector<std::optional<IndexType>> selected_;
+  std::vector<IndexType> complexity_;
 
   // Flag to trigger a scan of merged selections. This is necessary if we merge
   // during extraction, since we might merge two eclasses which each have a
