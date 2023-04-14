@@ -234,6 +234,17 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   static void mutatorDispatch(T mutator, Val*);
 
+  //! Return the position of this Val in the vals() vector of the IrContainer
+  //! that created it. Note that this differs from name(), which is specific to
+  //! ValType.
+  size_t number() const {
+    return number_;
+  }
+
+  void setNumber(size_t number) {
+    number_ = number;
+  }
+
   c10::optional<ValType> getValType() const override {
     return vtype_;
   }
@@ -403,6 +414,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
+  // The position of this Val in the vals() vector for the originating
+  // IrContainer
+  size_t number_;
+
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
