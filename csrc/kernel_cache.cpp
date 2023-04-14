@@ -43,6 +43,48 @@ void encodeBuffer(size_t value, std::string& buffer) {
 
 } // namespace
 
+flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // struct EncodingEntry {
+  //   id: ulong;
+  //   lru_iter: ulong;
+  // }
+  //
+  // table InputsIdLookup {
+  //   max_cache_size : ulong;
+  //   currrent_id : ulong;
+  //   lru_cache : [string];
+  //   encoding_lookup_keys : [string];
+  //   encoding_lookup_values : [EncodingEntry];
+  // }
+  using fb_string = flatbuffers::Offset<flatbuffers::String>;
+
+  // Used to get the ordering for the lru_cache
+  std::unordered_map<std::string, size_t> lru_ordering;
+
+  std::vector<fb_string> lru_cache_fb;
+  for (const auto& str : used_entry_) {
+    lru_cache_fb.push_back(builder.CreateString(str));
+    lru_ordering.emplace(str, lru_ordering.size());
+  }
+
+  std::vector<fb_string> encoding_lookup_keys_fb;
+  std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
+  for (auto&& [key, value] : encoding_lookup_) {
+    encoding_lookup_keys_fb.push_back(builder.CreateString(key));
+    encoding_lookup_values_fb.push_back(
+        serde::EncodingEntry(value.id, lru_ordering.at(key)));
+  }
+
+  return serde::CreateInputsIdLookupDirect(
+      builder,
+      max_cache_size_,
+      current_id_,
+      &lru_cache_fb,
+      &encoding_lookup_keys_fb,
+      &encoding_lookup_values_fb);
+}
+
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs) {
   IdLookupReturn ret;
@@ -387,6 +429,57 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   id_to_kernel_runtime_[unique_id] = kernel_runtime;
   return kernel_runtime;
+}
+
+flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  //  table FusionExecutorCache {
+  //    inputs_cache : InputsIdLookup;
+  //    kernel_runtimes_keys : [ulong];
+  //    kernel_runtimes_values : [FusionKernelRuntime];
+  //    kernel_cache_keys : [ulong];
+  //    kernel_cache_values : [ulong];
+  // }
+
+  using fb_fusion_kernel_runtime =
+      flatbuffers::Offset<serde::FusionKernelRuntime>;
+
+  // Used to get the ordering for the lru_cache
+  std::unordered_map<size_t, size_t> kernel_cache_ordering;
+
+  std::vector<size_t> kernel_runtimes_keys;
+  std::vector<fb_fusion_kernel_runtime> kernel_runtimes_values;
+
+  kernel_runtimes_keys.reserve(kernel_runtimes_.size());
+
+  for (auto&& [id, device_runtimes] : kernel_runtimes_) {
+    kernel_runtimes_keys.push_back(id);
+    for (auto device_id : c10::irange(device_runtimes.size())) {
+      // kernel_runtime_values.push_back(device_runtimes->serialize(builder,
+      // device_id));
+      kernel_cache_ordering.emplace(
+          (size_t)device_runtimes.at(device_id).get(),
+          kernel_cache_ordering.size());
+    }
+  }
+
+  std::vector<size_t> kernel_cache_keys;
+  std::vector<size_t> kernel_cache_values;
+  kernel_cache_keys.reserve(id_to_kernel_runtime_.size());
+  kernel_cache_values.reserve(id_to_kernel_runtime_.size());
+  for (auto&& [id, kernel_runtime] : id_to_kernel_runtime_) {
+    kernel_cache_keys.push_back(id);
+    kernel_cache_values.push_back(
+        kernel_cache_ordering.at((size_t)kernel_runtime));
+  }
+
+  return serde::CreateFusionExecutorCacheDirect(
+      builder,
+      inputs_id_lookup_.serialize(builder),
+      &kernel_runtimes_keys,
+      &kernel_runtimes_values,
+      &kernel_cache_keys,
+      &kernel_cache_values);
 }
 
 FusionKernelRuntime::FusionKernelRuntime(
