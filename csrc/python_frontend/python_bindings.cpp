@@ -3164,8 +3164,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("dim"));
-  nvf_sched.def(
-      "reduction_factor",
+  auto reduction_factor_func = 
       [](FusionDefinition::SchedOperators& self,
          Tensor arg,
          const std::vector<int>& dims) -> Tensor {
@@ -3183,7 +3182,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Fusion State index does not match the size!");
         fd->addFusionState(output_tv);
         return output;
-      },
+      };
+  nvf_sched.def(
+      "reduction_factor",
+      reduction_factor_func,
+      py::arg("arg"),
+      py::arg("dims"));
+  nvf_sched.def(
+      "rfactor",
+      reduction_factor_func,
       py::arg("arg"),
       py::arg("dims"));
   nvf_sched.def(

@@ -905,86 +905,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertTrue(version() > "0.0.0")
         self.assertTrue(version() > Version("0.0.0"))
 
-    def test_def_and_sched_func_errors(self):
-        inputs = [
-            torch.randn(4, 4, 4, device="cuda"),
-        ]
-
-        class DefError(FusionDefinition):
-            def definition(self):
-                t0 = self.from_pytorch(inputs[0])
-                t1 = self.ops.tanh(t0)
-                self.add_output(t1)
-                self.sched.merge(t1, 1)
-
-        try:
-            fd = DefError()
-            out = fd.execute(inputs)
-        except RuntimeError:
-            pass
-
-        class SchedError(FusionDefinition):
-            def definition(self):
-                self.t0 = self.from_pytorch(inputs[0])
-                self.t1 = self.ops.tanh(self.t0)
-                self.add_output(self.t1)
-
-            def schedule(self):
-                self.t2 = self.ops.relu(self.t1)
-
-        try:
-            fd = SchedError()
-            out = fd.execute(inputs)
-        except RuntimeError:
-            pass
-
-    def test_basic_user_schedule(self):
-        inputs = [
-            torch.randn(4, 4, 4, device="cuda"),
-            torch.randn(4, 4, 4, device="cuda"),
-        ]
-
-        class UserDefSched(FusionDefinition):
-            def definition(self):
-                self.t0 = self.from_pytorch(inputs[0])
-                self.t1 = self.from_pytorch(inputs[1])
-                self.t2 = self.ops.add(self.t0, self.t1)
-                self.add_output(self.t2)
-
-            def schedule(self):
-                self.sched.split(self.t2, 1, 2)
-                self.sched.merge(self.t2, -2)
-                self.sched.reorder(self.t2, {1: 2, 2: 1})
-
-        fd = UserDefSched()
-        nvf_user_out = fd.execute(inputs)
-        nvf_out = fd.execute(inputs, override_user_schedule=True)
-        self.assertEqual(nvf_user_out, nvf_out)
-
-    def test_rfactor_user_schedule(self):
-        inputs = [
-            torch.randn(16, 16, device="cuda"),
-        ]
-
-        class UserDefSched(FusionDefinition):
-            def definition(self):
-                self.t0 = fd.define_tensor(
-                    symbolic_sizes=[16, 16],
-                    contiguous=[True, True],
-                    dtype=DataType.Float,
-                )
-                self.t1 = self.ops.sum(self.t0, axis=-1)
-                self.add_output(self.t1)
-
-            def schedule(self):
-                self.sched.split(self.t1, -1, 4)
-                new_tv = self.sched.reduction_factor(self.t1, [1])
-
-        fd = UserDefSched()
-        nvf_user_out = fd.execute(inputs)
-        nvf_out = fd.execute(inputs, override_user_schedule=True)
-        self.assertEqual(nvf_user_out, nvf_out)
-
     def test_zero_size_dim(self):
         inputs = [
             torch.ones(0, 0, device="cuda"),
@@ -2177,6 +2097,26 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
+    
+    def test_def_op_in_schedule(self):
+        """
+        Tests for an error when a definition op is used in a schedule
+        """
+        inputs = [
+            torch.randn(4, 4, 4, device="cuda"),
+        ]
+        class SchedError(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.ops.tanh(self.t0)
+                self.add_output(self.t1)
+
+            def schedule(self):
+                self.t2 = self.ops.relu(self.t1)
+
+        with self.assertRaisesRegex(RuntimeError, "Attempting to add to a completed definition!"):
+            fd = SchedError()
+            _ = fd.execute(inputs)
 
 
 if __name__ == "__main__":
