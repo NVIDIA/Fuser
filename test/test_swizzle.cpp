@@ -616,4 +616,45 @@ TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
       "Swizzle op should be removed by backward replay.");
 }
 
+TEST_F(SwizzleTest, SwizzleIndexing170_CUDA) {
+  // https://github.com/NVIDIA/Fuser/issues/170
+  GTEST_SKIP() << "Repro for an unfixed bug";
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({64, 64});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv1->split(1, 8);
+  tv1->split(1, 4);
+  tv1->split(0, 8);
+  tv1->split(0, 4);
+  // [2 4 8 2 4 8]
+  tv1->swizzle(Swizzle2DType::XOR, 1, 4);
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->merge(1);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->merge(0);
+    tv->split(0, 256);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t = at::randn({64, 64}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t});
+
+  testValidate(&fusion, outputs, {t}, {t}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
