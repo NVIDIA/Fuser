@@ -105,8 +105,6 @@ std::pair<Val*, Val*> dispatchUnSwizzle(
       return swizzles::unXor(x, y);
     case Swizzle2DType::CyclicShift:
       return swizzles::unCyclicShift(x, y, maybe_size_x);
-    case Swizzle2DType::Scatter:
-      return swizzles::unScatter(x, y, maybe_size_x->evaluateInt());
     default:
       TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
   }
