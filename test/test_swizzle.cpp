@@ -581,11 +581,6 @@ TEST_F(SwizzleTest, SwizzleExampleCyclicShift_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-// TODO: SwizzleExampleScatter_CUDA
-// I need to read more about ld.matrix before I can add that, maybe the
-// following link is a good thing to read:
-// https://github.com/NVIDIA/cutlass/blob/master/media/docs/implicit_gemm_convolution.md
-
 // Small repro for the replay fix needed for non-affine
 //  swizzle support.
 TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
