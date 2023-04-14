@@ -27,6 +27,7 @@ def is_pre_volta():
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
 
+
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestUserSchedules(TestCase):
@@ -48,7 +49,9 @@ class TestUserSchedules(TestCase):
                 fusion_fn(self)
                 sched_op_fn(self)
 
-        with self.assertRaisesRegex(RuntimeError, "Attempting to use a SchedOperators Op prior to definition!"):
+        with self.assertRaisesRegex(
+            RuntimeError, "Attempting to use a SchedOperators Op prior to definition!"
+        ):
             fd = DefError()
             _ = fd.execute(inputs)
 
@@ -109,24 +112,37 @@ class TestUserSchedules(TestCase):
         self.valid_use(lambda fd: fd.sched.merge(fd.t1, 0))
 
     def test_reduction_factor_op(self):
-        self.sched_op_in_definition_error(lambda fd: fd.sched.reduction_factor(fd.t1, [-1]))
+        self.sched_op_in_definition_error(
+            lambda fd: fd.sched.reduction_factor(fd.t1, [-1])
+        )
 
         def sched_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [2])
+
         self.valid_use(sched_fn)
 
     def test_reorder_op(self):
-        self.sched_op_in_definition_error(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0}))
+        self.sched_op_in_definition_error(
+            lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0})
+        )
 
-        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {0: 3}),
-                               "Reorder axes are not within the number of dimensions of the provided domain")
-        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {3: 0}),
-                               "Reorder axes are not within the number of dimensions of the provided domain")
-        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {-4: 0}),
-                               "Found \"old\" position that\'s less than 0 even though already adjusted by nDims: -1")
-        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {0: -4}),
-                               "Found \"new\" position that\'s less than 0 even though already adjusted by nDims: -1")
+        self.check_input_error(
+            lambda fd: fd.sched.reorder(fd.t1, {0: 3}),
+            "Reorder axes are not within the number of dimensions of the provided domain",
+        )
+        self.check_input_error(
+            lambda fd: fd.sched.reorder(fd.t1, {3: 0}),
+            "Reorder axes are not within the number of dimensions of the provided domain",
+        )
+        self.check_input_error(
+            lambda fd: fd.sched.reorder(fd.t1, {-4: 0}),
+            'Found "old" position that\'s less than 0 even though already adjusted by nDims: -1',
+        )
+        self.check_input_error(
+            lambda fd: fd.sched.reorder(fd.t1, {0: -4}),
+            'Found "new" position that\'s less than 0 even though already adjusted by nDims: -1',
+        )
 
         self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0}))
         self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 0: 1}))
@@ -136,6 +152,7 @@ class TestUserSchedules(TestCase):
     def test_split_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.split(fd.t1, 1, 2))
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))
+
 
 if __name__ == "__main__":
     run_tests()

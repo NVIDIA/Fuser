@@ -2115,7 +2115,9 @@ class TestNvFuserFrontend(TestCase):
             def schedule(self):
                 self.t2 = self.ops.relu(self.t1)
 
-        with self.assertRaisesRegex(RuntimeError, "Attempting to add to a completed definition!"):
+        with self.assertRaisesRegex(
+            RuntimeError, "Attempting to add to a completed definition!"
+        ):
             fd = SchedError()
             _ = fd.execute(inputs)
 
