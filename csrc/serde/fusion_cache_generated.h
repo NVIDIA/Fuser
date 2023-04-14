@@ -3713,7 +3713,8 @@ struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS
   typedef FusionKernelRuntimeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ARGS = 4,
-    VT_EXECUTORS = 6
+    VT_EXECUTORS = 6,
+    VT_DEVICE = 8
   };
   const nvfuser::serde::KernelArgumentHolder* args() const {
     return GetPointer<const nvfuser::serde::KernelArgumentHolder*>(VT_ARGS);
@@ -3724,11 +3725,15 @@ struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS
     return GetPointer<const flatbuffers::Vector<
         flatbuffers::Offset<nvfuser::serde::FusionExecutor>>*>(VT_EXECUTORS);
   }
+  uint64_t device() const {
+    return GetField<uint64_t>(VT_DEVICE, 0);
+  }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_ARGS) &&
         verifier.VerifyTable(args()) && VerifyOffset(verifier, VT_EXECUTORS) &&
         verifier.VerifyVector(executors()) &&
-        verifier.VerifyVectorOfTables(executors()) && verifier.EndTable();
+        verifier.VerifyVectorOfTables(executors()) &&
+        VerifyField<uint64_t>(verifier, VT_DEVICE) && verifier.EndTable();
   }
 };
 
@@ -3745,6 +3750,9 @@ struct FusionKernelRuntimeBuilder {
           flatbuffers::Offset<nvfuser::serde::FusionExecutor>>> executors) {
     fbb_.AddOffset(FusionKernelRuntime::VT_EXECUTORS, executors);
   }
+  void add_device(uint64_t device) {
+    fbb_.AddElement<uint64_t>(FusionKernelRuntime::VT_DEVICE, device, 0);
+  }
   explicit FusionKernelRuntimeBuilder(flatbuffers::FlatBufferBuilder& _fbb)
       : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3760,8 +3768,10 @@ inline flatbuffers::Offset<FusionKernelRuntime> CreateFusionKernelRuntime(
     flatbuffers::FlatBufferBuilder& _fbb,
     flatbuffers::Offset<nvfuser::serde::KernelArgumentHolder> args = 0,
     flatbuffers::Offset<flatbuffers::Vector<
-        flatbuffers::Offset<nvfuser::serde::FusionExecutor>>> executors = 0) {
+        flatbuffers::Offset<nvfuser::serde::FusionExecutor>>> executors = 0,
+    uint64_t device = 0) {
   FusionKernelRuntimeBuilder builder_(_fbb);
+  builder_.add_device(device);
   builder_.add_executors(executors);
   builder_.add_args(args);
   return builder_.Finish();
@@ -3771,12 +3781,14 @@ inline flatbuffers::Offset<FusionKernelRuntime> CreateFusionKernelRuntimeDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     flatbuffers::Offset<nvfuser::serde::KernelArgumentHolder> args = 0,
     const std::vector<flatbuffers::Offset<nvfuser::serde::FusionExecutor>>*
-        executors = nullptr) {
+        executors = nullptr,
+    uint64_t device = 0) {
   auto executors__ = executors
       ? _fbb.CreateVector<flatbuffers::Offset<nvfuser::serde::FusionExecutor>>(
             *executors)
       : 0;
-  return nvfuser::serde::CreateFusionKernelRuntime(_fbb, args, executors__);
+  return nvfuser::serde::CreateFusionKernelRuntime(
+      _fbb, args, executors__, device);
 }
 
 struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
@@ -3921,24 +3933,24 @@ struct FusionExecutorCache FLATBUFFERS_FINAL_CLASS
   typedef FusionExecutorCacheBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_INPUTS_CACHE = 4,
-    VT_KERNEL_RUNTIME_KEYS = 6,
-    VT_KERNEL_RUNTIME_VALUES = 8,
+    VT_KERNEL_RUNTIMES_KEYS = 6,
+    VT_KERNEL_RUNTIMES_VALUES = 8,
     VT_KERNEL_CACHE_KEYS = 10,
     VT_KERNEL_CACHE_VALUES = 12
   };
   const nvfuser::serde::InputsIdLookup* inputs_cache() const {
     return GetPointer<const nvfuser::serde::InputsIdLookup*>(VT_INPUTS_CACHE);
   }
-  const flatbuffers::Vector<uint64_t>* kernel_runtime_keys() const {
+  const flatbuffers::Vector<uint64_t>* kernel_runtimes_keys() const {
     return GetPointer<const flatbuffers::Vector<uint64_t>*>(
-        VT_KERNEL_RUNTIME_KEYS);
+        VT_KERNEL_RUNTIMES_KEYS);
   }
   const flatbuffers::Vector<
       flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>*
-  kernel_runtime_values() const {
+  kernel_runtimes_values() const {
     return GetPointer<const flatbuffers::Vector<
         flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>*>(
-        VT_KERNEL_RUNTIME_VALUES);
+        VT_KERNEL_RUNTIMES_VALUES);
   }
   const flatbuffers::Vector<uint64_t>* kernel_cache_keys() const {
     return GetPointer<const flatbuffers::Vector<uint64_t>*>(
@@ -3952,11 +3964,11 @@ struct FusionExecutorCache FLATBUFFERS_FINAL_CLASS
     return VerifyTableStart(verifier) &&
         VerifyOffset(verifier, VT_INPUTS_CACHE) &&
         verifier.VerifyTable(inputs_cache()) &&
-        VerifyOffset(verifier, VT_KERNEL_RUNTIME_KEYS) &&
-        verifier.VerifyVector(kernel_runtime_keys()) &&
-        VerifyOffset(verifier, VT_KERNEL_RUNTIME_VALUES) &&
-        verifier.VerifyVector(kernel_runtime_values()) &&
-        verifier.VerifyVectorOfTables(kernel_runtime_values()) &&
+        VerifyOffset(verifier, VT_KERNEL_RUNTIMES_KEYS) &&
+        verifier.VerifyVector(kernel_runtimes_keys()) &&
+        VerifyOffset(verifier, VT_KERNEL_RUNTIMES_VALUES) &&
+        verifier.VerifyVector(kernel_runtimes_values()) &&
+        verifier.VerifyVectorOfTables(kernel_runtimes_values()) &&
         VerifyOffset(verifier, VT_KERNEL_CACHE_KEYS) &&
         verifier.VerifyVector(kernel_cache_keys()) &&
         VerifyOffset(verifier, VT_KERNEL_CACHE_VALUES) &&
@@ -3972,17 +3984,17 @@ struct FusionExecutorCacheBuilder {
       flatbuffers::Offset<nvfuser::serde::InputsIdLookup> inputs_cache) {
     fbb_.AddOffset(FusionExecutorCache::VT_INPUTS_CACHE, inputs_cache);
   }
-  void add_kernel_runtime_keys(
-      flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_runtime_keys) {
+  void add_kernel_runtimes_keys(
+      flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_runtimes_keys) {
     fbb_.AddOffset(
-        FusionExecutorCache::VT_KERNEL_RUNTIME_KEYS, kernel_runtime_keys);
+        FusionExecutorCache::VT_KERNEL_RUNTIMES_KEYS, kernel_runtimes_keys);
   }
-  void add_kernel_runtime_values(
+  void add_kernel_runtimes_values(
       flatbuffers::Offset<flatbuffers::Vector<
           flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>>
-          kernel_runtime_values) {
+          kernel_runtimes_values) {
     fbb_.AddOffset(
-        FusionExecutorCache::VT_KERNEL_RUNTIME_VALUES, kernel_runtime_values);
+        FusionExecutorCache::VT_KERNEL_RUNTIMES_VALUES, kernel_runtimes_values);
   }
   void add_kernel_cache_keys(
       flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_cache_keys) {
@@ -4008,17 +4020,17 @@ struct FusionExecutorCacheBuilder {
 inline flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCache(
     flatbuffers::FlatBufferBuilder& _fbb,
     flatbuffers::Offset<nvfuser::serde::InputsIdLookup> inputs_cache = 0,
-    flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_runtime_keys = 0,
+    flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_runtimes_keys = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<
-        nvfuser::serde::FusionKernelRuntime>>> kernel_runtime_values = 0,
+        nvfuser::serde::FusionKernelRuntime>>> kernel_runtimes_values = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_cache_keys = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> kernel_cache_values =
         0) {
   FusionExecutorCacheBuilder builder_(_fbb);
   builder_.add_kernel_cache_values(kernel_cache_values);
   builder_.add_kernel_cache_keys(kernel_cache_keys);
-  builder_.add_kernel_runtime_values(kernel_runtime_values);
-  builder_.add_kernel_runtime_keys(kernel_runtime_keys);
+  builder_.add_kernel_runtimes_values(kernel_runtimes_values);
+  builder_.add_kernel_runtimes_keys(kernel_runtimes_keys);
   builder_.add_inputs_cache(inputs_cache);
   return builder_.Finish();
 }
@@ -4026,18 +4038,18 @@ inline flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCache(
 inline flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCacheDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     flatbuffers::Offset<nvfuser::serde::InputsIdLookup> inputs_cache = 0,
-    const std::vector<uint64_t>* kernel_runtime_keys = nullptr,
+    const std::vector<uint64_t>* kernel_runtimes_keys = nullptr,
     const std::vector<flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>*
-        kernel_runtime_values = nullptr,
+        kernel_runtimes_values = nullptr,
     const std::vector<uint64_t>* kernel_cache_keys = nullptr,
     const std::vector<uint64_t>* kernel_cache_values = nullptr) {
-  auto kernel_runtime_keys__ = kernel_runtime_keys
-      ? _fbb.CreateVector<uint64_t>(*kernel_runtime_keys)
+  auto kernel_runtimes_keys__ = kernel_runtimes_keys
+      ? _fbb.CreateVector<uint64_t>(*kernel_runtimes_keys)
       : 0;
-  auto kernel_runtime_values__ = kernel_runtime_values
+  auto kernel_runtimes_values__ = kernel_runtimes_values
       ? _fbb.CreateVector<
             flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>(
-            *kernel_runtime_values)
+            *kernel_runtimes_values)
       : 0;
   auto kernel_cache_keys__ =
       kernel_cache_keys ? _fbb.CreateVector<uint64_t>(*kernel_cache_keys) : 0;
@@ -4047,8 +4059,8 @@ inline flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCacheDirect(
   return nvfuser::serde::CreateFusionExecutorCache(
       _fbb,
       inputs_cache,
-      kernel_runtime_keys__,
-      kernel_runtime_values__,
+      kernel_runtimes_keys__,
+      kernel_runtimes_values__,
       kernel_cache_keys__,
       kernel_cache_values__);
 }

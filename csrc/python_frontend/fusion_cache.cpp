@@ -345,14 +345,28 @@ void FusionCache::serialize(std::string filename) const {
         map_record_functor_to_trie_node_id.at(node->record.get()));
   }
 
-  // 5. Build FusionCache flatbuffer object
+  // 5. Serialize each FusionExecutorCache for each fusion.
+  using fb_fusion_executor_cache =
+      flatbuffers::Offset<serde::FusionExecutorCache>;
+  std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
+  for (auto& schedule : fusions_) {
+    auto serialized_schedule = schedule->auto_gen_schedules->serialize(builder);
+    fb_auto_gen_schedules.push_back(serialized_schedule);
+  }
+
+  // 6. Build FusionCache flatbuffer object
   // table FusionCache {
   //  max_fusions: ulong;
   //  structure: [TrieNode];
   //  terminal_nodes: [ulong];
+  //  auto_gen_schedules : [FusionExecutorCache];
   // }
   auto fusion_cache = serde::CreateFusionCacheDirect(
-      builder, max_fusions_, &fb_nodes, &terminal_node_idx);
+      builder,
+      max_fusions_,
+      &fb_nodes,
+      &terminal_node_idx,
+      &fb_auto_gen_schedules);
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
