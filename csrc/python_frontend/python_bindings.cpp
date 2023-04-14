@@ -3164,35 +3164,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("dim"));
-  auto reduction_factor_func = 
-      [](FusionDefinition::SchedOperators& self,
-         Tensor arg,
-         const std::vector<int>& dims) -> Tensor {
-        FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
-        TORCH_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        auto input_tv =
-            fd->getFusionState(arg.index)->template as<TensorView>();
-        auto output_tv = input_tv->rFactor(dims);
-        Tensor output = fd->defineTensor(arg.dims);
-        TORCH_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
-      };
+  auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
+                                  Tensor arg,
+                                  const std::vector<int>& dims) -> Tensor {
+    FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
+    TORCH_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
+    auto output_tv = input_tv->rFactor(dims);
+    Tensor output = fd->defineTensor(arg.dims);
+    TORCH_CHECK(
+        output.index == fd->numFusionStates(),
+        "Fusion State index does not match the size!");
+    fd->addFusionState(output_tv);
+    return output;
+  };
   nvf_sched.def(
       "reduction_factor",
       reduction_factor_func,
       py::arg("arg"),
       py::arg("dims"));
   nvf_sched.def(
-      "rfactor",
-      reduction_factor_func,
-      py::arg("arg"),
-      py::arg("dims"));
+      "rfactor", reduction_factor_func, py::arg("arg"), py::arg("dims"));
   nvf_sched.def(
       "reorder",
       [](FusionDefinition::SchedOperators& self,

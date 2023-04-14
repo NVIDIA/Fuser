@@ -2097,7 +2097,7 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
-    
+
     def test_def_op_in_schedule(self):
         """
         Tests for an error when a definition op is used in a schedule
@@ -2105,6 +2105,7 @@ class TestNvFuserFrontend(TestCase):
         inputs = [
             torch.randn(4, 4, 4, device="cuda"),
         ]
+
         class SchedError(FusionDefinition):
             def definition(self):
                 self.t0 = self.from_pytorch(inputs[0])

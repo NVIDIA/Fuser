@@ -3,30 +3,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from copy import deepcopy
-from functools import partial
-import math
-import re
-from typing import List, Callable
+from typing import Callable
 import unittest
-import itertools
 
 import torch
-import torch.nn.functional as F
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
 # Will only create the nvfuser module if CUDA is available
 try:
     from nvfuser import (
-        FusionCache,
         FusionDefinition,
-        DataType,
-        Tensor,
-        version,
-        compute_contiguity,
     )
-    from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
     pass
 
@@ -47,22 +35,47 @@ class TestUserSchedules(TestCase):
         Common function to test for an error when a schedule op is used in a definition
         """
         inputs = [
-            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, 4, device="cuda"),
         ]
+
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
             fd.t1 = fd.ops.tanh(fd.t0)
             fd.add_output(fd.t1)
-        
+
         class DefError(FusionDefinition):
             def definition(self):
                 fusion_fn(self)
                 sched_op_fn(self)
-        
+
         with self.assertRaisesRegex(RuntimeError, "Attempting to use a SchedOperators Op prior to definition!"):
             fd = DefError()
             _ = fd.execute(inputs)
-    
+
+    def check_input_error(self, sched_fn: Callable, error_msg: str):
+        """
+        Common function to test for an input error to a schedule op
+        """
+        inputs = [
+            torch.randn(4, 4, 4, device="cuda"),
+        ]
+
+        def fusion_fn(fd: FusionDefinition):
+            fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
+            fd.t1 = fd.ops.sum(fd.t0, axis=-1)
+            fd.add_output(fd.t1)
+
+        class InputError(FusionDefinition):
+            def definition(self):
+                fusion_fn(self)
+
+            def schedule(self):
+                sched_fn(self)
+
+        with self.assertRaisesRegex(RuntimeError, error_msg):
+            fd = InputError()
+            _ = fd.execute(inputs)
+
     def valid_use(self, sched_op_fn: Callable):
         """
         Common function to test op works in a common case
@@ -70,11 +83,12 @@ class TestUserSchedules(TestCase):
         inputs = [
             torch.randn(4, 4, 4, device="cuda"),
         ]
+
         def fusion_fn(fd: FusionDefinition):
             fd.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
             fd.t1 = fd.ops.sum(fd.t0, axis=-1)
             fd.add_output(fd.t1)
-        
+
         class BasicValid(FusionDefinition):
             def definition(self):
                 fusion_fn(self)
@@ -93,7 +107,7 @@ class TestUserSchedules(TestCase):
     def test_merge_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.merge(fd.t1, 1))
         self.valid_use(lambda fd: fd.sched.merge(fd.t1, 0))
-    
+
     def test_reduction_factor_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.reduction_factor(fd.t1, [-1]))
 
@@ -101,14 +115,27 @@ class TestUserSchedules(TestCase):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [2])
         self.valid_use(sched_fn)
-    
+
     def test_reorder_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0}))
+
+        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {0: 3}),
+                               "Reorder axes are not within the number of dimensions of the provided domain")
+        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {3: 0}),
+                               "Reorder axes are not within the number of dimensions of the provided domain")
+        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {-4: 0}),
+                               "Found \"old\" position that\'s less than 0 even though already adjusted by nDims: -1")
+        self.check_input_error(lambda fd: fd.sched.reorder(fd.t1, {0: -4}),
+                               "Found \"new\" position that\'s less than 0 even though already adjusted by nDims: -1")
+
         self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0}))
-    
+        self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {0: 1, 0: 1}))
+        self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {0: 0}))
+        self.valid_use(lambda fd: fd.sched.reorder(fd.t1, {}))
+
     def test_split_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.split(fd.t1, 1, 2))
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))
-       
+
 if __name__ == "__main__":
     run_tests()
