@@ -6,8 +6,6 @@
  */
 namespace nvfuser.serde;
 
-include "fusion_executor_cache.fbs";
-
 // This indicates the flatbuffer compatibility. The number will bump up when a
 // breaking change is applied to the schema.
 file_identifier "NV00";
@@ -134,7 +132,7 @@ table Bool {
   bool_val: bool;
 }
 
-// Data for Constant Double or Float
+// Data for Constant Double, Float, Half, BFloat16
 table Double {
   double_val: double;
   dtype: DataType;
@@ -143,6 +141,13 @@ table Double {
 // Data for Constant Int or Long
 table Int {
   int_val: long;
+  dtype: DataType;
+}
+
+// Data for Constant Complex Double or Float
+table ComplexDouble {
+  real: double;
+  imag: double;
   dtype: DataType;
 }
 
@@ -167,13 +172,6 @@ table BroadcastInDim {
 table BroadcastInDimSymbolic {
   output_shape: [State];
   broadcast_dims: [long];
-}
-
-// Data for Constant Complex Double or Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
 }
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord

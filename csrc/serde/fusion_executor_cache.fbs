@@ -32,17 +32,26 @@ union ArgAbstractData {
   Bool,
   PhiloxCudaState,
   Tensor,
-  CpuScalarTensor
+  CpuScalar
 }
 
-// TODO CpuScalarTensor
+union CpuScalarData {
+  Bool,
+  ComplexDouble,
+  Double,
+  Int,
+}
+
+table CpuScalar {
+  data : CpuScalarData;
+}
 
 table PhiloxCudaState {
   seed : ulong;
   offset : ulong;
 }
 
-table TensorArgCodegen {
+table Tensor {
   alignment_size : ulong;
   size : [long];
   stride : [long];
@@ -62,6 +71,10 @@ table KernelArgumentHolder {
   index_mode : KernelIndexMode;
 }
 
+struct TensorShape {
+  shape : [long];
+}
+
 table LaunchParams {
   gdimx : int64_t;
   gdimy : int64_t;
@@ -70,7 +83,7 @@ table LaunchParams {
   bdimy : int64_t;
   bdimz : int64_t;
   smem : int64_t;
-  output_sizes : [[long]];
+  output_sizes : [TensorShape];
 }
 
 table CompileParams {
@@ -85,9 +98,6 @@ table CompileParams {
 struct NvrtcFunction {
   module : [char];
   function : [char];
-
-  CUmodule module = CUmodule();
-  CUfunction function = CUfunction();
 };
 
 table GlobalBufferInfo {
@@ -109,26 +119,20 @@ table ExecutorEntry {
     rand_offset : ulong;
 };
 
-// VectorizedSetInfo
-table VectorizedSetInfo {
-  // Producer of a vectorized set
-  TensorView* producer_tv = nullptr;
+// Do not serialize if there is misaligned vectorized tensors.
+table VectorizedTensorInfo {
+  // Aligned vectorized fusion inputs
+  aligned_vectorized_inp_tensor_pos : [ulong];
 
-  // Consumer of a vectorized set
-  TensorView* consumer_tv = nullptr;
+  // Aligned vectorized fusion outputs
+  aligned_vectorized_out_tensor_pos : [ulong];
 
-  // Number of elements to vectorize
-  int word_size = -1;
-
-  // Vectorized domain
-  IterDomain* vectorized_leaf_id = nullptr;
-
-  // Right-most root dependent domain of the leaf domain
-  IterDomain* vectorized_root_id = nullptr;
-  
-  // All of the dependent root domains that are contiguously merged
-  std::unordered_set<IterDomain*> contig_root_ids;
-};
+  // Track which tensor views are inputs or outputs of a vectorized operation
+  // and their maximum vectorized access size.
+  // Analogous to map<TensorView*, int> kernel_summary.vectorized_accesses.
+  aligned_vectorized_inp_tensor_word_size : [ulong];
+  aligned_vectorized_out_tensor_word_size : [ulong];
+}
 
 table KernelSummary {
   // Indicate the need to generate random numbers
@@ -141,14 +145,8 @@ table KernelSummary {
   lhs_splits_to_validate : [long];
   rhs_splits_to_validate : [long];
 
-  // Track which tensor views are inputs or outputs of a vectorized operation
-  // and their maximum vectorized access size
-  // map<TensorView*, int> vectorized_accesses;
-  vectorized_accesses_tv_keys : [ulong]
-  vectorized_accesses_size : [int]
-
   // Track information on vectorized set operations for runtime validation
-  vectorized_set_info : [VectorizedSetInfo];
+  vectorized_set_info : VectorizedTensorInfo;
 }
 
 // skipped potential fields:
