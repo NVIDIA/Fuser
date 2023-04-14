@@ -156,6 +156,7 @@ void IrContainer::removeVal(Val* val) {
 
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
+  vals_vector_[val->number()] = nullptr;
   raw_ptrs_.erase((void*)val);
 }
 
@@ -168,6 +169,12 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
+  val->setNumber(val_counter_++);
+  // Add to vals vector so that we can always look up a Val by its number()
+  if (val->number() >= vals_vector_.size()) {
+    vals_vector_.resize(val->number() + 1);
+  }
+  vals_vector_[val->number()] = val;
   raw_ptrs_.emplace((void*)vals_up_.back().get());
 }
 

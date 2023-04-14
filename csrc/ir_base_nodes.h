@@ -61,6 +61,9 @@ class IrContainer;
 class IrBuilderPasskey;
 class IrContainerPasskey;
 
+template <typename IndexType>
+class ValEquivalence;
+
 namespace kir {
 class Kernel;
 class Predicate;
@@ -386,6 +389,9 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
  protected:
   friend Fusion;
+  friend Expr;
+  template <typename IndexType>
+  friend class ValEquivalence;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;
@@ -465,6 +471,10 @@ class TORCH_CUDA_CU_API Attribute : public Val {
   virtual std::string toInlineString(int) const override {
     return Printer<T>::toString(value);
   }
+
+ protected:
+  template <typename IndexType>
+  friend class ValEquivalence;
 };
 
 using newObjectFuncType = Expr*(
@@ -593,6 +603,9 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   virtual std::string getGraphvizLabel() const;
 
  protected:
+  template <typename IndexType>
+  friend class ValEquivalence;
+
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
 
@@ -614,6 +627,31 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   // TODO: Add Fusion passkey
   void addAttribute(Statement* attr) {
     attributes_.push_back(attr);
+  }
+
+  //! Replace input at given position with the given Val.
+  //! Note that this updates uses() in both the provided, and current inputs
+  void setInput(size_t pos, Val* val) {
+    auto current = input(pos);
+    if (current == val) {
+      return;
+    }
+    current->removeUse(this);
+    val->addUse(this);
+    inputs_[pos] = val;
+  }
+
+  //! Replace output at given position with the given Val.
+  //! Note that this updates definition() in the provided val.
+  //! The previous output is given a null definition.
+  void setOutput(size_t pos, Val* val) {
+    auto current = output(pos);
+    if (current == val) {
+      return;
+    }
+    current->setDefinition(nullptr);
+    val->setDefinition(this);
+    outputs_[pos] = val;
   }
 
   ExprPasskey exprPasskey() {

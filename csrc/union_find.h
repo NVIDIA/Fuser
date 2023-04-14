@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-//! An Union by Rank data structure on integers
+//! A Union-Find (by rank) data structure on integers
 //! The template parameter IndexType dictates the maximum number of elements
 //! that can be used.
 template <typename IndexType>

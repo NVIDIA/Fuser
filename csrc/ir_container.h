@@ -87,6 +87,11 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
     return vals_;
   }
 
+  //! Return a vector v of vals, where v[i]->number() == i or v[i] != nullptr.
+  const std::vector<Val*>& valsVector() const {
+    return vals_vector_;
+  }
+
   // Shortcuts for frequently used vals
   Int* zeroVal();
   Int* oneVal();
@@ -161,6 +166,11 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+
+  // Counter for total number of vals
+  size_t val_counter_ = 0;
+
+  std::vector<Val*> vals_vector_;
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;

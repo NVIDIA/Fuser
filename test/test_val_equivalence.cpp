@@ -11,6 +11,7 @@
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
 #include <union_find.h>
+#include <val_equivalence.h>
 
 #include <algorithm>
 #include <complex>
@@ -23,9 +24,8 @@ namespace nvfuser {
 using namespace at::indexing;
 
 TEST_F(NVFuserTest, FusionUnionFind) {
-  UnionFind<uint8_t> uf;
+  UnionFind<uint8_t> uf(5);
 
-  uf.enlarge(5);
   uf.merge(3, 4);
 
   assert(uf.equiv(3, 4));
@@ -40,6 +40,13 @@ TEST_F(NVFuserTest, FusionUnionFind) {
   assert(uf.size() == 8);
   EXPECT_ANY_THROW(uf.find(8); // Try to index past current size
   );
+}
+
+TEST_F(NVFuserTest, FusionValEquivalence) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto ve = ValEquivalence<uint8_t>(fusion);
 }
 
 } // namespace nvfuser
