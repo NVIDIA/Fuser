@@ -531,7 +531,6 @@ enum class Swizzle2DType {
   ZShape,
   Transpose,
   XOR,
-  Scatter,
   CyclicShift
 };
 
