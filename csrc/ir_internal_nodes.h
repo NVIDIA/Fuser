@@ -1044,6 +1044,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
     }
   };
 
+  using AxesData = std::vector<int>;
+  using MmaInputLayoutOpt = c10::optional<MmaOptions::MmaInputLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1082,7 +1084,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   const auto& options() const {
-    return attribute(1)->as<Attribute<OptionsInMma>>()->value;
+    return attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
   }
 
   auto accStride() const {
@@ -1090,6 +1092,40 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   void configureOptions(MmaOptions options);
+
+  auto inputLayout() const {
+    return attribute(ATTR_POS_INPUT_LAYOUT)
+        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->value;
+  }
+
+  const auto& mAxes() const {
+    return attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+  const auto& nAxes() const {
+    return attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+  const auto& kAxes() const {
+    return attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+  const auto& batchAxes() const {
+    return attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+ private:
+  // Predefined idexes of attributes stored for this IR node, to avoid
+  //  magic numbers, based on order in which attributes are initialized
+  //  in constructor
+  static constexpr size_t ATTR_POS_INIT = 0;
+  static constexpr size_t ATTR_POS_OPTS = 1;
+  static constexpr size_t ATTR_POS_M_AXES = 2;
+  static constexpr size_t ATTR_POS_N_AXES = 3;
+  static constexpr size_t ATTR_POS_K_AXES = 4;
+  static constexpr size_t ATTR_POS_BATCH_AXES = 5;
+  static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
