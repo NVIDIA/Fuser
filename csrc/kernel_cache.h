@@ -13,6 +13,7 @@
 #include <fusion_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <serde/fusion_cache_generated.h>
 
 #include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
@@ -258,6 +259,10 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
     return encoding_lookup_.size();
   }
 
+  //! Serialize InputsIdLookup using flatbuffers
+  flatbuffers::Offset<serde::InputsIdLookup> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
@@ -439,6 +444,10 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       }
     }
   }
+
+  //! Serialize FusionExecutorCache using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
 
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached

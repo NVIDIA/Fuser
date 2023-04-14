@@ -412,27 +412,28 @@ table TensorCreationSymbolic {
 // skipped potential fields:
 // lowered : GpuLower
 table FusionExecutor {
-    configured_device_smem : ulong;
-    maybe_available_smem : ulong;
-    device_smem_limit: ulong;
-    warp_size: int;
-    fusion_id: int;
-    // shared static value
-    fusion_id_counter : int;
-    kernel_code : string;
-    executor_entry_lookup_keys : [ulong];
-    executor_entry_lookup_values : [ExecutorEntry];
-    compile_params : CompileParams;
-    compiled_kernel : NvrtcFunction;
-    launch_params : LaunchParams;
-    kernel_summary : KernelSummary;
-    used_tvs : [ulong];
+  configured_device_smem : ulong;
+  maybe_available_smem : ulong;
+  device_smem_limit: ulong;
+  warp_size: int;
+  fusion_id: int;
+  // shared static value
+  fusion_id_counter : int;
+  kernel_code : string;
+  executor_entry_lookup_keys : [ulong];
+  executor_entry_lookup_values : [ExecutorEntry];
+  compile_params : CompileParams;
+  compiled_kernel : NvrtcFunction;
+  launch_params : LaunchParams;
+  kernel_summary : KernelSummary;
+  used_tvs : [ulong];
 }
 
 // unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
 table FusionKernelRuntime {
-    args : KernelArgumentHolder;
-    executors : [FusionExecutor];
+  args : KernelArgumentHolder;
+  executors : [FusionExecutor];
+  device : ulong;
 }
 
 struct EncodingEntry {
@@ -456,8 +457,8 @@ table FusionExecutorCache {
   inputs_cache : InputsIdLookup;
 
   // define map<size_t, vector<FusionKernelRuntime>> kernel_runtimes
-  kernel_runtime_keys : [ulong];
-  kernel_runtime_values : [FusionKernelRuntime];
+  kernel_runtimes_keys : [ulong];
+  kernel_runtimes_values : [FusionKernelRuntime];
 
   // define map<size_t, FusionKernelRuntime> id_to_kernel_runtime
   kernel_cache_keys : [ulong];
