@@ -556,7 +556,8 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options());
+          node->options(),
+          node->inputLayout());
       registerReplaceWithPredicate(node, replacement);
     }
   }

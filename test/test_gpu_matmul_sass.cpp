@@ -60,8 +60,7 @@ sass::Container getSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
-  params.mma_op = macro;
-  params.layout = layout;
+  params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;

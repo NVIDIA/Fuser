@@ -87,7 +87,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
   const auto tile_size_x = shared_mem_tv->axis(-2)->extent()->evaluateInt();
   const auto tile_size_y = shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
-  if (isTuring(params.mma_op) || isAmpere(params.mma_op)) {
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     // TODO: right now, we are assuming ldmatrix access, which only supports
     // sizeof(T) == 16bit (i.e. half/bfloat16) load according to offical doc:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
@@ -392,7 +392,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     shared_mem_tv->merge(-5);
     shared_mem_tv->merge(-3);
     shared_mem_tv->merge(-2);
-  } else if (isVolta(params.mma_op)) {
+  } else if (isVolta(params.mma_macro)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma
     //  macro layout themselves as we already have them registered in
@@ -440,6 +440,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto& inputs = fusion->inputs();
   const auto& outputs = fusion->outputs();
+  const auto mma_ops = ir_utils::getMmaOps(fusion);
 
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 2,
@@ -458,13 +459,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       outputs[0]->isA<TensorView>(),
       "fusion's output is not an instance of TensorView class");
 
+  TORCH_INTERNAL_ASSERT(
+      mma_ops.size() == 1,
+      "scheduleMatmul supports fusion with single mma op in definition, got ",
+      mma_ops.size());
+  TORCH_INTERNAL_ASSERT(
+      mma_ops.front()->inputLayout().has_value(),
+      "fusion mma op has undefined input layout");
+
   TensorView* a = inputs[0]->as<TensorView>();
   TensorView* b = inputs[1]->as<TensorView>();
   TensorView* c = outputs[0]->as<TensorView>();
 
   // Collect mma swizzle info
+  const auto layout = mma_ops.front()->inputLayout().value();
   auto mma_builder =
-      MmaBuilder(params.mma_op, params.tile_sizes).layout(params.layout);
+      MmaBuilder(params.mma_macro, params.tile_sizes).layout(layout);
   const auto& gemm_tile = params.tile_sizes;
 
   // Including current tensor naming convention for reference,
