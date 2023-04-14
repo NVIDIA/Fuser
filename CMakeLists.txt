@@ -370,18 +370,16 @@ if(BUILD_TEST)
   if (PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
-  else() # PROJECT_IS_TOP_LEVEL
+    # only install nvfuser_tests with submodule build
+  else()
     torch_compile_options(${NVFUSER_TESTS})
     target_include_directories(${NVFUSER_TESTS} PRIVATE "${TORCH_ROOT}/torch/csrc/api/include/")
     target_link_libraries(${NVFUSER_TESTS} PRIVATE torch ${TORCHLIB_FLAVOR})
+    install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
   endif() # PROJECT_IS_TOP_LEVEL
 
   if(NOT MSVC)
     set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
-  endif()
-
-  if (NOT PROJECT_IS_TOP_LEVEL)
-    install(TARGETS ${NVFUSER_TESTS} DESTINATION bin)
   endif()
 endif()
 
@@ -426,17 +424,16 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
+    # only install nvfuser_bench with submodule build
   else()
     torch_compile_options(${NVFUSER_BENCHMARK})
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
+    install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()
   if(NOT MSVC)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
-  if (NOT PROJECT_IS_TOP_LEVEL)
-      install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
-  endif()
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 
 endif()

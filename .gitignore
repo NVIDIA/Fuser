@@ -11,7 +11,7 @@ dist
 nvfuser/version.py
 nvfuser/include
 nvfuser/lib
-nvfuser/cmake
+nvfuser/share
 
 .hypothesis
 *.egg-info/
