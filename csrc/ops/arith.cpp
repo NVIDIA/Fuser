@@ -1676,11 +1676,6 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-<<<<<<< HEAD
-  std::vector<unsigned int> uint_axes =
-      canonicalizeAxes(axes, tv->domain()->noReductions().size());
-
-=======
   std::vector<unsigned int> uint_axes;
   const int ndims = tv->domain()->noReductions().size();
   for (int axis : axes) {
@@ -1698,7 +1693,6 @@ WelfordResult WelfordRaw(
 
     uint_axes.push_back((unsigned int)axis);
   }
->>>>>>> 2242f28... complex number welford
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
