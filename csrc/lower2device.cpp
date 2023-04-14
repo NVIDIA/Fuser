@@ -34,6 +34,8 @@
 #include <lower_validation.h>
 #include <lower_vectorize_welford.h>
 #include <lower_warp_reduce.h>
+#include <union_find.h>
+#include <utils.h>
 
 #include <list>
 #include <unordered_map>
@@ -273,38 +275,62 @@ void dumpExprsIfEnabled(
 //! This class tracks a single notion of Val equivalence over all Vals in an
 //! IrContainer
 template <typename IndexType>
-class ValEquivalences {
+class ValEquivalence {
  public:
-  ValEquivalences(ValType vtype, IrContainer& container)
-      : vtype_(vtype), container_(container), uf_(0), blacklist_(0) {
-    // TODO: do we even need vals_? If so, doesn't this belong in IrContainer?
-    find_vals();
-  }
+  ValEquivalence(IrContainer& container)
+      : container_(container), uf_(0), blacklist_(0) {}
 
   //! Mark val as ineligible for extraction
   void blacklist(Val* val) {
-    auto name = val->name();
-    if (name >= size()) {
-      enlarge(name + 1);
+    auto num = val->number();
+    if (num >= size()) {
+      enlarge(num + 1);
     }
-    blacklist_[name] = true;
+    blacklist_[num] = true;
   }
 
   //! Merge the sets containing a and b
   void merge(Val* a, Val* b) {
-    uf_.merge((IndexType)a->name(), (IndexType)b->name());
+    TORCH_CHECK(
+        selected_vals_.empty(),
+        "Cannot merge equivalence classes after selection/extraction has begun");
+    IndexType anum = a->number();
+    IndexType bnum = b->number();
+    if (anum > bnum) { // sort numbers for ease of checking size
+      std::swap(anum, bnum);
+    }
+    if (bnum >= uf_.size()) {
+      enlarge(bnum + 1);
+    }
+    uf_.merge(anum, bnum);
   }
 
-  //! Return a canonical representative of the set containing val
+  //! Return number() of a representative of the set containing val.
+  //! This is the Val* which is at the root of the tree having
+  //! val as a node.
+  IndexType getRepresentativeNumber(IndexType num) {
+    // num might be beyond the current size of uf_, if we have added Vals to
+    // container_ since the last time we enlarged uf_. In this case, we know
+    // that nothing has been merged, so val is the representative.
+    if (num >= uf_.size()) {
+      return num;
+    }
+    return uf_.find(num);
+  }
+
+  //! Return number() of a representative of the set containing val.
+  //! This is the Val* which is at the root of the tree having
+  //! val as a node.
+  IndexType getRepresentativeNumber(Val* val) {
+    return getRepresentativeNumber(getNumberFor(val));
+  }
+
+  //! Return a representative of the set containing val.
   //! This is the Val* which is at the root of the tree having val as a node.
-  Val* canonicalize(Val* val) {
-    return vals_[uf_.find((IndexType)val->name())];
+  Val* getRepresentativeVal(Val* val) {
+    return container_.vals()[getRepresentativeNumber(val)];
   }
 
-  //! Perform extraction
-  std::vector<Val*> extract() {}
-
- private:
   //! How many Vals are we currently tracking? This may differ from the number
   //! in the container
   size_t size() {
@@ -317,50 +343,65 @@ class ValEquivalences {
     blacklist_.resize(new_size);
   }
 
-  void find_vals() {
-    enlarge(container_.getNumVals(vtype_));
-    // Look through all Vals to find
-    for (auto v : container_.vals()) {
-      auto vt = v->getValType();
-      if (vt.has_value() && vt.value() == vtype_) {
-        TORCH_CHECK(
-            v->name() < size(),
-            "Found Val of type ",
-            vt,
-            " with name()=",
-            v->name(),
-            " but current size()=",
-            size());
-        vals_[v->name()] = v;
+  //! Extract lowest-cost Val of each equivalence class, recursively
+  void extractInPlace(std::vector<Statement*> stmts) {
+    // First pass: extract height zero Vals
+    for (auto val : container_.vals()) {
+      // special cases for Scalars (have to specify each concrete type)
+      if (auto scalar_val = val->as<Int>()) {
+        // prefer immediate constants
+        if (scalar_val->isConst()) {
+          select(scalar_val);
+        }
+      } else {
+        // For non-scalars,
       }
     }
   }
 
- private:
-  ValType vtype_;
-  IrContainer& container_;
-  UnionFind<IndexType> uf_;
-  std::vector<bool> blacklist_;
-  // Keep a vector mapping from ints back to Val*
-  std::vector<Val*> vals_;
-}
+  IndexType getNumberFor(Val* val) {
+    size_t rawnum = val->number();
+    TORCH_CHECK(
+        rawnum <= std::numeric_limits<IndexType>::max(),
+        "Encountered val numbered ",
+        rawnum,
+        " (",
+        val->toString(),
+        ") which is greater than IndexType's largest representable number: ",
+        std::to_string(std::numeric_limits<IndexType>::max()));
+    return (IndexType)rawnum;
+  }
 
-//! This merely holds ValEquivalences objects for each ValType
-class AllTypesValEquivalences {
- public:
-  ValEquivalences(IrContainer& container) : container_(container) {
-    auto all_val_types = {ValType::TensorView};
-    for (ValType vt : all_val_types) {
-      valtype_uf_.emplace(vt, container_.getNumVals(vt));
-      valtype__.emplace(vt, container_.getNumVals(vt));
+  //! Return currently selected Val corresponding to given Val.
+  //! Note that this Val does not necessarily have its history rewritten.
+  //! This will return nullptr for unselected vals.
+  Val* selectedVal(Val* val) const {
+    // get representative (will match this ValType)
+    auto repnum = getRepresentativeNumber(val);
+    if (repnum >= selected_vals_.size()) {
+      return nullptr;
     }
+    // Note that selection might not match original ValType
+    return selected_vals_[repnum];
+  }
+
+  //! Select a Val to replace any Vals in its equivalence class
+  void select(Val* val) {
+    auto num = getNumberFor(val);
+    auto repnum = getRepresentativeNumber(num);
+    if (repnum >= selected_vals_.size()) {
+      selected_vals_.resize(repnum + 1);
+    }
+    selected_vals_[repnum] = num;
   }
 
  private:
   IrContainer& container_;
-  std::unordered_map<ValType, ValEquivalences> valtype_equivs_;
-}
-
+  UnionFind<IndexType> uf_;
+  std::vector<bool> blacklist_;
+  // denotes a "selected" value for each representative
+  std::vector<IndexType> selected_vals_;
+};
 
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
