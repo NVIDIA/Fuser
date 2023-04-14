@@ -1676,23 +1676,8 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes;
-  const int ndims = tv->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv->domain()->noReductions().size());
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
