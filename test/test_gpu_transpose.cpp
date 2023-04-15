@@ -1038,7 +1038,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   auto tv1 = set(tv0);
   auto tv2 = transpose(tv1, 0, 1);
   auto tv3 = set(tv2);
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   tv1->setMemoryType(MemoryType::Shared);
 
