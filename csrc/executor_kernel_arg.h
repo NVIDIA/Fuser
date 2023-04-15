@@ -10,6 +10,7 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
+#include <serde/fusion_cache_generated.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
@@ -137,6 +138,8 @@ struct ArgAbstract {
   virtual std::string toString() const {
     return "input type: " + argTypeToString(type());
   };
+  // virtual flatbuffers::Offset<serde::ArgAbstract>
+  // serialize(flatbuffers::FlatBufferBuilder& builder) const = 0;
 };
 
 #define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                    \
@@ -415,6 +418,9 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   }
 
   std::string toString() const;
+
+  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
 
  private:
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;

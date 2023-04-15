@@ -23,11 +23,6 @@ enum ArgType:int {
   CpuScalarTensor
 }
 
-enum KernelIndexMode:int {
-  INT32,
-  INT64
-}
-
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
 enum DataType:int {
     Double = 0,
@@ -221,7 +216,6 @@ table KernelArgumentHolder {
   arguments : [ArgAbstract];
   device_index : byte;
   cache_id : ulong;
-  index_mode : KernelIndexMode;
 }
 
 table TensorShape {
@@ -429,6 +423,7 @@ table FusionExecutor {
   used_tvs : [ulong];
 }
 
+// implicit fields
 // unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
 table FusionKernelRuntime {
   args : KernelArgumentHolder;

@@ -297,4 +297,25 @@ PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   return PrimDataType::Int32;
 }
 
+flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
+    serialize(flatbuffers::FlatBufferBuilder& builder) const {
+  // table KernelArgumentHolder {
+  //   arguments : [ArgAbstract];
+  //   device_index : byte;
+  //   cache_id : ulong;
+  //   index_mode : KernelIndexMode;
+  // }
+
+  using fb_arg_abstract = flatbuffers::Offset<nvfuser::serde::ArgAbstract>;
+  std::vector<fb_arg_abstract> arguments_fb;
+  /*
+  for (auto& arg : executors_) {
+    arguments_fb.push_back(arg->serialize(builder));
+  }
+  */
+
+  return serde::CreateKernelArgumentHolderDirect(
+      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
+}
+
 } // namespace nvfuser
