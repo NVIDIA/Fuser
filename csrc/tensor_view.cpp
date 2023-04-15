@@ -939,8 +939,7 @@ TensorView* TensorView::swizzle(
     int in_y_size = (int)y_id->extent()->evaluateInt();
 
     // Check size constraints based on swizzle type
-    if (swizzle_type == Swizzle2DType::Transpose ||
-        swizzle_type == Swizzle2DType::XOR ||
+    if (swizzle_type == Swizzle2DType::XOR ||
         swizzle_type == Swizzle2DType::CyclicShift) {
       TORCH_INTERNAL_ASSERT(
           in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
@@ -951,15 +950,6 @@ TensorView* TensorView::swizzle(
       bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
       TORCH_INTERNAL_ASSERT(
           is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
-    }
-
-    if (swizzle_type == Swizzle2DType::Scatter) {
-      TORCH_INTERNAL_ASSERT(
-          in_y_size == 4, "Swizzle: unsupported id size must be 4 ", in_y_size);
-      TORCH_INTERNAL_ASSERT(
-          in_x_size == 8 || in_x_size == 16 || in_x_size == 32,
-          "Swizzle: unsupported id size must be 8, 16, or 32 ",
-          in_x_size);
     }
   }
 
