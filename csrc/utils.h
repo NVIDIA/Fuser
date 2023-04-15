@@ -561,10 +561,10 @@ class KernelIndexTypeCompute {
     if (size > 1) {
       // accumulate based on the sign of stride
       if (stride > 0) {
-        // Acuumulate positive stride
+        // Accumulate positive stride
         tensor_most_positive_index_ += (size - 1) * stride;
       } else {
-        // Acuumulate negative stride
+        // Accumulate negative stride
         tensor_most_negative_index_ += (size - 1) * stride;
       }
     }

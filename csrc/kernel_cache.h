@@ -76,7 +76,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
-  //! Note htat all heuristics use the same index type.
+  //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
     // No scheduler means nothing to run. It may still be unsafe to
     // save tensor sizes and strides in Int32
