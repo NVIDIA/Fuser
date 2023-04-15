@@ -13,16 +13,6 @@ file_identifier "NV00";
 // =====================================================================================
 // Enum definitions
 
-enum ArgType:int {
-  PhiloxCudaState,
-  Long,
-  Double,
-  ComplexDouble,
-  Bool,
-  Tensor,
-  CpuScalarTensor
-}
-
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
 enum DataType:int {
     Double = 0,
@@ -149,11 +139,11 @@ union ArgAbstractData {
   Double,
   Int,
   PhiloxCudaState,
+  ScalarCpu,
   TensorArg,
-  CpuScalar
 }
 
-union CpuScalarData {
+union ScalarCpuData {
   Bool,
   ComplexDouble,
   Double,
@@ -190,8 +180,8 @@ table ComplexDouble {
 //
 // =====================================================================================
 
-table CpuScalar {
-  data : CpuScalarData;
+table ScalarCpu {
+  data : ScalarCpuData;
 }
 
 table PhiloxCudaState {
@@ -200,15 +190,15 @@ table PhiloxCudaState {
 }
 
 table TensorArg {
-  alignment_size : ulong;
+  ptr : ulong;
   size : [long];
   stride : [long];
   ndims : long;
   dtype: DataType;
+  is_int_index_mode : bool;
 }
 
 table ArgAbstract {
-  type : ArgType;
   data  : ArgAbstractData;
 }
 

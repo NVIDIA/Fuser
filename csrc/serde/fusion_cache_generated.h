@@ -20,8 +20,8 @@ struct IntBuilder;
 struct ComplexDouble;
 struct ComplexDoubleBuilder;
 
-struct CpuScalar;
-struct CpuScalarBuilder;
+struct ScalarCpu;
+struct ScalarCpuBuilder;
 
 struct PhiloxCudaState;
 struct PhiloxCudaStateBuilder;
@@ -134,51 +134,6 @@ struct TrieNodeBuilder;
 
 struct FusionCache;
 struct FusionCacheBuilder;
-
-enum ArgType {
-  ArgType_PhiloxCudaState = 0,
-  ArgType_Long = 1,
-  ArgType_Double = 2,
-  ArgType_ComplexDouble = 3,
-  ArgType_Bool = 4,
-  ArgType_Tensor = 5,
-  ArgType_CpuScalarTensor = 6,
-  ArgType_MIN = ArgType_PhiloxCudaState,
-  ArgType_MAX = ArgType_CpuScalarTensor
-};
-
-inline const ArgType (&EnumValuesArgType())[7] {
-  static const ArgType values[] = {
-      ArgType_PhiloxCudaState,
-      ArgType_Long,
-      ArgType_Double,
-      ArgType_ComplexDouble,
-      ArgType_Bool,
-      ArgType_Tensor,
-      ArgType_CpuScalarTensor};
-  return values;
-}
-
-inline const char* const* EnumNamesArgType() {
-  static const char* const names[8] = {
-      "PhiloxCudaState",
-      "Long",
-      "Double",
-      "ComplexDouble",
-      "Bool",
-      "Tensor",
-      "CpuScalarTensor",
-      nullptr};
-  return names;
-}
-
-inline const char* EnumNameArgType(ArgType e) {
-  if (flatbuffers::IsOutRange(
-          e, ArgType_PhiloxCudaState, ArgType_CpuScalarTensor))
-    return "";
-  const size_t index = static_cast<size_t>(e);
-  return EnumNamesArgType()[index];
-}
 
 enum DataType {
   DataType_Double = 0,
@@ -696,10 +651,10 @@ enum ArgAbstractData {
   ArgAbstractData_Double = 3,
   ArgAbstractData_Int = 4,
   ArgAbstractData_PhiloxCudaState = 5,
-  ArgAbstractData_TensorArg = 6,
-  ArgAbstractData_CpuScalar = 7,
+  ArgAbstractData_ScalarCpu = 6,
+  ArgAbstractData_TensorArg = 7,
   ArgAbstractData_MIN = ArgAbstractData_NONE,
-  ArgAbstractData_MAX = ArgAbstractData_CpuScalar
+  ArgAbstractData_MAX = ArgAbstractData_TensorArg
 };
 
 inline const ArgAbstractData (&EnumValuesArgAbstractData())[8] {
@@ -710,8 +665,8 @@ inline const ArgAbstractData (&EnumValuesArgAbstractData())[8] {
       ArgAbstractData_Double,
       ArgAbstractData_Int,
       ArgAbstractData_PhiloxCudaState,
-      ArgAbstractData_TensorArg,
-      ArgAbstractData_CpuScalar};
+      ArgAbstractData_ScalarCpu,
+      ArgAbstractData_TensorArg};
   return values;
 }
 
@@ -723,15 +678,15 @@ inline const char* const* EnumNamesArgAbstractData() {
       "Double",
       "Int",
       "PhiloxCudaState",
+      "ScalarCpu",
       "TensorArg",
-      "CpuScalar",
       nullptr};
   return names;
 }
 
 inline const char* EnumNameArgAbstractData(ArgAbstractData e) {
   if (flatbuffers::IsOutRange(
-          e, ArgAbstractData_NONE, ArgAbstractData_CpuScalar))
+          e, ArgAbstractData_NONE, ArgAbstractData_TensorArg))
     return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesArgAbstractData()[index];
@@ -768,13 +723,13 @@ struct ArgAbstractDataTraits<nvfuser::serde::PhiloxCudaState> {
 };
 
 template <>
-struct ArgAbstractDataTraits<nvfuser::serde::TensorArg> {
-  static const ArgAbstractData enum_value = ArgAbstractData_TensorArg;
+struct ArgAbstractDataTraits<nvfuser::serde::ScalarCpu> {
+  static const ArgAbstractData enum_value = ArgAbstractData_ScalarCpu;
 };
 
 template <>
-struct ArgAbstractDataTraits<nvfuser::serde::CpuScalar> {
-  static const ArgAbstractData enum_value = ArgAbstractData_CpuScalar;
+struct ArgAbstractDataTraits<nvfuser::serde::TensorArg> {
+  static const ArgAbstractData enum_value = ArgAbstractData_TensorArg;
 };
 
 bool VerifyArgAbstractData(
@@ -786,69 +741,69 @@ bool VerifyArgAbstractDataVector(
     const flatbuffers::Vector<flatbuffers::Offset<void>>* values,
     const flatbuffers::Vector<uint8_t>* types);
 
-enum CpuScalarData {
-  CpuScalarData_NONE = 0,
-  CpuScalarData_Bool = 1,
-  CpuScalarData_ComplexDouble = 2,
-  CpuScalarData_Double = 3,
-  CpuScalarData_Int = 4,
-  CpuScalarData_MIN = CpuScalarData_NONE,
-  CpuScalarData_MAX = CpuScalarData_Int
+enum ScalarCpuData {
+  ScalarCpuData_NONE = 0,
+  ScalarCpuData_Bool = 1,
+  ScalarCpuData_ComplexDouble = 2,
+  ScalarCpuData_Double = 3,
+  ScalarCpuData_Int = 4,
+  ScalarCpuData_MIN = ScalarCpuData_NONE,
+  ScalarCpuData_MAX = ScalarCpuData_Int
 };
 
-inline const CpuScalarData (&EnumValuesCpuScalarData())[5] {
-  static const CpuScalarData values[] = {
-      CpuScalarData_NONE,
-      CpuScalarData_Bool,
-      CpuScalarData_ComplexDouble,
-      CpuScalarData_Double,
-      CpuScalarData_Int};
+inline const ScalarCpuData (&EnumValuesScalarCpuData())[5] {
+  static const ScalarCpuData values[] = {
+      ScalarCpuData_NONE,
+      ScalarCpuData_Bool,
+      ScalarCpuData_ComplexDouble,
+      ScalarCpuData_Double,
+      ScalarCpuData_Int};
   return values;
 }
 
-inline const char* const* EnumNamesCpuScalarData() {
+inline const char* const* EnumNamesScalarCpuData() {
   static const char* const names[6] = {
       "NONE", "Bool", "ComplexDouble", "Double", "Int", nullptr};
   return names;
 }
 
-inline const char* EnumNameCpuScalarData(CpuScalarData e) {
-  if (flatbuffers::IsOutRange(e, CpuScalarData_NONE, CpuScalarData_Int))
+inline const char* EnumNameScalarCpuData(ScalarCpuData e) {
+  if (flatbuffers::IsOutRange(e, ScalarCpuData_NONE, ScalarCpuData_Int))
     return "";
   const size_t index = static_cast<size_t>(e);
-  return EnumNamesCpuScalarData()[index];
+  return EnumNamesScalarCpuData()[index];
 }
 
 template <typename T>
-struct CpuScalarDataTraits {
-  static const CpuScalarData enum_value = CpuScalarData_NONE;
+struct ScalarCpuDataTraits {
+  static const ScalarCpuData enum_value = ScalarCpuData_NONE;
 };
 
 template <>
-struct CpuScalarDataTraits<nvfuser::serde::Bool> {
-  static const CpuScalarData enum_value = CpuScalarData_Bool;
+struct ScalarCpuDataTraits<nvfuser::serde::Bool> {
+  static const ScalarCpuData enum_value = ScalarCpuData_Bool;
 };
 
 template <>
-struct CpuScalarDataTraits<nvfuser::serde::ComplexDouble> {
-  static const CpuScalarData enum_value = CpuScalarData_ComplexDouble;
+struct ScalarCpuDataTraits<nvfuser::serde::ComplexDouble> {
+  static const ScalarCpuData enum_value = ScalarCpuData_ComplexDouble;
 };
 
 template <>
-struct CpuScalarDataTraits<nvfuser::serde::Double> {
-  static const CpuScalarData enum_value = CpuScalarData_Double;
+struct ScalarCpuDataTraits<nvfuser::serde::Double> {
+  static const ScalarCpuData enum_value = ScalarCpuData_Double;
 };
 
 template <>
-struct CpuScalarDataTraits<nvfuser::serde::Int> {
-  static const CpuScalarData enum_value = CpuScalarData_Int;
+struct ScalarCpuDataTraits<nvfuser::serde::Int> {
+  static const ScalarCpuData enum_value = ScalarCpuData_Int;
 };
 
-bool VerifyCpuScalarData(
+bool VerifyScalarCpuData(
     flatbuffers::Verifier& verifier,
     const void* obj,
-    CpuScalarData type);
-bool VerifyCpuScalarDataVector(
+    ScalarCpuData type);
+bool VerifyScalarCpuDataVector(
     flatbuffers::Verifier& verifier,
     const flatbuffers::Vector<flatbuffers::Offset<void>>* values,
     const flatbuffers::Vector<uint8_t>* types);
@@ -1094,14 +1049,14 @@ inline flatbuffers::Offset<ComplexDouble> CreateComplexDouble(
   return builder_.Finish();
 }
 
-struct CpuScalar FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
-  typedef CpuScalarBuilder Builder;
+struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DATA_TYPE = 4,
     VT_DATA = 6
   };
-  nvfuser::serde::CpuScalarData data_type() const {
-    return static_cast<nvfuser::serde::CpuScalarData>(
+  nvfuser::serde::ScalarCpuData data_type() const {
+    return static_cast<nvfuser::serde::ScalarCpuData>(
         GetField<uint8_t>(VT_DATA_TYPE, 0));
   }
   const void* data() const {
@@ -1110,22 +1065,22 @@ struct CpuScalar FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   template <typename T>
   const T* data_as() const;
   const nvfuser::serde::Bool* data_as_Bool() const {
-    return data_type() == nvfuser::serde::CpuScalarData_Bool
+    return data_type() == nvfuser::serde::ScalarCpuData_Bool
         ? static_cast<const nvfuser::serde::Bool*>(data())
         : nullptr;
   }
   const nvfuser::serde::ComplexDouble* data_as_ComplexDouble() const {
-    return data_type() == nvfuser::serde::CpuScalarData_ComplexDouble
+    return data_type() == nvfuser::serde::ScalarCpuData_ComplexDouble
         ? static_cast<const nvfuser::serde::ComplexDouble*>(data())
         : nullptr;
   }
   const nvfuser::serde::Double* data_as_Double() const {
-    return data_type() == nvfuser::serde::CpuScalarData_Double
+    return data_type() == nvfuser::serde::ScalarCpuData_Double
         ? static_cast<const nvfuser::serde::Double*>(data())
         : nullptr;
   }
   const nvfuser::serde::Int* data_as_Int() const {
-    return data_type() == nvfuser::serde::CpuScalarData_Int
+    return data_type() == nvfuser::serde::ScalarCpuData_Int
         ? static_cast<const nvfuser::serde::Int*>(data())
         : nullptr;
   }
@@ -1133,62 +1088,62 @@ struct CpuScalar FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return VerifyTableStart(verifier) &&
         VerifyField<uint8_t>(verifier, VT_DATA_TYPE) &&
         VerifyOffset(verifier, VT_DATA) &&
-        VerifyCpuScalarData(verifier, data(), data_type()) &&
+        VerifyScalarCpuData(verifier, data(), data_type()) &&
         verifier.EndTable();
   }
 };
 
 template <>
-inline const nvfuser::serde::Bool* CpuScalar::data_as<nvfuser::serde::Bool>()
+inline const nvfuser::serde::Bool* ScalarCpu::data_as<nvfuser::serde::Bool>()
     const {
   return data_as_Bool();
 }
 
 template <>
-inline const nvfuser::serde::ComplexDouble* CpuScalar::data_as<
+inline const nvfuser::serde::ComplexDouble* ScalarCpu::data_as<
     nvfuser::serde::ComplexDouble>() const {
   return data_as_ComplexDouble();
 }
 
 template <>
-inline const nvfuser::serde::Double* CpuScalar::data_as<
+inline const nvfuser::serde::Double* ScalarCpu::data_as<
     nvfuser::serde::Double>() const {
   return data_as_Double();
 }
 
 template <>
-inline const nvfuser::serde::Int* CpuScalar::data_as<nvfuser::serde::Int>()
+inline const nvfuser::serde::Int* ScalarCpu::data_as<nvfuser::serde::Int>()
     const {
   return data_as_Int();
 }
 
-struct CpuScalarBuilder {
-  typedef CpuScalar Table;
+struct ScalarCpuBuilder {
+  typedef ScalarCpu Table;
   flatbuffers::FlatBufferBuilder& fbb_;
   flatbuffers::uoffset_t start_;
-  void add_data_type(nvfuser::serde::CpuScalarData data_type) {
+  void add_data_type(nvfuser::serde::ScalarCpuData data_type) {
     fbb_.AddElement<uint8_t>(
-        CpuScalar::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
+        ScalarCpu::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
   }
   void add_data(flatbuffers::Offset<void> data) {
-    fbb_.AddOffset(CpuScalar::VT_DATA, data);
+    fbb_.AddOffset(ScalarCpu::VT_DATA, data);
   }
-  explicit CpuScalarBuilder(flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
+  explicit ScalarCpuBuilder(flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  flatbuffers::Offset<CpuScalar> Finish() {
+  flatbuffers::Offset<ScalarCpu> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = flatbuffers::Offset<CpuScalar>(end);
+    auto o = flatbuffers::Offset<ScalarCpu>(end);
     return o;
   }
 };
 
-inline flatbuffers::Offset<CpuScalar> CreateCpuScalar(
+inline flatbuffers::Offset<ScalarCpu> CreateScalarCpu(
     flatbuffers::FlatBufferBuilder& _fbb,
-    nvfuser::serde::CpuScalarData data_type =
-        nvfuser::serde::CpuScalarData_NONE,
+    nvfuser::serde::ScalarCpuData data_type =
+        nvfuser::serde::ScalarCpuData_NONE,
     flatbuffers::Offset<void> data = 0) {
-  CpuScalarBuilder builder_(_fbb);
+  ScalarCpuBuilder builder_(_fbb);
   builder_.add_data(data);
   builder_.add_data_type(data_type);
   return builder_.Finish();
@@ -1247,14 +1202,15 @@ inline flatbuffers::Offset<PhiloxCudaState> CreatePhiloxCudaState(
 struct TensorArg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef TensorArgBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ALIGNMENT_SIZE = 4,
+    VT_PTR = 4,
     VT_SIZE = 6,
     VT_STRIDE = 8,
     VT_NDIMS = 10,
-    VT_DTYPE = 12
+    VT_DTYPE = 12,
+    VT_IS_INT_INDEX_MODE = 14
   };
-  uint64_t alignment_size() const {
-    return GetField<uint64_t>(VT_ALIGNMENT_SIZE, 0);
+  uint64_t ptr() const {
+    return GetField<uint64_t>(VT_PTR, 0);
   }
   const flatbuffers::Vector<int64_t>* size() const {
     return GetPointer<const flatbuffers::Vector<int64_t>*>(VT_SIZE);
@@ -1269,13 +1225,18 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return static_cast<nvfuser::serde::DataType>(
         GetField<int32_t>(VT_DTYPE, 0));
   }
+  bool is_int_index_mode() const {
+    return GetField<uint8_t>(VT_IS_INT_INDEX_MODE, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint64_t>(verifier, VT_ALIGNMENT_SIZE) &&
+        VerifyField<uint64_t>(verifier, VT_PTR) &&
         VerifyOffset(verifier, VT_SIZE) && verifier.VerifyVector(size()) &&
         VerifyOffset(verifier, VT_STRIDE) && verifier.VerifyVector(stride()) &&
         VerifyField<int64_t>(verifier, VT_NDIMS) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_DTYPE) &&
+        VerifyField<uint8_t>(verifier, VT_IS_INT_INDEX_MODE) &&
+        verifier.EndTable();
   }
 };
 
@@ -1283,8 +1244,8 @@ struct TensorArgBuilder {
   typedef TensorArg Table;
   flatbuffers::FlatBufferBuilder& fbb_;
   flatbuffers::uoffset_t start_;
-  void add_alignment_size(uint64_t alignment_size) {
-    fbb_.AddElement<uint64_t>(TensorArg::VT_ALIGNMENT_SIZE, alignment_size, 0);
+  void add_ptr(uint64_t ptr) {
+    fbb_.AddElement<uint64_t>(TensorArg::VT_PTR, ptr, 0);
   }
   void add_size(flatbuffers::Offset<flatbuffers::Vector<int64_t>> size) {
     fbb_.AddOffset(TensorArg::VT_SIZE, size);
@@ -1299,6 +1260,12 @@ struct TensorArgBuilder {
     fbb_.AddElement<int32_t>(
         TensorArg::VT_DTYPE, static_cast<int32_t>(dtype), 0);
   }
+  void add_is_int_index_mode(bool is_int_index_mode) {
+    fbb_.AddElement<uint8_t>(
+        TensorArg::VT_IS_INT_INDEX_MODE,
+        static_cast<uint8_t>(is_int_index_mode),
+        0);
+  }
   explicit TensorArgBuilder(flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
@@ -1311,43 +1278,42 @@ struct TensorArgBuilder {
 
 inline flatbuffers::Offset<TensorArg> CreateTensorArg(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t alignment_size = 0,
+    uint64_t ptr = 0,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> size = 0,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> stride = 0,
     int64_t ndims = 0,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
+    bool is_int_index_mode = false) {
   TensorArgBuilder builder_(_fbb);
   builder_.add_ndims(ndims);
-  builder_.add_alignment_size(alignment_size);
+  builder_.add_ptr(ptr);
   builder_.add_dtype(dtype);
   builder_.add_stride(stride);
   builder_.add_size(size);
+  builder_.add_is_int_index_mode(is_int_index_mode);
   return builder_.Finish();
 }
 
 inline flatbuffers::Offset<TensorArg> CreateTensorArgDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t alignment_size = 0,
+    uint64_t ptr = 0,
     const std::vector<int64_t>* size = nullptr,
     const std::vector<int64_t>* stride = nullptr,
     int64_t ndims = 0,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
+    bool is_int_index_mode = false) {
   auto size__ = size ? _fbb.CreateVector<int64_t>(*size) : 0;
   auto stride__ = stride ? _fbb.CreateVector<int64_t>(*stride) : 0;
   return nvfuser::serde::CreateTensorArg(
-      _fbb, alignment_size, size__, stride__, ndims, dtype);
+      _fbb, ptr, size__, stride__, ndims, dtype, is_int_index_mode);
 }
 
 struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef ArgAbstractBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4,
-    VT_DATA_TYPE = 6,
-    VT_DATA = 8
+    VT_DATA_TYPE = 4,
+    VT_DATA = 6
   };
-  nvfuser::serde::ArgType type() const {
-    return static_cast<nvfuser::serde::ArgType>(GetField<int32_t>(VT_TYPE, 0));
-  }
   nvfuser::serde::ArgAbstractData data_type() const {
     return static_cast<nvfuser::serde::ArgAbstractData>(
         GetField<uint8_t>(VT_DATA_TYPE, 0));
@@ -1382,19 +1348,18 @@ struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         ? static_cast<const nvfuser::serde::PhiloxCudaState*>(data())
         : nullptr;
   }
+  const nvfuser::serde::ScalarCpu* data_as_ScalarCpu() const {
+    return data_type() == nvfuser::serde::ArgAbstractData_ScalarCpu
+        ? static_cast<const nvfuser::serde::ScalarCpu*>(data())
+        : nullptr;
+  }
   const nvfuser::serde::TensorArg* data_as_TensorArg() const {
     return data_type() == nvfuser::serde::ArgAbstractData_TensorArg
         ? static_cast<const nvfuser::serde::TensorArg*>(data())
         : nullptr;
   }
-  const nvfuser::serde::CpuScalar* data_as_CpuScalar() const {
-    return data_type() == nvfuser::serde::ArgAbstractData_CpuScalar
-        ? static_cast<const nvfuser::serde::CpuScalar*>(data())
-        : nullptr;
-  }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<int32_t>(verifier, VT_TYPE) &&
         VerifyField<uint8_t>(verifier, VT_DATA_TYPE) &&
         VerifyOffset(verifier, VT_DATA) &&
         VerifyArgAbstractData(verifier, data(), data_type()) &&
@@ -1433,25 +1398,21 @@ inline const nvfuser::serde::PhiloxCudaState* ArgAbstract::data_as<
 }
 
 template <>
-inline const nvfuser::serde::TensorArg* ArgAbstract::data_as<
-    nvfuser::serde::TensorArg>() const {
-  return data_as_TensorArg();
+inline const nvfuser::serde::ScalarCpu* ArgAbstract::data_as<
+    nvfuser::serde::ScalarCpu>() const {
+  return data_as_ScalarCpu();
 }
 
 template <>
-inline const nvfuser::serde::CpuScalar* ArgAbstract::data_as<
-    nvfuser::serde::CpuScalar>() const {
-  return data_as_CpuScalar();
+inline const nvfuser::serde::TensorArg* ArgAbstract::data_as<
+    nvfuser::serde::TensorArg>() const {
+  return data_as_TensorArg();
 }
 
 struct ArgAbstractBuilder {
   typedef ArgAbstract Table;
   flatbuffers::FlatBufferBuilder& fbb_;
   flatbuffers::uoffset_t start_;
-  void add_type(nvfuser::serde::ArgType type) {
-    fbb_.AddElement<int32_t>(
-        ArgAbstract::VT_TYPE, static_cast<int32_t>(type), 0);
-  }
   void add_data_type(nvfuser::serde::ArgAbstractData data_type) {
     fbb_.AddElement<uint8_t>(
         ArgAbstract::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
@@ -1472,13 +1433,11 @@ struct ArgAbstractBuilder {
 
 inline flatbuffers::Offset<ArgAbstract> CreateArgAbstract(
     flatbuffers::FlatBufferBuilder& _fbb,
-    nvfuser::serde::ArgType type = nvfuser::serde::ArgType_PhiloxCudaState,
     nvfuser::serde::ArgAbstractData data_type =
         nvfuser::serde::ArgAbstractData_NONE,
     flatbuffers::Offset<void> data = 0) {
   ArgAbstractBuilder builder_(_fbb);
   builder_.add_data(data);
-  builder_.add_type(type);
   builder_.add_data_type(data_type);
   return builder_.Finish();
 }
@@ -4744,12 +4703,12 @@ inline bool VerifyArgAbstractData(
       auto ptr = reinterpret_cast<const nvfuser::serde::PhiloxCudaState*>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case ArgAbstractData_TensorArg: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::TensorArg*>(obj);
+    case ArgAbstractData_ScalarCpu: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarCpu*>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case ArgAbstractData_CpuScalar: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::CpuScalar*>(obj);
+    case ArgAbstractData_TensorArg: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorArg*>(obj);
       return verifier.VerifyTable(ptr);
     }
     default:
@@ -4774,27 +4733,27 @@ inline bool VerifyArgAbstractDataVector(
   return true;
 }
 
-inline bool VerifyCpuScalarData(
+inline bool VerifyScalarCpuData(
     flatbuffers::Verifier& verifier,
     const void* obj,
-    CpuScalarData type) {
+    ScalarCpuData type) {
   switch (type) {
-    case CpuScalarData_NONE: {
+    case ScalarCpuData_NONE: {
       return true;
     }
-    case CpuScalarData_Bool: {
+    case ScalarCpuData_Bool: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Bool*>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case CpuScalarData_ComplexDouble: {
+    case ScalarCpuData_ComplexDouble: {
       auto ptr = reinterpret_cast<const nvfuser::serde::ComplexDouble*>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case CpuScalarData_Double: {
+    case ScalarCpuData_Double: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Double*>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case CpuScalarData_Int: {
+    case ScalarCpuData_Int: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Int*>(obj);
       return verifier.VerifyTable(ptr);
     }
@@ -4803,7 +4762,7 @@ inline bool VerifyCpuScalarData(
   }
 }
 
-inline bool VerifyCpuScalarDataVector(
+inline bool VerifyScalarCpuDataVector(
     flatbuffers::Verifier& verifier,
     const flatbuffers::Vector<flatbuffers::Offset<void>>* values,
     const flatbuffers::Vector<uint8_t>* types) {
@@ -4812,8 +4771,8 @@ inline bool VerifyCpuScalarDataVector(
   if (values->size() != types->size())
     return false;
   for (flatbuffers::uoffset_t i = 0; i < values->size(); ++i) {
-    if (!VerifyCpuScalarData(
-            verifier, values->Get(i), types->GetEnum<CpuScalarData>(i))) {
+    if (!VerifyScalarCpuData(
+            verifier, values->Get(i), types->GetEnum<ScalarCpuData>(i))) {
       return false;
     }
   }
