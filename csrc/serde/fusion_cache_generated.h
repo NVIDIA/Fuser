@@ -180,31 +180,6 @@ inline const char* EnumNameArgType(ArgType e) {
   return EnumNamesArgType()[index];
 }
 
-enum KernelIndexMode {
-  KernelIndexMode_INT32 = 0,
-  KernelIndexMode_INT64 = 1,
-  KernelIndexMode_MIN = KernelIndexMode_INT32,
-  KernelIndexMode_MAX = KernelIndexMode_INT64
-};
-
-inline const KernelIndexMode (&EnumValuesKernelIndexMode())[2] {
-  static const KernelIndexMode values[] = {
-      KernelIndexMode_INT32, KernelIndexMode_INT64};
-  return values;
-}
-
-inline const char* const* EnumNamesKernelIndexMode() {
-  static const char* const names[3] = {"INT32", "INT64", nullptr};
-  return names;
-}
-
-inline const char* EnumNameKernelIndexMode(KernelIndexMode e) {
-  if (flatbuffers::IsOutRange(e, KernelIndexMode_INT32, KernelIndexMode_INT64))
-    return "";
-  const size_t index = static_cast<size_t>(e);
-  return EnumNamesKernelIndexMode()[index];
-}
-
 enum DataType {
   DataType_Double = 0,
   DataType_Float = 1,
@@ -1515,7 +1490,7 @@ struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS
     VT_ARGUMENTS = 4,
     VT_DEVICE_INDEX = 6,
     VT_CACHE_ID = 8,
-    VT_INDEX_MODE = 10
+    VT_IS_INT_INDEX_MODE = 10
   };
   const flatbuffers::Vector<flatbuffers::Offset<nvfuser::serde::ArgAbstract>>*
   arguments() const {
@@ -1528,9 +1503,8 @@ struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS
   uint64_t cache_id() const {
     return GetField<uint64_t>(VT_CACHE_ID, 0);
   }
-  nvfuser::serde::KernelIndexMode index_mode() const {
-    return static_cast<nvfuser::serde::KernelIndexMode>(
-        GetField<int32_t>(VT_INDEX_MODE, 0));
+  bool is_int_index_mode() const {
+    return GetField<uint8_t>(VT_IS_INT_INDEX_MODE, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_ARGUMENTS) &&
@@ -1538,7 +1512,8 @@ struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS
         verifier.VerifyVectorOfTables(arguments()) &&
         VerifyField<int8_t>(verifier, VT_DEVICE_INDEX) &&
         VerifyField<uint64_t>(verifier, VT_CACHE_ID) &&
-        VerifyField<int32_t>(verifier, VT_INDEX_MODE) && verifier.EndTable();
+        VerifyField<uint8_t>(verifier, VT_IS_INT_INDEX_MODE) &&
+        verifier.EndTable();
   }
 };
 
@@ -1559,10 +1534,10 @@ struct KernelArgumentHolderBuilder {
   void add_cache_id(uint64_t cache_id) {
     fbb_.AddElement<uint64_t>(KernelArgumentHolder::VT_CACHE_ID, cache_id, 0);
   }
-  void add_index_mode(nvfuser::serde::KernelIndexMode index_mode) {
-    fbb_.AddElement<int32_t>(
-        KernelArgumentHolder::VT_INDEX_MODE,
-        static_cast<int32_t>(index_mode),
+  void add_is_int_index_mode(bool is_int_index_mode) {
+    fbb_.AddElement<uint8_t>(
+        KernelArgumentHolder::VT_IS_INT_INDEX_MODE,
+        static_cast<uint8_t>(is_int_index_mode),
         0);
   }
   explicit KernelArgumentHolderBuilder(flatbuffers::FlatBufferBuilder& _fbb)
@@ -1582,12 +1557,11 @@ inline flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolder(
         flatbuffers::Offset<nvfuser::serde::ArgAbstract>>> arguments = 0,
     int8_t device_index = 0,
     uint64_t cache_id = 0,
-    nvfuser::serde::KernelIndexMode index_mode =
-        nvfuser::serde::KernelIndexMode_INT32) {
+    bool is_int_index_mode = false) {
   KernelArgumentHolderBuilder builder_(_fbb);
   builder_.add_cache_id(cache_id);
-  builder_.add_index_mode(index_mode);
   builder_.add_arguments(arguments);
+  builder_.add_is_int_index_mode(is_int_index_mode);
   builder_.add_device_index(device_index);
   return builder_.Finish();
 }
@@ -1599,14 +1573,13 @@ CreateKernelArgumentHolderDirect(
         arguments = nullptr,
     int8_t device_index = 0,
     uint64_t cache_id = 0,
-    nvfuser::serde::KernelIndexMode index_mode =
-        nvfuser::serde::KernelIndexMode_INT32) {
+    bool is_int_index_mode = false) {
   auto arguments__ = arguments
       ? _fbb.CreateVector<flatbuffers::Offset<nvfuser::serde::ArgAbstract>>(
             *arguments)
       : 0;
   return nvfuser::serde::CreateKernelArgumentHolder(
-      _fbb, arguments__, device_index, cache_id, index_mode);
+      _fbb, arguments__, device_index, cache_id, is_int_index_mode);
 }
 
 struct TensorShape FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {

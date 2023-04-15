@@ -141,6 +141,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     return executors_;
   }
 
+  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      size_t device_id) const;
+
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
@@ -220,6 +224,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  // KernelArgumentHolder containing the metadata associated with arguments used
+  // to construct this FusionKernelRuntime
+  KernelArgumentHolder args_metadata_;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
