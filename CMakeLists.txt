@@ -24,11 +24,19 @@ if (PROJECT_IS_TOP_LEVEL)
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
   # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
   string(APPEND CMAKE_CXX_FLAGS ${TORCH_CXX_FLAGS})
+  include(cmake/FlatBuffers.cmake)
   if(BUILD_NVFUSER_BENCHMARK)
-    include(Dependencies.cmake)
+    include(cmake/Dependencies.cmake)
   endif()
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
   file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})
+
+  # set CUDA_ARCH for cu tests.
+  if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+    set(ARCH_FLAGS)
+    cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
+    list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
+  endif()
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
@@ -146,8 +154,8 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/partition.cpp
     ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/register_interface.cpp
     ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -162,6 +170,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+    ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
     ${NVFUSER_SRCS_DIR}/swizzle.cpp
     ${NVFUSER_SRCS_DIR}/sys_utils.cpp
     ${NVFUSER_SRCS_DIR}/type_inference.cpp
@@ -189,6 +198,8 @@ endif()
 # as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
+# Link flatbuffers for serialization support
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
@@ -328,7 +339,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
     ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_swizzle.cpp
+    ${NVFUSER_ROOT}/test/test_swizzle.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
     ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
     ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
@@ -355,7 +366,7 @@ if(BUILD_TEST)
              ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if (PROJECT_IS_TOP_LEVEL)
@@ -390,6 +401,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
     ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
     ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm.cpp

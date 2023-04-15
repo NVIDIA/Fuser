@@ -14,7 +14,7 @@ bool append_to_text_file(const std::string& file_path, const std::string& src) {
   bool status = false;
   std::ofstream file(file_path, std::ios::app | std::ios::binary);
   if (file) {
-    file.write(src.data(), src.size());
+    file.write(src.data(), (std::streamsize)src.size());
     file.close();
     status = true;
   }
@@ -30,7 +30,7 @@ bool copy_from_binary_file(
     file.seekg(0, std::ios::end);
     dst.resize(file.tellg());
     file.seekg(0, std::ios::beg);
-    file.read(dst.data(), dst.size());
+    file.read(dst.data(), (std::streamsize)dst.size());
     file.close();
     status = true;
   }
@@ -45,7 +45,7 @@ bool copy_from_text_file(const std::string& file_path, std::string& dst) {
     dst.resize(file.tellg());
     file.seekg(0, std::ios::beg);
     // Can't use non-const data() for strings without C++17
-    file.read(&dst[0], dst.size());
+    file.read(&dst[0], (std::streamsize)dst.size());
     file.close();
     status = true;
   }
@@ -58,7 +58,7 @@ bool copy_to_binary_file(
   bool status = false;
   std::ofstream file(file_path, std::ios::out | std::ios::binary);
   if (file) {
-    file.write(src.data(), src.size());
+    file.write(src.data(), (std::streamsize)src.size());
     file.close();
     status = true;
   }
@@ -69,7 +69,7 @@ bool copy_to_text_file(const std::string& file_path, const std::string& src) {
   bool status = false;
   std::ofstream file(file_path, std::ios::out | std::ios::binary);
   if (file) {
-    file.write(src.data(), src.size());
+    file.write(src.data(), (std::streamsize)src.size());
     file.close();
     status = true;
   }

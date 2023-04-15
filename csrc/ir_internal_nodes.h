@@ -1044,6 +1044,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
     }
   };
 
+  using AxesData = std::vector<int>;
+  using MmaInputLayoutOpt = c10::optional<MmaOptions::MmaInputLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1082,7 +1084,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   const auto& options() const {
-    return attribute(1)->as<Attribute<OptionsInMma>>()->value;
+    return attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
   }
 
   auto accStride() const {
@@ -1090,40 +1092,40 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   void configureOptions(MmaOptions options);
-};
 
-class TORCH_CUDA_CU_API TransposeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  TransposeOp(
-      IrBuilderPasskey,
-      TensorView* out,
-      TensorView* in,
-      std::vector<int64_t> new2old);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "TransposeOp";
+  auto inputLayout() const {
+    return attribute(ATTR_POS_INPUT_LAYOUT)
+        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->value;
   }
 
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
+  const auto& mAxes() const {
+    return attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
+  const auto& nAxes() const {
+    return attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  const std::vector<int64_t>& new2old() const {
-    return attribute(0)->as<Attribute<std::vector<int64_t>>>()->value;
+  const auto& kAxes() const {
+    return attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  std::vector<int64_t> old2new() const;
+  const auto& batchAxes() const {
+    return attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+ private:
+  // Predefined idexes of attributes stored for this IR node, to avoid
+  //  magic numbers, based on order in which attributes are initialized
+  //  in constructor
+  static constexpr size_t ATTR_POS_INIT = 0;
+  static constexpr size_t ATTR_POS_OPTS = 1;
+  static constexpr size_t ATTR_POS_M_AXES = 2;
+  static constexpr size_t ATTR_POS_N_AXES = 3;
+  static constexpr size_t ATTR_POS_K_AXES = 4;
+  static constexpr size_t ATTR_POS_BATCH_AXES = 5;
+  static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
@@ -1338,6 +1340,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   virtual const char* getOpString() const override {
     return "LoadStoreOp";
   }
+
+  virtual std::vector<EvaluatorValue> evaluate(
+      const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -2195,6 +2200,38 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Check if this is something like T0.stride[1]
   bool isTensorStride() const;
+
+  //! Check if this is threadIdx.{x,y,z}
+  bool isThreadIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is blockIdx.{x,y,z}
+  bool isBlockIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
+
+  //! Check if this is blockDim.{x,y,z}
+  bool isBlockDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is gridDim.{x,y,z}
+  bool isGridDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
 
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   //! WARNING: Only works with Fusion container at the moment

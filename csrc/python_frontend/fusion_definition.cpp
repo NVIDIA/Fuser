@@ -54,11 +54,11 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == StateType::Scalar) {
+  if (state.stype == serde::StateType_Scalar) {
     os << "S";
-  } else if (state.stype == StateType::Tensor) {
+  } else if (state.stype == serde::StateType_Tensor) {
     os << "T";
-  } else if (state.stype == StateType::None) {
+  } else if (state.stype == serde::StateType_None) {
     os << "None";
   } else {
     TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
@@ -127,8 +127,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto device = getCommonDeviceCUDA(inputs);
   TORCH_CHECK(
-      inputs.size() == 0 || device > -1,
-      "Inputs are not all on the same device!");
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
   TORCH_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
@@ -180,17 +179,120 @@ std::vector<at::Tensor> FusionDefinition::execute(
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
     TORCH_CHECK(
-        inputs.size() == 0 || device > -1,
+        inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
+      scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
+      scheds->last_user_def_executor = user_sched.executor.get();
       return user_sched.executor->runFusion(inputs);
     }
   }
 
   return scheds->auto_gen_schedules->runFusionWithInputs(inputs);
+}
+
+std::string FusionDefinition::fusionIr() {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  std::stringstream ss;
+  preschedFusion()->print(ss, false);
+  return ss.str();
+}
+
+std::string FusionDefinition::lastCudaCode(
+    bool intrinsic_code,
+    bool override_user_schedule) const {
+  std::string result;
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_exec = scheds->last_user_def_executor;
+
+  if (!override_user_schedule && (user_exec != nullptr)) {
+    if (intrinsic_code) {
+      result = user_exec->getStructuredCode(
+          user_exec->kernelString(), user_exec->kernel()->indexType());
+    } else {
+      result = user_exec->kernelString();
+    }
+  } else {
+    result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
+  }
+  return result;
+}
+
+std::string FusionDefinition::cudaCodeFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool intrinsic_code,
+    bool override_user_schedule) const {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (!override_user_schedule) {
+    auto device = getCommonDeviceCUDA(inputs);
+    TORCH_CHECK(
+        inputs.empty() || device > -1,
+        "Inputs are not all on the same device!");
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    if (user_sched_id.has_value()) {
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      auto user_exec = user_sched.executor.get();
+      if (intrinsic_code) {
+        return user_exec->getStructuredCode(
+            user_exec->kernelString(), user_exec->kernel()->indexType());
+      } else {
+        return user_exec->kernelString();
+      }
+    }
+  }
+  return scheds->auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
+}
+
+std::string FusionDefinition::lastScheduledFusionIr(
+    bool tensor_transforms,
+    bool override_user_schedule) const {
+  std::string result;
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+  auto user_sched_ir = scheds->last_user_def_scheduled_ir;
+
+  if (!override_user_schedule && (user_sched_ir != nullptr)) {
+    std::stringstream ss;
+    user_sched_ir->print(ss, tensor_transforms);
+    result = ss.str();
+  } else {
+    result =
+        scheds->auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
+  }
+  return result;
+}
+
+std::string FusionDefinition::scheduledFusionIrFor(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool tensor_transforms,
+    bool override_user_schedule) const {
+  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (!override_user_schedule) {
+    auto device = getCommonDeviceCUDA(inputs);
+    TORCH_CHECK(
+        inputs.empty() || device > -1,
+        "Inputs are not all on the same device!");
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    if (user_sched_id.has_value()) {
+      auto& user_sched = fusionCache()->queryUserSchedule(
+          scheds, user_sched_id.value(), device);
+      auto user_sched_ir = user_sched.schedule.get();
+      std::stringstream ss;
+      user_sched_ir->print(ss, tensor_transforms);
+      return ss.str();
+    }
+  }
+  return scheds->auto_gen_schedules->getScheduledIrFor(
+      inputs, tensor_transforms);
 }
 
 c10::optional<size_t> FusionDefinition::id() const {
@@ -200,14 +302,14 @@ c10::optional<size_t> FusionDefinition::id() const {
 Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   Scalar out(recording_state_.size(), this);
-  recording_state_.emplace_back(out(), StateType::Scalar);
+  recording_state_.emplace_back(out(), serde::StateType_Scalar);
   return out;
 }
 
 Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
-  recording_state_.emplace_back(out(), StateType::Tensor);
+  recording_state_.emplace_back(out(), serde::StateType_Tensor);
   return out;
 }
 
