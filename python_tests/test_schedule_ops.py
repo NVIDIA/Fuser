@@ -55,7 +55,9 @@ class TestScheduleOps(TestCase):
             fd = DefError()
             _ = fd.execute(inputs)
 
-    def check_input_error(self, sched_fn: Callable, error_msg: str, error_type=RuntimeError):
+    def check_input_error(
+        self, sched_fn: Callable, error_msg: str, error_type=RuntimeError
+    ):
         """
         Common function to test for an input error to a schedule op
         """
@@ -114,7 +116,7 @@ class TestScheduleOps(TestCase):
         # the relative dimension indicated
         self.check_input_error(
             lambda fd: fd.sched.merge(fd.t1, 1),
-            "Merging IterDomains requires that their iteration types match."
+            "Merging IterDomains requires that their iteration types match.",
         )
         self.check_input_error(
             lambda fd: fd.sched.merge(fd.t1, 2),
@@ -144,28 +146,31 @@ class TestScheduleOps(TestCase):
         def error1_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [1])
+
         self.check_input_error(
-            error1_fn,
-            "Cannot rfactor axes that are not reduction axes."
+            error1_fn, "Cannot rfactor axes that are not reduction axes."
         )
+
         def error2_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [-3])
+
         self.check_input_error(
-            error2_fn,
-            "Cannot rfactor axes that are not reduction axes."
+            error2_fn, "Cannot rfactor axes that are not reduction axes."
         )
+
         def error3_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [2, 3])
+
         self.check_input_error(
-            error3_fn,
-            "Must have at least one reduction axis not marked as rfactor."
+            error3_fn, "Must have at least one reduction axis not marked as rfactor."
         )
 
         def sched_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [2])
+
         self.valid_use(sched_fn)
 
         # Donut whole factoring of reduction dims
@@ -173,25 +178,29 @@ class TestScheduleOps(TestCase):
             fd.sched.split(fd.t1, 2, 4)
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [2, 4])
+
         self.valid_use(sched1_fn)
+
         def sched2_fn(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 4)
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.reduction_factor(fd.t1, [3])
+
         self.valid_use(sched2_fn)
-       
+
         # NOTE: The binding function for the "rfactor" alias is identical so
         # only proof of existence is needed
         def sched_fn_alias(fd: FusionDefinition):
             fd.sched.split(fd.t1, 2, 2)
             fd.sched.rfactor(fd.t1, [2])
+
         self.valid_use(sched_fn_alias)
 
     def test_reorder_op(self):
         self.sched_op_in_definition_error(
             lambda fd: fd.sched.reorder(fd.t1, {0: 1, 1: 0})
         )
-        
+
         # Error checks of reorder dict
         self.check_input_error(
             lambda fd: fd.sched.reorder(fd.t1, {0: 3}),
