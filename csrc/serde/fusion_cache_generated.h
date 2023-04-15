@@ -17,6 +17,9 @@ struct DoubleBuilder;
 struct Int;
 struct IntBuilder;
 
+struct Half;
+struct HalfBuilder;
+
 struct ComplexDouble;
 struct ComplexDoubleBuilder;
 
@@ -746,24 +749,26 @@ enum ScalarCpuData {
   ScalarCpuData_Bool = 1,
   ScalarCpuData_ComplexDouble = 2,
   ScalarCpuData_Double = 3,
-  ScalarCpuData_Int = 4,
+  ScalarCpuData_Half = 4,
+  ScalarCpuData_Int = 5,
   ScalarCpuData_MIN = ScalarCpuData_NONE,
   ScalarCpuData_MAX = ScalarCpuData_Int
 };
 
-inline const ScalarCpuData (&EnumValuesScalarCpuData())[5] {
+inline const ScalarCpuData (&EnumValuesScalarCpuData())[6] {
   static const ScalarCpuData values[] = {
       ScalarCpuData_NONE,
       ScalarCpuData_Bool,
       ScalarCpuData_ComplexDouble,
       ScalarCpuData_Double,
+      ScalarCpuData_Half,
       ScalarCpuData_Int};
   return values;
 }
 
 inline const char* const* EnumNamesScalarCpuData() {
-  static const char* const names[6] = {
-      "NONE", "Bool", "ComplexDouble", "Double", "Int", nullptr};
+  static const char* const names[7] = {
+      "NONE", "Bool", "ComplexDouble", "Double", "Half", "Int", nullptr};
   return names;
 }
 
@@ -792,6 +797,11 @@ struct ScalarCpuDataTraits<nvfuser::serde::ComplexDouble> {
 template <>
 struct ScalarCpuDataTraits<nvfuser::serde::Double> {
   static const ScalarCpuData enum_value = ScalarCpuData_Double;
+};
+
+template <>
+struct ScalarCpuDataTraits<nvfuser::serde::Half> {
+  static const ScalarCpuData enum_value = ScalarCpuData_Half;
 };
 
 template <>
@@ -987,6 +997,56 @@ inline flatbuffers::Offset<Int> CreateInt(
   return builder_.Finish();
 }
 
+struct Half FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef HalfBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_HALF_VAL = 4,
+    VT_DTYPE = 6
+  };
+  uint16_t half_val() const {
+    return GetField<uint16_t>(VT_HALF_VAL, 0);
+  }
+  nvfuser::serde::DataType dtype() const {
+    return static_cast<nvfuser::serde::DataType>(
+        GetField<int32_t>(VT_DTYPE, 0));
+  }
+  bool Verify(flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) &&
+        VerifyField<uint16_t>(verifier, VT_HALF_VAL) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+  }
+};
+
+struct HalfBuilder {
+  typedef Half Table;
+  flatbuffers::FlatBufferBuilder& fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_half_val(uint16_t half_val) {
+    fbb_.AddElement<uint16_t>(Half::VT_HALF_VAL, half_val, 0);
+  }
+  void add_dtype(nvfuser::serde::DataType dtype) {
+    fbb_.AddElement<int32_t>(Half::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+  }
+  explicit HalfBuilder(flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<Half> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<Half>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<Half> CreateHalf(
+    flatbuffers::FlatBufferBuilder& _fbb,
+    uint16_t half_val = 0,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
+  HalfBuilder builder_(_fbb);
+  builder_.add_dtype(dtype);
+  builder_.add_half_val(half_val);
+  return builder_.Finish();
+}
+
 struct ComplexDouble FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef ComplexDoubleBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -1079,6 +1139,11 @@ struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         ? static_cast<const nvfuser::serde::Double*>(data())
         : nullptr;
   }
+  const nvfuser::serde::Half* data_as_Half() const {
+    return data_type() == nvfuser::serde::ScalarCpuData_Half
+        ? static_cast<const nvfuser::serde::Half*>(data())
+        : nullptr;
+  }
   const nvfuser::serde::Int* data_as_Int() const {
     return data_type() == nvfuser::serde::ScalarCpuData_Int
         ? static_cast<const nvfuser::serde::Int*>(data())
@@ -1109,6 +1174,12 @@ template <>
 inline const nvfuser::serde::Double* ScalarCpu::data_as<
     nvfuser::serde::Double>() const {
   return data_as_Double();
+}
+
+template <>
+inline const nvfuser::serde::Half* ScalarCpu::data_as<nvfuser::serde::Half>()
+    const {
+  return data_as_Half();
 }
 
 template <>
@@ -4751,6 +4822,10 @@ inline bool VerifyScalarCpuData(
     }
     case ScalarCpuData_Double: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Double*>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ScalarCpuData_Half: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Half*>(obj);
       return verifier.VerifyTable(ptr);
     }
     case ScalarCpuData_Int: {

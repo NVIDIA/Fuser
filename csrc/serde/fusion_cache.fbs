@@ -147,6 +147,7 @@ union ScalarCpuData {
   Bool,
   ComplexDouble,
   Double,
+  Half,
   Int,
 }
 
@@ -167,6 +168,12 @@ table Double {
 // Data for Constant Int or Long
 table Int {
   int_val: long;
+  dtype: DataType;
+}
+
+// Data for Constant Int or Long
+table Half {
+  half_val: ushort;
   dtype: DataType;
 }
 
