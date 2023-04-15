@@ -634,6 +634,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
 
+#define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
+  tensor_class.def(                                                            \
+      "__" op_str "__",                                                        \
+      [](Tensor input) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = input.fusion_definition;                        \
+        TORCH_CHECK(                                                           \
+            !fd->completed(), "Attempting to add to a completed definition!"); \
+        Tensor output = fd->defineTensor(input.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
+            {fd->recordingState(input())},                                     \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Unary_TV,                                        \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  scalar_class.def(                                                            \
+      "__" op_str "__",                                                        \
+      [](Scalar input) -> Scalar {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        FusionDefinition* fd = input.fusion_definition;                        \
+        TORCH_CHECK(                                                           \
+            !fd->completed(), "Attempting to add to a completed definition!"); \
+        Scalar output = fd->defineScalar();                                    \
+        fd->defineRecord(new OpRecord<Val*, Val*>(                             \
+            {fd->recordingState(input())},                                     \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Unary_VAL,                                       \
+            static_cast<Val* (*)(Val*)>(op_name)));                            \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
+  NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
+#undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
+
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
