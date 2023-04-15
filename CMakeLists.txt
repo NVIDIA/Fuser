@@ -30,6 +30,13 @@ if (PROJECT_IS_TOP_LEVEL)
   endif()
   set(NVFUSER_LIB_DIR "${NVFUSER_ROOT}/nvfuser/lib")
   file(MAKE_DIRECTORY ${NVFUSER_LIB_DIR})
+
+  # set CUDA_ARCH for cu tests.
+  if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+    set(ARCH_FLAGS)
+    cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
+    list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
+  endif()
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
