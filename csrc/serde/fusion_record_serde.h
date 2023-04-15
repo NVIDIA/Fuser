@@ -14,12 +14,6 @@ namespace nvfuser::serde {
 // Forward definition for RecordFunctor
 struct RecordFunctor;
 
-//! A function to map the nvfuser dtype to the corresponding serde dtype
-serde::DataType mapToSerdeDtype(PrimDataType t);
-
-//! A function to map the serde dtype to its corresponding nvfuser dtype
-PrimDataType mapToNvfuserDtype(serde::DataType t);
-
 // OpRecord Function Signatures
 // ========================================================================
 // Unary Functions

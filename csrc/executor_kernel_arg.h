@@ -11,6 +11,7 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
 #include <serde/fusion_cache_generated.h>
+#include <serde/utils.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
@@ -138,8 +139,8 @@ struct ArgAbstract {
   virtual std::string toString() const {
     return "input type: " + argTypeToString(type());
   };
-  // virtual flatbuffers::Offset<serde::ArgAbstract>
-  // serialize(flatbuffers::FlatBufferBuilder& builder) const = 0;
+  virtual flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const = 0;
 };
 
 #define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                    \
@@ -170,6 +171,14 @@ struct PhiloxCudaStateArg : public ArgAbstract {
   at::PhiloxCudaState val_;
   PhiloxCudaStateArg(at::PhiloxCudaState _val) : val_(_val){};
   DEF_HELPEE_FUNC(PhiloxCudaState, val_)
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    auto data =
+        serde::CreatePhiloxCudaState(builder, val_.seed_.val, val_.offset_.val);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_PhiloxCudaState, data.Union());
+  }
 };
 
 struct LongArg : public ArgAbstract {
@@ -177,6 +186,13 @@ struct LongArg : public ArgAbstract {
   explicit LongArg(int64_t _val) : val_(_val) {}
   DEF_HELPEE_FUNC(Long, val_)
   DEF_TOSTRING_FUNC
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    auto data = serde::CreateInt(builder, val_, serde::DataType_Int);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_Int, data.Union());
+  }
 };
 
 struct DoubleArg : public ArgAbstract {
@@ -184,6 +200,13 @@ struct DoubleArg : public ArgAbstract {
   explicit DoubleArg(double _val) : val_(_val) {}
   DEF_HELPEE_FUNC(Double, val_)
   DEF_TOSTRING_FUNC
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    auto data = serde::CreateDouble(builder, val_, serde::DataType_Double);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_Double, data.Union());
+  }
 };
 
 struct ComplexDoubleArg : public ArgAbstract {
@@ -191,6 +214,14 @@ struct ComplexDoubleArg : public ArgAbstract {
   explicit ComplexDoubleArg(c10::complex<double> _val) : val_(_val) {}
   DEF_HELPEE_FUNC(ComplexDouble, val_)
   DEF_TOSTRING_FUNC
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    auto data = serde::CreateComplexDouble(
+        builder, val_.real(), val_.imag(), serde::DataType_Double);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_ComplexDouble, data.Union());
+  }
 };
 
 struct BoolArg : public ArgAbstract {
@@ -198,6 +229,13 @@ struct BoolArg : public ArgAbstract {
   explicit BoolArg(bool _val) : val_(_val) {}
   DEF_HELPEE_FUNC(Bool, val_)
   DEF_TOSTRING_FUNC
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    auto data = serde::CreateBool(builder, val_);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_Bool, data.Union());
+  }
 };
 
 struct TensorArgAbstract : ArgAbstract {
@@ -305,6 +343,30 @@ struct TensorArg : public TensorArgAbstract {
   std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
     return std::make_unique<TensorArg>(*this);
   }
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    std::vector<int64_t> sizes_fb;
+    std::vector<int64_t> strides_fb;
+    sizes_fb.reserve(getRank());
+    strides_fb.reserve(getRank());
+    for (auto dim : c10::irange(instance_.nDims())) {
+      sizes_fb.push_back(getSize(dim));
+      strides_fb.push_back(getStride(dim));
+    }
+
+    auto data = serde::CreateTensorArg(
+        builder,
+        (size_t)getPointer(),
+        builder.CreateVector(sizes_fb),
+        builder.CreateVector(strides_fb),
+        instance_.nDims(),
+        serde::mapToSerdeDtype(std::get<PrimDataType>(getDataType().type)),
+        std::is_same_v<typename TENSOR_TYPE::index_type, int>);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_TensorArg, data.Union());
+  }
 };
 
 template <typename CPU_TENSOR_TYPE>
@@ -318,6 +380,12 @@ struct CpuScalarTensorArg : public ArgAbstract {
   }
 
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    // TODO create factor to create data
+    return serde::CreateArgAbstract(builder, serde::ArgAbstractData_ScalarCpu);
+  }
 };
 
 // TODO: This class needs some further clean up and refactor
