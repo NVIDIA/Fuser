@@ -749,6 +749,11 @@ bool reductionInterferingView(
 }
 
 PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
+  TORCH_INTERNAL_ASSERT(
+      !tv->isFusionInput(),
+      "This function is not supposed to be used for fusion inputs: ",
+      tv->toString());
+
   auto non_contig = std::any_of(
       tv->domain()->contiguity().begin(),
       tv->domain()->contiguity().end(),
@@ -761,8 +766,10 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
     return PrimDataType::Int;
   }
 
-  // Intermediate tensors should be contiguous. There must be
-  // something wrong if not.
+  // This function should not be used for fusion inputs, so any
+  // non-contig tensor means a fusion intermediate tensor. However,
+  // since we don't support non-contiguous intermediates, there must be
+  // something wrong.
   TORCH_INTERNAL_ASSERT(
       !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
@@ -801,7 +808,10 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
         extent_int >= 0, "Unexpected size of axis: ", extent_int);
 
     if (extent_int > 0) {
-      index_type_helper.addDim(extent->as<int64_t>(), stride);
+      if (index_type_helper.addDim(extent->as<int64_t>(), stride) ==
+          PrimDataType::Int) {
+        return PrimDataType::Int;
+      }
       stride *= extent->as<int64_t>();
     }
   }
