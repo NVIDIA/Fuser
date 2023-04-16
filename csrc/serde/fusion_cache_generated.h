@@ -3475,11 +3475,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_KERNEL_CODE = 16,
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
-    VT_COMPILE_PARAMS = 22,
-    VT_COMPILED_KERNEL = 24,
-    VT_LAUNCH_PARAMS = 26,
-    VT_KERNEL_SUMMARY = 28,
-    VT_USED_TVS = 30
+    VT_LAUNCH_PARAMS = 22,
+    VT_KERNEL_SUMMARY = 24,
+    VT_USED_TVS = 26
   };
   uint64_t configured_device_smem() const {
     return GetField<uint64_t>(VT_CONFIGURED_DEVICE_SMEM, 0);
@@ -3512,12 +3510,6 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>*>(
         VT_EXECUTOR_ENTRY_LOOKUP_VALUES);
   }
-  const nvfuser::serde::CompileParams* compile_params() const {
-    return GetPointer<const nvfuser::serde::CompileParams*>(VT_COMPILE_PARAMS);
-  }
-  const nvfuser::serde::NvrtcFunction* compiled_kernel() const {
-    return GetPointer<const nvfuser::serde::NvrtcFunction*>(VT_COMPILED_KERNEL);
-  }
   const nvfuser::serde::LaunchParams* launch_params() const {
     return GetPointer<const nvfuser::serde::LaunchParams*>(VT_LAUNCH_PARAMS);
   }
@@ -3542,10 +3534,6 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         VerifyOffset(verifier, VT_EXECUTOR_ENTRY_LOOKUP_VALUES) &&
         verifier.VerifyVector(executor_entry_lookup_values()) &&
         verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
-        VerifyOffset(verifier, VT_COMPILE_PARAMS) &&
-        verifier.VerifyTable(compile_params()) &&
-        VerifyOffset(verifier, VT_COMPILED_KERNEL) &&
-        verifier.VerifyTable(compiled_kernel()) &&
         VerifyOffset(verifier, VT_LAUNCH_PARAMS) &&
         verifier.VerifyTable(launch_params()) &&
         VerifyOffset(verifier, VT_KERNEL_SUMMARY) &&
@@ -3599,14 +3587,6 @@ struct FusionExecutorBuilder {
         FusionExecutor::VT_EXECUTOR_ENTRY_LOOKUP_VALUES,
         executor_entry_lookup_values);
   }
-  void add_compile_params(
-      flatbuffers::Offset<nvfuser::serde::CompileParams> compile_params) {
-    fbb_.AddOffset(FusionExecutor::VT_COMPILE_PARAMS, compile_params);
-  }
-  void add_compiled_kernel(
-      flatbuffers::Offset<nvfuser::serde::NvrtcFunction> compiled_kernel) {
-    fbb_.AddOffset(FusionExecutor::VT_COMPILED_KERNEL, compiled_kernel);
-  }
   void add_launch_params(
       flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params) {
     fbb_.AddOffset(FusionExecutor::VT_LAUNCH_PARAMS, launch_params);
@@ -3644,8 +3624,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::Offset<
         flatbuffers::Vector<flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>>
         executor_entry_lookup_values = 0,
-    flatbuffers::Offset<nvfuser::serde::CompileParams> compile_params = 0,
-    flatbuffers::Offset<nvfuser::serde::NvrtcFunction> compiled_kernel = 0,
     flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params = 0,
     flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> used_tvs = 0) {
@@ -3656,8 +3634,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_used_tvs(used_tvs);
   builder_.add_kernel_summary(kernel_summary);
   builder_.add_launch_params(launch_params);
-  builder_.add_compiled_kernel(compiled_kernel);
-  builder_.add_compile_params(compile_params);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
   builder_.add_kernel_code(kernel_code);
@@ -3679,8 +3655,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t>* executor_entry_lookup_keys = nullptr,
     const std::vector<flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>*
         executor_entry_lookup_values = nullptr,
-    flatbuffers::Offset<nvfuser::serde::CompileParams> compile_params = 0,
-    flatbuffers::Offset<nvfuser::serde::NvrtcFunction> compiled_kernel = 0,
     flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params = 0,
     flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
     const std::vector<uint64_t>* used_tvs = nullptr) {
@@ -3704,8 +3678,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       kernel_code__,
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
-      compile_params,
-      compiled_kernel,
       launch_params,
       kernel_summary,
       used_tvs__);

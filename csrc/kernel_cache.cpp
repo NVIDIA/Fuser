@@ -527,11 +527,10 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   using fb_fusion_executor =
       flatbuffers::Offset<nvfuser::serde::FusionExecutor>;
   std::vector<fb_fusion_executor> executors_fb;
-  /*
+  executors_fb.reserve(executors_.size());
   for (auto& executor : executors_) {
-    executors_fb.push_back(executor->serialize(builder));
+    executors_fb.push_back(executor.serialize(builder));
   }
-  */
 
   return serde::CreateFusionKernelRuntimeDirect(
       builder, args_metadata_.serialize(builder), &executors_fb, device_id);

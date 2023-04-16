@@ -48,6 +48,9 @@ struct TensorArgCodegen {
   nvfuser_index_t getStride(int64_t i) const {
     return stride[i];
   }
+  constexpr bool isInt32IndexMode() const {
+    return std::is_same_v<nvfuser_index_t, int>;
+  }
 };
 
 // 0-Dim GPU based tensor
@@ -76,6 +79,9 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   }
   nvfuser_index_t getStride(int64_t i) const {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
+  }
+  constexpr bool isInt32IndexMode() const {
+    return std::is_same_v<nvfuser_index_t, int>;
   }
 };
 
@@ -321,8 +327,8 @@ struct TensorArg : public TensorArgAbstract {
         builder.CreateVector(sizes_fb),
         builder.CreateVector(strides_fb),
         instance_.nDims(),
-        serde::mapToSerdeDtype(std::get<PrimDataType>(data_type_.type)),
-        std::is_same_v<nvfuser_index_t, int>);
+        serde::mapToSerdeDtype(getDataType()),
+        instance_.isInt32IndexMode());
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_TensorArg, data.Union());
   }
