@@ -116,6 +116,9 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   nvfuser_index_t getStride(int64_t i) const {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
   }
+  constexpr bool isInt32IndexMode() const {
+    return std::is_same_v<nvfuser_index_t, int>;
+  }
 };
 
 // Specialization for 0-dim case that's easy to pass in a CPU based tensor
@@ -362,7 +365,7 @@ struct TensorArg : public TensorArgAbstract {
         builder.CreateVector(sizes_fb),
         builder.CreateVector(strides_fb),
         instance_.nDims(),
-        serde::mapToSerdeDtype(std::get<PrimDataType>(getDataType().type)),
+        serde::mapToSerdeDtype(getDataType()),
         std::is_same_v<typename TENSOR_TYPE::index_type, int>);
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_TensorArg, data.Union());

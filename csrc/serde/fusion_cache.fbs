@@ -413,8 +413,6 @@ table FusionExecutor {
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
-  compile_params : CompileParams;
-  compiled_kernel : NvrtcFunction;
   launch_params : LaunchParams;
   kernel_summary : KernelSummary;
   used_tvs : [ulong];

@@ -1636,4 +1636,111 @@ float FusionExecutor::runRtc(
   return kernel_time_ms;
 }
 
+flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // table FusionExecutor {
+  //  configured_device_smem : ulong;
+  //  maybe_available_smem : ulong;
+  //  device_smem_limit: ulong;
+  //  warp_size: int;
+  //  fusion_id: int;
+  //  fusion_id_counter : int;
+  //  kernel_code : string;
+  //  executor_entry_lookup_keys : [ulong];
+  //  executor_entry_lookup_values : [ExecutorEntry];
+  //  compile_params : CompileParams;
+  //  compiled_kernel : NvrtcFunction;
+  //  launch_params : LaunchParams;
+  //  kernel_summary : KernelSummary;
+  //  used_tvs : [ulong];
+  // }
+  using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
+  std::vector<size_t> executor_entry_lookup_keys_fb;
+  std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
+  for (const auto& [key, value] : executor_entry_lookup_) {
+    executor_entry_lookup_keys_fb.push_back(key);
+    executor_entry_lookup_values_fb.push_back(serialize(builder, value));
+  }
+
+  return serde::CreateFusionExecutorDirect(
+      builder,
+      configured_device_smem_,
+      maybe_available_dynamic_smem_.value_or(0),
+      device_smem_limit_,
+      warp_size_,
+      fusion_id_,
+      fusion_id_counter_,
+      kernel_code_.c_str(),
+      &executor_entry_lookup_keys_fb,
+      &executor_entry_lookup_values_fb,
+      launch_params_.serialize(builder),
+      0 /* kernel_summary */,
+      nullptr /* used_tvs */);
+}
+
+flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const ExecutorEntry& data) const {
+  // table ExecutorEntry {
+  //   init : bool;
+  //   launch_params : LaunchParams;
+  //   output_aliases : [int];
+  //   input_aliases : [int];
+  //   outputs : [GlobalBufferInfo];
+  //   intermediates : [GlobalBufferInfo];
+  //   rand_offset : ulong;
+  // }
+  std::vector<int> output_aliases_fb;
+  std::vector<int> input_aliases_fb;
+  output_aliases_fb.reserve(data.output_to_input_aliases.size());
+  input_aliases_fb.reserve(data.output_to_input_aliases.size());
+  for (auto [out, in] : data.output_to_input_aliases) {
+    output_aliases_fb.push_back(out);
+    input_aliases_fb.push_back(in);
+  }
+
+  using fb_global_buffer_info =
+      flatbuffers::Offset<nvfuser::serde::GlobalBufferInfo>;
+  std::vector<fb_global_buffer_info> outputs_fb;
+  outputs_fb.reserve(data.outputs.size());
+  for (const auto& buffer : data.outputs) {
+    outputs_fb.push_back(serialize(builder, buffer));
+  }
+
+  std::vector<fb_global_buffer_info> intermediates_fb;
+  intermediates_fb.reserve(data.intermediates.size());
+  for (const auto& buffer : data.intermediates) {
+    intermediates_fb.push_back(serialize(builder, buffer));
+  }
+
+  return CreateExecutorEntryDirect(
+      builder,
+      data.init,
+      data.launch_params.serialize(builder),
+      &output_aliases_fb,
+      &input_aliases_fb,
+      &outputs_fb,
+      &intermediates_fb,
+      data.rand_offset);
+}
+
+flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const GlobalBufferInfo& data) const {
+  // table GlobalBufferInfo {
+  //  sizes : [long];
+  //  strides : [long];
+  //  type : DataType;
+  //  zero_init : bool;
+  //  is_profile_buffer : bool;
+  // }
+  return serde::CreateGlobalBufferInfoDirect(
+      builder,
+      &data.sizes,
+      &data.strides,
+      serde::mapToSerdeDtype(data.type),
+      data.zero_init,
+      data.is_profile_buffer);
+}
+
 } // namespace nvfuser

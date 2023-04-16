@@ -14,6 +14,7 @@
 #include <ir_cloner.h>
 #include <ir_printer.h>
 #include <lower2device.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -267,6 +268,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs);
 
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -331,6 +335,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data) const;
 
  private:
   CompileOptions options_;
