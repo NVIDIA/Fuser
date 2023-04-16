@@ -347,6 +347,16 @@ void initNvFuserPythonBindings(PyObject* module) {
           },
           py::arg("output"),
           py::arg("stride_order"))
+      // This version of define_tensor is the canonical version
+      // that displays the values as they are passed to the IR's
+      // TensorViewBuilder.
+      // Each dimension can be of value:
+      // -1 : Symbolic for Dynamic usage
+      //  0 : Zero-element
+      //  1 : Broadcast
+      // >1 : Static size
+      // NOTE: A Tensor defined for dynamic shape usage should only
+      // contain either symbolic(-1) or broadcast(1) defined dimensions.
       .def(
           "define_tensor",
           [](FusionDefinition& self,
@@ -361,12 +371,12 @@ void initNvFuserPythonBindings(PyObject* module) {
 
             for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
               TORCH_CHECK(
-                  symbolic_sizes[i] == -1 || symbolic_sizes[i] == 1,
+                  symbolic_sizes[i] >= -1,
                   "The value ",
                   symbolic_sizes[i],
                   " at index ",
                   i,
-                  " was neither broadcast(1) or symbolic(-1).");
+                  " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
             Tensor out = self.defineTensor(symbolic_sizes.size());
@@ -390,6 +400,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<int64_t>& sizes,
              std::vector<int64_t>& strides,
              PrimDataType dtype = DataType::Float,
+             bool static_sizes = false,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
             TORCH_CHECK(
@@ -406,25 +417,29 @@ void initNvFuserPythonBindings(PyObject* module) {
             // identified by -1, and size == 0 is not supported.
 
             // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> maybe_symbolic_sizes;
-            maybe_symbolic_sizes.reserve(sizes.size());
+            std::vector<int64_t> dim_sizes;
+            dim_sizes.reserve(sizes.size());
             for (const auto i : c10::irange(sizes.size())) {
               TORCH_INTERNAL_ASSERT(
                   sizes[i] >= 0,
                   "Size of ",
                   sizes[i],
                   " is not supported in nvFuser. Expected size >= 0.");
-              if (sizes[i] == 1) {
-                maybe_symbolic_sizes.push_back(1);
-              } else {
-                maybe_symbolic_sizes.push_back(-1);
+              if (static_sizes) {
+                dim_sizes.push_back(sizes[i]);
+              } else { // Symbolic defined tensor for dynamic shape usage
+                if (sizes[i] == 1) {
+                  dim_sizes.push_back(1);
+                } else {
+                  dim_sizes.push_back(-1);
+                }
               }
             }
 
             Tensor out = self.defineTensor(sizes.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
-                std::move(maybe_symbolic_sizes),
+                std::move(dim_sizes),
                 computeContiguity(sizes, strides),
                 dtype,
                 is_cpu));
@@ -434,6 +449,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("sizes"),
           py::arg("strides"),
           py::arg("dtype") = DataType::Float,
+          py::arg("static_sizes") = false,
           py::arg("is_cpu") = false,
           py::return_value_policy::reference)
       .def(
@@ -2172,6 +2188,46 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("dim"));
+  auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
+                                  Tensor arg,
+                                  const std::vector<int>& dims) -> Tensor {
+    FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
+    TORCH_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
+    auto output_tv = input_tv->rFactor(dims);
+    Tensor output = fd->defineTensor(arg.dims);
+    TORCH_CHECK(
+        output.index == fd->numFusionStates(),
+        "Fusion State index does not match the size!");
+    fd->addFusionState(output_tv);
+    return output;
+  };
+  nvf_sched.def(
+      "reduction_factor",
+      reduction_factor_func,
+      py::arg("arg"),
+      py::arg("dims"));
+  nvf_sched.def(
+      "rfactor", reduction_factor_func, py::arg("arg"), py::arg("dims"));
+  nvf_sched.def(
+      "reorder",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         const std::unordered_map<int, int>& old2new) {
+        FUSER_PERF_SCOPE("SchedOperators.reorder");
+        TORCH_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->reorder(old2new);
+      },
+      py::arg("arg"),
+      py::arg("old2new"));
   nvf_sched.def(
       "split",
       [](FusionDefinition::SchedOperators& self,
