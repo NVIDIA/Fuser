@@ -132,4 +132,34 @@ std::string LaunchParams::toString() const {
   return ss.str();
 }
 
+flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // table LaunchParams {
+  //  gdimx : long;
+  //  gdimy : long;
+  //  gdimz : long;
+  //  bdimx : long;
+  //  bdimy : long;
+  //  bdimz : long;
+  //  smem : long;
+  //  output_sizes : [TensorShape];
+  // }
+  using fb_tensor_shape = flatbuffers::Offset<nvfuser::serde::TensorShape>;
+  std::vector<fb_tensor_shape> shapes_fb;
+  shapes_fb.reserve(output_sizes.size());
+  for (const auto& shape : output_sizes) {
+    shapes_fb.push_back(serde::CreateTensorShapeDirect(builder, &shape));
+  }
+  return serde::CreateLaunchParamsDirect(
+      builder,
+      gdimx_,
+      gdimy_,
+      gdimz_,
+      bdimx_,
+      bdimy_,
+      bdimz_,
+      smem_,
+      &shapes_fb);
+}
+
 } // namespace nvfuser

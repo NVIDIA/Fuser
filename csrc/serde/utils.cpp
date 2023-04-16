@@ -2,6 +2,60 @@
 
 namespace nvfuser::serde {
 
+serde::DataType mapToSerdeDtype(at::ScalarType t) {
+  switch (t) {
+    case at::ScalarType::Bool:
+      return serde::DataType_Bool;
+    case at::ScalarType::Double:
+      return serde::DataType_Double;
+    case at::ScalarType::Float:
+      return serde::DataType_Float;
+    case at::ScalarType::Half:
+      return serde::DataType_Half;
+    case at::ScalarType::BFloat16:
+      return serde::DataType_BFloat16;
+    case at::ScalarType::Long:
+      return serde::DataType_Int;
+    case at::ScalarType::Int:
+      return serde::DataType_Int32;
+    case at::ScalarType::ComplexFloat:
+      return serde::DataType_ComplexFloat;
+    case at::ScalarType::ComplexDouble:
+      return serde::DataType_ComplexDouble;
+    default:
+      return serde::DataType_None;
+  }
+}
+
+at::ScalarType mapToAtenDtype(serde::DataType t) {
+  switch (t) {
+    case serde::DataType_Bool:
+      return at::ScalarType::Bool;
+    case serde::DataType_Double:
+      return at::ScalarType::Double;
+    case serde::DataType_Float:
+      return at::ScalarType::Float;
+    case serde::DataType_Half:
+      return at::ScalarType::Half;
+    case serde::DataType_BFloat16:
+      return at::ScalarType::BFloat16;
+    case serde::DataType_Int:
+      return at::ScalarType::Long;
+    case serde::DataType_Int32:
+      return at::ScalarType::Int;
+    case serde::DataType_ComplexFloat:
+      return at::ScalarType::ComplexFloat;
+    case serde::DataType_ComplexDouble:
+      return at::ScalarType::ComplexDouble;
+    case serde::DataType_None:
+      return at::ScalarType::Undefined;
+    default:
+      break;
+  }
+  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
+  return at::ScalarType::Undefined;
+}
+
 serde::DataType mapToSerdeDtype(nvfuser::DataType t) {
   return mapToSerdeDtype(std::get<PrimDataType>(t.type));
 }
