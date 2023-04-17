@@ -150,7 +150,6 @@ const auto& getDebugDumpOptions() {
 
 auto parseDisableOptions() {
   const std::unordered_map<std::string, DisableOption> available_options = {
-      {"arch_check", DisableOption::ArchCheck},
       {"compile_to_sass", DisableOption::CompileToSass},
       {"fallback", DisableOption::Fallback},
       {"fma", DisableOption::Fma},
