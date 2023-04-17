@@ -9,7 +9,7 @@ import torch
 
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
 pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
-if pytorch_lib_dir no in sys.path:
+if pytorch_lib_dir not in sys.path:
     sys.path.append(pytorch_lib_dir)
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
