@@ -1376,18 +1376,17 @@ struct TensorViewDetails {
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const TensorView* tv) {
   TensorViewDetails details;
-  using DimIdx = int;
-  for (DimIdx pos = 0; pos < static_cast<DimIdx>(tv->nDims()); ++pos) {
-    const auto axis = tv->axis(pos);
-    if (axis->isReduction()) {
-      details.rdomains.push_back(pos);
+  int pos = 0;
+  for (auto id : tv->getRootDomain()) {
+    if (id->isReduction()) {
+      details.rdomains.push_back(pos++);
       continue;
     }
-    if (axis->isBroadcast()) {
-      details.bcasts.push_back(pos);
+    if (id->isBroadcast()) {
+      details.bcasts.push_back(pos++);
       continue;
     }
-    details.cdomains.push_back(pos);
+    details.cdomains.push_back(pos++);
   }
   return details;
 }
@@ -1408,6 +1407,7 @@ MmaOptions::MmaLayout getInputLayout(
       (in_b.bcasts.front() < n_axes.front())) {
     return MmaOptions::MmaLayout::TT;
   }
+
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
   // B = [b, N, K]

@@ -3415,6 +3415,68 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
+  // MatmulLayout::TT, k = 1, 2, 4
+  // kernel1 run in 0.101376 ms, achieved: 141.576 GB/s
+  // kernel2 run in 0.084992 ms, achieved: 168.867 GB/s
+  // kernel3 run in 0.059392 ms, achieved: 241.655 GB/s
+
+  // MatmulLayout::NT, k = 1, 2, 4
+  // kernel4 run in 0.088064 ms, achieved: 162.977 GB/s
+  // kernel5 run in 0.077824 ms, achieved: 184.421 GB/s
+  // kernel6 run in 0.057344 ms, achieved: 250.286 GB/s
+
+  // MatmulLayout::TN, k = 1, 2, 4
+  // kernel7 run in 0.095232 ms, achieved: 150.71 GB/s
+  // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
+  // kernel9 run in 0.076800 ms, achieved: 186.88 GB/s
+  int M = 128 * 3, N = 128 * 9, K = 4096;
+  for (auto layout : kAllSupportedMatmulLayout) {
+    for (int k_factor : {1, 2, 4}) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
+      auto tv2 = matmul(tv0, tv1, layout, true);
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
+      fusion.addOutput(tv2);
+
+      MatMulTileOptions gemm_tile;
+      MatmulParams params;
+      params.split_k_factor = k_factor;
+
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+      params.async_gmem_load_operands = true;
+      params.double_buffer_options.double_buffer_smem_write = true;
+      params.double_buffer_options.smem_double_buffer_stage = 4;
+      params.tile_sizes = gemm_tile;
+      scheduleMatmul(&fusion, params);
+
+      at::manual_seed(0);
+      auto inputs = matmulAtInput(M, N, K, layout);
+
+      FusionExecutor fe;
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          8,
+          0,
+          fe.compileFusion(
+              &fusion,
+              {inputs.first, inputs.second},
+              LaunchParams(),
+              matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+      auto tref = atMatmul(
+          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+    }
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

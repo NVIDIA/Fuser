@@ -390,6 +390,11 @@ TORCH_CUDA_CU_API void transformPropagateToAllFrom(
     TensorView* from_tv,
     int pos);
 
+//! Propagate current transformations on from_tv to selected_tvs
+TORCH_CUDA_CU_API void transformPropagateToSelectedFrom(
+    TensorView* from_tv,
+    const std::unordered_set<TensorView*>& selected_tvs);
+
 //! A type of custom transform propagator that propagates iterdomain
 //!  transforms from a source tv to all tvs that are selected
 //!  using a "direction" and a "boundary".

@@ -1569,6 +1569,16 @@ void transformPropagateToAllFrom(TensorView* from_tv, int pos) {
   MaxRootDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
 }
 
+//! Propagate current transformations on from_tv to selected_tvs
+void transformPropagateToSelectedFrom(
+    TensorView* from_tv,
+    const std::unordered_set<TensorView*>& selected_tvs) {
+  SetSelector selected_tv_set(selected_tvs);
+  TransformPropagator propagator(from_tv);
+  MaxRootDomainInfoSpanningTree(from_tv, &selected_tv_set)
+      .traverse(&propagator);
+}
+
 namespace {
 
 //! Utility enum to signify which direction

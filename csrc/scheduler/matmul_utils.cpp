@@ -499,6 +499,22 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   return "";
 }
 
+int setSplitKFactor(
+    const ProblemShape& MNK,
+    const cudaDeviceProp* device_prop,
+    const std::shared_ptr<MatmulParams> params) {
+  int split_k_factor = 1;
+  const int sm_count = device_prop->multiProcessorCount;
+  const auto& cta_tile = params->tile_sizes.cta_tile;
+  const int num_blocks =
+      ceilDiv(MNK[0], cta_tile.m) * ceilDiv(MNK[1], cta_tile.n);
+  const int iter_k = ceilDiv(MNK[2], cta_tile.k);
+  if (num_blocks < sm_count && iter_k > 32) {
+    split_k_factor = std::min(iter_k, sm_count / num_blocks);
+  }
+  return split_k_factor;
+}
+
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -540,7 +556,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Set kernel index mode
   params->cparams.index_type = getIndexType(problem_shape.value());
 
-  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+  // Set split k factor
+  params->split_k_factor =
+      setSplitKFactor(problem_shape.value(), device_prop, params);
+
+  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks) ||
+      isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     printMsg(params->toString());
   }
 

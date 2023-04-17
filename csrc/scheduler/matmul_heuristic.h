@@ -90,6 +90,9 @@ class MatmulParams : public HeuristicParams {
   //!    C3 C4 D3 D4
   int grid_swizzle_factor = 1;
 
+  //! use multiple thread blocks to calculate one tile
+  int split_k_factor = 1;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
