@@ -56,9 +56,51 @@ TensorView* reshape(
   return reshape(x, view_analysis);
 }
 
+namespace {
+
+// Check if a dynamic reshape is actually static. Returns a reshaped
+// tensor if static. Nullptr if not.
+TensorView* tryStaticReshape(TensorView* inp_tv, const std::vector<IterDomain*>& inp_dom, const std::vector<Val*>& new_sizes) {
+
+  std::vector<int64_t> inp_sizes(inp_dom.size());
+  for (const auto i: c10::irange(inp_dom.size())) {
+    auto id = inp_dom.at(i);
+    auto id_size = id->extent()->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    inp_sizes.at(i) = id_size.value();
+  }
+
+  std::vector<int64_t> out_sizes(new_sizes.size());
+  for (const auto i: c10::irange(new_sizes.size())) {
+    auto id_size = new_sizes.at(i)->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    out_sizes.at(i) = id_size.value();
+  }
+
+  // Both inputs are outputs are static. Just use the static version
+  // of reshape
+  return reshape(inp_tv, inp_sizes, out_sizes);
+}
+
+} // namespace
+
 TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
-  // TODO: Special case if inp_tv has a static shape and new_sizes
-  // is also static
+  auto inp_dom = TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+
+  TORCH_CHECK(std::none_of(inp_dom.begin(), inp_dom.end(),
+                           [](auto inp_id) {
+                             return !inp_id->maybePartial();
+                           }),
+              "Unsupported input tensor to reshape as its axes may be partial: ", inp_tv->toString());
+
+  auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
+  if (static_reshape_output) {
+    return static_reshape_output;
+  }
 
   auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
 
@@ -74,7 +116,6 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     rfactor_domain.at(i) = rf_id;
   }
 
-#if 1
   auto out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_domain,
@@ -82,16 +123,8 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           rfactor_domain,
           TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
       inp_tv->dtype());
-#else
-  auto out_tv = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          rfactor_domain,
-          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
-      inp_tv->dtype());
-#endif
 
-  auto expr = IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
-  std::cerr << "View: " << expr->toString();
+  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
