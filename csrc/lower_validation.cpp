@@ -69,7 +69,7 @@ class ValidateSiblings : public IterVisitor {
           sibling->toString());
 
       for (const auto i : c10::irange(ref_ndims)) {
-        validateParallelTypes(ref_output->axis(i), sibling->axis(i));
+        validateParallelTypes(ref_output->axis((int)i), sibling->axis((int)i));
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
@@ -322,7 +322,7 @@ class VectorizeValidator : public OptInDispatch {
     for (auto consumer_root_id : consumer_tv->getRootDomain()) {
       auto producer_root_id = c2p.at(consumer_root_id);
       if (producer_root_id->isBroadcast()) {
-        producer_contiguity.push_back(c10::nullopt);
+        producer_contiguity.emplace_back(c10::nullopt);
         continue;
       }
       auto producer_root_it = std::find(
@@ -414,10 +414,7 @@ class VectorizeValidator : public OptInDispatch {
     if (misaligned_vectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
         checkContiguity(validator.domains_, tv);
-      } else if (
-          tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set) {
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
@@ -429,7 +426,7 @@ class VectorizeValidator : public OptInDispatch {
 
     // Contiguity is based on rfactor domain.
     IterDomain* last_root_dim = nullptr;
-    size_t last_root_dim_pos;
+    size_t last_root_dim_pos = 0;
     for (size_t i = tv->getMaybeRFactorDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeRFactorDomain()[i - 1];
       if (r_id->isReduction() || r_id->isBroadcast()) {
@@ -519,7 +516,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     bool has_misaligned_vectorize_dim = false;
 
     for (const auto i : c10::irange(tv->nDims())) {
-      IterDomain* id = tv->axis(i);
+      IterDomain* id = tv->axis((int)i);
       IterDomain* concrete_id =
           GpuLower::current()->caMap()->getConcreteMappedID(
               id, IdMappingMode::LOOP);
@@ -555,11 +552,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr ||
-              (tv->definition()->isA<UnaryOp>() &&
-               tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                   UnaryOpType::Set) ||
-              tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
@@ -857,21 +850,6 @@ void validatePartialSplit(Fusion* fusion) {
 
 namespace {
 
-//! Utility to make sure targeted gpu capability is
-//!  higher than provided major.minor.
-void validateMinimumArch(int major, int minor) {
-  // Skip checking arch if disabled.
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    return;
-  }
-
-  auto prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_INTERNAL_ASSERT(prop->major >= major);
-  if (prop->major == major) {
-    TORCH_INTERNAL_ASSERT(prop->minor >= minor);
-  }
-}
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -1013,11 +991,11 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->domain()->domain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      byte_size = id->extent()->evaluateInt();
+      byte_size = (int)id->extent()->evaluateInt();
       break;
     }
   }
-  byte_size *= dataTypeSize(*output->getDataType());
+  byte_size *= (int)dataTypeSize(*output->getDataType());
   switch (ldst->opType()) {
     case LoadStoreOpType::CpAsyncCg:
       TORCH_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");
@@ -1037,12 +1015,10 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
   switch (ldst->opType()) {
     case LoadStoreOpType::LdMatrix:
     case LoadStoreOpType::LdMatrixTranspose:
-      validateMinimumArch(7, 5);
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      validateMinimumArch(8, 0);
       return;
     default:
       return;
@@ -1062,12 +1038,9 @@ void validateMma(Fusion* fusion) {
 
       switch (mma->options().macro) {
         case MmaOptions::MacroType::Volta_16_16_4:
-          validateMinimumArch(7, 0);
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          validateMinimumArch(7, 5);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1075,8 +1048,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
-          validateMinimumArch(8, 0);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1172,7 +1143,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
-      const auto id = tv->axis(id_idx);
+      const auto id = tv->axis((int)id_idx);
       auto ptype = GpuLower::current()
                        ->caMap()
                        ->getConcreteMappedID(id, IdMappingMode::LOOP)
@@ -1318,7 +1289,7 @@ void validateGroupedReductions(Fusion* fusion) {
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
       for (auto axis : out_tv->domain()->domain()) {
         if (axis->getParallelType() == ParallelType::Group) {
-          num_grouped_iterations *= axis->extent()->getInt().value();
+          num_grouped_iterations *= (int)axis->extent()->getInt().value();
         }
       }
       TORCH_CHECK(

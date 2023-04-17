@@ -253,7 +253,7 @@ class ReplayRFactor : public ReplayTransformations {
       std::unordered_set<IterDomain*> static_rfactor_ids)
       : ReplayTransformations(original_domain->domain(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
-        static_rfactor_ids_(static_rfactor_ids),
+        static_rfactor_ids_(std::move(static_rfactor_ids)),
         rfactor_domain_(original_domain->getMaybeRFactorDomain()) {
     setErrorOnFailure(false);
   }
@@ -299,7 +299,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // Make a set of final axes that are marked to be rfactored
   std::unordered_set<IterDomain*> rfactor_axes(axes_set.size());
   {
-    size_t i = 0;
+    int i = 0;
     for (auto id : original_td->domain()) {
       if (axes_set.find(i++) != axes_set.end()) {
         rfactor_axes.emplace(id);
@@ -387,7 +387,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
+      auto orig_id = original_td->axis((int)i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       TORCH_INTERNAL_ASSERT(
           replayed_id_it != original_to_producer_id_map.end(),
@@ -464,7 +464,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   {
     // Construct the new consumer domain
     for (auto i : c10::irange(original_td->nDims())) {
-      auto orig_id = original_td->axis(i);
+      auto orig_id = original_td->axis((int)i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {
         auto replayed_id = replayed_id_it->second;

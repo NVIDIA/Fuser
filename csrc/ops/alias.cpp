@@ -15,6 +15,16 @@
 
 namespace nvfuser {
 
+Val* set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
+  return out;
+}
+
+TensorView* set(TensorView* tv) {
+  return set(tv->as<Val>())->as<TensorView>();
+}
+
 TensorView* view(TensorView* x, DataType dtype) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   if (x->getDataType() == dtype) {
@@ -90,17 +100,17 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
-      start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
+      start_dim >= 0 && start_dim < (int64_t)inp_domain.size(),
       "Invalid start_dim ",
       start_dim);
   TORCH_CHECK(
-      end_dim >= 0 && end_dim < int64_t(inp_domain.size()),
+      end_dim >= 0 && end_dim < (int64_t)inp_domain.size(),
       "Invalid end_dim ",
       end_dim);
   TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
@@ -268,11 +278,10 @@ TensorView* unsqueeze(TensorView* x, int dim) {
 
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  if (new2old.size() == 0) {
+  if (new2old.empty()) {
     return set(x);
   }
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
-  std::vector<IterDomain*> out_domain(inp_domain.size());
 
   TORCH_CHECK(
       inp_domain.size() == new2old.size(),
@@ -283,23 +292,33 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       new2old.size());
 
   // Return scalar tensors immediately
-  if (inp_domain.size() == 0) {
+  if (inp_domain.empty()) {
     return set(x);
   }
 
   auto normalized_new2old =
       ir_utils::normalizeNew2Old(new2old, inp_domain.size());
 
-  for (const auto i : c10::irange(out_domain.size())) {
-    auto in_id = inp_domain[normalized_new2old[i]];
-    out_domain[i] = in_id->cloneWithoutRFactor();
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(inp_domain.size());
+  for (const auto id : inp_domain) {
+    out_root.emplace_back(id->cloneWithoutRFactor());
+  }
+
+  std::vector<IterDomain*> out_rfactor;
+  out_rfactor.reserve(inp_domain.size());
+  for (const auto i : normalized_new2old) {
+    out_rfactor.emplace_back(out_root.at(i));
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_root,
+          out_rfactor,
+          out_rfactor,
+          TensorDomain::getContiguityFilledWith(out_rfactor, true)),
       x->getDataType().value());
-  IrBuilder::create<TransposeOp>(out_tensor, x, normalized_new2old);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
 }
 
@@ -456,13 +475,13 @@ TensorView* pad(
 // account for the size difference between each of the inputs and the
 // output. All of the inputs to CatOp have the same shape as the
 // output shape.
-TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
+TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
   TORCH_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
   std::vector<std::vector<IterDomain*>> inp_doms;
-  int ndims = -1;
+  int64_t ndims = -1;
 
   for (auto inp : inputs) {
     TORCH_CHECK(
@@ -473,7 +492,7 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
         inp->getDataType().value());
     inp_doms.emplace_back(
         TensorDomain::noReductions(inp->getMaybeRFactorDomain()));
-    auto i_ndims = static_cast<int>(inp_doms.back().size());
+    auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
       ndims = i_ndims;
     } else {

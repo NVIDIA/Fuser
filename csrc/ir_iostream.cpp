@@ -14,6 +14,7 @@
 #include <ir_utils.h>
 #include <kernel.h>
 #include <lower_utils.h>
+#include <utils.h>
 
 #include <c10/util/irange.h>
 
@@ -89,14 +90,7 @@ void IrTransformPrinter::handle(Fusion* f) {
 
 void IrTransformPrinter::printTransforms(TensorView* tv) {
   auto root_domain = tv->domain()->getRootDomain();
-  os() << " root domain : (";
-  for (const auto root_idx : c10::irange(root_domain.size())) {
-    os() << root_domain[root_idx]->toString();
-    if (root_idx + 1 < root_domain.size()) {
-      os() << ",";
-    }
-  }
-  os() << ")\n";
+  os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
   if (tv->hasRFactor()) {
     auto rfactor_domain = tv->domain()->getRFactorDomain();
@@ -109,26 +103,20 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
       os() << "  " << exp->toString();
     }
 
-    os() << " rfactor domain : (";
-    for (const auto root_idx : c10::irange(rfactor_domain.size())) {
-      os() << rfactor_domain[root_idx]->toString();
-      if (root_idx + 1 < rfactor_domain.size()) {
-        os() << ",";
-      }
-    }
-    os() << ")\n";
+    os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
   }
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  auto from = tv->getMaybeRFactorDomain();
+  const auto& from = tv->getMaybeRFactorDomain();
+  const auto& leaf = tv->domain()->domain();
   auto all_exp = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()},
-      {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+      {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 
   for (auto exp : all_exp) {
     os() << "  " << exp->toString();
   }
+  os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {

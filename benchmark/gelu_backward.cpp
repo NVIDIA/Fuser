@@ -146,11 +146,11 @@ static void GeluBackward_Compile(benchmark::State& benchmark_state) {
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     FusionExecutor executor;
-    executor.compileFusion(&fusion, inputs);
+    executor.compileFusion(&fusion, inputs, lparams);
   }
 }
 
@@ -173,7 +173,7 @@ static void GeluBackward_RunFusion(benchmark::State& benchmark_state) {
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs);
+  executor.compileFusion(&fusion, inputs, lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -204,7 +204,7 @@ static void GeluBackward_RunFusion_GpuOnly(benchmark::State& benchmark_state) {
 
   FusionExecutor executor;
   executor.setMeasureKernelTimeFlag(true);
-  executor.compileFusion(&fusion, inputs);
+  executor.compileFusion(&fusion, inputs, lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -237,7 +237,7 @@ static void GeluBackward_RunFusion_CpuOnly(benchmark::State& benchmark_state) {
 
   FusionExecutor executor;
   executor.setExecuteKernelFlag(false);
-  executor.compileFusion(&fusion, inputs);
+  executor.compileFusion(&fusion, inputs, lparams);
 
   for (auto _ : benchmark_state) {
     outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);

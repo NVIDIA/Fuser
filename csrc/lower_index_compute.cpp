@@ -22,10 +22,10 @@ IndexFromIdGraph::IndexFromIdGraph(
     IndexCompute concrete_index_,
     std::unordered_map<IterDomain*, Val*> initial_concrete_index_map_,
     std::vector<IterDomain*> loop_domains_)
-    : index(index_),
-      concrete_index(concrete_index_),
-      initial_concrete_index_map(initial_concrete_index_map_),
-      resolved_loop_domains(loop_domains_) {}
+    : index(std::move(index_)),
+      concrete_index(std::move(concrete_index_)),
+      initial_concrete_index_map(std::move(initial_concrete_index_map_)),
+      resolved_loop_domains(std::move(loop_domains_)) {}
 
 namespace {
 
@@ -459,7 +459,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (int loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : c10::irange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(
@@ -589,9 +589,9 @@ void LoopIndexingAnalysis::validateLoopStructure(
   // becomes a real concern in practice.
   // Map concrete id to the original loop iter domain.
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_loop;
-  for (auto it_i = loops.begin(); it_i != loops.end(); ++it_i) {
+  for (auto for_loop : loops) {
     // Largely duplicating original logic
-    auto loop_id = (*it_i)->iter_domain();
+    auto loop_id = for_loop->iter_domain();
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
 
@@ -907,8 +907,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       if (index_update_map_it == index_update_map.end()) {
         index_update_map_it =
             index_update_map
-                .emplace(std::make_pair(
-                    ref_exact_id, VectorOfUniqueEntries<IterDomain*>()))
+                .emplace(ref_exact_id, VectorOfUniqueEntries<IterDomain*>())
                 .first;
       }
       auto& mapped_dims = index_update_map_it->second;
@@ -1002,9 +1001,9 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
     if (almost_exact_2_consumer_ids_it == almost_exact_2_consumer_ids.end()) {
       almost_exact_2_consumer_ids_it =
           almost_exact_2_consumer_ids
-              .emplace(std::make_pair(
+              .emplace(
                   almost_exact_concrete_id,
-                  VectorOfUniqueEntries<IterDomain*>()))
+                  VectorOfUniqueEntries<IterDomain*>())
               .first;
     }
     auto& mapped_dims = almost_exact_2_consumer_ids_it->second;
@@ -1032,8 +1031,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       if (index_update_map_it == index_update_map.end()) {
         index_update_map_it =
             index_update_map
-                .emplace(std::make_pair(
-                    ref_exact_id, VectorOfUniqueEntries<IterDomain*>()))
+                .emplace(ref_exact_id, VectorOfUniqueEntries<IterDomain*>())
                 .first;
       }
       auto& mapped_dims = index_update_map_it->second;

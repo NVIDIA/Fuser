@@ -23,15 +23,15 @@ FusionState::FusionState()
       num_recording_states_(0) {}
 
 std::unique_ptr<FusionState> FusionState::clone() {
-  auto fc = std::make_unique<FusionState>();
+  auto state = std::make_unique<FusionState>();
   for (auto&& rf : recording_) {
-    fc->recording_.emplace_back(rf->clone());
+    state->recording_.emplace_back(rf->clone());
   }
-  fc->fusion_ = fusion_;
-  fc->fusion_state_.insert(
-      fc->fusion_state_.end(), fusion_state_.begin(), fusion_state_.end());
-  fc->num_recording_states_ = num_recording_states_;
-  return fc;
+  state->fusion_ = fusion_;
+  state->fusion_state_.insert(
+      state->fusion_state_.end(), fusion_state_.begin(), fusion_state_.end());
+  state->num_recording_states_ = num_recording_states_;
+  return state;
 }
 
 void FusionState::buildFusionIr(Fusion* fusion) {
@@ -68,8 +68,16 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
   fusion_state_.resize(size, nullptr);
 }
 
+void FusionState::addFusionState(Val* val) {
+  fusion_state_.push_back(val);
+}
+
 Val* FusionState::getFusionState(size_t index) const {
   return fusion_state_.at(index);
+}
+
+size_t FusionState::numFusionStates() const {
+  return fusion_state_.size();
 }
 
 void FusionState::setFusionState(size_t index, Val* val) {
@@ -91,7 +99,8 @@ void FusionState::addOutput(
     const std::vector<int64_t>& permutation) {
   TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
-  fusion_->setPermutationOnOutput(fusion_->outputs().size() - 1, permutation);
+  fusion_->setPermutationOnOutput(
+      (int)fusion_->outputs().size() - 1, permutation);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {

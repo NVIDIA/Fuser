@@ -7,6 +7,20 @@
 // clang-format on
 namespace warp {
 
+template <typename T>
+__device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
+  return __shfl_xor_sync(0xffffffff, var, laneMask, width);
+}
+template <typename T>
+__device__ __forceinline__ std::complex<T> shfl_xor(
+    std::complex<T> var,
+    int laneMask,
+    int width = 32) {
+  T real = __shfl_xor_sync(0xffffffff, var.real(), laneMask, width);
+  T imag = __shfl_xor_sync(0xffffffff, var.imag(), laneMask, width);
+  return std::complex<T>(real, imag);
+}
+
 template <
     bool SINGLE_WARP,
     typename T,
@@ -34,8 +48,7 @@ __device__ void warpReduceTIDX(
 
   // Reduce within each warp
   for (int i = 16; i >= 1; i /= 2) {
-    reduction_op(
-        reduce_val, __shfl_xor_sync(0xffffffff, reduce_val, i, WARP_SIZE));
+    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
   }
 
   // Reduce across warp if needed
@@ -67,8 +80,7 @@ __device__ void warpReduceTIDX(
 
       // Reduce within warp 0
       for (int i = 16; i >= 1; i /= 2) {
-        reduction_op(
-            reduce_val, __shfl_xor_sync(0xffffffff, reduce_val, i, 32));
+        reduction_op(reduce_val, shfl_xor(reduce_val, i, 32));
       }
     }
 

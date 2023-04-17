@@ -177,7 +177,7 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
 
 //! Replace Vals in an index Val as specified by replacement_map while
 //! cloning the given index Val. The index val is assumed to represent
-//! a tensor index consisting of Ints  and arithmetic expressions.
+//! a tensor index consisting of Ints and arithmetic expressions.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
@@ -324,6 +324,8 @@ TORCH_CUDA_CU_API std::vector<Expr*> getReductionOps(Fusion* fusion);
 TORCH_CUDA_CU_API std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
 
 TORCH_CUDA_CU_API std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
+
+TORCH_CUDA_CU_API std::vector<MmaOp*> getMmaOps(Fusion* fusion);
 
 TORCH_CUDA_CU_API std::vector<SelectOp*> getSelectOps(Fusion* fusion);
 

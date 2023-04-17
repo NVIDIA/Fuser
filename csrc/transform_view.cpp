@@ -156,7 +156,7 @@ class ViewTransform : public Transform {
   }
 
   // Debugging utility to convert the transformation into a string.
-  virtual std::string toString() const override = 0;
+  std::string toString() const override = 0;
 
   bool operator==(const ViewTransform& other) const {
     return Transform::operator==(other);
@@ -179,7 +179,7 @@ class MergeTransform final : public ViewTransform {
  public:
   MergeTransform(int64_t index) : ViewTransform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Merge at index: " << index_;
     return ss.str();
@@ -250,7 +250,7 @@ class SplitTransform final : public ViewTransform {
         " during view transformation.");
   }
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Split Index at: " << index_ << " by: " << split_factor_;
     return ss.str();
@@ -329,7 +329,7 @@ class BroadcastTransform final : public Transform {
  public:
   BroadcastTransform(int64_t index) : Transform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Broadcast at: " << index_ << std::endl;
     return ss.str();
@@ -342,7 +342,7 @@ class SqueezeTransform final : public Transform {
  public:
   SqueezeTransform(int64_t index) : Transform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Squeeze at: " << index_ << std::endl;
     return ss.str();
@@ -396,16 +396,16 @@ class AnalyzeViewTransformation {
       }
     }
 
-    for (auto squeeze : squeeze_transforms_) {
+    for (const auto& squeeze : squeeze_transforms_) {
       constraint.squeeze_string.push_back(squeeze->index());
     }
 
-    for (auto broadcast : broadcast_transforms_) {
+    for (const auto& broadcast : broadcast_transforms_) {
       constraint.broadcast_string.push_back(broadcast->index());
     }
 
     // Dilimeter for split/merge transforms is -2
-    for (auto split_merge : view_transforms_) {
+    for (const auto& split_merge : view_transforms_) {
       if (split_merge->isA<SplitTransform>()) {
         constraint.split_merge_string.push_back(split_merge->index());
         constraint.split_merge_string.push_back(
@@ -768,7 +768,7 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
   FUSER_PERF_SCOPE("analyzeView");
-  if (original_sizes.size() == 0) {
+  if (original_sizes.empty()) {
     TORCH_INTERNAL_ASSERT(
         std::all_of(
             new_sizes.begin(),

@@ -9,9 +9,11 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
+#include <lower_bank_conflict.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 
 #include <benchmark/benchmark.h>
 
@@ -128,7 +130,7 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(Fusion* fusion, MatmulLayout layout, MatmulParam params) {
+void setupMatmul(Fusion* fusion, MatmulLayout layout, MatmulParams params) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
@@ -139,7 +141,7 @@ void setupMatmul(Fusion* fusion, MatmulLayout layout, MatmulParam params) {
   fusion->addInput(b);
   fusion->addOutput(c);
 
-  scheduleMatmul(c, a, b, params);
+  scheduleMatmul(fusion, params);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -197,7 +199,7 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
 static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MatmulLayout layout,
-    MatmulParam params) {
+    MatmulParams params) {
   std::vector<int64_t> input_mnk{
       benchmark_state.range(0),
       benchmark_state.range(1),
@@ -230,8 +232,16 @@ static void SingleMatmulBase(
   cparams.enable_magic_zero = false;
 
   // Compile kernel
+  auto launch_constraints = LaunchParams();
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, LaunchParams(), cparams);
+  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
+  if (properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5)) {
+    TORCH_CHECK(
+        getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+        "Shared memory bank conflict not removed.");
+  }
 
   // Warm up run
   auto outputs = fe.runFusion({inputs.first, inputs.second});
@@ -288,7 +298,7 @@ size_t getSmemSize(GemmTile cta_tile, int stage_number) {
 }
 
 // TODO: this part eventually will be automated by heuristics
-MatmulParam getMatmulParams(
+MatmulParams getMatmulParams(
     GemmTile cta_tile,
     int stage_number,
     MatmulLayout layout) {
@@ -298,12 +308,9 @@ MatmulParam getMatmulParams(
   gemm_tile.warp_tile = GemmTile(64, 64, cta_tile.k);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  // Collect mma swizzle info
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(layout);
-
-  MatmulParam params(mma_builder);
+  MatmulParams params;
+  params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
+  params.layout = layout;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;

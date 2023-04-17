@@ -47,11 +47,11 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
   std::vector<bool> bcast_dims(rank, false);
   // broadcast outter on inp to match rank with other.
   if (dim + 1 < rank) {
-    std::fill(bcast_dims.begin() + dim + 1, bcast_dims.end(), true);
+    std::fill(bcast_dims.begin() + (int64_t)dim + 1, bcast_dims.end(), true);
   }
   // broadcast inner on inp to match rank with other.
   if (dim > 0) {
-    std::fill(bcast_dims.begin(), bcast_dims.begin() + dim, true);
+    std::fill(bcast_dims.begin(), bcast_dims.begin() + (int64_t)dim, true);
   }
   if (dim + 1 < rank || dim > 0) {
     t = broadcast(t, bcast_dims);
