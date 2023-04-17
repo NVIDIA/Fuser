@@ -496,8 +496,12 @@ class AnalyzeViewTransformation {
       return original_view_.at(original_view_index) == 1;
     } else {
       TORCH_INTERNAL_ASSERT(original_view_index < (int64_t)root_domain_.size());
-      return root_domain_.at(original_view_index)->isImplicitBroadcast() &&
-          !root_domain_.at(original_view_index)->hasExpandedExtent();
+      auto root_id = root_domain_.at(original_view_index);
+      // A symbolic root ID with concrete size of 1 always gets
+      // concretized to a broadcast ID
+      return (root_id->isImplicitBroadcast() &&
+              !root_id->hasExpandedExtent()) ||
+          (root_id->getIterType() == IterType::Symbolic);
     }
   }
 

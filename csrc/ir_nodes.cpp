@@ -2046,11 +2046,9 @@ IterDomain::IterDomain(
       is_padded_dimension_(is_padded_dimension),
       padded_to_size_(padded_to_size),
       is_mma_swizzled_(is_mma_swizzled) {
-#if 0
   TORCH_CHECK(
       !(isRFactorProduct() && isBroadcast()),
       "IterDomain cannot be both a broadcast and rfactor domain.");
-#endif
   TORCH_INTERNAL_ASSERT(
       extent->isIntegralScalar(),
       "Cannot create an iter domain over an extent that is not an int but received ",
