@@ -25,6 +25,10 @@
 #     package nightly where we might want to add a date tag
 #     nvfuser-VERSION+TAG+gitSHA1-....-whl
 #
+#   -install_requires=pkg0[,pkg1...]
+#     this is used for pip wheel build to specify package required for install
+#     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
+#
 
 import multiprocessing
 import os
@@ -64,7 +68,7 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-ninja":
         NO_NINJA = True
         continue
-    if arg.startswith("--install_requires="):
+    if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(',')
         continue
     if arg.startswith("-version-tag="):
