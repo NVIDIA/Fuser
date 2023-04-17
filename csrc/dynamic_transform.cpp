@@ -295,10 +295,11 @@ void DynamicTransformConcretizer::concretizeReshape() {
     }
 
     if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->removeOutput(incomplete_out_tv);
-      incomplete_out_tv->fusion()->addOutput(concrete_reshape_out_tv);
-      incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
+      incomplete_out_tv->fusion()->replaceOutput(
+          incomplete_out_tv, concrete_reshape_out_tv);
     }
+
+    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
   }
 }
 
