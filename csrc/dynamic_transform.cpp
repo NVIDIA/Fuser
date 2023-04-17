@@ -136,10 +136,6 @@ void DynamicTransformInfoBuilder::augmentExprEvaluator() {
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   std::cerr << "Reshape: " << op->toString();
 
-  // Determine if this is a dynamic reshape. If the output tv doesn't
-  // have an rfactor domain, no view transform is set up, which means
-  // its output domain is still just a placeholder
-
   auto inp_tv = op->in()->as<TensorView>();
   auto out_tv = op->out()->as<TensorView>();
 
