@@ -27,6 +27,66 @@ class UnionFind {
     }
   }
 
+  //! Create a new partition by merging all overlapping sets in two partitions.
+  //! The result is a proper "join" in the language of algebraic lattices: it
+  //! is a "supremum" or least upper bound between the two involved partitions
+  //! under the "refinement" order where P1 <= P2 iff any set in P1 is a subset
+  //! of some subset in P2. Note that the IndexType of the argument can differ
+  //! from that of "this", but that the output will always inherit IndexTYpe
+  //! from "this".
+  template <typename OtherIndexType>
+  UnionFind join(UnionFind<OtherIndexType>& other) {
+    TORCH_CHECK(
+        size() == other.size(), "Cannot join differently-sized partitions");
+
+    UnionFind<IndexType> output(*this);
+
+    for (IndexType i = 0; i < size(); ++i) {
+      // Merging with the root of the entry in "other" is sufficient to perform
+      // all intersection unions.
+      // We know it's safe to cast to IndexType since we've already checked
+      // that the sizes are equal.
+      output.merge(i, (IndexType)other.find((OtherIndexType)i));
+    }
+    return output;
+  }
+
+  //! Returns true only if other is same size and every set in this partition is
+  //! a subset of some set in other.
+  template <typename OtherIndexType>
+  bool isRefinementOf(UnionFind<OtherIndexType> other) {
+    if (size() != other.size()) {
+      return false;
+    }
+    // We do a brute-force search, caching the find() results as much as
+    // possible. If we find a pair of elements that are mapped in this but not
+    // in other return false
+    for (IndexType i = 0; i < size(); ++i) {
+      IndexType root_i_this = find(i);
+      IndexType root_i_other = other.find(i);
+      for (IndexType j = 0; j < size(); ++j) {
+        if (i == j) {
+          continue;
+        }
+        IndexType root_j_this = find(j);
+        if (root_i_this != root_j_this) {
+          continue;
+        }
+        // i and j are distinct equivalent items in "this"
+        IndexType root_j_other = (IndexType)other.find((OtherIndexType)j);
+        if (root_i_other != root_j_other) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  template <typename OtherIndexType>
+  bool operator<=(UnionFind<OtherIndexType> other) {
+    return isRefinementOf(other);
+  }
+
   //! Resize the data-structure to equal or larger size than current
   void enlarge(size_t new_size) {
     TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");

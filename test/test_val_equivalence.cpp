@@ -42,6 +42,21 @@ TEST_F(NVFuserTest, FusionUnionFind) {
   );
 }
 
+// Test that joining two UnionFinds results in a partition containing A and B as
+// refinements
+TEST_F(NVFuserTest, FusionUnionFindJoin) {
+  UnionFind<uint8_t> a(5);
+  UnionFind<uint8_t> b(5);
+
+  a.merge(2, 3);
+  b.merge(3, 4);
+
+  auto c = a.join(b);
+
+  assert(a <= c);
+  assert(b <= c);
+}
+
 TEST_F(NVFuserTest, FusionValEquivalence) {
   Fusion fusion;
   FusionGuard fg(&fusion);
