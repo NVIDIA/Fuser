@@ -160,16 +160,17 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
 
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
+    const ArgAbstract* arg = args[i];
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
-      if (args.isTensorArg(i)) {
-        bindTensorMetaData(tensor_input, args, i);
+      if (const auto& tensor_arg_abstract =
+              dynamic_cast<const TensorArgAbstract*>(arg)) {
+        bindTensorMetaData(tensor_input, tensor_arg_abstract);
       } else {
         TORCH_CHECK(
-            args.isType(i, ArgType::CpuScalarTensor),
+            arg->isType(ArgType::CpuScalarTensor),
             "binding input to TensorView expects input arg to be of tensor type");
       }
     } else if (input->isScalar()) {
-      const ArgAbstract* arg = args[i];
       if (input->getDataType() == DataType::Int) {
         TORCH_CHECK(
             arg->isType(ArgType::Long),
@@ -303,16 +304,16 @@ void PrecomputedValues::validate() {
 
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
-    const KernelArgumentHolder& args,
-    int64_t arg_idx) {
+    const TensorArgAbstract* tensor_arg_abstract) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(
-      args.getRank(arg_idx) == static_cast<int64_t>(root_domain.size()),
+      tensor_arg_abstract->getRank() ==
+          static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = args.getSize(arg_idx, static_cast<int64_t>(dim));
+    auto value = tensor_arg_abstract->getSize(static_cast<int64_t>(dim));
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();

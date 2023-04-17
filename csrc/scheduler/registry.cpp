@@ -863,23 +863,25 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       "Invalid number of arguments passed in for provided fusion group.");
 
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
+    auto kernel_arg = args[inp_i];
     // Note: we are skipping CpuScalar tensor here
-    if (args.isTensorArg(inp_i)) {
+    if (auto tensor_arg_abstract =
+            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
       auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      auto data_ptr = args.getPointer(inp_i);
+      auto data_ptr = tensor_arg_abstract->getPointer();
       input_ptrs_[fusion_inp] = (size_t)data_ptr;
 
       // find and push discontiguous stride
-      auto dtype_size = dataTypeSize(args.getDataType(inp_i));
+      auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = args.getRank(inp_i);
+      auto dims = tensor_arg_abstract->getRank();
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = args.getSize(inp_i, dim);
+        auto size = tensor_arg_abstract->getSize(dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = args.getStride(inp_i, dim);
+        auto stride = tensor_arg_abstract->getStride(dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;

@@ -227,8 +227,7 @@ class PrecomputedValues {
 
   void bindTensorMetaData(
       TensorView* tv,
-      const KernelArgumentHolder& args,
-      int64_t arg_idx);
+      const TensorArgAbstract* tensor_arg_abstract);
 
  private:
   friend NaiveValueMachine;

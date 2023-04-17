@@ -7847,28 +7847,6 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
-      // Lower the kernel with int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-      fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
-      TORCH_CHECK(
-          fe.kernel()->indexType() == PrimDataType::Int32,
-          "Unexpected kernel index type: ",
-          fe.kernel()->indexType());
-
-      // This should complete successfully as the arguments are small
-      // enough to use the int32 index type
-      fe.runFusion(small_inputs);
-
-      // This should fail as the Kernel is already compiled for Int32, but
-      // the arguments are too large
-      EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Cannot add a tensor with 64-bit index to 32-bit argument list")));
-    }
-
-    {
-      FusionExecutor fe;
       // Lower the kernel with large inputs and int32 index type.
       CompileParams compile_opts = {.index_type = PrimDataType::Int32};
       // This should fail due to the conflict

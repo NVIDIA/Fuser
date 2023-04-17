@@ -109,8 +109,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const c10::optional<size_t>& opt_code = c10::nullopt) {
     KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(
-            inputs, kernel()->indexType());
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }

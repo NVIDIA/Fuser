@@ -205,6 +205,10 @@ struct TensorArgAbstract : ArgAbstract {
   virtual DataType getDataType() const = 0;
   virtual int64_t numel() const = 0;
   virtual at::Tensor getTensor() const = 0;
+  virtual bool isIndexTypeResolved() const = 0;
+  //! Returns the index type of the tensor. It's an error if the
+  //! tensor does not have a resolved index type.
+  virtual PrimDataType getIndexType() const = 0;
 
   std::string toString() const override;
 };
@@ -213,8 +217,10 @@ template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
   at::Tensor tensor_;
+  bool index_type_resolved_ = false;
 
-  TensorArg(const at::Tensor& tensor) : tensor_(tensor) {
+  TensorArg(const at::Tensor& tensor, bool index_type_resolved)
+      : tensor_(tensor), index_type_resolved_(index_type_resolved) {
     setPointer(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
@@ -262,7 +268,40 @@ struct TensorArg : public TensorArgAbstract {
     return ret;
   }
 
-  DEF_HELPEE_FUNC(Tensor, instance_)
+  bool isIndexTypeResolved() const override {
+    return index_type_resolved_;
+  }
+
+  PrimDataType getIndexType() const override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
+  }
+
+  bool isType(ArgType t) const override {
+    return type() == t;
+  }
+
+  ArgType type() const override {
+    return ArgType::Tensor;
+  }
+
+  //! Returns the address of an tensor argument struct. It's an error
+  //! if called with a tensor with no resolved index type
+  const void* arg() const override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return &instance_;
+  }
+
+  //! Returns the address of an tensor argument struct. It's an error
+  //! if called with a tensor with no resolved index type
+  void* arg() override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return &instance_;
+  }
+
+  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+    return std::make_unique<TensorArg>(*this);
+  }
 };
 
 template <typename CPU_TENSOR_TYPE>
@@ -290,17 +329,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! the ownership of the memory from the original inputs, but just recording
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      const std::optional<PrimDataType>& index_type = std::nullopt);
+      const c10::ArrayRef<c10::IValue>& inputs);
 
-  explicit KernelArgumentHolder(
-      std::optional<PrimDataType> index_type = std::nullopt)
-      : index_type_(index_type) {}
+  KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self)
-      : device_index_(self.getDeviceIndex()),
-        cache_id_(self.getCacheId()),
-        index_type_(self.getIndexType()) {
+      : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
@@ -308,27 +342,15 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder& operator=(const KernelArgumentHolder& self) {
     device_index_ = self.getDeviceIndex();
-    index_type_ = self.getIndexType();
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
     return *this;
   }
 
-  bool isIndexTypeResolved() const {
-    return index_type_.has_value();
-  }
-
-  void setIndexType(PrimDataType index_type);
-
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
-
-  //! Return the index type of this argument holder
-  std::optional<PrimDataType> getIndexType() const {
-    return index_type_;
-  }
 
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
@@ -338,9 +360,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void push(const at::PhiloxCudaState& val);
 
-  // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
-  // in the buffer
-  void** getBuffer();
+  // Create a buffer, flatten arguments into it, align by 8 Bytes, return
+  // pointers in the buffer. Tensor arguments are passed with the given index
+  // type.
+  void** getBuffer(PrimDataType index_type);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 
@@ -354,16 +377,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   void push(int64_t val);
 
   const ArgAbstract* back() const {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved(), "Index type not resolved yet");
     return arguments_.back().get();
   }
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
   const ArgAbstract* at(size_t ind) const {
-    TORCH_INTERNAL_ASSERT(
-        !isTensorArg(ind) || isIndexTypeResolved(),
-        "Accessing tensor arg requires index type to be resolved");
     return arguments_.at(ind).get();
   };
 
@@ -395,28 +414,14 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return cache_id_;
   }
 
-  // Dispacher to arguments without revealing the argument
-  // pointers. Safe to use without resolving index type
-  bool isType(int64_t arg, ArgType type) const;
-  bool isTensorArg(int64_t arg) const;
-  void* getPointer(int64_t arg) const;
-  DataType getDataType(int64_t arg) const;
-  int64_t getRank(int64_t arg) const;
-  int64_t getSize(int64_t arg, int64_t dim) const;
-  int64_t getStride(int64_t arg, int64_t dim) const;
-
   std::string toString() const;
 
  private:
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;
   std::vector<void*> void_ptrs_;
-  bool changed_ = true;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
-  // When index type is undefined, it is not allowed to obtain any
-  // pointer to TensorArg as its type is not yet finalized.
-  std::optional<PrimDataType> index_type_ = std::nullopt;
 };
 
 } // namespace nvfuser

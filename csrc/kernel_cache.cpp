@@ -141,8 +141,6 @@ void FusionExecutorCache::compileFusionAsync(
 
   KernelArgumentHolder args = prepareInputs(inputs);
   auto kernel_runtime = getKernelRuntimeFor(args);
-  args.setIndexType(kernel_runtime->getIndexType());
-
   kernel_runtime->startAsyncCompile(args);
 }
 
@@ -216,9 +214,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         forced_index_type.value(),
         " failed");
   }
-
-  // Set the index type as it's resolved by FusionKernelRuntime
-  args.setIndexType(kernel_runtime->getIndexType());
 
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
@@ -412,10 +407,6 @@ FusionKernelRuntime::FusionKernelRuntime(
   SchedulerRuntimeInfo runtime_info(
       fusion_copy.get(), args, nullptr, all_tvs_, forced_index_type);
 
-  // Set the argument index type as it's resolved by SchedulerRuntimeInfo
-  auto args_index_type_fixed = args;
-  args_index_type_fixed.setIndexType(runtime_info.getIndexType());
-
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion_copy.get());
 
@@ -431,17 +422,14 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   if (segmented) {
     // Take ownership and segment transformed fusion
-    segmented_fusion_ = SegmentCandidateFinder::segment(
-        std::move(fusion_copy), args_index_type_fixed);
+    segmented_fusion_ =
+        SegmentCandidateFinder::segment(std::move(fusion_copy), args);
   } else {
     segmented_fusion_ = SegmentedFusion::fromCompleteFusion(
-        std::move(fusion_copy),
-        maybe_complete_fusion_heuristic.value(),
-        args_index_type_fixed);
+        std::move(fusion_copy), maybe_complete_fusion_heuristic.value(), args);
   }
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(
-      args_index_type_fixed, runtime_info);
+  heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
@@ -769,17 +757,6 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
 
-  TORCH_INTERNAL_ASSERT(
-      args.isIndexTypeResolved(),
-      "Expected to receive a KernelArgumentHolder with index type resolved");
-
-  TORCH_INTERNAL_ASSERT(
-      args.getIndexType() == getIndexType(),
-      "FusionKernelRuntime index type: ",
-      getIndexType(),
-      ", argument index type: ",
-      args.getIndexType().value());
-
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
       mapFusionInputsToArgs(args);
 
@@ -806,7 +783,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   for (auto group_to_run : runtime_workspace_.group_run_order) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs(args.getIndexType());
+    KernelArgumentHolder group_runtime_inputs;
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());

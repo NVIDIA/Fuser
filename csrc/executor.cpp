@@ -1038,7 +1038,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
   const auto kernel = lowered_->kernel();
 
-  KernelArgumentHolder ret(args.getIndexType());
+  KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
   CompileOptions meta_options = options_;
@@ -1157,20 +1157,6 @@ void validateIndexType(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
     const CompileParams& compile_params) {
-  TORCH_INTERNAL_ASSERT(args.isIndexTypeResolved());
-  // Currently, once a Fusion is lowered to a Kernel, the index type
-  // has to be resolved completely. This means that
-  // args.getIndexType() must be equal to the index type of the
-  // compiled kernel.
-  TORCH_INTERNAL_ASSERT(
-      kernel->indexType() == args.getIndexType(),
-      "Invalid pair of kernel index type and argument index type. Kernel type: ",
-      kernel->indexType(),
-      ". Argument index type: ",
-      args.getIndexType().value());
-
-  // Similarly, if the type of the index type in the given compile
-  // parameters doesn't match, that's also an error.
   TORCH_INTERNAL_ASSERT(
       !compile_params.index_type.has_value() ||
           kernel->indexType() == compile_params.index_type.value(),
@@ -1507,7 +1493,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
-    auto arg_buffer = args.getBuffer();
+    auto arg_buffer = args.getBuffer(kernel()->indexType());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1616,7 +1602,7 @@ float FusionExecutor::runRtc(
   CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
   CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
-  KernelArgumentHolder kernel_arguments(index_type);
+  KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(args);
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
@@ -1631,7 +1617,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(),
+      kernel_arguments.getBuffer(index_type),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

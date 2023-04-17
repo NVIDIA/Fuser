@@ -818,8 +818,7 @@ namespace {
 
 void bindInputForExprEvaluation(
     Val* val,
-    const KernelArgumentHolder& args,
-    int64_t input_idx,
+    const ArgAbstract* arg,
     bool check_consistency,
     ExpressionEvaluator& expr_eval) {
   if (val->getValType() == ValType::TensorView) {
@@ -829,22 +828,25 @@ void bindInputForExprEvaluation(
 
     if (root_domain.empty()) {
       TORCH_INTERNAL_ASSERT(
-          args.isType(input_idx, ArgType::CpuScalarTensor) ||
-              (args.isType(input_idx, ArgType::Tensor) &&
-               args.getRank(input_idx) == 0),
+          arg->isType(ArgType::CpuScalarTensor) ||
+              (arg->isType(ArgType::Tensor) &&
+               dynamic_cast<const TensorArgAbstract*>(arg)->getRank() == 0),
           "Something went wrong configuring launch. Inputs is not rank 0 tensor");
     } else {
       TORCH_INTERNAL_ASSERT(
-          args.isType(input_idx, ArgType::Tensor),
+          arg->isType(ArgType::Tensor),
           "Something went wrong configuring launch. Inputs do not match.");
 
+      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+
       TORCH_INTERNAL_ASSERT(
-          args.getRank(input_idx) == (int64_t)root_domain.size(),
+          tensor_arg_abstract &&
+              tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
           "Something went wrong configuring launch. Inputs rank does not match.");
 
       for (const auto dim : c10::irange(root_domain.size())) {
-        const auto tensor_arg_size = args.getSize(input_idx, (int)dim);
-        const auto tensor_arg_stride = args.getStride(input_idx, (int)dim);
+        const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
+        const auto tensor_arg_stride = tensor_arg_abstract->getStride((int)dim);
         const auto extent = root_domain[dim]->extent();
         if (root_domain[dim]->hasExpandedExtent()) {
           TORCH_INTERNAL_ASSERT(
@@ -893,8 +895,6 @@ void bindInputForExprEvaluation(
       }
     }
   } else if (val->getValType().value() == ValType::Scalar) {
-    // Arg pointer is always available for scalars
-    auto arg = args.at(input_idx);
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::Long),
@@ -928,7 +928,7 @@ ExpressionEvaluator bindInputs(
 
   for (const auto i : c10::irange(inputs.size())) {
     bindInputForExprEvaluation(
-        inputs[i], args, (int64_t)i, check_consistency, expr_eval);
+        inputs[i], args[i], check_consistency, expr_eval);
   }
   return expr_eval;
 }
