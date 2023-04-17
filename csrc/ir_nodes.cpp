@@ -2789,6 +2789,8 @@ bool TensorDomain::hasRFactor() const {
 }
 
 bool TensorDomain::hasSymbolicAxis() const {
+  // If there's any Symblic axis, there must be one at the root or
+  // rfactor domain.
   return std::any_of(
              getRootDomain().begin(),
              getRootDomain().end(),

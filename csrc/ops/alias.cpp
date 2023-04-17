@@ -97,7 +97,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       std::none_of(
           inp_dom.begin(),
           inp_dom.end(),
-          [](auto inp_id) { return !inp_id->maybePartial(); }),
+          [](auto inp_id) { return inp_id->maybePartial(); }),
       "Unsupported input tensor to reshape as its axes may be partial: ",
       inp_tv->toString());
 

@@ -130,6 +130,7 @@ TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);
 
+//! Apply the reshape transformations of view_analysis to inp_tv
 TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
 
 } // namespace nvfuser
