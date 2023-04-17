@@ -477,16 +477,6 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
 
 enum class MemoryType { Local, Shared, Global };
 
-// Is this comment deprecated?
-// sometimes broadcasted tensors may be inputed in the kernel with an explicit 1
-// size. If that size is there, we need to account that there's also a stride
-// there, even if the stride = 0. If we don't account for that stride when
-// accessing a tensor like: [b2{1}, i0, i1] we would linearize the access like:
-// [i0*stride[0] + i1*stride[1]] when it should be: [i0*stride[1] +
-// i1*stride[2]]. Broadcasts that translate to a physical memory dim we consider
-// "with stride", Broadcasts only through our broadcast op we consider "without
-// stride"
-//
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
   Iteration,

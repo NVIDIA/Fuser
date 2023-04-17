@@ -182,18 +182,11 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
 }
 
 TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
-#if 1
   std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       before_after_shapes = {
           {{4, 3}, {3, 4}},
           {{4, 3}, {12, 1}},
       };
-#else
-  std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
-      before_after_shapes = {
-          {{4, 3}, {12, 1}},
-      };
-#endif
   for (auto before_after : before_after_shapes) {
     std::cerr << "Before: " << before_after.first << std::endl;
     std::cerr << "After: " << before_after.second << std::endl;
