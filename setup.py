@@ -69,7 +69,7 @@ for i, arg in enumerate(sys.argv):
         NO_NINJA = True
         continue
     if arg.startswith("-install_requires="):
-        INSTALL_REQUIRES = arg.split("=")[1].split(',')
+        INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
