@@ -1283,71 +1283,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(at_out1, nvf_out[1])
         self.assertEqual(at_out2, nvf_out[2])
 
-    def test_op_methods(self):
-        inputs = [
-            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
-        ]
-
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(0.5)
-
-            c1 = c0.neg()
-            c2 = c0.abs()
-
-            o0 = t0.neg()
-            o1 = t0.abs()
-            o2 = t0.sum([0])
-            o3 = (t0 > c0).where(t0, c0)
-            o4 = t0.relu()
-            o5 = o0.addcmul(o1, o4, c1)
-            o6 = o2.cast(DataType.Double)
-            o7 = o1.add_alpha(o2, c0)
-            o8 = o1.var([1], correction=1)
-            _, o9 = o1.var_mean([1], correction=1)
-            o10 = t0.reshape([3, 4, 5], [3 * 4, 1, 5])
-            o11 = o10.squeeze([3 * 4, 1, 5], [1])
-
-            fd.add_output(o0)
-            fd.add_output(o1)
-            fd.add_output(o2)
-            fd.add_output(o3)
-            fd.add_output(o4)
-            fd.add_output(o5)
-            fd.add_output(o6)
-            fd.add_output(o7)
-            fd.add_output(o8)
-            fd.add_output(o9)
-            fd.add_output(o10)
-            fd.add_output(o11)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
-        torch_out = [
-            -inputs[0],
-            abs(inputs[0]),
-            inputs[0].sum([0]),
-            torch.where(inputs[0] > 0.5, inputs[0], torch.tensor(0.5)),
-            inputs[0].relu(),
-            torch.addcmul(
-                -inputs[0],
-                abs(inputs[0]),
-                inputs[0].relu(),
-                value=-0.5,
-            ),
-            inputs[0].sum([0]).type(torch.float64),
-            torch.add(abs(inputs[0]), inputs[0].sum([0]), alpha=0.5),
-            abs(inputs[0]).var([1], unbiased=True),
-            abs(inputs[0]).mean([1]),
-            inputs[0].reshape([3 * 4, 1, 5]),
-            inputs[0].reshape([3 * 4, 5]),
-        ]
-
-        assert len(nvf_out) == len(torch_out)
-
-        for n, t in zip(nvf_out, torch_out):
-            self.assertEqual(n, t)
-
     def test_all_dim_var_mean(self):
         inputs = [torch.randn(2, 2, 2, device="cuda")]
 
@@ -1524,8 +1459,8 @@ class TestNvFuserFrontend(TestCase):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
-                fd.add_output(t0.real())
-                fd.add_output(t0.imag())
+                fd.add_output(fd.ops.real(t0))
+                fd.add_output(fd.ops.imag(t0))
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
@@ -1629,40 +1564,30 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1, 1, 1])
             fd.add_output(t1)
 
-            # tensor method version
-            t2 = t0.pad([1, 1, 1, 1])
+            # zero padding in some dims
+            t2 = fd.ops.pad(t0, [0, 0, 2, 3])
             fd.add_output(t2)
 
-            # zero padding in some dims
-            t3 = fd.ops.pad(t0, [0, 0, 2, 3])
+            # zero padding in all dims
+            t3 = fd.ops.pad(t0, [0, 0, 0, 0])
             fd.add_output(t3)
 
-            # zero padding in all dims
-            t4 = fd.ops.pad(t0, [0, 0, 0, 0])
-            fd.add_output(t4)
-
             # no padding provided in first dim
-            t5 = fd.ops.pad(t0, [2, 3])
-            fd.add_output(t5)
+            t4 = fd.ops.pad(t0, [2, 3])
+            fd.add_output(t4)
 
             # test padding with a value other than 0
             fill_val = fd.define_constant(2.0)
-            t6 = fd.ops.pad(t0, [2, 3], fill_val)
-            fd.add_output(t6)
-
-            # test padding with a value other than 0 with tensor method
-            t7 = t0.pad([2, 3], fill_val)
-            fd.add_output(t7)
+            t5 = fd.ops.pad(t0, [2, 3], fill_val)
+            fd.add_output(t5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
-        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[1])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
-        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[4])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[5])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[6])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
+        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
+        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
