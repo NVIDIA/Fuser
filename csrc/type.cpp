@@ -967,17 +967,11 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
     case Swizzle2DType::ZShape:
       os << "ZShape";
       break;
-    case Swizzle2DType::Transpose:
-      os << "Transpose";
-      break;
     case Swizzle2DType::XOR:
       os << "Xor";
       break;
     case Swizzle2DType::CyclicShift:
       os << "CyclicShift";
-      break;
-    case Swizzle2DType::Scatter:
-      os << "Scatter";
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "undefined 2D swizzle");

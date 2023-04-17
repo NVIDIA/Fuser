@@ -68,12 +68,15 @@ class FusionDefinition(_C._FusionDefinition):
 
         return result
 
-    def from_pytorch(self, tensor):
+    def from_pytorch(self, tensor, static_sizes=False):
         """
-        Defines an nvfuser input tensor from a pytorch tensor
+        Defines an nvfuser input tensor from a pytorch tensor and defaults
+        to definining a symbolic tensor for dynamic shape usage.
 
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
+            static_sizes (bool)  : Interprets sizes as static rather than
+                                   as symbolic for dynamic shape usage
 
         Returns:
             nvfuser.Tensor
@@ -90,6 +93,7 @@ class FusionDefinition(_C._FusionDefinition):
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
         )
 
     def fusion_ir(self):
