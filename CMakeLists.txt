@@ -212,8 +212,8 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 
 if (PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
-  # TODO: setup header and lib installation
-  # installing nvfuser lib
+  # this is to find pip installed nvrtc .so
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-Wl,-rpath,'$ORIGIN'/../../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")

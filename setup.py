@@ -46,6 +46,7 @@ NO_NINJA = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
+INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -62,6 +63,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg == "--install_requires=":
+        INSTALL_REQUIRES = arg.split("=")[1].split(',')
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
@@ -305,6 +309,7 @@ def main():
             package_data={
                 "nvfuser": nvfuser_package_data,
             },
+            install_requires=INSTALL_REQUIRES,
             entry_points={
                 "console_scripts": [
                     "patch-nvfuser = nvfuser_python_utils:patch_installation",
