@@ -7847,6 +7847,32 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
+      LaunchParams launch_params;
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
+
+      TORCH_CHECK(
+          fe.kernel()->indexType() == PrimDataType::Int32,
+          "Unexpected kernel index type: ",
+          fe.kernel()->indexType());
+
+      // This should complete successfully as the arguments are small
+      // enough to use the int32 index type
+      fe.runFusion(small_inputs);
+
+      // This should fail as the Kernel is already compiled for Int32, but
+      // the arguments are too large
+      CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
+      EXPECT_THAT(
+          [&]() {
+            fe.runFusion(large_inputs, launch_params, compile_opts_large);
+          },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Kernel index type and compilation index type don't match")));
+    }
+
+    {
+      FusionExecutor fe;
       // Lower the kernel with large inputs and int32 index type.
       CompileParams compile_opts = {.index_type = PrimDataType::Int32};
       // This should fail due to the conflict

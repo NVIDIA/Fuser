@@ -1155,7 +1155,6 @@ namespace {
 // Make sure the index type of Kernel is valid
 void validateIndexType(
     kir::Kernel* kernel,
-    const KernelArgumentHolder& args,
     const CompileParams& compile_params) {
   TORCH_INTERNAL_ASSERT(
       !compile_params.index_type.has_value() ||
@@ -1371,7 +1370,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
-  validateIndexType(kernel(), args, compile_params);
+  validateIndexType(kernel(), compile_params);
 
   const auto num_inputs = args.size();
 
