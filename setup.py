@@ -64,7 +64,7 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-ninja":
         NO_NINJA = True
         continue
-    if arg.startwith("--install_requires="):
+    if arg.startswith("--install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(',')
         continue
     if arg.startswith("-version-tag="):
