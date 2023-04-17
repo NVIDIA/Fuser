@@ -2954,7 +2954,8 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
 } // namespace
 
 TEST_F(NVFuserTest, FusionVarMean_CUDA) {
-  std::vector<at::ScalarType> dtypes = {at::kFloat, at::kDouble};
+  std::vector<at::ScalarType> dtypes = {
+      at::kFloat, at::kDouble, at::kComplexFloat, at::kComplexDouble};
   std::vector<int> corrections = {0, 1};
   std::vector<bool> keepdims = {false, true};
   for (auto correction : corrections) {
