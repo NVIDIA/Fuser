@@ -10,7 +10,6 @@
 #include <ir_utils.h>
 #include <lower_utils.h>
 #include <ops/utils.h>
-#include <root_domain_map.h>
 #include <transform_iter.h>
 #include <transform_view.h>
 #include <utils.h>
@@ -27,7 +26,7 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    augmentExprEvaluator();
+    expr_eval_->propagateBoundValuesThroughExactMaps(fusion);
 
     traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
   }
@@ -39,9 +38,6 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
   const auto& getInfo() const {
     return info_;
   }
-
- private:
-  void augmentExprEvaluator();
 
  private:
   ExpressionEvaluator* expr_eval_ = nullptr;
@@ -88,49 +84,6 @@ std::string DynamicTransformInfo::toString() const {
        << kv.second.toString() << "\n";
   }
   return ss.str();
-}
-
-void DynamicTransformInfoBuilder::augmentExprEvaluator() {
-  const auto mapped_sets = ExactRootDomainMap(info_.fusion()).getMappedSets();
-
-  // std::cerr << "Augmenting ExprEval\n";
-
-  for (const auto& set : mapped_sets.disjointSets()) {
-    // std::cerr << "Disjoint set\n";
-    int64_t known_size = -1;
-    std::vector<Val*> unknown_vals;
-    for (const auto id : *set) {
-      // std::cerr << "ID: " << id->toString() << std::endl;
-      auto eval_val = expr_eval_->evaluate(id->extent());
-      if (eval_val.has_value()) {
-        TORCH_INTERNAL_ASSERT(eval_val->isInt(), "Invalid extent value");
-        int64_t this_size = eval_val->as<int64_t>();
-        if (known_size != -1) {
-          TORCH_INTERNAL_ASSERT(
-              known_size == this_size,
-              "Conflicting sizes: ",
-              known_size,
-              ", ",
-              this_size);
-        } else {
-          known_size = this_size;
-        }
-      } else {
-        unknown_vals.push_back(id->extent());
-      }
-    }
-
-    if (known_size == -1 || unknown_vals.empty()) {
-      continue;
-    }
-
-    // Binding unknown vals to known_val
-    for (auto unknown_val : unknown_vals) {
-      // std::cerr << "Augment: " << unknown_val->toString() << " -> "
-      //<< known_size << std::endl;
-      expr_eval_->bind(unknown_val, known_size);
-    }
-  }
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
