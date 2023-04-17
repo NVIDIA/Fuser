@@ -8,6 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <ops/all_ops.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
 #include <union_find.h>
@@ -57,11 +58,29 @@ TEST_F(NVFuserTest, FusionUnionFindJoin) {
   assert(b <= c);
 }
 
+// For a very simple Fusion, test that we are able to simplify terms
 TEST_F(NVFuserTest, FusionValEquivalence) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto ve = ValEquivalence<uint8_t>(fusion);
+
+  auto t0 = makeSymbolicTensor(3);
+  auto t1 = makeConcreteTensor({4, 5});
+
+  auto t2 = broadcast(t1, {false, true, false});
+  auto t3 = mul(t0, t2);
+
+  fusion.addInput(t0);
+  fusion.addInput(t1);
+  fusion.addOutput(t3);
+
+  fusion.printMath();
+  ve.extractInPlace(fusion.exprs());
+
+  // We should have now deduced that t0 has dimensions {4, i1, 5}
+  fusion.printMath();
+  FAIL();
 }
 
 } // namespace nvfuser
