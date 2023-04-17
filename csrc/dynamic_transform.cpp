@@ -163,6 +163,8 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
 
   auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
 
+  std::cerr << "View result: " << view_result.toString() << std::endl;
+
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
@@ -226,14 +228,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
     std::cerr << "concrete view out: " << concrete_reshape_out_tv->toString()
               << ", expr: " << concrete_reshape_out_tv->definition()->toString()
               << std::endl;
-
-    if (inp_tv != concrete_reshape_out_tv->definition()->input(0)) {
-      std::cerr << "Addnl expr: "
-                << concrete_reshape_out_tv->definition()
-                       ->input(0)
-                       ->definition()
-                       ->toString();
-    }
 
     // Replace the old tensor with the new concretized tensor
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
