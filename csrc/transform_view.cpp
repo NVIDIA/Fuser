@@ -501,7 +501,8 @@ class AnalyzeViewTransformation {
       // concretized to a broadcast ID
       return (root_id->isImplicitBroadcast() &&
               !root_id->hasExpandedExtent()) ||
-          (root_id->getIterType() == IterType::Symbolic);
+          (root_id->getIterType() == IterType::Symbolic &&
+           original_view_.at(original_view_index) == 1);
     }
   }
 
@@ -657,7 +658,11 @@ class AnalyzeViewTransformation {
       // dimension, merge the next dimension in.
       TORCH_INTERNAL_ASSERT(
           original_view_index + 1 < (int64_t)original_view_.size(),
-          "Expecting to still have original dimensions to work on in view, but none left.");
+          "Expecting to still have original dimensions to work on in view, but none left.",
+          " Original view index: ",
+          original_view_index,
+          ". Original view size: ",
+          original_view_.size());
 
       view_transforms_.push_back(
           std::make_shared<MergeTransform>(transform_view_index));
