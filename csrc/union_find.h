@@ -32,21 +32,44 @@ class UnionFind {
   //! is a "supremum" or least upper bound between the two involved partitions
   //! under the "refinement" order where P1 <= P2 iff any set in P1 is a subset
   //! of some subset in P2. Note that the IndexType of the argument can differ
-  //! from that of "this", but that the output will always inherit IndexTYpe
+  //! from that of "this", but that the output will always inherit IndexType
   //! from "this".
+  //! This function runs in nearly linear time.
   template <typename OtherIndexType>
   UnionFind join(UnionFind<OtherIndexType>& other) {
     TORCH_CHECK(
-        size() == other.size(), "Cannot join differently-sized partitions");
-
+        size() == other.size(), "Cannot join differently-sized UnionFinds");
     UnionFind<IndexType> output(*this);
-
     for (IndexType i = 0; i < size(); ++i) {
       // Merging with the root of the entry in "other" is sufficient to perform
       // all intersection unions.
       // We know it's safe to cast to IndexType since we've already checked
       // that the sizes are equal.
       output.merge(i, (IndexType)other.find((OtherIndexType)i));
+    }
+    return output;
+  }
+
+  //! Create a new partition whose sets are subsets of one in this and one in
+  //! other.
+  //! The result is a proper "meet" in the language of algebraic lattices: it
+  //! is an "infimum" or greatest lower bound between the two involved
+  //! partitions under the "refinement" order where P1 <= P2 iff any set in P1
+  //! is a subset of some subset in P2. Note that the IndexType of the argument
+  //! can differ from that of "this", but that the output will always inherit
+  //! IndexType from "this".
+  //! This function runs in quadratic time.
+  template <typename OtherIndexType>
+  UnionFind meet(UnionFind<OtherIndexType>& other) {
+    TORCH_CHECK(
+        size() == other.size(), "Cannot meet differently-sized UnionFinds");
+    UnionFind<IndexType> output(size());
+    for (IndexType i = 0; i < size(); ++i) {
+      for (IndexType j = 0; j < size(); ++j) {
+        if (equiv(i, j) && other.equiv(i, j)) {
+          output.merge(i, j);
+        }
+      }
     }
     return output;
   }

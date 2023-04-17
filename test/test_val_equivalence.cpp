@@ -58,12 +58,42 @@ TEST_F(NVFuserTest, FusionUnionFindJoin) {
   assert(b <= c);
 }
 
+// Test that meeting two UnionFinds results in a refinement of both A and B
+TEST_F(NVFuserTest, FusionUnionFindMeet) {
+  using IndexType = uint8_t;
+  UnionFind<IndexType> a(5);
+  UnionFind<IndexType> b(5);
+  UnionFind<IndexType> c(5);
+
+  // a and b overlap in all the singleton sets
+  a.merge(2, 3);
+  b.merge(3, 4);
+
+  // c is single-set partition holding all items
+  c.merge(0, 1);
+  c.merge(1, 2);
+  c.merge(2, 3);
+  c.merge(3, 4);
+
+  auto d = a.meet(b);
+  assert(d <= a);
+  assert(d <= b);
+  assert(d == UnionFind<IndexType>(5));
+
+  auto e = a.meet(c);
+  assert(e <= a);
+  assert(e <= c);
+  // Since a <= c, meet(a, c) == a
+  assert(a <= c);
+  assert(e == a);
+}
+
 // For a very simple Fusion, test that we are able to simplify terms
 TEST_F(NVFuserTest, FusionValEquivalence) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto ve = ValEquivalence<uint8_t>(fusion);
+  ValEquivalence<uint8_t> ve(fusion);
 
   auto t0 = makeSymbolicTensor(3);
   auto t1 = makeConcreteTensor({4, 5});
@@ -76,7 +106,7 @@ TEST_F(NVFuserTest, FusionValEquivalence) {
   fusion.addOutput(t3);
 
   fusion.printMath();
-  ve.extractInPlace(fusion.exprs());
+  // ve.extractInPlace(fusion.exprs());
 
   // We should have now deduced that t0 has dimensions {4, i1, 5}
   fusion.printMath();
