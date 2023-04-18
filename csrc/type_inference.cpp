@@ -626,7 +626,7 @@ class NaiveTypePropagator {
         op0 != nullptr || op1 != nullptr,
         "Scalar operations on binary broadcast type, not supported yet.");
 
-    c10::ScalarType promoted_scalar_type;
+    c10::ScalarType promoted_scalar_type = c10::ScalarType::Undefined;
     c10::optional<c10::Device> device;
     if (op0 != nullptr && op1 != nullptr) {
       TORCH_CHECK(

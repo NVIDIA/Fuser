@@ -235,7 +235,7 @@ struct CudaGraphFuser {
       auto outputs = node->outputs();
       for (const auto i : c10::irange(outputs.size())) {
         auto output = outputs[i];
-        if (output->uses().size() == 0)
+        if (output->uses().empty())
           continue;
         consumer_subgraph->registerOutput(merged->outputs()[i]);
         auto new_output = consumer_group->addOutput();
@@ -406,7 +406,7 @@ struct CudaGraphFuser {
     // We need to apply this to all outputs from producer->node();
     auto producer_outputs = producer->outputs();
     for (const auto i : c10::irange(producer_outputs.size())) {
-      if (producer_outputs[i]->uses().size() != 0) {
+      if (!producer_outputs[i]->uses().empty()) {
         getSubgraph(group).registerOutput(merged->outputs()[i]);
         torch::jit::Value* new_producer = group->addOutput();
         new_producer->copyMetadata(producer_outputs[i]);
@@ -483,7 +483,7 @@ struct CudaGraphFuser {
 
   at::ArrayRef<torch::jit::Value*> broadcast_tensors(
       torch::jit::value_list inputs) {
-    AT_ASSERT(inputs.size() > 0);
+    AT_ASSERT(!inputs.empty());
     auto* g = inputs[0]->owningGraph();
     auto* input_list =
         g->insertNode(g->createList(at::TensorType::get(), inputs))->output();

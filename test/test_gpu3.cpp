@@ -39,7 +39,6 @@
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -362,9 +361,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   auto t0_non_divisible = at::randn({8}, options);
   // Since ceilDiv(8, 8) is not divisible by 4, the vectorization is
@@ -983,6 +980,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCacheDoubleBuffer_CUDA) {
   constexpr int M = 154, K = 45, N = 1524;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
   at::Tensor t0 = at::randn({M, K}, options);
   at::Tensor t1 = at::randn({K, N}, options);
   at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
@@ -1043,9 +1041,7 @@ TEST_F(NVFuserTest, FusionIntermediateTensorVectorize_CUDA) {
     auto t1 = at::randn({16}, options);
     auto cg_outputs = fe.runFusion({t1});
 
-    auto ref = t1;
-
-    testValidate(&fusion, cg_outputs, {t1}, {ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t1}, {t1}, __LINE__, __FILE__);
   }
 }
 
@@ -1340,8 +1336,8 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
   for (auto tv : ir_utils::allTvs(&fusion)) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
-        if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
-          tv->axis(i)->parallelize(ParallelType::Serial);
+        if (isParallelTypeVectorize(tv->axis((int)i)->getParallelType())) {
+          tv->axis((int)i)->parallelize(ParallelType::Serial);
         }
       }
     }
@@ -1415,7 +1411,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto tk0 = kernel->inputs()[0]->as<TensorView>();
   auto tki0 = IrBuilder::create<kir::TensorIndex>(tk0, ks0);
   auto tki1 = IrBuilder::create<kir::TensorIndex>(tk0, ks1);
-  auto tk0_expr = IrBuilder::create<UnaryOp>(UnaryOpType::Set, tki0, tki1);
+  auto tk0_expr =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tki0, tki1);
 
   // Insert the scalar expression and the allocation of the
   // output directly to the kernel
@@ -1670,9 +1667,7 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 // Hoist indices for vectorized tensors
@@ -1755,21 +1750,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i111;
-  i111 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i201;
+  i201 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b241;
-  b241 = i111 < i7;
+  bool b347;
+  b347 = i201 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b241) {
+  if (b347) {
     T1[0]
-       = sinf(T0[i111]);
+       = sinf(T0[i201]);
   }
-  if (b241) {
-    T2[i111]
+  if (b347) {
+    T2[i201]
       = T1[0]
       + f8;
   }
@@ -1944,7 +1939,7 @@ TEST_F(NVFuserTest, FusionLargeSmem_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::manual_seed(0);
-  auto t0 = at::randn({12288 * 4}, options);
+  auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
@@ -1960,7 +1955,7 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
 
   auto properties = at::cuda::getDeviceProperties(
       c10::Device(c10::DeviceType::CUDA, 0).index());
-  int device_limit = properties->sharedMemPerBlockOptin;
+  int device_limit = (int)properties->sharedMemPerBlockOptin;
 
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
@@ -1981,7 +1976,7 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::manual_seed(0);
-  auto t0 = at::randn({12288 * 4}, options);
+  auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
   // First compile gets a compiled kernel
@@ -2647,8 +2642,8 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
     using kir::IrVisitor::handle;
 
    private:
-    void handle(UnaryOp* uop) final {
-      // Record number of unary ops that modifies shared memory.
+    void handle(LoadStoreOp* uop) final {
+      // Record number of load-store ops that modifies shared memory.
       if (uop->out()->isA<kir::TensorIndex>() &&
           uop->out()->as<kir::TensorIndex>()->view()->getMemoryType() ==
               MemoryType::Shared &&
@@ -3216,7 +3211,7 @@ graph(%x.1 : Tensor,
     std::vector<c10::IValue> results;
     for (const auto& i : c10::irange(10)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }
@@ -3263,7 +3258,7 @@ TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
     constexpr size_t numRuns = 10;
     for (const auto& i : c10::irange(numRuns)) {
       (void)i; // Suppress unused variable warning
-      auto stack = torch::jit::createStack({x.clone(), y.clone()});
+      auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
       results.push_back(stack.back());
     }
@@ -4149,8 +4144,9 @@ TEST_F(NVFuserTest, FusionTransformPropagateSibling_CUDA) {
 
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
-  std::vector<TensorView*> siblings[] = {{tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
-  for (auto tensors : siblings) {
+  std::vector<std::vector<TensorView*>> siblings = {
+      {tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
+  for (const auto& tensors : siblings) {
     for (auto t1 : tensors) {
       for (auto t2 : tensors) {
         TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
@@ -4183,20 +4179,20 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
 
   struct DisableTv0 : public MaxInfoSpanningTree::Selector {
     TensorView* tv0;
-    virtual bool allowC2P(TensorView* from, TensorView* to) override {
+    bool allowC2P(TensorView* from, TensorView* to) override {
       return from != tv0 && to != tv0;
     };
-    virtual bool allowP2C(TensorView* from, TensorView* to) override {
+    bool allowP2C(TensorView* from, TensorView* to) override {
       return from != tv0 && to != tv0;
     };
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return true;
     }
     DisableTv0(TensorView* tv0) : tv0(tv0) {}
   } selector1(tv0);
 
   struct DisableTv0AndSibling : public DisableTv0 {
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return false;
     }
     using DisableTv0::DisableTv0;
@@ -4209,9 +4205,9 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
   auto check = [&]() {
-    std::vector<TensorView*> siblings[] = {
+    std::vector<std::vector<TensorView*>> siblings = {
         {tvs.avg, tvs.var_sum, tvs.n}, rf_tvs};
-    for (auto tensors : siblings) {
+    for (const auto& tensors : siblings) {
       for (auto t1 : tensors) {
         for (auto t2 : tensors) {
           TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
@@ -4259,16 +4255,11 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
 
-  auto tv2_def = dynamic_cast<UnaryOp*>(tv2->definition());
+  auto tv2_def = dynamic_cast<LoadStoreOp*>(tv2->definition());
   TORCH_CHECK(
       tv2_def != nullptr,
-      "Expected UnaryOp but found ",
+      "Expected LoadStoreOp but found ",
       tv2->definition()->toString());
-
-  TORCH_CHECK(
-      tv2_def->getUnaryOpType() == UnaryOpType::Set,
-      "Expected UnaryOpType::Set but found ",
-      tv2_def->getUnaryOpType());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({12345}, options);
@@ -4345,13 +4336,13 @@ TEST_F(NVFuserTest, FusionTransformPropagatorSelector_CUDA) {
   struct Selector : public MaxInfoSpanningTree::Selector {
     TensorView* tv0;
     TensorView* tv3;
-    virtual bool allowC2P(TensorView* from, TensorView* to) override {
+    bool allowC2P(TensorView* from, TensorView* to) override {
       return to == tv0;
     }
-    virtual bool allowP2C(TensorView* from, TensorView* to) override {
+    bool allowP2C(TensorView* from, TensorView* to) override {
       return to == tv3;
     }
-    virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    bool allowSibling(TensorView* from, TensorView* to) override {
       return false;
     }
     Selector(TensorView* tv0, TensorView* tv3) : tv0(tv0), tv3(tv3) {}
@@ -4405,17 +4396,17 @@ TEST_F(NVFuserTest, FusionMaxRootDomainInfoSpanningTreePrintTwice_CUDA) {
 
   struct Printer : public MaxInfoSpanningTree::Propagator {
     std::stringstream ss;
-    virtual void propagateC2P(TensorView* from, TensorView* to) override {
+    void propagateC2P(TensorView* from, TensorView* to) override {
       ss << "propagateC2P" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
     }
-    virtual void propagateP2C(TensorView* from, TensorView* to) override {
+    void propagateP2C(TensorView* from, TensorView* to) override {
       ss << "propagateP2C" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
     }
-    virtual void propagateSibling(TensorView* from, TensorView* to) override {
+    void propagateSibling(TensorView* from, TensorView* to) override {
       ss << "propagateSibling" << std::endl;
       ss << "from: " << from->name() << std::endl;
       ss << "to: " << to->name() << std::endl;
@@ -5923,7 +5914,8 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguitySelfOverlapping_CUDA) {
     auto stride2 = std::get<2>(tup);
     auto vec = std::get<3>(tup);
     std::vector<int64_t> shape = {4, 4, 12345, size, 3};
-    std::vector<int64_t> stride = {stride1, stride2 * 12345, stride2, 3, 1};
+    std::vector<int64_t> stride = {
+        stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
     at::Tensor t0 = at::empty_strided(shape, stride, options);
     t0.random_();
     auto cg_outputs = fec.runFusionWithInputs({t0});
@@ -6184,11 +6176,11 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
 
   {
     auto t0 = at::randn({768}, options);
-    inputs.push_back(t0);
+    inputs.push_back((c10::IValue)t0);
     auto t1 = at::randn({768}, options);
-    inputs.push_back(t1);
+    inputs.push_back((c10::IValue)t1);
     auto t2 = at::randn({1024, 768}, options).to(at::ScalarType::Half);
-    inputs.push_back(t2);
+    inputs.push_back((c10::IValue)t2);
     auto t3 = t0.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t4 = t1.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t5 = t2.view({1, 1024, 768});
@@ -6203,7 +6195,8 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
     auto t14 = at::mul(t8, t13);
     auto t15 = t14.to(at::ScalarType::Half);
     auto t16 = t15.to(at::ScalarType::Float);
-    auto t17_t18 = at::var_mean(t16, {2}, 0, false);
+    auto t17_t18 =
+        at::var_mean(t16, {2}, /*unbiased*/ false, /*keepdim*/ false);
     auto t17 = std::get<0>(t17_t18);
     auto t18 = std::get<1>(t17_t18);
     auto t19 = t17.unsqueeze(2).expand({1, 1024, 1});
@@ -6307,7 +6300,6 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
   auto t7 = t1.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand({w, x, y, -1});
   auto t8 = t2.unsqueeze(-1);
   auto t10 = t3.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand({w, x, y, -1});
-  auto t9 = t4;
 
   auto t13 = t8 + 1.e-6;
   auto t14 = t4 - t12;
@@ -6530,10 +6522,10 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
-  for (auto input_type : data_types) {
+  for (const auto& input_type : data_types) {
     auto tv_in = makeContigTensor(2, input_type);
     fusion.addInput(tv_in);
-    for (auto output_type : data_types) {
+    for (const auto& output_type : data_types) {
       auto tv_out = castOp(output_type, tv_in);
       fusion.addOutput(tv_out);
     }
@@ -6543,10 +6535,10 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
 
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
-  for (auto input_type : data_types) {
+  for (const auto& input_type : data_types) {
     at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
     inputs.emplace_back(t);
-    for (auto output_type : data_types) {
+    for (const auto& output_type : data_types) {
       outputs.emplace_back(t.to(data_type_to_aten(output_type)));
     }
   }
@@ -6771,57 +6763,55 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
 
     using kir::IrVisitor::handle;
 
-    void handle(UnaryOp* uop) final {
-      if (uop->getUnaryOpType() == UnaryOpType::Set) {
-        if (uop->out()->as<kir::TensorIndex>()->view()->name() == 2) {
-          // Make sure the index of the inner loop isn't used in the
-          // predicate of the tv2 expression
-          TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
-          TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
-          auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
-          auto cond = ite->predicate()->value();
-          // Make sure the index of the inner loop isn't used in the predicate
-          TORCH_INTERNAL_ASSERT(!for_loops_.empty());
-          auto loop_index = for_loops_.back()->index();
-          auto cond_inputs = InputsOf::output(cond->fusion(), cond);
-          auto index_it =
-              std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
-          auto vec_factor_it = std::find_if(
-              cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-                auto int_val = inp->getInt();
-                return int_val.has_value() &&
-                    (int_val.value() == vec_factor - 1 ||
-                     int_val.value() == -(vec_factor - 1));
-              });
-          // If vectorized, the predicate should use (vec_factor - 1) or
-          // -(vec_factor - 1) rather than the loop index.
-          if (vectorized_) {
-            TORCH_CHECK(
-                index_it == cond_inputs.end(),
-                "Not expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it != cond_inputs.end(),
-                "Expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          } else {
-            TORCH_CHECK(
-                index_it != cond_inputs.end(),
-                "Expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it == cond_inputs.end(),
-                "Not expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          }
+    void handle(LoadStoreOp* ldst) final {
+      if (ldst->out()->as<kir::TensorIndex>()->view()->name() == 2) {
+        // Make sure the index of the inner loop isn't used in the
+        // predicate of the tv2 expression
+        TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+        TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
+        auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
+        auto cond = ite->predicate()->value();
+        // Make sure the index of the inner loop isn't used in the predicate
+        TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+        auto loop_index = for_loops_.back()->index();
+        auto cond_inputs = InputsOf::output(cond->fusion(), cond);
+        auto index_it =
+            std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
+        auto vec_factor_it =
+            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
+              auto int_val = inp->getInt();
+              return int_val.has_value() &&
+                  (int_val.value() == vec_factor - 1 ||
+                   int_val.value() == -(vec_factor - 1));
+            });
+        // If vectorized, the predicate should use (vec_factor - 1) or
+        // -(vec_factor - 1) rather than the loop index.
+        if (vectorized_) {
+          TORCH_CHECK(
+              index_it == cond_inputs.end(),
+              "Not expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it != cond_inputs.end(),
+              "Expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
+        } else {
+          TORCH_CHECK(
+              index_it != cond_inputs.end(),
+              "Expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it == cond_inputs.end(),
+              "Not expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
         }
       }
     }
@@ -7430,10 +7420,11 @@ TEST_F(NVFuserTest, FusionExprSortMatmulLikeSchedule_CUDA) {
 
   at::Tensor t0 = at::randn({M1, M2, K1, K2}, options);
   at::Tensor t1 = at::randn({N1, N2, K1, K2}, options);
-  auto expect =
-      at::mm(t0.view({M1 * M2, K1 * K2}), t1.view({N1 * N2, K1 * K2}).t())
-          .view({M1, M2, N1, N2})
-          .transpose(1, 2);
+  auto expect = at::mm(
+                    t0.view({(int64_t)(M1 * M2), (int64_t)(K1 * K2)}),
+                    t1.view({(int64_t)(N1 * N2), (int64_t)(K1 * K2)}).t())
+                    .view({M1, M2, N1, N2})
+                    .transpose(1, 2);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -7602,9 +7593,7 @@ class ThreadPredChecker : public kir::IrVisitor {
     for (auto expr : ite->thenBody().exprs()) {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
-          expr->isA<UnaryOp>() &&
-          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set &&
-          ite->predicate()->hasValue()) {
+          expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
         handle(ite->predicate()->value());
       }
     }
@@ -7915,7 +7904,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   c10::cuda::CUDACachingAllocator::emptyCache();
 }
 
-//! Test whether we can create and use half-precision scalars
+//! Test whether we can create and use float16 scalars
 TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -7923,31 +7912,57 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   auto tv0 = makeSymbolicTensor(1, DataType::Half);
   fusion->addInput(tv0);
 
-  auto tv1 = makeSymbolicTensor(1, DataType::BFloat16);
-  fusion->addInput(tv1);
-
   auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::Half));
   fusion->addOutput(tv2);
-
-  auto tv3 = full_like(tv1, IrBuilder::create<Double>(1.7, DataType::BFloat16));
-  fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::manual_seed(0);
   at::Tensor t0 = at::zeros({5}, options);
-  at::Tensor t1 = at::zeros({5}, options.dtype(at::kBFloat16));
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      {t0, t1},
-      {at::ones_like(t0) * 1.5, at::ones_like(t1) * 1.7},
+      {t0},
+      {at::ones_like(t0) * 1.5},
       __LINE__,
       __FILE__);
 }
+
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+//! Test whether we can create and use BFloat16 scalars
+TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
+  // requires ampere+ GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping BFloat16Scalars test on pre-AMPERE GPUs";
+  }
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion->addInput(tv0);
+
+  auto tv2 = full_like(tv0, IrBuilder::create<Double>(1.5, DataType::BFloat16));
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::zeros({5}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0},
+      {at::ones_like(t0) * 1.5},
+      __LINE__,
+      __FILE__);
+}
+#endif
 
 // Quick test of traversing attributes with IterVisitor
 TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
@@ -7996,12 +8011,8 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
     size_t magic_number;
   } data2{tv0, tv1, 0x123456789abcdef};
   auto clone_fn = [](IrCloner& cloner, std::any data) -> std::any {
-    T2 result;
     auto d = std::any_cast<T2>(data);
-    result.input = cloner.clone(d.input);
-    result.output = cloner.clone(d.output);
-    result.magic_number = d.magic_number;
-    return result;
+    return T2{cloner.clone(d.input), cloner.clone(d.output), d.magic_number};
   };
 
   auto i1 = fusion.manage(data1);

@@ -56,7 +56,7 @@ const std::vector<Val*>& AggregateDag::MCFusionOutputs() const {
 }
 
 void AggregateDag::buildAVals() {
-  for (auto cluster : MCFusion_->clusters()) {
+  for (const auto& cluster : MCFusion_->clusters()) {
     for (auto output_val : cluster->outputs().vector()) {
       auto av = IrBuilder::create<AggregateVal>(
           this->as<IrContainer>(), output_val, cluster);
@@ -81,7 +81,7 @@ void AggregateDag::buildAVals() {
 }
 
 void AggregateDag::buildAExpr() {
-  for (auto cluster : MCFusion_->clusters()) {
+  for (const auto& cluster : MCFusion_->clusters()) {
     IrBuilder::create<AggregateExpr>(this->as<IrContainer>(), cluster);
   }
 }
@@ -226,7 +226,7 @@ std::string AggregateExpr::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(AggregateExpr)
 
 bool AggregateExpr::sameAs(const Statement* other) const {
-  if (!Statement::sameAs(other)) {
+  if (!Expr::sameAs(other)) {
     return false;
   }
   return cluster_ == other->as<AggregateExpr>()->getCluster();
@@ -283,7 +283,7 @@ AggregateVal::AggregateVal(const AggregateVal* src, IrCloner* ir_cloner)
       cluster_(src->cluster_) {}
 
 bool AggregateVal::sameAs(const Statement* other) const {
-  if (!Statement::sameAs(other)) {
+  if (!Val::sameAs(other)) {
     return false;
   }
   const auto other_aggregate_val = other->as<AggregateVal>();

@@ -27,8 +27,16 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "kernel_cache.h"
 
 namespace nvfuser {
+
+// Make s Stack used for TorchScript execution
+inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
+  return torch::jit::Stack(
+      std::make_move_iterator(list.begin()),
+      std::make_move_iterator(list.end()));
+}
 
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
@@ -431,10 +439,39 @@ inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
   return false;
 }
 
+inline bool cudaArchGuardShouldSkip(
+    int lower_major, // inclusive
+    int lower_minor, // inclusive
+    int upper_major, // exclusive
+    int upper_minor // exclusive
+) {
+  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
+  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  if (capability_major < lower_major ||
+      (capability_major == lower_major && capability_minor < lower_minor)) {
+    return true;
+  }
+  if (capability_major > upper_major ||
+      (capability_major == upper_major && capability_minor >= upper_minor)) {
+    return true;
+  }
+  return false;
+}
+
 #define NVFUSER_TEST_CUDA_ARCH_GUARD(REQUIRED_MAJOR, REQUIRED_MINOR)          \
   if (cudaArchGuardShouldSkip(REQUIRED_MAJOR, REQUIRED_MINOR)) {              \
     GTEST_SKIP() << "Requires GPU capability above " << REQUIRED_MAJOR << "." \
                  << REQUIRED_MINOR << " to run.\n";                           \
+  }
+
+#define NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(                             \
+    LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)                 \
+  if (cudaArchGuardShouldSkip(                                          \
+          LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)) {        \
+    GTEST_SKIP() << "Requires GPU capability >= " << LOWER_MAJOR << "." \
+                 << LOWER_MINOR << " and < " << UPPER_MAJOR << "."      \
+                 << UPPER_MINOR << " to run.\n";                        \
   }
 
 #define NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(                                \
@@ -468,11 +505,34 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     int K,
     MatmulLayout layout);
 
+// Labels to describe tensor position in matmul:
+// A, B - input
+// C - input if beta is provided, shape must be the same as output (D)
+// D - output
+enum class TensorMatmulPos { A, B, C, D };
+
+// Utility to generate buffers based on given problem, layout and tensor
+// position in matmul
+at::Tensor matmulAtInput(
+    const int M,
+    const int N,
+    const int K,
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dType = at::kHalf,
+    const int device = 0);
+
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
   if (at::cuda::getDeviceProperties(device_idx)->sharedMemPerBlockOptin <   \
       required_size) {                                                      \
     GTEST_SKIP() << "not enough shared memory space on device to run test"; \
   }
+
+// Utility to check if for given kernel the expected scheduler has
+// been used
+bool isSchedulerInUse(
+    nvfuser::FusionKernelRuntime* kernel_rt,
+    const ScheduleHeuristic& scheduler);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

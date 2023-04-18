@@ -398,7 +398,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
  private:
   //! Unique name for segmented fusion
-  int segmented_fusion_name_;
+  size_t segmented_fusion_name_;
 
   //! States representing segmentation
   std::vector<SegmentedEdge*> edges_;
@@ -463,6 +463,10 @@ class TORCH_CUDA_CU_API SegmentedFusion {
     return counter++;
   }
 };
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const SegmentedFusion* segmented_fusion);
 
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that

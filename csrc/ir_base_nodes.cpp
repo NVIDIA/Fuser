@@ -30,13 +30,11 @@
 
 namespace nvfuser {
 
-Statement::Statement(IrBuilderPasskey passkey) {
-  ir_container_ = passkey.ir_container_;
-}
+Statement::Statement(IrBuilderPasskey passkey)
+    : ir_container_{passkey.ir_container_} {}
 
-Statement::Statement(const Statement* src, IrCloner* ir_cloner) {
-  ir_container_ = ir_cloner->container();
-}
+Statement::Statement(const Statement* src, IrCloner* ir_cloner)
+    : ir_container_{ir_cloner->container()} {}
 
 NVFUSER_DEFINE_CLONE(Statement)
 
@@ -92,7 +90,7 @@ kir::Kernel* Statement::kernel() const {
 
 // When we create a Val we immediately register them with the active fusion.
 Val::Val(IrBuilderPasskey passkey, ValType _vtype, DataType _dtype)
-    : Statement(passkey), vtype_(_vtype), dtype_(_dtype) {}
+    : Statement(passkey), vtype_(_vtype), dtype_(std::move(_dtype)) {}
 
 // NOTE: we don't clone the definition_ and uses_ here
 //  since they may introduce cloning cycles. Instead, we copy
@@ -112,6 +110,27 @@ const std::vector<Expr*>& Val::uses() const {
     }
   }
   return uses_;
+}
+
+bool Val::addUse(Expr* expr) {
+  if (std::find(uses_.begin(), uses_.end(), expr) == uses_.end()) {
+    uses_.push_back(expr);
+    return true;
+  }
+  return false;
+}
+
+bool Val::removeUse(Expr* expr) {
+  auto it = std::find(uses_.begin(), uses_.end(), expr);
+  if (it != uses_.end()) {
+    uses_.erase(it);
+    if (this->isA<TensorView>()) {
+      // Call for a rebuild of uses_ vector
+      fusion()->invalidateTvUses();
+    }
+    return true;
+  }
+  return false;
 }
 
 // Converts the data type of TensorView or Scalar representing index

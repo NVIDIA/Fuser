@@ -99,7 +99,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
               n_tensor_inputs * max_input_dtype_size * active_threads)),
       (int64_t)16);
 
-  // Take the smaller
+  // Take the smaller, warp_size may be a odd number, e.g. 15
+  // Tracked at https://github.com/NVIDIA/Fuser/issues/107
   const int64_t warp_size =
       std::min(warp_size_based_on_l1, warp_size_based_on_l2);
 
@@ -180,8 +181,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Round up to nearest warp.
   if (max_threads_in_block % warp_size != 0) {
     max_threads_in_block += warp_size - max_threads_in_block % warp_size;
+    max_threads_in_block =
+        std::min(max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
   }
-
   // Compute maximum number of reductions we could do in the same kernel based
   // on persistent buffer size
   const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
@@ -239,35 +241,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Put everything else in bdimy for now
   bdimy = std::min(
       scheduler_utils::safeDiv(warp_size, bdimx), max_multi_reduction_factor);
-
   // If 3D fill the rest of the threads into bdimz
   bdimz = std::min(
       std::min(
           scheduler_utils::safeDiv(max_threads_in_block, bdimx * bdimy),
           outer_reduction_numel),
       scheduler_utils::z_block_limit);
-
-  // If we don't have a full warp and have an unroll factor, move unroll into
-  // bdimx
-  if (bdimx * bdimy * bdimz < warp_size && inner_reduction_unroll_factor > 1) {
-    bdimx = std::min(
-        std::max(inner_most_dimension_numel, warp_size), max_threads_in_block);
-
-    inner_reduction_unroll_factor =
-        std::min(ceilDiv(inner_most_dimension_numel, bdimx), max_unroll);
-
-    // Readjust bdimy and bdimz
-    bdimy = std::min(
-        scheduler_utils::safeDiv(warp_size, bdimx), max_multi_reduction_factor);
-
-    bdimz = std::min(
-        scheduler_utils::safeDiv(max_threads_in_block, bdimx * bdimy),
-        outer_reduction_numel);
-
-    bdimy = std::min(
-        scheduler_utils::safeDiv(max_threads_in_block, bdimx * bdimz),
-        max_multi_reduction_factor);
-  }
 
   bool vectorize = false;
 
@@ -287,6 +266,17 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     bdimx = std::min(
         scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
   }
+
+  // If we don't have a full warp, let's do multiple reductions per block.
+  // Still keep vectorization as it is important for performance since V100.
+  // Limit block size to 4 warps to avoid occupancy and SM wave tail issues.
+  if (bdimx * bdimy * bdimz < warp_size) {
+    bdimy = std::min(
+        scheduler_utils::safeDiv(
+            scheduler_per_sm * dev_prop->warpSize, bdimx * bdimz),
+        max_multi_reduction_factor);
+  }
+
   // Set size of persistent per thread buffer on inner reduction buffer
   // if too large, will be reduced later to reduce register usage
   int64_t batches_per_block_inner_reduction = ceilDiv(

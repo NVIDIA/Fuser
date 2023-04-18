@@ -32,6 +32,22 @@ exclude_list = (
     "./tools/update_copyright.py",
     "./examples/sinh_libtorch/main.cpp",
     "./version.txt",
+    "./test/main.cpp",
+    "Dependencies.cmake",
+    "FlatBuffers.cmake",
+    # lint adapters are taken from pytorch
+    "tools/linter/adapters/black_linter.py",
+    "tools/linter/adapters/clangformat_linter.py",
+    "tools/linter/adapters/clangtidy_linter.py",
+    "tools/linter/adapters/exec_linter.py",
+    "tools/linter/adapters/flake8_linter.py",
+    "tools/linter/adapters/grep_linter.py",
+    "tools/linter/adapters/mypy_linter.py",
+    "tools/linter/adapters/newlines_linter.py",
+    "tools/linter/adapters/pip_init.py",
+    "tools/linter/adapters/README.md",
+    "tools/linter/adapters/s3_init_config.json",
+    "tools/linter/adapters/s3_init.py",
 )
 
 

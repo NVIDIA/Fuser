@@ -87,8 +87,8 @@ Expr* ShiftPredicateInserter::insert(
       PredicateType::Padding, expr, thread_pred);
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
   const int pad_value = 0;
-  auto pad_expr = IrBuilder::create<UnaryOp>(
-      UnaryOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
+  auto pad_expr = IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -117,7 +117,7 @@ void AxisHaloInfo::merge(int pos, int other) {
 
 void AxisHaloInfo::merge(const AxisHaloInfo& other) {
   for (const auto i : c10::irange(widths_.size())) {
-    merge(i, other.width(i));
+    merge((int)i, other.width((int)i));
   }
 }
 

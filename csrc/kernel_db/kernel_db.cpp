@@ -118,7 +118,7 @@ bool KernelDb::open(
         bool matched_header = false;
         bool read_db_file = true;
         std::regex db_line_regex(
-            "^([\\w-]+),([\\w -\\=]+),([\\w-\\/]+\\.cu),([\\w-\\/]+\\.cubin)$");
+            R"(^([\w-]+),([\w -\=]+),([\w-\/]+\.cu),([\w-\/]+\.cubin)$)");
         for (std::string line; std::getline(in_file, line);) {
           if (!matched_header) {
             if (line.compare(header) == 0) {

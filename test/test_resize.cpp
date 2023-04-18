@@ -993,12 +993,8 @@ TEST_F(NVFuserTest, FusionResizeSlice3_CUDA) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  TORCH_CHECK(
-      tv1->definition()->isA<UnaryOp>() &&
-      tv1->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set);
-  TORCH_CHECK(
-      tv2->definition()->isA<UnaryOp>() &&
-      tv2->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set);
+  TORCH_CHECK(tv1->definition()->isA<LoadStoreOp>());
+  TORCH_CHECK(tv2->definition()->isA<LoadStoreOp>());
 }
 
 // Partition an input, reduce each and concatenate them
@@ -1814,14 +1810,13 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
     auto out_tv = ir_utils::getTvOutput(expr);
     if (out_tv->name() == tv3->name() || out_tv->name() == tv5->name()) {
       TORCH_CHECK(
-          expr->isA<UnaryOp>() &&
-              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set,
+          expr->isA<LoadStoreOp>(),
           "Unexpected defintion of slice output tensor: ",
           out_tv->toString(),
           ", ",
           expr->toString());
       auto producer =
-          dynamic_cast<kir::TensorIndex*>(expr->as<UnaryOp>()->in());
+          dynamic_cast<kir::TensorIndex*>(expr->as<LoadStoreOp>()->in());
       if (producer == nullptr) {
         // this could be a default initialization
         continue;
@@ -1858,10 +1853,8 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   // The slice producer must be a copy of tv2
   TORCH_CHECK(
       known_slice_producer->definition() &&
-          known_slice_producer->definition()->isA<UnaryOp>() &&
-          known_slice_producer->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set &&
-          known_slice_producer->definition()->as<UnaryOp>()->in()->name() ==
+          known_slice_producer->definition()->isA<LoadStoreOp>() &&
+          known_slice_producer->definition()->as<LoadStoreOp>()->in()->name() ==
               tv2->name(),
       "Unexpected slice producer: ",
       known_slice_producer->toString());
@@ -1928,8 +1921,10 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto kernel =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto kernel = runtime->executors().at(0).kernel();
   TORCH_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
@@ -1988,6 +1983,64 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
       {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
 
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+// Make sure resize works with the transpose scheduler
+TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Set the problem size so that it can trigger the transpose
+  // scheduler. The scheduler selection is validated below.
+  auto num_sms =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  std::vector<int64_t> shape({num_sms + 2, 32 * 32 + 10});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Int>(1), IrBuilder::create<Int>(shape.at(0) - 1)},
+       {IrBuilder::create<Int>(2), IrBuilder::create<Int>(shape.at(1) - 2)}});
+  auto tv3 = transpose(tv2, 0, 1);
+  fusion->addOutput(tv3);
+  auto tv4 = add(tv2, IrBuilder::create<Double>(1));
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto ref_t2 = (t0 + 1).index(
+      {at::indexing::Slice(1, shape.at(0) - 1),
+       at::indexing::Slice(2, shape.at(1) - 2)});
+  auto ref_t3 = ref_t2.transpose(0, 1);
+  auto ref_t4 = ref_t2 + 1;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref_t3, ref_t4},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

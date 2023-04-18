@@ -41,7 +41,6 @@
 #include <transform_rfactor.h>
 
 #include <parser.h>
-#include <test/cpp/jit/test_utils.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -2878,16 +2877,12 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
 
 TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
   std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  // TODO: enable this for complex. Currently, complex yields
-  // silent wrong results:
-  //   Detected abs error of: 3.8062
-  //     absolute tolerance was set to 2.23704e-06
-  //     and relative tolerance set to 2.23704e-08
-  // Reason: variance of complex numbers is a real value instead of a complex
-  // number to enable complex number with Welford, we need to either (1)
-  // find/invent a specific version of Welford for complex numbers or (2)
-  // translate Welford to two-pass approach
+      DataType::ComplexFloat,
+      DataType::ComplexDouble,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half};
+
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
@@ -2959,7 +2954,8 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
 } // namespace
 
 TEST_F(NVFuserTest, FusionVarMean_CUDA) {
-  std::vector<at::ScalarType> dtypes = {at::kFloat, at::kDouble};
+  std::vector<at::ScalarType> dtypes = {
+      at::kFloat, at::kDouble, at::kComplexFloat, at::kComplexDouble};
   std::vector<int> corrections = {0, 1};
   std::vector<bool> keepdims = {false, true};
   for (auto correction : corrections) {
@@ -7889,11 +7885,6 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   // actual values are not statically known
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
-  for (const auto i : c10::irange(tv1->domain()->domain().size())) {
-    auto dom1 = tv1->domain()->domain()[i];
-    auto dom2 = tv2->domain()->domain()[i];
-    TORCH_INTERNAL_ASSERT(pdmap.equalDim(dom1->extent(), dom2->extent()));
-  }
 
   TORCH_CHECK(pdmap.isExact(ParallelType::TIDx));
   TORCH_CHECK(
@@ -7955,7 +7946,6 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
       fusion.get(), outputs, {input1, input2}, {ref}, __LINE__, __FILE__);
 }
 
-// Mix symbolic and concrete tensors
 TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -7988,14 +7978,10 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
 
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
-  TORCH_CHECK(!pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(
-      pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
-      pdmap.get(ParallelType::TIDx)->as<NamedScalar>()->name() == "blockDim.x");
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDy));
-  TORCH_CHECK(
-      pdmap.get(ParallelType::TIDy)->isConst() &&
-      pdmap.get(ParallelType::TIDy)->as<Int>()->value().value() == 10);
+  ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
+  ASSERT_EQ(pdmap.get(ParallelType::TIDx)->getInt(), 20);
+  ASSERT_TRUE(pdmap.isExact(ParallelType::TIDy));
+  ASSERT_EQ(pdmap.get(ParallelType::TIDy)->getInt(), 10);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input1 = at::randn({13}, options);
@@ -9040,27 +9026,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i1307;
-  i1307 = T0.size[2] * T0.size[1];
-  int64_t i1310;
-  i1310 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1312;
-  i1312 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i1344;
-  i1344 = i1310 % i1312;
-  int64_t i1321;
-  i1321 = T0.size[2] * T0.size[3];
-  int64_t i1345;
-  i1345 = i1344 % i1321;
-  if ((i1310 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i1435;
+  i1435 = T0.size[2] * T0.size[1];
+  int64_t i1438;
+  i1438 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1440;
+  i1440 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i1472;
+  i1472 = i1438 % i1440;
+  int64_t i1449;
+  i1449 = T0.size[2] * T0.size[3];
+  int64_t i1473;
+  i1473 = i1472 % i1449;
+  if ((i1438 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1307 * T0.size[3]) * (i1310 / i1312)) + (i1307 * (i1345 % T0.size[3]))) + (T0.size[2] * (i1344 / i1321))) + (i1345 / T0.size[3]))];
+       = T2[(((((i1435 * T0.size[3]) * (i1438 / i1440)) + (i1435 * (i1473 % T0.size[3]))) + (T0.size[2] * (i1472 / i1449))) + (i1473 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1310];
+       = T0[i1438];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9080,7 +9066,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1310]
+    T7[i1438]
        = T10[0];
   }
 }

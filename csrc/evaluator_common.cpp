@@ -191,7 +191,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
 void PrecomputedValues::initializeValueList(
     const std::vector<Val*>& sorted_value_list) {
   // Initialize workspace
-  num_of_values_ = sorted_value_list.size();
+  num_of_values_ = (int)sorted_value_list.size();
   defined_ = std::vector<bool>(num_of_values_, false);
   is_constant_ = std::vector<bool>(num_of_values_, false);
   values_ = std::vector<EvaluatorValue>(num_of_values_, EvaluatorValue(-1));
@@ -312,7 +312,7 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = tensor_arg_abstract->getSize(dim);
+    auto value = tensor_arg_abstract->getSize((int)dim);
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
@@ -326,8 +326,7 @@ void PrecomputedValues::bindTensorMetaData(
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
-    : precomputed_values_(precomputed_values) {
-  num_of_instructions_ = 0;
+    : precomputed_values_(precomputed_values), num_of_instructions_{0} {
   for (auto val : precomputed_values_.symbols_) {
     auto def = val->definition();
     if (def) {
@@ -389,18 +388,22 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
 
 int NaiveValueMachine::makeInstructionEntry() {
   int index = num_of_instructions_++;
-  inst_type_.push_back(InstructionType::UNARY_OP);
-  uop_type_.push_back(UnaryOpType::Abs);
-  bop_type_.push_back(BinaryOpType::Add);
-  data_type_.push_back(DataType::Null);
-  src0_.push_back(-1);
-  src1_.push_back(-1);
-  dest_.push_back(-1);
+  inst_type_.emplace_back(InstructionType::UNARY_OP);
+  uop_type_.emplace_back(UnaryOpType::Abs);
+  bop_type_.emplace_back(BinaryOpType::Add);
+  data_type_.emplace_back(DataType::Null);
+  src0_.emplace_back(-1);
+  src1_.emplace_back(-1);
+  dest_.emplace_back(-1);
   return index;
 }
 
 void NaiveValueMachine::runInstruction(int index) {
   switch (inst_type_[index]) {
+    case InstructionType::SET_OP:
+      precomputed_values_.values_[dest_[index]] =
+          precomputed_values_.values_[src0_[index]];
+      break;
     case InstructionType::UNARY_OP:
       runUnaryOp(index);
       break;
@@ -427,9 +430,6 @@ void NaiveValueMachine::runUnaryOp(int index) {
   switch (uop_type_[index]) {
     case UnaryOpType::Neg:
       dest = -src;
-      break;
-    case UnaryOpType::Set:
-      dest = src;
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {

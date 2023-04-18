@@ -20,6 +20,10 @@ namespace nvfuser {
 // This should match the tensor used in the code generation (almost exactly)
 template <typename T, int N, typename nvfuser_index_t>
 struct TensorArgCodegen {
+  using data_type = T;
+  using index_type = nvfuser_index_t;
+  static constexpr int ndims = N;
+
   T& operator[](nvfuser_index_t ind) {
     return data[ind];
   };
@@ -30,16 +34,16 @@ struct TensorArgCodegen {
   constexpr int nDims() const {
     return N;
   }
-  void setSize(int i, nvfuser_index_t s) {
+  void setSize(int64_t i, nvfuser_index_t s) {
     size[i] = s;
   }
-  void setStride(int i, nvfuser_index_t s) {
+  void setStride(int64_t i, nvfuser_index_t s) {
     stride[i] = s;
   }
-  nvfuser_index_t getSize(int i) const {
+  nvfuser_index_t getSize(int64_t i) const {
     return size[i];
   }
-  nvfuser_index_t getStride(int i) const {
+  nvfuser_index_t getStride(int64_t i) const {
     return stride[i];
   }
 };
@@ -47,6 +51,10 @@ struct TensorArgCodegen {
 // 0-Dim GPU based tensor
 template <typename T, typename nvfuser_index_t>
 struct TensorArgCodegen<T, 0, nvfuser_index_t> {
+  using data_type = T;
+  using index_type = nvfuser_index_t;
+  static constexpr int ndims = 0;
+
   T& operator[](nvfuser_index_t ind) {
     return data[ind];
   };
@@ -55,16 +63,16 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   constexpr int nDims() const {
     return 0;
   }
-  void setSize(int, nvfuser_index_t) {
+  void setSize(int64_t, nvfuser_index_t) {
     TORCH_INTERNAL_ASSERT(false, "Tried to set size of a 0-dim tensor");
   }
-  void setStride(int, nvfuser_index_t) {
+  void setStride(int64_t, nvfuser_index_t) {
     TORCH_INTERNAL_ASSERT(false, "Tried to set stride of a 0-dim tensor");
   }
-  nvfuser_index_t getSize(int i) const {
+  nvfuser_index_t getSize(int64_t i) const {
     TORCH_INTERNAL_ASSERT(false, "Tried to get size of a 0-dim tensor");
   }
-  nvfuser_index_t getStride(int i) const {
+  nvfuser_index_t getStride(int64_t i) const {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
   }
 };
@@ -190,15 +198,9 @@ struct BoolArg : public ArgAbstract {
 };
 
 struct TensorArgAbstract : ArgAbstract {
-  virtual void setSize(int i, int64_t size) = 0;
-  virtual void setStride(int i, int64_t stride) = 0;
-  virtual void setPointer(void* ptr) = 0;
-  virtual void setDataType(DataType data_type) = 0;
-  virtual void setTensor(at::Tensor tensor) = 0;
-
   virtual int64_t getRank() const = 0;
-  virtual int64_t getSize(int i) const = 0;
-  virtual int64_t getStride(int i) const = 0;
+  virtual int64_t getSize(int64_t i) const = 0;
+  virtual int64_t getStride(int64_t i) const = 0;
   virtual void* getPointer() const = 0;
   virtual DataType getDataType() const = 0;
   virtual int64_t numel() const = 0;
@@ -207,35 +209,36 @@ struct TensorArgAbstract : ArgAbstract {
   std::string toString() const override;
 };
 
-template <typename TENSOR_TYPE, typename nvfuser_index_t>
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
-  // TODO: this is ugly, we should be extracting data type from `instance_`
-  // instead
-  DataType data_type_ = DataType::Null;
   at::Tensor tensor_;
 
-  void setSize(int i, int64_t size) override {
-    instance_.setSize(i, (nvfuser_index_t)size);
+  TensorArg(const at::Tensor& tensor) : tensor_(tensor) {
+    setPointer(tensor.data_ptr());
+    for (const auto i : c10::irange(tensor.ndimension())) {
+      setSize(i, tensor.sizes()[i]);
+      setStride(i, tensor.strides()[i]);
+    }
   }
-  void setStride(int i, int64_t stride) override {
-    instance_.setStride(i, (nvfuser_index_t)stride);
+
+  void setSize(int64_t i, int64_t size) {
+    instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
   }
-  void setPointer(void* ptr) override {
+  void setStride(int64_t i, int64_t stride) {
+    instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
+  }
+  void setPointer(void* ptr) {
     instance_.data = static_cast<decltype(TENSOR_TYPE::data)>(ptr);
   }
-  void setDataType(DataType data_type) override {
-    data_type_ = data_type;
-  }
-  void setTensor(at::Tensor tensor) override {
+  void setTensor(at::Tensor tensor) {
     tensor_ = tensor;
   }
 
-  int64_t getSize(int i) const override {
+  int64_t getSize(int64_t i) const override {
     return instance_.getSize(i);
   }
-  int64_t getStride(int i) const override {
+  int64_t getStride(int64_t i) const override {
     return instance_.getStride(i);
   }
   int64_t getRank() const override {
@@ -245,7 +248,8 @@ struct TensorArg : public TensorArgAbstract {
     return instance_.data;
   }
   DataType getDataType() const override {
-    return data_type_;
+    return NativeTypeWithC10ComplexToDataType<
+        typename TENSOR_TYPE::data_type>::type;
   }
   at::Tensor getTensor() const override {
     return tensor_;
@@ -354,8 +358,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void appendPhiloxRNGSeed(uint64_t rand_offset);
 
-  const ArgAbstract* operator[](int ind) const {
+  const ArgAbstract* at(size_t ind) const {
     return arguments_.at(ind).get();
+  };
+
+  const ArgAbstract* operator[](size_t ind) const {
+    return at(ind);
   };
 
   size_t size() const {
@@ -366,11 +374,11 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.empty();
   }
 
-  void setDeviceIndex(int index) {
+  void setDeviceIndex(int8_t index) {
     device_index_ = index;
   }
 
-  int getDeviceIndex() const {
+  int8_t getDeviceIndex() const {
     return device_index_;
   }
 
@@ -389,7 +397,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::vector<void*> void_ptrs_;
   bool changed_ = true;
 
-  int device_index_ = 0;
+  int8_t device_index_ = 0;
   c10::optional<size_t> cache_id_ = c10::nullopt;
   KernelIndexMode index_mode_ = KernelIndexMode::INT64;
 };

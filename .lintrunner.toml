@@ -1,0 +1,274 @@
+[[linter]]
+code = 'FLAKE8'
+include_patterns = ['**/*.py']
+exclude_patterns = [
+    '.git/**',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/flake8_linter.py',
+    '--',
+    '@{{PATHSFILE}}'
+]
+init_command = [
+    'python3',
+    'tools/linter/adapters/pip_init.py',
+    '--dry-run={{DRYRUN}}',
+    'flake8==3.8.2',
+    'flake8-bugbear==20.1.4',
+    'flake8-comprehensions==3.3.0',
+    'flake8-executable==2.0.4',
+    'flake8-pyi==20.5.0',
+    'mccabe==0.6.1',
+    'pycodestyle==2.6.0',
+    'pyflakes==2.2.0',
+]
+
+
+[[linter]]
+code = 'CLANGFORMAT'
+include_patterns = [
+    '**/*.h',
+    '**/*.cpp',
+    '**/*.cu',
+]
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/clangformat_linter.py',
+    '--binary=.lintbin/clang-format',
+    '--',
+    '@{{PATHSFILE}}'
+]
+init_command = [
+    'python3',
+    'tools/linter/adapters/s3_init.py',
+    '--config-json=tools/linter/adapters/s3_init_config.json',
+    '--linter=clang-format',
+    '--dry-run={{DRYRUN}}',
+    '--output-dir=.lintbin',
+    '--output-name=clang-format',
+]
+is_formatter = true
+
+[[linter]]
+code = 'CLANGTIDY'
+include_patterns = [
+    '**/*.cpp',
+]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+    'third_party/**',
+]
+
+init_command = [
+    'python3',
+    'tools/linter/adapters/s3_init.py',
+    '--config-json=tools/linter/adapters/s3_init_config.json',
+    '--linter=clang-tidy',
+    '--dry-run={{DRYRUN}}',
+    '--output-dir=.lintbin',
+    '--output-name=clang-tidy',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/clangtidy_linter.py',
+    '--binary=.lintbin/clang-tidy',
+    '--build_dir=./build',
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = 'MYPY'
+include_patterns = [
+    '**/*.py',
+    '**/*.pyi',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/mypy_linter.py',
+    '--config=mypy.ini',
+    '--',
+    '@{{PATHSFILE}}'
+]
+init_command = [
+    'python3',
+    'tools/linter/adapters/pip_init.py',
+    '--dry-run={{DRYRUN}}',
+    'numpy==1.21.6',
+    'expecttest==0.1.3',
+    'mypy==0.950',
+    'types-requests==2.27.25',
+    'types-six==1.16.15',
+    'types-PyYAML==6.0.7',
+    'types-tabulate==0.8.8',
+    'types-protobuf==3.19.18',
+    'types-pkg-resources==0.1.3',
+    'types-Jinja2==2.11.9',
+    'junitparser==2.1.1',
+    'rich==10.9.0',
+    'pyyaml==6.0',
+]
+
+[[linter]]
+code = 'MYPYSTRICT'
+include_patterns = [
+    '**/*.py',
+]
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/mypy_linter.py',
+    '--config=mypy-strict.ini',
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = 'TYPEIGNORE'
+include_patterns = ['**/*.py', '**/*.pyi']
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=# type:\s*ignore([^\[]|$)',
+    '--linter-name=TYPEIGNORE',
+    '--error-name=unqualified type: ignore',
+    """--error-description=\
+        This line has an unqualified `type: ignore`; \
+        please convert it to `type: ignore[xxxx]`\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = 'NOQA'
+include_patterns = ['**/*.py', '**/*.pyi']
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=# noqa([^:]|$)',
+    '--linter-name=NOQA',
+    '--error-name=unqualified noqa',
+    """--error-description=\
+        This line has an unqualified `noqa`; \
+        please convert it to `noqa: XXXX`\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+
+[[linter]]
+code = 'NEWLINE'
+include_patterns=['**']
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/newlines_linter.py',
+    '--',
+    '@{{PATHSFILE}}',
+]
+is_formatter = true
+
+[[linter]]
+code = 'SPACES'
+include_patterns = ['**']
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=[[:blank:]]$',
+    '--linter-name=SPACES',
+    '--error-name=trailing spaces',
+    '--replace-pattern=s/[[:blank:]]+$//',
+    """--error-description=\
+        This line has trailing spaces; please remove them.\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = 'TABS'
+include_patterns = ['**']
+exclude_patterns = [
+    '**/*Makefile',
+    '**/.gitattributes',
+    '**/.gitmodules',
+    '.lintrunner.toml',
+    'CMakeLists.txt',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=	',
+    '--linter-name=TABS',
+    '--error-name=saw some tabs',
+    '--replace-pattern=s/\t/    /',
+    """--error-description=\
+        This line has tabs; please replace them with spaces.\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+
+[[linter]]
+code = 'EXEC'
+include_patterns = ['**']
+exclude_patterns = [
+    '**/*.so',
+    '**/*.py',
+    '**/*.sh',
+    '**/*.bash',
+    '**/git-pre-commit',
+    '**/git-clang-format',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/exec_linter.py',
+    '--',
+    '@{{PATHSFILE}}',
+]
+
+[[linter]]
+code = 'BLACK'
+include_patterns = [
+    '**/*.py',
+]
+exclude_patterns = [
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/black_linter.py',
+    '--',
+    '@{{PATHSFILE}}'
+]
+init_command = [
+    'python3',
+    'tools/linter/adapters/pip_init.py',
+    '--dry-run={{DRYRUN}}',
+    '--no-binary',
+    'black==22.3.0',
+]
+is_formatter = true

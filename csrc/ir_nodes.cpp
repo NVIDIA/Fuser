@@ -353,9 +353,6 @@ std::vector<EvaluatorValue> UnaryOp::evaluate(
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
-    case UnaryOpType::Set:
-      return {in};
-      break;
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
         return {EvaluatorValue(in.cast<int64_t>())};
@@ -742,46 +739,49 @@ BroadcastOp::BroadcastOp(
 
   addOutput(out);
   addInput(in);
+
+  // Validate the broadcast flags when this expr is created with
+  // TensorView. Broadcast with TensorIndex only appears after
+  // lowering, so it should have already been validated.
+  if (out->isA<TensorView>()) {
+    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    auto in_tv = in->as<TensorView>();
+    auto out_tv = out->as<TensorView>();
+    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+    auto& out_dom = out_tv->getRootDomain();
+    TORCH_INTERNAL_ASSERT(
+        is_broadcast_dims.size() == out_dom.size(),
+        "The dimensions of output tensor and does not match with is_broadcast_dims");
+
+    auto out_size = is_broadcast_dims.size();
+    auto num_new_broadcasts = 0;
+    for (const auto i : c10::irange(out_size)) {
+      if (is_broadcast_dims[i]) {
+        num_new_broadcasts++;
+        auto id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            id->isBroadcast(),
+            "New broadcast dimension does not properly set its IterType.");
+        TORCH_INTERNAL_ASSERT(
+            !id->hasExpandedExtent(),
+            "New broadcast dimension can not be expanded.");
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "New broadcast dimension must have extent 1");
+      } else {
+        auto in_id = in_dom[i - num_new_broadcasts];
+        auto out_id = out_dom[i];
+        TORCH_INTERNAL_ASSERT(
+            in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        out_size == in_dom.size() + num_new_broadcasts,
+        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+  }
+
   addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
       passkey.ir_container_, std::move(is_broadcast_dims)));
-
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
-  auto in_tv = in->as<TensorView>();
-  auto out_tv = out->as<TensorView>();
-  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-  auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
-      is_broadcast_dims.size() == out_dom.size(),
-      "The dimensions of output tensor and does not match with is_broadcast_dims");
-
-  auto out_size = is_broadcast_dims.size();
-  auto num_new_broadcasts = 0;
-  for (const auto i : c10::irange(out_size)) {
-    if (is_broadcast_dims[i]) {
-      num_new_broadcasts++;
-      auto id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(),
-          "New broadcast dimension does not properly set its IterType.");
-      TORCH_INTERNAL_ASSERT(
-          !id->hasExpandedExtent(),
-          "New broadcast dimension can not be expanded.");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "New broadcast dimension must have extent 1");
-    } else {
-      auto in_id = in_dom[i - num_new_broadcasts];
-      auto out_id = out_dom[i];
-      TORCH_INTERNAL_ASSERT(
-          in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      out_size == in_dom.size() + num_new_broadcasts,
-      "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -807,19 +807,19 @@ SqueezeOp::SqueezeOp(
   auto in_type = in->getValType().value();
 
   TORCH_INTERNAL_ASSERT(
-      (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
-          (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
-      "Cannot squeeze a non-tensor object.");
+      in_type == ValType::TensorView,
+      "Squeeze input must be a TensorView: ",
+      in->toString());
+
+  TORCH_INTERNAL_ASSERT(
+      out_type == ValType::TensorView,
+      "Squeeze output must be a TensorView: ",
+      in->toString());
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
 
-  if (!out->isA<TensorView>() || !in->isA<TensorView>()) {
-    return;
-  }
-
+  // Validate the squeeze flags
   auto in_tv = in->as<TensorView>();
   auto out_tv = out->as<TensorView>();
   auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
@@ -851,6 +851,9 @@ SqueezeOp::SqueezeOp(
   TORCH_INTERNAL_ASSERT(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+
+  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
+      passkey.ir_container_, std::move(is_squeeze_dims)));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -970,7 +973,7 @@ std::string GroupedReductionOp::toInlineString(int indent_size) const {
 int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
   auto it = std::find(outputs().begin(), outputs().end(), output_val);
   if (it != outputs().end()) {
-    return std::distance(outputs().begin(), it);
+    return (int)std::distance(outputs().begin(), it);
   }
 
   TORCH_INTERNAL_ASSERT(
@@ -983,7 +986,7 @@ c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
-    return indexToValName(std::distance(begin(), it));
+    return indexToValName((int)std::distance(begin(), it));
   }
 
   return c10::optional<WelfordTriplet::ValName>();
@@ -1002,9 +1005,9 @@ WelfordTriplet WelfordTriplet::clone(IrCloner* ir_cloner) const {
 std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
-  std::vector<WelfordTriplet> cloned;
-  for (const auto& triplet : src) {
-    cloned.emplace_back(triplet.clone(ir_cloner));
+  std::vector<WelfordTriplet> cloned(src.size());
+  for (const auto i : c10::irange(src.size())) {
+    cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
 }
@@ -1305,7 +1308,7 @@ std::string GroupedWelfordOp::toInlineString(int indent_size) const {
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
   for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
-      return expr_idx;
+      return (int)expr_idx;
     }
   }
 
@@ -1323,6 +1326,251 @@ Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
+//==============================================================================================================================
+
+// MmaOp utils
+namespace MmaOpUtils {
+
+// The expected number of concrete domains for gemm
+constexpr size_t expected_gemm_cdomains = 2;
+
+// A helper structure used to gather all data created during analysis
+struct MmaOpDetails {
+  using AxesData = MmaOp::AxesData;
+  // Concrete axes from A that are broadcast in B and are not
+  //  reduction in output
+  AxesData m_axes;
+  // Concrete axes from B that are broadcast in A and are not
+  //  reduction in output
+  AxesData n_axes;
+  // Concrete axes from A that are concrete in B and are
+  //  reduction in output
+  AxesData k_axes;
+  // Concrete or broadcast axes that are present in all inputs
+  //  and output
+  AxesData batch_axes;
+  // A placeholder for mma input layout
+  c10::optional<MmaOptions::MmaInputLayout> input_layout = c10::nullopt;
+};
+
+// A helper structure with pieces of information about TensorView
+struct TensorViewDetails {
+  using AxesData = MmaOp::AxesData;
+  // Broadcast domains
+  AxesData bcasts;
+  // Reduction domains
+  AxesData rdomains;
+  // Concrete domains
+  AxesData cdomains;
+};
+
+// A helper for gathering details about TensorView object
+TensorViewDetails getDetailsFor(const TensorView* tv) {
+  TensorViewDetails details;
+  using DimIdx = int;
+  for (DimIdx pos = 0; pos < static_cast<DimIdx>(tv->nDims()); ++pos) {
+    const auto axis = tv->axis(pos);
+    if (axis->isReduction()) {
+      details.rdomains.push_back(pos);
+      continue;
+    }
+    if (axis->isBroadcast()) {
+      details.bcasts.push_back(pos);
+      continue;
+    }
+    details.cdomains.push_back(pos);
+  }
+  return details;
+}
+
+MmaOptions::MmaInputLayout getInputLayout(
+    const TensorViewDetails& in_a,
+    const TensorViewDetails& in_b,
+    const MmaOp::AxesData& m_axes,
+    const MmaOp::AxesData& n_axes,
+    const MmaOp::AxesData& k_axes) {
+  // TT layout (b - broadcast, r - reduction):
+  // A = [M, K, b]
+  // B = [b, K, N]
+  // C = [M, r, N]
+  if ((m_axes.back() < in_a.bcasts.back()) &&
+      (k_axes.back() < in_a.bcasts.back()) &&
+      (in_b.bcasts.back() < k_axes.back()) &&
+      (in_b.bcasts.back() < n_axes.back())) {
+    return MmaOptions::MmaInputLayout::TT;
+  }
+  // TN layout (b - broadcast, r - reduction):
+  // A = [M, b, K]
+  // B = [b, N, K]
+  // C = [M, N, r]
+  if ((m_axes.back() < in_a.bcasts.back()) &&
+      (in_a.bcasts.back() < k_axes.back()) &&
+      (in_b.bcasts.back() < n_axes.back()) &&
+      (in_b.bcasts.back() < k_axes.back())) {
+    return MmaOptions::MmaInputLayout::TN;
+  }
+  // NT layout (b - broadcast, r - reduction):
+  // A = [K, M, b]
+  // B = [K, b, N]
+  // C = [r, M, N]
+  if ((k_axes.back() < in_a.bcasts.back()) &&
+      (m_axes.back() < in_a.bcasts.back()) &&
+      (k_axes.back() < in_b.bcasts.back()) &&
+      (in_b.bcasts.back() < n_axes.back())) {
+    return MmaOptions::MmaInputLayout::NT;
+  }
+
+  TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
+}
+
+MmaOpDetails getMmaOpDetails(
+    TensorView* out,
+    TensorView* in_a,
+    TensorView* in_b) {
+  const auto in_a_details = getDetailsFor(in_a);
+  const auto in_b_details = getDetailsFor(in_b);
+  const auto out_details = getDetailsFor(out);
+
+  using AxesData = MmaOp::AxesData;
+
+  const auto getMOrNaxes = [](const AxesData& cdomains,
+                              const AxesData& bcasts,
+                              const AxesData& rdomains) {
+    AxesData result;
+    // For all concrete domains
+    for (const auto& cdomain : cdomains) {
+      // That are in broadcast domains but are not in reduction domains
+      if ((std::find(bcasts.begin(), bcasts.end(), cdomain) != bcasts.end()) &&
+          (std::find(rdomains.begin(), rdomains.end(), cdomain) ==
+           rdomains.end())) {
+        result.push_back(cdomain);
+      }
+    }
+    return result;
+  };
+
+  const auto getKaxes = [](const AxesData& cdomains_a,
+                           const AxesData& cdomains_b,
+                           const AxesData& rdomains) {
+    AxesData result;
+    // For all concrete domains from in_a
+    for (const auto& cdomain_a : cdomains_a) {
+      // That are in concrete domains in in_b and are in reduction domains
+      if ((std::find(cdomains_b.begin(), cdomains_b.end(), cdomain_a) !=
+           cdomains_b.end()) &&
+          (std::find(rdomains.begin(), rdomains.end(), cdomain_a) !=
+           rdomains.end())) {
+        result.push_back(cdomain_a);
+      }
+    }
+    return result;
+  };
+
+  const auto getBatchAxes = [](const TensorViewDetails& in_a_details,
+                               const TensorViewDetails& in_b_details,
+                               const TensorViewDetails& out_details) {
+    AxesData result;
+    // Batch candidates:
+    //  concrete domains that are in all of inputs and output
+    for (const auto& domain : in_a_details.cdomains) {
+      if ((std::find(
+               in_b_details.cdomains.begin(),
+               in_b_details.cdomains.end(),
+               domain) != in_b_details.cdomains.end()) &&
+          (std::find(
+               out_details.cdomains.begin(),
+               out_details.cdomains.end(),
+               domain) != out_details.cdomains.end())) {
+        result.push_back(domain);
+      }
+    }
+    // Batch candidates:
+    //  broadcast domains that are in all of inputs and output
+    for (const auto& domain : in_a_details.bcasts) {
+      if ((std::find(
+               in_b_details.bcasts.begin(),
+               in_b_details.bcasts.end(),
+               domain) != in_b_details.bcasts.end()) &&
+          (std::find(
+               out_details.bcasts.begin(), out_details.bcasts.end(), domain) !=
+           out_details.bcasts.end())) {
+        result.push_back(domain);
+      }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+  };
+
+  const auto validateInputDetails = [](const TensorViewDetails& details,
+                                       const std::string& desc) {
+    TORCH_INTERNAL_ASSERT(
+        !details.bcasts.empty(), desc, ": has no broadcast domains.");
+    TORCH_INTERNAL_ASSERT(
+        details.rdomains.empty(), desc, ": has reduction domains.");
+    TORCH_INTERNAL_ASSERT(
+        details.cdomains.size() >= expected_gemm_cdomains,
+        desc,
+        ": has unsupported number of concrete domains, expected at least ",
+        expected_gemm_cdomains,
+        ", got ",
+        details.cdomains.size());
+  };
+
+  const auto validateOutputDetails = [](const TensorViewDetails& details,
+                                        const std::string& desc) {
+    // TODO: revise rules when add support for batch gemms
+    TORCH_INTERNAL_ASSERT(
+        details.bcasts.empty(), desc, ": has broadcast domains.");
+    TORCH_INTERNAL_ASSERT(
+        !details.rdomains.empty(), desc, ": has no reduction domains.");
+    TORCH_INTERNAL_ASSERT(
+        (details.cdomains.size() >= expected_gemm_cdomains),
+        desc,
+        ": has unsupported number of concrete domains, expected at least ",
+        expected_gemm_cdomains,
+        ", got ",
+        details.cdomains.size());
+  };
+
+  validateInputDetails(in_a_details, "MmaOp input A");
+  validateInputDetails(in_b_details, "MmaOp input B");
+  validateOutputDetails(out_details, "MmaOp output");
+
+  MmaOpDetails details;
+
+  // For details, check MmaOpDetails
+  details.m_axes = getMOrNaxes(
+      in_a_details.cdomains, in_b_details.bcasts, out_details.rdomains);
+  details.n_axes = getMOrNaxes(
+      in_b_details.cdomains, in_a_details.bcasts, out_details.rdomains);
+  details.k_axes = getKaxes(
+      in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
+  details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
+
+  TORCH_INTERNAL_ASSERT(
+      !details.m_axes.empty(),
+      "MmaOp inputs must define at least a single M dimension");
+  TORCH_INTERNAL_ASSERT(
+      !details.n_axes.empty(),
+      "MmaOp inputs must define at least a single N dimension");
+  TORCH_INTERNAL_ASSERT(
+      !details.k_axes.empty(),
+      "MmaOp inputs must define at least a single K dimension");
+
+  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
+  // rules may be needed
+  details.input_layout = getInputLayout(
+      in_a_details,
+      in_b_details,
+      details.m_axes,
+      details.n_axes,
+      details.k_axes);
+
+  return details;
+}
+
+}; // namespace MmaOpUtils
+
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -1333,7 +1581,8 @@ MmaOp::MmaOp(
   // Check output type
   TORCH_INTERNAL_ASSERT(
       out->getValType().value() == ValType::TensorView ||
-      out->getValType().value() == ValType::TensorIndex);
+          out->getValType().value() == ValType::TensorIndex,
+      out->getValType().value());
 
   TORCH_INTERNAL_ASSERT(
       in_a->getValType().value() == ValType::TensorView ||
@@ -1345,12 +1594,44 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
+  MmaOpUtils::MmaOpDetails mma_details;
+  // Detailed consistency checks for use case with TensorViews as inputs/output
+  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
+      out->isA<TensorView>()) {
+    mma_details = MmaOpUtils::getMmaOpDetails(
+        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
+  }
+
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
+  // ATTR_POS_INIT
   addAttribute(init);
+  // ATTR_POS_OPTS
   addAttribute(
       IrBuilder::create<Attribute<OptionsInMma>>(passkey.ir_container_));
+  // ATTR_POS_M_AXES
+  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  // ATTR_POS_N_AXES
+  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  // ATTR_POS_K_AXES
+  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  // ATTR_POS_BATCH_AXES
+  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  // ATTR_POS_INPUT_LAYOUT
+  addAttribute(
+      IrBuilder::create<Attribute<MmaInputLayoutOpt>>(passkey.ir_container_));
+
+  attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value =
+      std::move(mma_details.m_axes);
+  attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value =
+      std::move(mma_details.n_axes);
+  attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value =
+      std::move(mma_details.k_axes);
+  attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
+      std::move(mma_details.batch_axes);
+  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaInputLayoutOpt>>()->value =
+      mma_details.input_layout;
 }
 
 MmaOp::MmaOp(
@@ -1361,7 +1642,7 @@ MmaOp::MmaOp(
     Val* init,
     OptionsInMma options)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute(1)->as<Attribute<OptionsInMma>>()->value = options;
+  attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
 }
 
 std::string MmaOp::toString(int indent_size) const {
@@ -1377,7 +1658,8 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt = attribute(1)->as<Attribute<OptionsInMma>>()->value;
+  OptionsInMma& opt =
+      attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
   TORCH_INTERNAL_ASSERT(
       options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
@@ -1389,65 +1671,6 @@ void MmaOp::configureOptions(MmaOptions options) {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
-
-TransposeOp::TransposeOp(
-    IrBuilderPasskey passkey,
-    TensorView* out,
-    TensorView* in,
-    std::vector<int64_t> new2old)
-    : Expr(passkey) {
-  // Sanity check of the input parameters. Maybe not necessary as they
-  // should be checked at function transpose.
-
-  TORCH_INTERNAL_ASSERT(
-      TensorDomain::noReductions(in->getMaybeRFactorDomain()).size() ==
-      out->getMaybeRFactorDomain().size());
-
-  TORCH_INTERNAL_ASSERT(new2old.size() == out->getMaybeRFactorDomain().size());
-
-  // Make sure the entries of new2old are unique and range from 0 to
-  // N-1, where N == new2old.size().
-  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
-  TORCH_INTERNAL_ASSERT(old_positions.size() == new2old.size());
-  // old_positions is sorted, so the first entry must be 0.
-  TORCH_INTERNAL_ASSERT(
-      *(old_positions.begin()) == 0,
-      "Invalid new2old vector detected: ",
-      new2old);
-  // The last entry must be N-1, since old_positions is sorted, starts
-  // with 0, and its length is N.
-  TORCH_INTERNAL_ASSERT(
-      *(old_positions.rbegin()) == (int)(new2old.size() - 1),
-      "Invalid new2old vector detected: ",
-      new2old);
-
-  addOutput(out);
-  addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int64_t>>>(
-      passkey.ir_container_, std::move(new2old)));
-}
-
-std::string TransposeOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = transpose( "
-                          << in()->toString() << " )\n";
-  return ss.str();
-}
-
-std::string TransposeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
-}
-
-std::vector<int64_t> TransposeOp::old2new() const {
-  std::vector<int64_t> old2new(new2old().size());
-  for (auto new_axis : c10::irange(new2old().size())) {
-    auto old_axis = new2old().at(new_axis);
-    old2new[old_axis] = new_axis;
-  }
-  return old2new;
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(TransposeOp)
 
 ExpandOp::ExpandOp(
     IrBuilderPasskey passkey,
@@ -1597,13 +1820,15 @@ std::string GatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int GatherOp::gatherAxis(int axis) const {
+int64_t GatherOp::gatherAxis(int64_t axis) const {
   if (axis < 0) {
-    axis += out()->as<TensorView>()->nDims();
+    axis += (int64_t)out()->as<TensorView>()->nDims();
   }
   TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int)windowShape().size(), "Invalid axis: ", axis);
-  return int(windowShape().size()) + axis;
+      axis >= 0 && axis < (int64_t)windowShape().size(),
+      "Invalid axis: ",
+      axis);
+  return (int64_t)windowShape().size() + axis;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
@@ -1665,11 +1890,34 @@ LoadStoreOp::LoadStoreOp(
       passkey.ir_container_, op_type));
 }
 
+std::vector<EvaluatorValue> LoadStoreOp::evaluate(
+    const std::vector<EvaluatorValue>& inputs) const {
+  return inputs;
+}
+
 std::string LoadStoreOp::toString(int indent_size) const {
   std::stringstream ss;
+  std::string optype = load_store_type2string(opType());
+  std::string modifier = "";
+  { // Get modifier
+    TensorView* tv = dynamic_cast<TensorView*>(out());
+    if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
+      tv = ti->view();
+    }
+    if (tv != nullptr && tv->hasRFactor()) {
+      modifier = ".Permute";
+    }
+  }
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1)
-      << " = " << opType() << "( " << in()->toString() << " )\n";
+      << " = " << optype << modifier << "( " << in()->toString();
+  // Fusion IR does not have predicate
+  if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
+    ss << ", " << std::endl;
+    indent(ss, indent_size + 1)
+        << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
@@ -1858,19 +2106,34 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   const IterDomain* other_id = other->as<IterDomain>();
 
-  bool is_same = isReduction() == other_id->isReduction() &&
-      getParallelType() == other_id->getParallelType() &&
-      isVectorComponent() == other_id->isVectorComponent();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
-  is_same =
-      is_same && ScalarCheck::sameAs(stopOffset(), other_id->stopOffset());
-  is_same = is_same && (hasExpandedExtent() == other_id->hasExpandedExtent());
-  if (is_same && hasExpandedExtent()) {
-    is_same = ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent());
-  }
+  // Here're the data fields of IterDomain:
+  // start_
+  // extent_
+  // expanded_extent_
+  // stop_offset_
+  // parallel_type_
+  // iter_type_
+  // is_rfactor_domain_
+  // is_padded_dimension_
+  // padded_to_size_
+  // is_mma_swizzled_
 
-  return is_same;
+  // Do not take is_rfactor_domain_ into account. IterDomain's are
+  // considered the same if they are rfactor or not.
+
+  // TODO: Consider managing them as attributes
+
+  return ScalarCheck::sameAs(start(), other_id->start()) &&
+      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+      hasExpandedExtent() == other_id->hasExpandedExtent() &&
+      (!hasExpandedExtent() ||
+       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
+      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+      getParallelType() == other_id->getParallelType() &&
+      getIterType() == other_id->getIterType() &&
+      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
+      isMmaSwizzled() == other_id->isMmaSwizzled();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2445,7 +2708,7 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   }
 
   for (const auto i : c10::irange(nDims())) {
-    if (!(axis(i)->sameAs(other_td->axis(i)))) {
+    if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
       return false;
     }
   }
@@ -2571,8 +2834,9 @@ c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
 IterDomain* TensorDomain::axis(int i) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0)
-    i += nDims();
+  if (i < 0) {
+    i += (int)nDims();
+  }
   TORCH_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
       "Tried to access axis ",
@@ -2582,10 +2846,10 @@ IterDomain* TensorDomain::axis(int i) const {
   return domain_[i];
 }
 
-size_t TensorDomain::posOf(IterDomain* id) const {
+int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
-  size_t i = 0;
-  while (i < domain_.size()) {
+  int64_t i = 0;
+  while (i < (int64_t)domain_.size()) {
     if (domain_[i] == id)
       return i;
     i++;
@@ -2593,9 +2857,9 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-size_t TensorDomain::rootPosOf(IterDomain* id) const {
+int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(
-      root_domain_.size() > 0, "Tried to find an axis in a 0-dim root domain");
+      !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
   TORCH_INTERNAL_ASSERT(
       it != root_domain_.end(), "Provided id is not part of root domain.");
@@ -2609,7 +2873,7 @@ void TensorDomain::split(
     bool trim_out_of_bounds) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
-    axis_ += nDims();
+    axis_ += (int)nDims();
 
   TORCH_INTERNAL_ASSERT(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
@@ -2641,10 +2905,10 @@ void TensorDomain::split(
 void TensorDomain::merge(int axis_o, int axis_i) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
   if (axis_o < 0)
-    axis_o += nDims();
+    axis_o += (int)nDims();
 
   if (axis_i < 0)
-    axis_i += nDims();
+    axis_i += (int)nDims();
 
   TORCH_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
@@ -2679,8 +2943,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 // Reorder axes according to map[old_pos] = new_pos
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(nDims() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   domain_ = orderedAs(domain_, old2new_);
   resetDomains();
 }
@@ -2689,8 +2952,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
     const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
-      !(dom.size() == 0 && old2new_.size() > 0),
-      "Tried to reorder a 0-dim domain");
+      !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
@@ -2769,9 +3031,9 @@ std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.push_back(c10::nullopt);
+      contiguity.emplace_back(c10::nullopt);
     } else {
-      contiguity.push_back(fill_value);
+      contiguity.emplace_back(fill_value);
     }
   }
   return contiguity;
@@ -2804,10 +3066,10 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   auto inp_domain = noReductions(getMaybeRFactorDomain());
 
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
       start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
@@ -3174,12 +3436,12 @@ std::vector<int> PadOp::getPaddedAxes() const {
   auto num_dims = out()->as<TensorView>()->getRootDomain().size();
   std::vector<int> padded_axes;
   for (const auto i : c10::irange(num_dims)) {
-    auto [left_pad, right_pad] = getPadWidths(i);
+    auto [left_pad, right_pad] = getPadWidths((int)i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
       continue;
     }
-    padded_axes.push_back(i);
+    padded_axes.push_back((int)i);
   }
   return padded_axes;
 }
@@ -3189,8 +3451,7 @@ std::vector<Val*> PadOp::getPadWidths() const {
 }
 
 std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
-  const auto num_dims =
-      static_cast<int>(out()->as<TensorView>()->getRootDomain().size());
+  auto num_dims = (int)out()->as<TensorView>()->getRootDomain().size();
 
   if (axis < 0) {
     axis += num_dims;
@@ -3198,9 +3459,11 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
 
   TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
 
+  int64_t offset_even = (int64_t)axis * 2;
+  int64_t offset_odd = offset_even + 1;
   return std::make_pair(
-      (*(getPadWidthInputBegin() + axis * 2))->as<Val>(),
-      (*(getPadWidthInputBegin() + axis * 2 + 1))->as<Val>());
+      (*(getPadWidthInputBegin() + offset_even))->as<Val>(),
+      (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
 SliceOp::SliceOp(
@@ -3337,7 +3600,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  TORCH_INTERNAL_ASSERT(attributes().size() > 0, "No attribute found");
+  TORCH_INTERNAL_ASSERT(!attributes().empty(), "No attribute found");
   TORCH_INTERNAL_ASSERT(
       attribute(1) != nullptr, "nulllptr attribute is invalid");
   auto idx = attribute(1)->as<Val>();
