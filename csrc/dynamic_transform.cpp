@@ -22,21 +22,11 @@ namespace nvfuser {
 //! concrete input sizes.
 class DynamicTransformInfoBuilder : public IterVisitor {
  public:
-  DynamicTransformInfoBuilder(Fusion* fusion, ExpressionEvaluator* expr_eval)
-      : expr_eval_(expr_eval), info_(fusion) {
-    TORCH_INTERNAL_ASSERT(
-        !fusion->isA<kir::Kernel>(),
-        "Invalid container. Kernel container not allowed.\n");
-
-    // Make sure all exactly mapped IDs have the same value in the
-    // evaluator when any one of the IDs has a known value
-    expr_eval_->propagateBoundValuesThroughExactMaps(fusion);
-
-    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
-  }
+  DynamicTransformInfoBuilder(Fusion* fusion, ExpressionEvaluator* expr_eval);
 
   using IterVisitor::handle;
 
+  // Analyze a dynamic reshape and generate AnalyzeViewResult
   void handle(ViewOp* op) override;
 
   const auto& getInfo() const {
@@ -48,6 +38,21 @@ class DynamicTransformInfoBuilder : public IterVisitor {
 
   DynamicTransformConcretizationInfo info_;
 };
+
+DynamicTransformInfoBuilder::DynamicTransformInfoBuilder(
+    Fusion* fusion,
+    ExpressionEvaluator* expr_eval)
+    : expr_eval_(expr_eval), info_(fusion) {
+  TORCH_INTERNAL_ASSERT(
+      !fusion->isA<kir::Kernel>(),
+      "Invalid container. Kernel container not allowed.\n");
+
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval_->propagateBoundValuesThroughExactMaps(fusion);
+
+  traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+}
 
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
@@ -86,7 +91,6 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
-// Analyze a dynamic reshape and generate AnalyzeViewResult
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   auto inp_tv = op->in()->as<TensorView>();
   auto out_tv = op->out()->as<TensorView>();
