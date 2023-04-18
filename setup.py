@@ -229,7 +229,17 @@ def cmake():
 
     from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
 
+    # this is used to suppress import error.
+    # so we can get the right pytorch prefix for cmake
+    import logging
+
+    logger = logging.getLogger("nvfuser")
+    logger_level = logger.getEffectiveLevel()
+    logger.setLevel(logging.CRITICAL)
+
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
+
+    logger.setLevel(logger_level)
 
     # generate cmake directory
     cmd_str = [

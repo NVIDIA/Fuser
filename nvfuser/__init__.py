@@ -17,7 +17,9 @@ if pytorch_lib_dir not in sys.path:
 try:
     from . import _C
 except ImportError as err:
-    print(
+    import logging
+
+    logging.getLogger("nvfuser").error(
         """==== importing nvfuser failed ====
              try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
     )
