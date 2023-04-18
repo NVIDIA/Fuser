@@ -204,8 +204,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  DEBUG_PRINT_SCOPE();
-
   // First, concretize all dynamic reshape ops
   concretizeReshape();
 
@@ -219,8 +217,6 @@ void DynamicTransformConcretizer::concretize() {
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
-  DEBUG_PRINT_SCOPE();
-
   // Concretize each reshape op.
   for (const auto& kv : info_.getReshapeTransforms()) {
     auto incomplete_out_tv = kv.first;
@@ -468,6 +464,14 @@ void DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const DynamicTransformConcretizationInfo& info) {
   DynamicTransformConcretizer concretizer(fusion, info);
+}
+
+size_t DynamicTransformConcretizationInfo::hash() const {
+  size_t hash = 0;
+  for (const auto& [tv, view_result] : getReshapeTransforms()) {
+    hash += view_result.hash();
+  }
+  return hash;
 }
 
 } // namespace nvfuser

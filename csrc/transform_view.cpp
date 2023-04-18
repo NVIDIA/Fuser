@@ -877,6 +877,46 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
   return true;
 }
 
+size_t AnalyzeViewResult::hash() const {
+  auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
+    size_t hash = 0;
+    for (const auto i : c10::irange(vec.size())) {
+      hash = hash * 2 + static_cast<size_t>(vec.at(i));
+    }
+    return hash;
+  };
+
+  auto transform_vec_hash =
+      [](const std::vector<std::shared_ptr<ViewTransform>>& vec) -> size_t {
+    size_t hash = 0;
+    // Transform index indicates the axis position each transform
+    // operates on. Given that the number of axes is typically up to
+    // 8, we use 4 bits to encode the position. Another 1 bit is
+    // used to encode the differene between the merge and split
+    // transform types. So, we use 5 bits for each transform, and thus
+    // total of 12 transforms, which should be suffiently large for
+    // most of the cases. Note that this is still just a hash and does
+    // not need to guarantee different values for different
+    // AnalyzeViewResult.
+    for (const auto& transform : vec) {
+      size_t idx = static_cast<size_t>(transform->index());
+      idx = idx & (0b1111);
+      size_t transform_type_hash =
+          static_cast<size_t>(transform->isA<SplitTransform>());
+      // Shift the current hash by 5 bits and then append the index
+      // and transform type hash bits
+      hash = (hash << 5) | (idx << 1) | transform_type_hash;
+    }
+    return hash;
+  };
+
+  auto broadcast_hash = bool_vec_hash(broadcast_axes);
+  auto squeeze_hash = bool_vec_hash(squeeze_axes);
+  auto transform_hash = transform_vec_hash(transforms);
+
+  return broadcast_hash ^ squeeze_hash ^ transform_hash;
+}
+
 namespace {
 
 //! Transform TensorView according to keep, merge, and split transformations.

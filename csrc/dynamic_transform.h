@@ -44,6 +44,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   std::string toString() const;
 
+  size_t hash() const;
+
  private:
   DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}
 
@@ -71,13 +73,12 @@ class TORCH_CUDA_CU_API DynamicTransform {
 
 } // namespace nvfuser
 
-// TODO: hash
 namespace std {
 template <>
 struct hash<nvfuser::DynamicTransformConcretizationInfo> {
-  std::size_t operator()(
+  size_t operator()(
       const nvfuser::DynamicTransformConcretizationInfo& info) const {
-    return 0;
+    return info.hash();
   }
 };
 } // namespace std

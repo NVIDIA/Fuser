@@ -16,6 +16,8 @@
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
 
+#include <functional>
+
 namespace nvfuser {
 
 // Simple test of analyzing dynamic reshape
@@ -560,6 +562,60 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
 
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+}
+
+// Simple test of hashing. Create concretization info objects with two
+// similar but different reshape sizes and see if their hashes are different.
+TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(
+      tv0,
+      {IrBuilder::create<Int>(),
+       IrBuilder::create<Int>(),
+       IrBuilder::create<Int>()});
+  fusion.addOutput(tv1);
+
+  ExpressionEvaluator expr_eval1;
+  // input: 4, 3
+  // output: 2, 2, 3
+  expr_eval1.bind(tv0->axis(0)->extent(), 4);
+  expr_eval1.bind(tv0->axis(1)->extent(), 3);
+  expr_eval1.bind(tv1->axis(0)->extent(), 2);
+  expr_eval1.bind(tv1->axis(1)->extent(), 2);
+  expr_eval1.bind(tv1->axis(2)->extent(), 3);
+
+  auto info1 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval1);
+
+  ExpressionEvaluator expr_eval2;
+  ;
+  // input: 4, 3
+  // output: 3, 2, 2
+  expr_eval2.bind(tv0->axis(0)->extent(), 4);
+  expr_eval2.bind(tv0->axis(1)->extent(), 3);
+  expr_eval2.bind(tv1->axis(0)->extent(), 3);
+  expr_eval2.bind(tv1->axis(1)->extent(), 2);
+  expr_eval2.bind(tv1->axis(2)->extent(), 2);
+
+  auto info2 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval2);
+
+  // Generally different concretizations doesn't always mean different
+  // hashes, but in this case they should be different
+  auto hash1 = std::hash<DynamicTransformConcretizationInfo>{}(info1);
+  auto hash2 = std::hash<DynamicTransformConcretizationInfo>{}(info2);
+  TORCH_CHECK(
+      hash1 != hash2,
+      "Unexpected hash collision: ",
+      hash1,
+      " for\n",
+      info1.toString(),
+      "and\n",
+      info2.toString());
 }
 
 } // namespace nvfuser
