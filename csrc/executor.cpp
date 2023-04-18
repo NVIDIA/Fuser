@@ -150,7 +150,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   options_ = options;
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
+    fusion->print(std::cout, true);
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }
@@ -238,7 +238,7 @@ void FusionExecutor::compileFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
+    fusion->print(std::cout, true);
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }
