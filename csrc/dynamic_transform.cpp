@@ -170,8 +170,8 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
-// TODO: Comment
-class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
+//! Concretize a symbolic fusion with concrete transformation info
+class DynamicTransformConcretizer : public OptOutMutator {
  public:
   DynamicTransformConcretizer(
       Fusion* fusion,
@@ -188,12 +188,14 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeReshape();
 
- private:
   using OptOutMutator::mutate;
 
   void mutate(TensorView* tv) final;
+
   void mutate(TensorDomain* td) final;
 
+  //! Concretizes the root domain of a symbolic consumer tensor from
+  //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
  private:
@@ -204,13 +206,13 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
 void DynamicTransformConcretizer::concretize() {
   DEBUG_PRINT_SCOPE();
 
+  // First, concretize all dynamic reshape ops
   concretizeReshape();
 
-  // auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
+  // Second, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(info_.fusion(), false);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
-      std::cerr << "mutate: " << stmt->toString() << std::endl;
       mutate(stmt);
     }
   }
@@ -251,28 +253,34 @@ void DynamicTransformConcretizer::concretizeReshape() {
   }
 }
 
-namespace {
-
-bool hasSymbolicAxis(const std::vector<IterDomain*>& ids) {
-  return std::any_of(ids.begin(), ids.end(), [](IterDomain* id) {
-    return id->getIterType() == IterType::Symbolic;
-  });
-}
-
-} // namespace
-
+// Concretizes inherited symbolic domains. Note that when this is
+// called, it is assumed that all dynamic ops themselves are
+// concretized. Since symbolic IDs may be propagated down to
+// consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
+  if (!tv->domain()->hasSymbolicAxis()) {
+    return;
+  }
+
+  // First, try to concretize the root domain as there may be symbolic
+  // axes inherited from the producers
   auto propagated = propagateFromProducerToConsumer(tv);
 
+  // If no root domain is altered, nothing to do further
   if (!propagated) {
     return;
   }
+
+  // Root IDs are altered. Need to propagate the changes to rfactor
+  // domain
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
       tv->domain()->domain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
+
+  // TODO:
 
   // If it has a rfactor root domain, instead of using the
   // OptOutMutator interface, replay the exprs with the mutated root
@@ -379,10 +387,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     return false;
   }
 
-  std::cerr << "propagateFromProducerToConsumer: " << consumer->toString()
-            << std::endl;
-
-  auto root_domain = consumer->getRootDomain();
+  const auto& root_domain = consumer->getRootDomain();
 
   std::vector<IterType> output_domain_types;
   std::transform(
@@ -393,11 +398,16 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   auto def = consumer->definition();
 
+  bool is_concretized = false;
+
   for (const auto i : c10::irange(root_domain.size())) {
     auto root_id = root_domain.at(i);
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
+
+    // Figure out the right IterType of this consumer root ID from its
+    // corresponding producer IDs
 
     std::optional<IterType> id_type;
 
@@ -417,7 +427,6 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           "Producer ID not concretized: ",
           input_id->toString());
 
-      std::cerr << "producer ID: " << input_id->toString() << std::endl;
       if (id_type.has_value()) {
         id_type = ops::promoteIterType(*id_type, input_id->getIterType());
       } else {
@@ -434,13 +443,12 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     auto concretized_id =
         IterDomainBuilder(root_id).iter_type(*id_type).build();
-    std::cerr << root_id->toString() << ", new type: " << *id_type
-              << ", new ID: " << concretized_id->toString() << std::endl;
 
     registerMutation(root_id, concretized_id);
+    is_concretized = true;
   }
 
-  return true;
+  return is_concretized;
 }
 
 DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
