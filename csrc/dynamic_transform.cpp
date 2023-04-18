@@ -18,7 +18,9 @@
 
 namespace nvfuser {
 
-class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
+//! Gather information about concretizing transformations with
+//! concrete input sizes.
+class DynamicTransformInfoBuilder : public IterVisitor {
  public:
   DynamicTransformInfoBuilder(Fusion* fusion, ExpressionEvaluator* expr_eval)
       : expr_eval_(expr_eval), info_(fusion) {
@@ -26,6 +28,8 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
+    // Make sure all exactly mapped IDs have the same value in the
+    // evaluator when any one of the IDs has a known value
     expr_eval_->propagateBoundValuesThroughExactMaps(fusion);
 
     traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
@@ -42,10 +46,11 @@ class TORCH_CUDA_CU_API DynamicTransformInfoBuilder : public IterVisitor {
  private:
   ExpressionEvaluator* expr_eval_ = nullptr;
 
-  DynamicTransformInfo info_;
+  DynamicTransformConcretizationInfo info_;
 };
 
-bool DynamicTransformInfo::operator==(const DynamicTransformInfo& other) const {
+bool DynamicTransformConcretizationInfo::operator==(
+    const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
     return true;
   }
@@ -61,10 +66,6 @@ bool DynamicTransformInfo::operator==(const DynamicTransformInfo& other) const {
   for (const auto i : c10::irange(reshape_transforms_.size())) {
     const auto& transform = reshape_transforms_.at(i);
     const auto& other_transform = other.reshape_transforms_.at(i);
-    std::cerr << "This Transform: " << transform.first->toString() << ", "
-              << transform.second.toString() << std::endl;
-    std::cerr << "Other Transform: " << other_transform.first->toString()
-              << ", " << other_transform.second.toString() << std::endl;
     if (transform != other_transform) {
       return false;
     }
@@ -73,10 +74,9 @@ bool DynamicTransformInfo::operator==(const DynamicTransformInfo& other) const {
   return true;
 }
 
-// TODO
-std::string DynamicTransformInfo::toString() const {
+std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
-  ss << "DynamicTransformInfo\n";
+  ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
   ss << indent << "Reshape:\n";
   for (const auto& kv : reshape_transforms_) {
@@ -86,11 +86,15 @@ std::string DynamicTransformInfo::toString() const {
   return ss.str();
 }
 
+// Analyze a dynamic reshape and generate AnalyzeViewResult
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
-  std::cerr << "Reshape: " << op->toString();
-
   auto inp_tv = op->in()->as<TensorView>();
   auto out_tv = op->out()->as<TensorView>();
+
+  // If there's no symblic axis, this should be a static reshape op
+  if (!out_tv->domain()->hasSymbolicAxis()) {
+    return;
+  }
 
   TORCH_INTERNAL_ASSERT(
       out_tv->hasRFactor(),
@@ -126,8 +130,6 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
     inp_shape.at(i) = extent_val->as<int64_t>();
   }
 
-  std::cerr << "Input shape: " << inp_shape << std::endl;
-
   const auto& out_dom = out_tv->getMaybeRFactorDomain();
 
   // Determine output shape using expr evaluator. Note there may be
@@ -159,18 +161,17 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
     out_shape.at(i) = extent_int;
   }
 
-  std::cerr << "Output shape: " << out_shape << std::endl;
-
   auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
-
-  std::cerr << "View result: " << view_result.toString() << std::endl;
 
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
+// TODO: Comment
 class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
  public:
-  DynamicTransformConcretizer(Fusion* fusion, const DynamicTransformInfo& info)
+  DynamicTransformConcretizer(
+      Fusion* fusion,
+      const DynamicTransformConcretizationInfo& info)
       : info_(info) {
     TORCH_INTERNAL_ASSERT(
         fusion == info.fusion(),
@@ -192,7 +193,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizer : public OptOutMutator {
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
  private:
-  const DynamicTransformInfo& info_;
+  const DynamicTransformConcretizationInfo& info_;
   std::unordered_map<IterDomain*, IterDomain*> update_map_;
 };
 
@@ -438,7 +439,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   return true;
 }
 
-DynamicTransformInfo DynamicTransform::getConcretizationInfo(
+DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
     ExpressionEvaluator* expr_eval) {
   DynamicTransformInfoBuilder builder(fusion, expr_eval);
@@ -447,7 +448,7 @@ DynamicTransformInfo DynamicTransform::getConcretizationInfo(
 
 void DynamicTransform::concretizeFusion(
     Fusion* fusion,
-    const DynamicTransformInfo& info) {
+    const DynamicTransformConcretizationInfo& info) {
   DynamicTransformConcretizer concretizer(fusion, info);
 }
 

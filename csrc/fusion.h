@@ -62,7 +62,7 @@ class SegmentCandidateFinder;
 class SegmentedFusion;
 class KernelArgumentHolder;
 
-class DynamicTransformInfo;
+class DynamicTransformConcretizationInfo;
 
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()

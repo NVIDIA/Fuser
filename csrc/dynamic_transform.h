@@ -23,44 +23,50 @@ class Fusion;
 class ExpressionEvaluator;
 class DynamicTransformInfoBuilder;
 
-class TORCH_CUDA_CU_API DynamicTransformInfo {
+//! A set of transformations for a symbolic fusion with concrete sizes
+//! of the fusion inputs
+class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
-  bool operator==(const DynamicTransformInfo& other) const;
-
-  bool operator!=(const DynamicTransformInfo& other) const {
-    return !(*this == other);
-  }
-
-  std::string toString() const;
-
-  DynamicTransformInfo(Fusion* fusion) : fusion_(fusion) {}
-
-  Fusion* fusion() const {
-    return fusion_;
-  }
-
   const std::vector<std::pair<TensorView*, AnalyzeViewResult>>
   getReshapeTransforms() const {
     return reshape_transforms_;
   }
 
-  // TODO: Make it private
- public:
+  bool operator==(const DynamicTransformConcretizationInfo& other) const;
+
+  bool operator!=(const DynamicTransformConcretizationInfo& other) const {
+    return !(*this == other);
+  }
+
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
+  std::string toString() const;
+
+ private:
+  DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}
+
+ private:
   Fusion* fusion_ = nullptr;
   std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
-
-  // TODO: resize transforms
 
   friend class DynamicTransformInfoBuilder;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {
  public:
-  static DynamicTransformInfo getConcretizationInfo(
-      Fusion*,
+  //! Get concrete transformations for a symbolic fusion with concrete
+  //! input sizes given through an expression evaluator.
+  static DynamicTransformConcretizationInfo getConcretizationInfo(
+      Fusion* fusion,
       ExpressionEvaluator* expr_eval);
 
-  static void concretizeFusion(Fusion*, const DynamicTransformInfo& info);
+  //! Concretizes a given fusion. Note that the concretization is
+  //! in-place and the given fusion is modified.
+  static void concretizeFusion(
+      Fusion*,
+      const DynamicTransformConcretizationInfo& info);
 };
 
 } // namespace nvfuser
@@ -68,8 +74,9 @@ class TORCH_CUDA_CU_API DynamicTransform {
 // TODO: hash
 namespace std {
 template <>
-struct hash<nvfuser::DynamicTransformInfo> {
-  std::size_t operator()(const nvfuser::DynamicTransformInfo& info) const {
+struct hash<nvfuser::DynamicTransformConcretizationInfo> {
+  std::size_t operator()(
+      const nvfuser::DynamicTransformConcretizationInfo& info) const {
     return 0;
   }
 };

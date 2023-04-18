@@ -481,4 +481,48 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
       tv1->toString());
 }
 
+// Mix of static and dynamic reshape. Make sure only dynamic reshape
+// is handled by the dynamic transform concretizer.
+TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, {3, 4}, {4, 3});
+
+  auto reshape_shape0 = IrBuilder::create<Int>();
+
+  auto tv2 = reshape(tv1, {reshape_shape0});
+  fusion.addOutput(tv2);
+
+  // The first reshape is static
+  TORCH_CHECK(
+      !tv1->domain()->hasSymbolicAxis(),
+      "Unexpected to have symblic axes: ",
+      tv1->toString());
+  // The second reshape is static
+  TORCH_CHECK(
+      tv2->domain()->hasSymbolicAxis(),
+      "Expected to have symblic axes: ",
+      tv2->toString());
+
+  ExpressionEvaluator expr_eval;
+
+  expr_eval.bind(tv0->axis(0)->extent(), 3);
+  expr_eval.bind(tv0->axis(1)->extent(), 4);
+  expr_eval.bind(reshape_shape0, 12);
+
+  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+
+  // There must be only one dynamic reshape entry, and that must be
+  // for tv2.
+  TORCH_CHECK(
+      info.getReshapeTransforms().size() == 1,
+      info.getReshapeTransforms().at(0).first == tv2,
+      "Unexpected dynamic transform info:",
+      info.toString());
+}
+
 } // namespace nvfuser
