@@ -3746,7 +3746,7 @@ struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef InputsIdLookupBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_MAX_CACHE_SIZE = 4,
-    VT_CURRRENT_ID = 6,
+    VT_CURRENT_ID = 6,
     VT_LRU_CACHE = 8,
     VT_ENCODING_LOOKUP_KEYS = 10,
     VT_ENCODING_LOOKUP_VALUES = 12
@@ -3754,8 +3754,8 @@ struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint64_t max_cache_size() const {
     return GetField<uint64_t>(VT_MAX_CACHE_SIZE, 0);
   }
-  uint64_t currrent_id() const {
-    return GetField<uint64_t>(VT_CURRRENT_ID, 0);
+  uint64_t current_id() const {
+    return GetField<uint64_t>(VT_CURRENT_ID, 0);
   }
   const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>*
   lru_cache() const {
@@ -3778,7 +3778,7 @@ struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_MAX_CACHE_SIZE) &&
-        VerifyField<uint64_t>(verifier, VT_CURRRENT_ID) &&
+        VerifyField<uint64_t>(verifier, VT_CURRENT_ID) &&
         VerifyOffset(verifier, VT_LRU_CACHE) &&
         verifier.VerifyVector(lru_cache()) &&
         verifier.VerifyVectorOfStrings(lru_cache()) &&
@@ -3798,8 +3798,8 @@ struct InputsIdLookupBuilder {
     fbb_.AddElement<uint64_t>(
         InputsIdLookup::VT_MAX_CACHE_SIZE, max_cache_size, 0);
   }
-  void add_currrent_id(uint64_t currrent_id) {
-    fbb_.AddElement<uint64_t>(InputsIdLookup::VT_CURRRENT_ID, currrent_id, 0);
+  void add_current_id(uint64_t current_id) {
+    fbb_.AddElement<uint64_t>(InputsIdLookup::VT_CURRENT_ID, current_id, 0);
   }
   void add_lru_cache(flatbuffers::Offset<flatbuffers::Vector<
                          flatbuffers::Offset<flatbuffers::String>>> lru_cache) {
@@ -3833,7 +3833,7 @@ struct InputsIdLookupBuilder {
 inline flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookup(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t max_cache_size = 0,
-    uint64_t currrent_id = 0,
+    uint64_t current_id = 0,
     flatbuffers::Offset<flatbuffers::Vector<
         flatbuffers::Offset<flatbuffers::String>>> lru_cache = 0,
     flatbuffers::Offset<flatbuffers::Vector<
@@ -3841,7 +3841,7 @@ inline flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookup(
     flatbuffers::Offset<flatbuffers::Vector<
         const nvfuser::serde::EncodingEntry*>> encoding_lookup_values = 0) {
   InputsIdLookupBuilder builder_(_fbb);
-  builder_.add_currrent_id(currrent_id);
+  builder_.add_current_id(current_id);
   builder_.add_max_cache_size(max_cache_size);
   builder_.add_encoding_lookup_values(encoding_lookup_values);
   builder_.add_encoding_lookup_keys(encoding_lookup_keys);
@@ -3852,7 +3852,7 @@ inline flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookup(
 inline flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookupDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t max_cache_size = 0,
-    uint64_t currrent_id = 0,
+    uint64_t current_id = 0,
     const std::vector<flatbuffers::Offset<flatbuffers::String>>* lru_cache =
         nullptr,
     const std::vector<flatbuffers::Offset<flatbuffers::String>>*
@@ -3873,7 +3873,7 @@ inline flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookupDirect(
   return nvfuser::serde::CreateInputsIdLookup(
       _fbb,
       max_cache_size,
-      currrent_id,
+      current_id,
       lru_cache__,
       encoding_lookup_keys__,
       encoding_lookup_values__);

@@ -87,6 +87,41 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
       &encoding_lookup_values_fb);
 }
 
+void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
+  // struct EncodingEntry {
+  //   id: ulong;
+  //   lru_iter: ulong;
+  // }
+  //
+  // table InputsIdLookup {
+  //   max_cache_size : ulong;
+  //   currrent_id : ulong;
+  //   lru_cache : [string];
+  //   encoding_lookup_keys : [string];
+  //   encoding_lookup_values : [EncodingEntry];
+  // }
+
+  using list_iter = std::list<std::string>::iterator;
+  std::vector<list_iter> used_entry_iterators;
+
+  max_cache_size_ = buffer->max_cache_size();
+  current_id_ = buffer->current_id();
+  for (auto fb_str : *buffer->lru_cache()) {
+    used_entry_.emplace_back(fb_str->str());
+    used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
+  }
+
+  for (auto idx : c10::irange(buffer->encoding_lookup_keys()->size())) {
+    auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
+    auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
+
+    EncodingEntry entry{
+        fb_encoding_entry->id(),
+        used_entry_iterators.at(fb_encoding_entry->lru_iter())};
+    encoding_lookup_.emplace(fb_encoding_lookup_str->str(), entry);
+  }
+}
+
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs) {
   IdLookupReturn ret;
@@ -505,8 +540,9 @@ void FusionExecutorCache::deserialize(
   //    values : [FusionKernelRuntime];
   // }
 
-  inputs_id_lookup_->deserialize(buffer->inputs_cache());
+  inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
+  /*
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
   // fusion kernel runtimes.
   std::vector<FusionKernelRuntime*> all_runtimes;
@@ -531,6 +567,7 @@ void FusionExecutorCache::deserialize(
     size_t value_id = buffer->kernel_cache_keys().Get(idx);
     id_to_kernel_runtime_.emplace_back(key, all_runtimes.at(value_id));
   }
+  */
 }
 
 FusionKernelRuntime::FusionKernelRuntime(
@@ -1063,4 +1100,3 @@ std::vector<at::Tensor> GraphCache::runGraphWithInputs(
 }
 
 } // namespace nvfuser
-  
