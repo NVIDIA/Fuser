@@ -2636,8 +2636,8 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  validateInputDependency(root_domain_, domain_);
   validateInputDependency(root_domain_, rfactor_domain_);
+  validateInputDependency(root_domain_, domain_);
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;

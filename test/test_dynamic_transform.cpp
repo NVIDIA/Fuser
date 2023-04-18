@@ -527,4 +527,39 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
       info.toString());
 }
 
+// Make sure inherited symbolic IDs are concretized through rfactor exprs
+TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
+  auto tv2 = slice(
+      tv1,
+      {Slice(),
+       {IrBuilder::create<Int>(1),
+        sub(tv1->axis(0)->extent(), IrBuilder::create<Int>(1))}});
+  fusion.addOutput(tv2);
+
+  // tv2 has an rfactor expr (i.e., resize). The input to the expr is
+  // symbolic, so is the output. When concretized, both of the input
+  // and output must be concretized.
+
+  ExpressionEvaluator expr_eval;
+
+  expr_eval.bind(tv0->axis(0)->extent(), 3);
+  expr_eval.bind(tv0->axis(1)->extent(), 4);
+  expr_eval.bind(tv1->axis(0)->extent(), 4);
+  expr_eval.bind(tv1->axis(1)->extent(), 3);
+
+  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+
+  DynamicTransform::concretizeFusion(&fusion, info);
+
+  TORCH_CHECK(
+      !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+}
+
 } // namespace nvfuser
