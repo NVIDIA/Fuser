@@ -178,8 +178,9 @@ std::string FusionDefinition::toGraphviz(
 
   Fusion* fusion = scheds->auto_gen_schedules->fusion();
 
-  if (detail_level == IrGraphGenerator::DetailLevel::Explicit ||
-      detail_level == IrGraphGenerator::DetailLevel::Verbose) {
+  if (detail_level != IrGraphGenerator::DetailLevel::ComputeOnly) {
+    // When schedule is shown, we need to actually process each segment of a
+    // segmented Fusion
     auto kernel_runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
     // TODO: handle segmented fusions here
