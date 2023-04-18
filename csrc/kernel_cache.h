@@ -270,6 +270,9 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   flatbuffers::Offset<serde::InputsIdLookup> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  //! Deserialize InputsIdLookup using flatbuffers
+  void deserialize(const serde::InputsIdLookup* buffer);
+
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
@@ -286,7 +289,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   };
 
   //! maximum cache size for LRU
-  const size_t max_cache_size_;
+  size_t max_cache_size_ = 0;
 
   //! next available unique id, we monotonically increase `current_id_` avoid
   //! conflicts

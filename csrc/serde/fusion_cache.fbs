@@ -433,7 +433,7 @@ struct EncodingEntry {
 
 table InputsIdLookup {
   max_cache_size : ulong;
-  currrent_id : ulong;
+  current_id : ulong;
   lru_cache : [string];
 
   // define map<std::string, EncodingEntry> encoding_lookup
