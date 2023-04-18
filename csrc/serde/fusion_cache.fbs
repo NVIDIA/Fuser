@@ -424,7 +424,6 @@ table FusionExecutor {
 table FusionKernelRuntime {
   args : KernelArgumentHolder;
   executors : [FusionExecutor];
-  device : ulong;
 }
 
 struct EncodingEntry {
@@ -442,14 +441,18 @@ table InputsIdLookup {
   encoding_lookup_values : [EncodingEntry];
 }
 
+table KernelRuntimes {
+  device_id : ulong;
+  runtimes : [FusionKernelRuntime];
+}
+
 // implicit fields
 // unscheduled_fusion : Fusion - defined by traversing Trie in FusionCache
 table FusionExecutorCache {
   inputs_cache : InputsIdLookup;
 
   // define map<size_t, vector<FusionKernelRuntime>> kernel_runtimes
-  kernel_runtimes_keys : [ulong];
-  kernel_runtimes_values : [FusionKernelRuntime];
+  kernel_runtimes : [KernelRuntimes];
 
   // define map<size_t, FusionKernelRuntime> id_to_kernel_runtime
   kernel_cache_keys : [ulong];

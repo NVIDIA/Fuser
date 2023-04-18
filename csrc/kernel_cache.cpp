@@ -62,11 +62,14 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
   // Used to get the ordering for the lru_cache
   std::unordered_map<std::string, size_t> lru_ordering;
 
+  std::cout << "serialize InputsIdLookup\t" << std::endl;
   std::vector<fb_string> lru_cache_fb;
   for (const auto& str : used_entry_) {
+    std::cout << str << std::endl;
     lru_cache_fb.push_back(builder.CreateString(str));
     lru_ordering.emplace(str, lru_ordering.size());
   }
+  std::cout << "==============================" << std::endl;
 
   std::vector<fb_string> encoding_lookup_keys_fb;
   std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
@@ -415,53 +418,101 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
 flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  //  table FusionExecutorCache {
+  // table FusionExecutorCache {
   //    inputs_cache : InputsIdLookup;
-  //    kernel_runtimes_keys : [ulong];
-  //    kernel_runtimes_values : [FusionKernelRuntime];
+  //    kernel_runtimes : [KernelRuntimes];
   //    kernel_cache_keys : [ulong];
   //    kernel_cache_values : [ulong];
+  // }
+  // table KernelRuntimes {
+  //    device_id : ulong;
+  //    values : [FusionKernelRuntime];
   // }
 
   using fb_fusion_kernel_runtime =
       flatbuffers::Offset<serde::FusionKernelRuntime>;
+  using fb_kernel_runtimes = flatbuffers::Offset<serde::KernelRuntimes>;
 
   // Used to get the ordering for the lru_cache
-  std::unordered_map<size_t, size_t> kernel_cache_ordering;
+  std::unordered_map<FusionKernelRuntime*, size_t> kernel_cache_ordering;
 
-  std::vector<size_t> kernel_runtimes_keys;
-  std::vector<fb_fusion_kernel_runtime> kernel_runtimes_values;
+  std::vector<fb_kernel_runtimes> kernel_runtimes;
+  kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  kernel_runtimes_keys.reserve(kernel_runtimes_.size());
+  for (auto&& [device_id, device_runtimes] : kernel_runtimes_) {
+    std::vector<fb_fusion_kernel_runtime> runtimes;
+    runtimes.reserve(device_runtimes.size());
 
-  for (auto&& [id, device_runtimes] : kernel_runtimes_) {
-    kernel_runtimes_keys.push_back(id);
-    for (auto device_id : c10::irange(device_runtimes.size())) {
-      auto kernel_runtime_ptr = device_runtimes.at(device_id).get();
-      kernel_runtimes_values.push_back(
-          kernel_runtime_ptr->serialize(builder, device_id));
+    for (auto kernel_id : c10::irange(device_runtimes.size())) {
+      auto kernel_runtime_ptr = device_runtimes.at(kernel_id).get();
+      runtimes.push_back(kernel_runtime_ptr->serialize(builder));
+
       kernel_cache_ordering.emplace(
-          (size_t)kernel_runtime_ptr, kernel_cache_ordering.size());
+          kernel_runtime_ptr, kernel_cache_ordering.size());
     }
+
+    kernel_runtimes.push_back(
+        CreateKernelRuntimesDirect(builder, device_id, &runtimes));
   }
 
   std::vector<size_t> kernel_cache_keys;
   std::vector<size_t> kernel_cache_values;
+
   kernel_cache_keys.reserve(id_to_kernel_runtime_.size());
   kernel_cache_values.reserve(id_to_kernel_runtime_.size());
-  for (auto&& [id, kernel_runtime] : id_to_kernel_runtime_) {
+
+  for (auto&& [id, kernel_runtime_ptr] : id_to_kernel_runtime_) {
     kernel_cache_keys.push_back(id);
-    kernel_cache_values.push_back(
-        kernel_cache_ordering.at((size_t)kernel_runtime));
+    kernel_cache_values.push_back(kernel_cache_ordering.at(kernel_runtime_ptr));
   }
 
   return serde::CreateFusionExecutorCacheDirect(
       builder,
       inputs_id_lookup_.serialize(builder),
-      &kernel_runtimes_keys,
-      &kernel_runtimes_values,
+      &kernel_runtimes,
       &kernel_cache_keys,
       &kernel_cache_values);
+}
+
+void FusionExecutorCache::deserialize(
+    const serde::FusionExecutorCache* buffer) {
+  // table FusionExecutorCache {
+  //    inputs_cache : InputsIdLookup;
+  //    kernel_runtimes : [KernelRuntimes];
+  //    kernel_cache_keys : [ulong];
+  //    kernel_cache_values : [ulong];
+  // }
+  // table KernelRuntimes {
+  //    device_id : ulong;
+  //    values : [FusionKernelRuntime];
+  // }
+
+  inputs_id_lookup_->deserialize(buffer->inputs_cache());
+
+  // For the id_to_kernel_runtime_ cache, we need a flat collection of all
+  // fusion kernel runtimes.
+  std::vector<FusionKernelRuntime*> all_runtimes;
+
+  for (auto device_runtimes : *buffer->kernel_runtimes()) {
+    std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
+    for (auto runtime : *device_runtimes->runtimes()) {
+      // Construct args from flatbuffer object
+      KernelArgumentHolder args(runtime->args());
+      // Create new FusionKernelRuntime
+      runtimes.emplace_back(
+          std::make_unique<FusionKernelRuntime>(fusion_.get(), a gs));
+      // Deserialize FusionExecutors in runtime
+      runtimes.back()->deserialize(runtime);
+      all_runtimes.emplace_back(runtimes.back().get());
+    }
+    kernel_runtimes_.emplace_back(device_runtimes->device_id(), runtimes);
+  }
+
+  for (auto idx : c10::irange(buffer->kernel_cache_keys().size())) {
+    size_t key = buffer->kernel_cache_keys().Get(idx);
+    size_t value_id = buffer->kernel_cache_keys().Get(idx);
+    id_to_kernel_runtime_.emplace_back(key, all_runtimes.at(value_id));
+  }
 }
 
 FusionKernelRuntime::FusionKernelRuntime(
@@ -516,14 +567,12 @@ FusionKernelRuntime::FusionKernelRuntime(
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    size_t device_id) const {
+    flatbuffers::FlatBufferBuilder& builder) const {
   // table FusionKernelRuntime {
   //  args : KernelArgumentHolder;
   //  executors : [FusionExecutor];
   //  device : ulong;
   // }
-
   using fb_fusion_executor =
       flatbuffers::Offset<nvfuser::serde::FusionExecutor>;
   std::vector<fb_fusion_executor> executors_fb;
@@ -533,7 +582,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   }
 
   return serde::CreateFusionKernelRuntimeDirect(
-      builder, args_metadata_.serialize(builder), &executors_fb, device_id);
+      builder, args_metadata_.serialize(builder), &executors_fb);
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
@@ -994,3 +1043,4 @@ std::string KernelArgumentHolder::toString() const {
 }
 
 } // namespace nvfuser
+  

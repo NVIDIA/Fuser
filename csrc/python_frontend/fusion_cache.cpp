@@ -341,18 +341,19 @@ void FusionCache::serialize(std::string filename) const {
   }
 
   // 4. Map the terminal nodes to their BFS positions.
+  // 5. Serialize each FusionExecutorCache for each fusion.
   std::vector<size_t> terminal_node_idx;
   terminal_node_idx.reserve(terminal_nodes_.size());
-  for (auto node : terminal_nodes_) {
-    terminal_node_idx.push_back(
-        map_record_functor_to_trie_node_id.at(node->record.get()));
-  }
 
-  // 5. Serialize each FusionExecutorCache for each fusion.
   using fb_fusion_executor_cache =
       flatbuffers::Offset<serde::FusionExecutorCache>;
   std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
-  for (auto& schedule : fusions_) {
+  fb_auto_gen_schedules.reserve(terminal_nodes_.size());
+
+  for (auto node : terminal_nodes_) {
+    terminal_node_idx.push_back(
+        map_record_functor_to_trie_node_id.at(node->record.get()));
+    auto schedule = queryFusionSchedules(node->fusion_id);
     auto serialized_schedule = schedule->auto_gen_schedules->serialize(builder);
     fb_auto_gen_schedules.push_back(serialized_schedule);
   }
@@ -422,6 +423,7 @@ void FusionCache::deserialize(std::string filename) {
   //  max_fusions: ulong;
   //  structure: [TrieNode];
   //  terminal_nodes: [ulong];
+  //  auto_gen_schedules : [FusionExecutorCache];
   // }
   TORCH_CHECK(
       fusions_.empty(),
@@ -522,8 +524,14 @@ void FusionCache::deserialize(std::string filename) {
   }
 
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : *fusion_cache_buffer->terminal_nodes()) {
-    terminal_nodes_.push_back(bfs_order.at(idx));
+  for (auto idx : c10::irange(fusion_cache_buffer->max_fusions())) {
+    auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
+    auto trie_node = bfs_order.at(node_idx);
+    terminal_nodes_.push_back(trie_node);
+
+    auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
+    auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
+    fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
   }
 }
 

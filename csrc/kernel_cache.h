@@ -142,8 +142,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      size_t device_id) const;
+      flatbuffers::FlatBufferBuilder& builder) const;
 
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
@@ -456,6 +455,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Serialize FusionExecutorCache using flatbuffers
   flatbuffers::Offset<serde::FusionExecutorCache> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize FusionExecutorCache using flatbuffers
+  void deserialize(const serde::FusionExecutorCache* buffer);
 
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
