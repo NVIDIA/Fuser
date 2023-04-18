@@ -1260,13 +1260,14 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       ldst->in(),
       ldst->out(),
       {},
-      !ldst->in()->as<TensorView>()->shouldLiftReadAddress() &&
-          (ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst)));
+      (ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst)) &&
+          !ldst->in()->as<TensorView>()->shouldLiftReadAddress());
   const auto out = lowerDstIndex(
       ldst->out(),
       {},
-      !ldst->out()->as<TensorView>()->shouldLiftWriteAddress() &&
-          ir_utils::isCpAsyncOp(ldst));
+
+      ir_utils::isCpAsyncOp(ldst) &&
+          !ldst->out()->as<TensorView>()->shouldLiftWriteAddress());
   auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
                       ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
