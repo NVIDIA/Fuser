@@ -186,24 +186,29 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
       before_after_shapes = {
           {{4, 3}, {3, 4}},
           {{4, 3}, {12, 1}},
+          {{4, 3}, {4, 3}},
+          {{4, 6}, {4, 2, 3}},
       };
-  for (auto before_after : before_after_shapes) {
-    std::cerr << "Before: " << before_after.first << std::endl;
-    std::cerr << "After: " << before_after.second << std::endl;
+  for (const auto& before_after : before_after_shapes) {
+    const auto& before_shape = before_after.first;
+    const auto& after_shape = before_after.second;
+
     Fusion fusion;
     FusionGuard fg(&fusion);
 
-    auto tv0 = makeSymbolicTensor(2);
+    auto tv0 = makeSymbolicTensor(before_shape.size());
     fusion.addInput(tv0);
-    auto tv1 = makeSymbolicTensor(2);
+    auto tv1 = makeSymbolicTensor(after_shape.size());
     fusion.addInput(tv1);
 
-    auto reshape_shape0 = IrBuilder::create<Int>();
-    fusion.addInput(reshape_shape0);
-    auto reshape_shape1 = IrBuilder::create<Int>();
-    fusion.addInput(reshape_shape1);
+    std::vector<Val*> shape_arg;
+    for (const auto i : c10::irange(after_shape.size())) {
+      (void)i;
+      shape_arg.push_back(IrBuilder::create<Int>());
+    }
 
-    auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
+    auto tv2 = reshape(tv0, shape_arg);
+
     // tv3 will also have symbolic axes
     auto tv3 = set(tv2);
     auto tv4 = add(tv1, tv3);
@@ -214,10 +219,13 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     ExpressionEvaluator expr_eval;
 
-    expr_eval.bind(tv0->axis(0)->extent(), before_after.first.at(0));
-    expr_eval.bind(tv0->axis(1)->extent(), before_after.first.at(1));
-    expr_eval.bind(tv2->axis(0)->extent(), before_after.second.at(0));
-    expr_eval.bind(tv2->axis(1)->extent(), before_after.second.at(1));
+    for (const auto i : c10::irange(before_shape.size())) {
+      expr_eval.bind(tv0->axis(i)->extent(), before_shape.at(i));
+    }
+
+    for (const auto i : c10::irange(after_shape.size())) {
+      expr_eval.bind(tv2->axis(i)->extent(), after_shape.at(i));
+    }
 
     auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
