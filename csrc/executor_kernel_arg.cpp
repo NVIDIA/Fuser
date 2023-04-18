@@ -11,6 +11,7 @@
 #include <kernel_cache.h>
 
 #include <executor_kernel_arg.h>
+#include <serde/arg_abstract_serde.h>
 
 namespace nvfuser {
 
@@ -303,19 +304,32 @@ flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
   //   arguments : [ArgAbstract];
   //   device_index : byte;
   //   cache_id : ulong;
-  //   index_mode : KernelIndexMode;
+  //   is_int_index_mode : bool;
   // }
 
   using fb_arg_abstract = flatbuffers::Offset<nvfuser::serde::ArgAbstract>;
   std::vector<fb_arg_abstract> arguments_fb;
-  /*
-  for (auto& arg : executors_) {
+  arguments_fb.reserve(arguments_.size());
+  for (auto& arg : arguments_) {
     arguments_fb.push_back(arg->serialize(builder));
   }
-  */
 
   return serde::CreateKernelArgumentHolderDirect(
       builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
+}
+
+void KernelArgumentHolder::deserialize(
+    const serde::KernelArgumentHolder* buffer) {
+  device_index_ = buffer->device_index();
+  cache_id_ = (buffer->cache_id() != SIZE_MAX)
+      ? std::optional<size_t>(buffer->cache_id())
+      : std::nullopt;
+
+  serde::ArgAbstractFactory arg_abstract_factory;
+  for (auto fb_arg_abstract : *buffer->arguments()) {
+    arguments_.push_back(arg_abstract_factory.parse(
+        fb_arg_abstract->data_type(), fb_arg_abstract));
+  }
 }
 
 } // namespace nvfuser
