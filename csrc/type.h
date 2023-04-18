@@ -739,6 +739,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::BFloat16:
       return sizeof(at::BFloat16);
     case DataType::Index:
+    case DataType::Pointer:
       TORCH_INTERNAL_ASSERT(
           false, "The actual type of Index is only known at compile time.");
     case DataType::Int:
