@@ -291,7 +291,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
-      const std::optional<KernelIndexMode>& index_mode = std::nullopt);
+      const std::optional<KernelIndexMode>& index_mode = std::nullopt,
+      std::optional<int8_t> device = std::nullopt);
 
   KernelIndexMode getIndexMode() const {
     return index_mode_;

@@ -110,11 +110,12 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
   KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs);
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, selected_device);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
@@ -179,7 +180,8 @@ void FusionExecutorCache::compileFusionAsync(
 // For details on Part_2, refer to the implementation note. [ Permutation
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   // Permute input tensor for kernel execution.
@@ -199,7 +201,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  KernelArgumentHolder args = prepareInputs(perm_inputs);
+  KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
 
   auto kernel_runtime = getKernelRuntimeFor(args);
   most_recent_runtime_ = kernel_runtime;

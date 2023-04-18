@@ -105,16 +105,18 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
 
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
-    const std::optional<KernelIndexMode>& opt_index_mode) {
+    const std::optional<KernelIndexMode>& opt_index_mode,
+    std::optional<int8_t> selected_device) {
   if (inputs.empty()) {
     // default to int32 on device 0
     KernelArgumentHolder args(
         opt_index_mode.has_value() ? opt_index_mode.value()
                                    : KernelIndexMode::INT32);
-    args.setDeviceIndex(0);
+    args.setDeviceIndex(
+        selected_device.has_value() ? selected_device.value() : 0);
     return args;
   }
-  auto device_index = getCommonDeviceCUDA(inputs);
+  auto device_index = getCommonDeviceCUDA(inputs, selected_device);
   auto input_index_mode = collectIndexMode(inputs);
 
   auto index_mode = input_index_mode;

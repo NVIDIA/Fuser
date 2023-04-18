@@ -280,7 +280,9 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type) {
 // Check device of TensorType in all inputs ensure all tensors are on cuda
 // devices.
 // return common device index (or -1 if device differs).
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
+int8_t getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
   int8_t index = -1;
   size_t num_tensors = 0;
   for (const auto& input : inputs) {
@@ -302,6 +304,9 @@ int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
   }
   // A case where there is only a scalar input should not indicate a failure
   if (num_tensors == 0) {
+    if (selected_device.has_value()) {
+      return selected_device.value();
+    }
     return 0;
   } else {
     return index;

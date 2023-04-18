@@ -353,7 +353,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Note this function also handles permutation & input update outside of
   //! codegen.
   std::vector<at::Tensor> runFusionWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> selected_device = std::nullopt);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! async, there's some restriction on the user side. e.g. Do not overlap
@@ -363,7 +364,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
-  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
+  KernelArgumentHolder prepareInputs(
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
   bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
