@@ -110,7 +110,7 @@ class MatmulParams : public HeuristicParams {
   } index_lift_options;
 
   //! Enables predicate peeling mainloop:
-  bool peel_main_loop = true;
+  bool peel_main_loop = false;
 
   std::string toString() const override {
     std::stringstream ss;

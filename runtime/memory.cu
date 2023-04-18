@@ -272,7 +272,7 @@ DEVICE_INLINE void cpAsyncCgAligned(
 template<typename Predicate_T, typename T, int len, bool assume_aligned_data = true>
 DEVICE_INLINE void cpAsyncCg(
         unsigned smem_addr,
-        const T *gmem_ptr,
+        const void *gmem_ptr,
         Predicate_T src_size_or_predicate) {
     constexpr int byte_size = sizeof(T) * len;
     static_assert(byte_size == 16, "cp_async : unsupported byte size");

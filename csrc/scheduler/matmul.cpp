@@ -577,7 +577,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           .propagateParallelType()
           .propagateToBoundary());
 
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
+  // c->axis(-1)->parallelize(ParallelType::Vectorize);
 
   if (params.index_lift_options.lift_gmem_read_address) {
     a->liftReadAddress();

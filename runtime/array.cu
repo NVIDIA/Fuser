@@ -107,56 +107,7 @@ __device__ void loadGenericVolatile(
   }
 }
 
-template <typename scalar_t, int vec_size, bool is_volatile>
-__device__ void loadLocalToGlobal(
-    typename MaybeVolatile<scalar_t, is_volatile>::type* to,
-    scalar_t* from) {
-  switch (sizeof(scalar_t) * vec_size) {
-    case 1:
-    case 2:
-    case 4:
-      loadGenericVolatile<scalar_t, vec_size, is_volatile, false>(to, from);
-      break;
-    case 8: {
-      uint2 const& data = *reinterpret_cast<uint2*>(from);
-      if (is_volatile) {
-        asm volatile(
-            "st.volatile.global.v2.s32 [%0], {%1,%2};" ::"l"(
-                (typename MaybeVolatile<uint2, is_volatile>::type*)to),
-            "r"(data.x),
-            "r"(data.y));
-      } else {
-        asm volatile(
-            "st.global.cs.v2.s32 [%0], {%1,%2};" ::"l"(
-                (typename MaybeVolatile<uint2, is_volatile>::type*)to),
-            "r"(data.x),
-            "r"(data.y));
-      }
-      break;
-    }
-    case 16: {
-      uint4 const& data = *reinterpret_cast<uint4*>(from);
-      if (is_volatile) {
-        asm volatile(
-            "st.volatile.global.v4.s32 [%0], {%1,%2,%3,%4};" ::"l"(
-                (typename MaybeVolatile<uint4, is_volatile>::type*)to),
-            "r"(data.x),
-            "r"(data.y),
-            "r"(data.z),
-            "r"(data.w));
-      } else {
-        asm volatile(
-            "st.global.cs.v4.s32 [%0], {%1,%2,%3,%4};" ::"l"(
-                (typename MaybeVolatile<uint4, is_volatile>::type*)to),
-            "r"(data.x),
-            "r"(data.y),
-            "r"(data.z),
-            "r"(data.w));
-      }
-      break;
-    }
-  }
-}
+
 
 template <typename scalar_t, int vec_size, bool is_volatile>
 __device__ void loadGlobalToLocal(
@@ -369,6 +320,63 @@ __device__ inline void loadLocalToGlobalUnaligned(
 #pragma unroll
     for (unsigned i = 0; i < byte_size; i += min_alignment) {
       loadLocalToGlobalAlignedImpl<min_alignment>(dst + i, src + i);
+    }
+  }
+}
+
+template <typename scalar_t, int vec_size, bool is_volatile>
+__device__ void loadLocalToGlobal(
+    typename MaybeVolatile<scalar_t, is_volatile>::type* to,
+    scalar_t* from) {
+
+
+
+    // return loadLocalToGlobalUnaligned<scalar_t, vec_size>(to, from);
+
+
+  switch (sizeof(scalar_t) * vec_size) {
+    case 1:
+    case 2:
+    case 4:
+      loadGenericVolatile<scalar_t, vec_size, is_volatile, false>(to, from);
+      break;
+    case 8: {
+      uint2 const& data = *reinterpret_cast<uint2*>(from);
+      if (is_volatile) {
+        asm volatile(
+            "st.volatile.global.v2.s32 [%0], {%1,%2};" ::"l"(
+                (typename MaybeVolatile<uint2, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y));
+      } else {
+        asm volatile(
+            "st.global.cs.v2.s32 [%0], {%1,%2};" ::"l"(
+                (typename MaybeVolatile<uint2, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y));
+      }
+      break;
+    }
+    case 16: {
+      uint4 const& data = *reinterpret_cast<uint4*>(from);
+      if (is_volatile) {
+        asm volatile(
+            "st.volatile.global.v4.s32 [%0], {%1,%2,%3,%4};" ::"l"(
+                (typename MaybeVolatile<uint4, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y),
+            "r"(data.z),
+            "r"(data.w));
+      } else {
+        asm volatile(
+            "st.global.cs.v4.s32 [%0], {%1,%2,%3,%4};" ::"l"(
+                (typename MaybeVolatile<uint4, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y),
+            "r"(data.z),
+            "r"(data.w));
+      }
+      break;
     }
   }
 }
