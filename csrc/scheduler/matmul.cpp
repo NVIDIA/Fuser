@@ -640,8 +640,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   b->computeAt(cc, 3);
 
   // Main Loop:
-  acr->computeAt(cc, -8);
-  bcr->computeAt(cc, -8);
+  acr->computeAt(cc, -6);
+  bcr->computeAt(cc, -6);
 
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
