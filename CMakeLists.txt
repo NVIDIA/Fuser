@@ -8,11 +8,16 @@ endif()
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
+if(NOT USE_ROCM)
+  set(TORCHLIB_FLAVOR torch_cuda)
+else()
+  set(TORCHLIB_FLAVOR torch_hip)
+endif()
+
 # --- project
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
 
-set(TORCHLIB_FLAVOR torch_cuda)
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 # TODO: have TORCH_ROOT setup as a variable instead
@@ -149,16 +154,30 @@ add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 #torch_compile_options(${NVFUSER_CODEGEN})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-# NB: This must be target_compile_definitions, not target_compile_options,
-# as the latter is not respected by nvcc
-target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+if(NOT USE_ROCM)
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+  # NB: This must be target_compile_definitions, not target_compile_options,
+  # as the latter is not respected by nvcc
+  target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+else()
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
+  target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
+  target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE
+    USE_ROCM
+    __HIP_PLATFORM_HCC__
+    )
+endif()
 
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+if(NOT USE_ROCM)
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
+  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+else()
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${ROCM_HIPRTC_LIB})
+  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
+endif()
 if(NOT MSVC)
   target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
 endif()
@@ -190,11 +209,21 @@ if(BUILD_PYTHON)
 
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
   torch_compile_options(${NVFUSER})
-  target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-  # NB: This must be target_compile_definitions, not target_compile_options,
-  # as the latter is not respected by nvcc
-  target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-  target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
+  if(NOT USE_ROCM)
+    target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+    # NB: This must be target_compile_definitions, not target_compile_options,
+    # as the latter is not respected by nvcc
+    target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+    target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
+  else()
+    target_compile_options(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
+    target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
+    target_compile_definitions(${NVFUSER} PRIVATE
+      USE_ROCM
+      __HIP_PLATFORM_HCC__
+      )
+    target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
+  endif()
 
   target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
   target_link_libraries(${NVFUSER} PRIVATE torch torch_python ${TORCHLIB_FLAVOR})
