@@ -306,7 +306,6 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
   };
 
   for (auto reshape_list : reshape_lists) {
-    std::cerr << "Reshape list: " << reshape_list << std::endl;
     std::vector<TensorView*> reshape_tvs;
 
     Fusion fusion;
@@ -343,22 +342,10 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
 
     auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
 
-    std::cerr << info.toString() << std::endl;
-
-    std::cout << "Before fusion concretization\n";
-    fusion.printMath();
-    std::cout << std::endl;
-
     DynamicTransform::concretizeFusion(&fusion, info);
-
-    std::cout << "After fusion concretization\n";
-    fusion.printMath();
-    std::cout << std::endl;
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
-
-    fusion.printMath();
   }
 }
 
