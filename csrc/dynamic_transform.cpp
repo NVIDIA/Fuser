@@ -226,21 +226,14 @@ void DynamicTransformConcretizer::concretizeReshape() {
     auto incomplete_out_tv = kv.first;
     const auto view_analysis = kv.second;
 
-    std::cerr << "view: " << view_analysis.toString() << std::endl;
-
     auto inp_tv = ir_utils::producerTvsOf(incomplete_out_tv).at(0);
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    std::cerr << "concrete view out: " << concrete_reshape_out_tv->toString()
-              << std::endl;
-
     // Replace the old tensor with the new concretized tensor
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
-      std::cerr << "Before replacement: " << use_of_old_tv->toString();
-      auto new_use = ir_utils::replaceValInExpr(
+      ir_utils::replaceValInExpr(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
-      std::cerr << "After replacement: " << new_use->toString();
     }
 
     if (incomplete_out_tv->isFusionOutput()) {
