@@ -524,7 +524,6 @@ void FusionExecutorCache::deserialize(
 
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
-  /*
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
   // fusion kernel runtimes.
   std::vector<FusionKernelRuntime*> all_runtimes;
@@ -533,17 +532,22 @@ void FusionExecutorCache::deserialize(
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
     for (auto runtime : *device_runtimes->runtimes()) {
       // Construct args from flatbuffer object
-      KernelArgumentHolder args(runtime->args());
+      KernelArgumentHolder args;
+      args.deserialize(runtime->args());
+
       // Create new FusionKernelRuntime
       runtimes.emplace_back(
-          std::make_unique<FusionKernelRuntime>(fusion_.get(), a gs));
-      // Deserialize FusionExecutors in runtime
-      runtimes.back()->deserialize(runtime);
+          std::make_unique<FusionKernelRuntime>(fusion_.get(), args));
+
+      // Deserialize FusionExecutors in FusionKernelRuntime
+      // runtimes.back()->deserialize(runtime);
+
       all_runtimes.emplace_back(runtimes.back().get());
     }
-    kernel_runtimes_.emplace_back(device_runtimes->device_id(), runtimes);
+    kernel_runtimes_.emplace(device_runtimes->device_id(), std::move(runtimes));
   }
 
+  /*
   for (auto idx : c10::irange(buffer->kernel_cache_keys().size())) {
     size_t key = buffer->kernel_cache_keys().Get(idx);
     size_t value_id = buffer->kernel_cache_keys().Get(idx);

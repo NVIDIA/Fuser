@@ -7870,7 +7870,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       // Lower the kernel with int32 index type.
       CompileParams compile_opts = {.index_type = PrimDataType::Int32};
 
-      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
+      fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
       TORCH_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",

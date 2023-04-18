@@ -419,6 +419,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return indexModeToDtype(index_mode_);
   }
 
+  KernelArgumentHolder() = default;
+
   explicit KernelArgumentHolder(KernelIndexMode index_mode)
       : index_mode_(index_mode) {}
 
@@ -508,6 +510,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
+
+  void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;
