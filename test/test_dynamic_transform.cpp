@@ -462,4 +462,22 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
   }
 }
 
+// Make sure non-dynamic reshape op is created when possible
+TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({3, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, {IrBuilder::create<Int>(4), IrBuilder::create<Int>(3)});
+  fusion.addOutput(tv1);
+
+  // Make sure the reshape is recognized as a static reshape
+  TORCH_CHECK(
+      !tv1->domain()->hasSymbolicAxis(),
+      "Not expected to have symbolic axes: ",
+      tv1->toString());
+}
+
 } // namespace nvfuser
