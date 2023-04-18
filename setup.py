@@ -25,6 +25,10 @@
 #     package nightly where we might want to add a date tag
 #     nvfuser-VERSION+TAG+gitSHA1-....-whl
 #
+#   -install_requires=pkg0[,pkg1...]
+#     this is used for pip wheel build to specify package required for install
+#     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
+#
 
 import multiprocessing
 import os
@@ -46,6 +50,7 @@ NO_NINJA = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
+INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -62,6 +67,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg.startswith("-install_requires="):
+        INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
@@ -221,7 +229,17 @@ def cmake():
 
     from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
 
+    # this is used to suppress import error.
+    # so we can get the right pytorch prefix for cmake
+    import logging
+
+    logger = logging.getLogger("nvfuser")
+    logger_level = logger.getEffectiveLevel()
+    logger.setLevel(logging.CRITICAL)
+
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
+
+    logger.setLevel(logger_level)
 
     # generate cmake directory
     cmd_str = [
@@ -305,6 +323,7 @@ def main():
             package_data={
                 "nvfuser": nvfuser_package_data,
             },
+            install_requires=INSTALL_REQUIRES,
             entry_points={
                 "console_scripts": [
                     "patch-nvfuser = nvfuser_python_utils:patch_installation",
