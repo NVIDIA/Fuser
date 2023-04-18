@@ -993,12 +993,8 @@ TEST_F(NVFuserTest, FusionResizeSlice3_CUDA) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  TORCH_CHECK(
-      tv1->definition()->isA<UnaryOp>() &&
-      tv1->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set);
-  TORCH_CHECK(
-      tv2->definition()->isA<UnaryOp>() &&
-      tv2->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set);
+  TORCH_CHECK(tv1->definition()->isA<LoadStoreOp>());
+  TORCH_CHECK(tv2->definition()->isA<LoadStoreOp>());
 }
 
 // Partition an input, reduce each and concatenate them
@@ -1814,14 +1810,13 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
     auto out_tv = ir_utils::getTvOutput(expr);
     if (out_tv->name() == tv3->name() || out_tv->name() == tv5->name()) {
       TORCH_CHECK(
-          expr->isA<UnaryOp>() &&
-              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set,
+          expr->isA<LoadStoreOp>(),
           "Unexpected defintion of slice output tensor: ",
           out_tv->toString(),
           ", ",
           expr->toString());
       auto producer =
-          dynamic_cast<kir::TensorIndex*>(expr->as<UnaryOp>()->in());
+          dynamic_cast<kir::TensorIndex*>(expr->as<LoadStoreOp>()->in());
       if (producer == nullptr) {
         // this could be a default initialization
         continue;
@@ -1858,10 +1853,8 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   // The slice producer must be a copy of tv2
   TORCH_CHECK(
       known_slice_producer->definition() &&
-          known_slice_producer->definition()->isA<UnaryOp>() &&
-          known_slice_producer->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set &&
-          known_slice_producer->definition()->as<UnaryOp>()->in()->name() ==
+          known_slice_producer->definition()->isA<LoadStoreOp>() &&
+          known_slice_producer->definition()->as<LoadStoreOp>()->in()->name() ==
               tv2->name(),
       "Unexpected slice producer: ",
       known_slice_producer->toString());

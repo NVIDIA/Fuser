@@ -1378,10 +1378,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const int max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    TORCH_WARN(
-        "NVFuser Compile: arch check disabled, should not compile any kernel");
-  }
 
   at::cuda::jit::initializeCudaContext();
 
@@ -1476,10 +1472,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   if (!return_compiled_binary) {
     object_code.clear();
   }
-
-  TORCH_CHECK(
-      !isOptionDisabled(DisableOption::ArchCheck),
-      "NVFuser Compile: arch check disabled, should not return any compiled kernel");
 
   return {compiled_kernel, log.str(), object_code};
 }

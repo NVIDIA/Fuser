@@ -81,11 +81,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   TORCH_INTERNAL_ASSERT(producer_tv_->domain() == producer);
   TORCH_INTERNAL_ASSERT(consumer_tv_->domain() == consumer);
 
-  if (consumer_tv_->definition()->isA<TransposeOp>()) {
-    return mapTranspose(
-        producer, consumer, root_dims_to_map, producer_to_consumer);
-  } else if (
-      consumer_tv_->definition()->isA<TorchGatherOp>() &&
+  if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
       consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() ==
           producerTv() &&
       require_same_extent_) {
@@ -175,43 +171,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
     itc++;
     itp++;
-  }
-  return dom_map;
-}
-
-std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
-    mapTranspose(
-        const TensorDomain* producer,
-        const TensorDomain* consumer,
-        const std::unordered_set<IterDomain*>& root_dims_to_map,
-        bool producer_to_consumer) const {
-  const auto producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
-  const auto& consumer_root = consumer->getRootDomain();
-
-  std::unordered_map<IterDomain*, IterDomain*> dom_map;
-
-  TransposeOp* top = dynamic_cast<TransposeOp*>(consumer_tv_->definition());
-  TORCH_INTERNAL_ASSERT(top != nullptr);
-
-  const auto& new2old = top->new2old();
-  for (const auto i : c10::irange(consumer_root.size())) {
-    IterDomain* producer_id = producer_root[new2old[i]];
-    IterDomain* consumer_id = consumer_root[i];
-
-    // In exact mapping, do not map broadcast domains with
-    // non-broadcast domains
-    if (is_exact_ && producer_id->isBroadcast() != consumer_id->isBroadcast()) {
-      continue;
-    }
-
-    if (!producer_to_consumer) {
-      std::swap(producer_id, consumer_id);
-    }
-
-    if (root_dims_to_map.find(producer_id) != root_dims_to_map.end()) {
-      dom_map.insert(std::make_pair(producer_id, consumer_id));
-    }
   }
   return dom_map;
 }
@@ -1090,23 +1049,6 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   TORCH_INTERNAL_ASSERT(
       (*out_it)->isVectorComponent(),
       "The last dim of ViewDtypeOp's output must be a ViewAsScalar");
-}
-
-void ComputeAtRootDomainMapBuilder::handle(TransposeOp* op) {
-  const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
-  std::vector<IterDomain*> in_root =
-      TensorDomain::noReductions(in_td->getMaybeRFactorDomain());
-
-  const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto& out_root = out_td->getRootDomain();
-
-  TORCH_INTERNAL_ASSERT(in_root.size() == out_root.size());
-
-  const auto& new2old = op->new2old();
-
-  for (const auto it : c10::irange(out_root.size())) {
-    setMaybeMapped(in_td, in_root[new2old[it]], out_td, out_root[it]);
-  }
 }
 
 void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {

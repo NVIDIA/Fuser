@@ -400,6 +400,10 @@ int NaiveValueMachine::makeInstructionEntry() {
 
 void NaiveValueMachine::runInstruction(int index) {
   switch (inst_type_[index]) {
+    case InstructionType::SET_OP:
+      precomputed_values_.values_[dest_[index]] =
+          precomputed_values_.values_[src0_[index]];
+      break;
     case InstructionType::UNARY_OP:
       runUnaryOp(index);
       break;
@@ -426,9 +430,6 @@ void NaiveValueMachine::runUnaryOp(int index) {
   switch (uop_type_[index]) {
     case UnaryOpType::Neg:
       dest = -src;
-      break;
-    case UnaryOpType::Set:
-      dest = src;
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {

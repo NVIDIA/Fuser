@@ -39,7 +39,22 @@ DataType getTypeFromComplexType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::Double;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Not a complex type:", dtype);
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Only support ComplexFloat and ComplexDouble, current type:",
+          dtype);
+  }
+}
+
+DataType getComplexTypeFromType(DataType dtype) {
+  switch (std::get<PrimDataType>(dtype.type)) {
+    case DataType::Float:
+      return DataType::ComplexFloat;
+    case DataType::Double:
+      return DataType::ComplexDouble;
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false, "Only support Float and Double, current type:", dtype);
   }
 }
 
@@ -200,7 +215,6 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
     case UnaryOpType::Reciprocal:
-    case UnaryOpType::Set:
     case UnaryOpType::Sigmoid:
     case UnaryOpType::IsFinite:
     case UnaryOpType::IsInf:
@@ -289,8 +303,6 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "rsqrt";
     case UnaryOpType::Round:
       return "nearbyint";
-    case UnaryOpType::Set:
-      return "set";
     case UnaryOpType::Sigmoid:
       return "sigmoid";
     case UnaryOpType::Sin:
@@ -338,8 +350,6 @@ static const char* unary_op_type_inline_op2string(UnaryOpType t) {
       return "-";
     case UnaryOpType::Not:
       return "~";
-    case UnaryOpType::Set:
-      return "";
     case UnaryOpType::Address:
       return "(int64_t) &";
     default:
@@ -383,6 +393,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "remainder";
     case BinaryOpType::Sub:
       return "sub";
+    case BinaryOpType::Complex:
+      return "std::complex";
 
     // Integer Ops
     case BinaryOpType::Mod:
@@ -674,6 +686,8 @@ static const char* thread_size2string(ParallelType t) {
 
 const char* load_store_type2string(LoadStoreOpType t) {
   switch (t) {
+    case LoadStoreOpType::Set:
+      return "Set";
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:
@@ -956,17 +970,11 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
     case Swizzle2DType::ZShape:
       os << "ZShape";
       break;
-    case Swizzle2DType::Transpose:
-      os << "Transpose";
-      break;
     case Swizzle2DType::XOR:
       os << "Xor";
       break;
     case Swizzle2DType::CyclicShift:
       os << "CyclicShift";
-      break;
-    case Swizzle2DType::Scatter:
-      os << "Scatter";
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "undefined 2D swizzle");
@@ -1105,35 +1113,7 @@ size_t dataTypeSize(DataType type) {
       [](auto&& dtype) -> size_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
-          switch (dtype) {
-            case DataType::Bool:
-              return sizeof(bool);
-            case DataType::ComplexDouble:
-              return sizeof(std::complex<double>);
-            case DataType::ComplexFloat:
-              return sizeof(std::complex<float>);
-            case DataType::Double:
-              return sizeof(double);
-            case DataType::Float:
-              return sizeof(float);
-            case DataType::Half:
-              return sizeof(at::Half);
-            case DataType::BFloat16:
-              return sizeof(at::BFloat16);
-            case DataType::Index:
-            case DataType::Pointer:
-              TORCH_INTERNAL_ASSERT(
-                  false,
-                  "The actual type of Index is only known at compile time.");
-            case DataType::Int:
-              return sizeof(uint64_t);
-            case DataType::Int32:
-              return sizeof(uint32_t);
-            case DataType::SMemAddress:
-              return sizeof(unsigned);
-            default:
-              TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
-          }
+          return primDataTypeSize(dtype);
         } else if constexpr (std::is_same_v<T, PointerOf>) {
           return sizeof(void*);
         } else if constexpr (std::is_same_v<T, ArrayOf>) {

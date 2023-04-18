@@ -221,10 +221,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<Resize>());
     return;
   }
-  if (expr->isStrictlyA<TransposeOp>()) {
-    ptr(handler)->handle(expr->as<TransposeOp>());
-    return;
-  }
   if (expr->isStrictlyA<ExpandOp>()) {
     ptr(handler)->handle(expr->as<ExpandOp>());
     return;
@@ -513,10 +509,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<Resize>()) {
     ptr(handler)->handle(expr->as<Resize>());
-    return;
-  }
-  if (expr->isStrictlyA<TransposeOp>()) {
-    ptr(handler)->handle(expr->as<TransposeOp>());
     return;
   }
   if (expr->isStrictlyA<ExpandOp>()) {
@@ -929,9 +921,6 @@ void OptOutConstDispatch::handle(const Swizzle2D* stmt) {
 void OptOutConstDispatch::handle(const Resize* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const TransposeOp* stmt) {
-  unhandled(stmt);
-}
 void OptOutConstDispatch::handle(const ExpandOp* stmt) {
   unhandled(stmt);
 }
@@ -1127,9 +1116,6 @@ void OptOutDispatch::handle(Swizzle2D* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(Resize* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(TransposeOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(ExpandOp* stmt) {

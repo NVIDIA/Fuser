@@ -129,8 +129,8 @@ class AllocationInserter : public kir::ExprMutator {
           info.buffer->axis((int)axis_i), IdMappingMode::LOOP);
       init_dims.push_back(concrete_id);
     }
-    Expr* init_expr =
-        IrBuilder::create<UnaryOp>(UnaryOpType::Set, info.buffer, init_val);
+    Expr* init_expr = IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, info.buffer, init_val);
     for (auto init_loop_it = init_dims.rbegin();
          init_loop_it != init_dims.rend();
          ++init_loop_it) {

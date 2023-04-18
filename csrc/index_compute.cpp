@@ -598,21 +598,14 @@ void IndexCompute::handle(Swizzle2D* swizzle_2d) {
     // Handle inactive swizzles by just passing through index
     //  and extend information.
 
-    TORCH_INTERNAL_ASSERT(
-        index_map_.count(in_x_id) == index_map_.count(in_y_id),
-        "input index should be either both defined or both undefined");
-    if (index_map_.count(in_x_id)) {
-      // Only propagate original index through if
-      //  the input index hasn't been computed.
-      // TODO:
-      //  This part should be cleaner once we remove the
-      // second index traversal pass.
-      return;
+    if (!index_map_.count(in_x_id)) {
+      index_map_[in_x_id] = out_x_ind;
+      extent_map_[in_x_id] = getExtent(out_x_id);
     }
-    index_map_[in_x_id] = out_x_ind;
-    index_map_[in_y_id] = out_y_ind;
-    extent_map_[in_y_id] = getExtent(out_y_id);
-    extent_map_[in_x_id] = getExtent(out_x_id);
+    if (!index_map_.count(in_y_id)) {
+      index_map_[in_y_id] = out_y_ind;
+      extent_map_[in_y_id] = getExtent(out_y_id);
+    }
   } else {
     // Generate integer swizzle math if the
     //  swizzle is activated. See also

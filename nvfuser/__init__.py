@@ -8,11 +8,22 @@ import sys
 import torch
 
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
-sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
+pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
+if pytorch_lib_dir not in sys.path:
+    sys.path.append(pytorch_lib_dir)
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
-from . import _C
+try:
+    from . import _C
+except ImportError as err:
+    import logging
+
+    logging.getLogger("nvfuser").error(
+        """==== importing nvfuser failed ====
+             try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
+    )
+    raise err
 from ._C import *  # noqa: F401,F403
 
 
@@ -68,12 +79,15 @@ class FusionDefinition(_C._FusionDefinition):
 
         return result
 
-    def from_pytorch(self, tensor):
+    def from_pytorch(self, tensor, static_sizes=False):
         """
-        Defines an nvfuser input tensor from a pytorch tensor
+        Defines an nvfuser input tensor from a pytorch tensor and defaults
+        to definining a symbolic tensor for dynamic shape usage.
 
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
+            static_sizes (bool)  : Interprets sizes as static rather than
+                                   as symbolic for dynamic shape usage
 
         Returns:
             nvfuser.Tensor
@@ -90,6 +104,84 @@ class FusionDefinition(_C._FusionDefinition):
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
+        )
+
+    def fusion_ir(self):
+        """
+        Returns the uscheduled Fusion IR for the given definition that corresponds to all scheduled inputs.
+
+        Returns:
+            String
+        """
+        return self._fusion_ir()
+
+    def last_cuda_code(self, intrinsic_code=False, **kwargs):
+        """
+        Returns the Cuda Code for the last executed set of inputs
+
+        Args:
+            intrinsic_code (Bool): Include all the additional code required to run kernel(s). (default: False)
+
+        Kwargs:
+            override_user_schedule (Bool): For a user defined schedule, override with auto-generated schedule (default: False)
+
+        Returns:
+            String
+        """
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
+        return self._last_cuda_code(intrinsic_code, override_user_schedule)
+
+    def cuda_code_for(self, inputs, intrinsic_code=False, **kwargs):
+        """
+        Returns the Cuda Code for the given inputs
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+            intrinsic_code (Bool): Include all the additional code required to run kernel(s). (default: False)
+
+        Kwargs:
+            override_user_schedule (Bool): For a user defined schedule, override with auto-generated schedule (default: False)
+
+        Returns:
+            String
+        """
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
+        return self._cuda_code_for(inputs, intrinsic_code, override_user_schedule)
+
+    def last_scheduled_fusion_ir(self, tensor_transforms=False, **kwargs):
+        """
+        Returns the Scheduled Fusion IR for the last executed set of inputs
+
+        Args:
+            tensor_transforms (Bool): Include tensor transforms that were applied through scheduling. (default: False)
+
+        Kwargs:
+            override_user_schedule (Bool): For a user defined schedule, override with auto-generated schedule (default: False)
+
+        Returns:
+            String
+        """
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
+        return self._last_scheduled_fusion_ir(tensor_transforms, override_user_schedule)
+
+    def scheduled_fusion_ir_for(self, inputs, tensor_transforms=False, **kwargs):
+        """
+        Returns the Scheduled Fusion IR for the last executed set of inputs
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+            tensor_transforms (Bool): Include tensor transforms that were applied through scheduling. (default: False)
+
+        Kwargs:
+            override_user_schedule (Bool): For a user defined schedule, override with auto-generated schedule (default: False)
+
+        Returns:
+            String
+        """
+        override_user_schedule = kwargs.pop("override_user_schedule", False)
+        return self._scheduled_fusion_ir_for(
+            inputs, tensor_transforms, override_user_schedule
         )
 
 

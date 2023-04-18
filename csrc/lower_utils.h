@@ -122,7 +122,7 @@ const TensorView* getTv(const Val*);
 //! Get only TensorView potentially via kir::TensorIndex.
 std::vector<TensorView*> getTvs(const std::vector<Val*>& vals);
 
-std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
+std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
     const Val* val);
 
 //! Returns true if the expression will be lowered to

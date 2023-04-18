@@ -94,7 +94,6 @@ TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
 //! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
 //!
 enum class DisableOption {
-  ArchCheck, //! Disable hardware-specific checks to enable cross arch debug
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
   Fallback, //! Disable fallback
@@ -441,5 +440,108 @@ class DebugPrintScope {
 // compiler, please use DebugPrintScope directly without this macro.
 #define DEBUG_PRINT_SCOPE(...) \
   DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
+
+//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
+//! the actual C++ type that corresponds to the given Aten scalar
+//! type. Deduction of the native type is done using
+//! AtenTypeToNativeType, so for example at::ScalarType::ComplexFloat
+//! corresponds to std::complex<float> rathe than
+//! c10::complex<float>. For the latter behavior, please use
+//! atenTypeDispatchWithC10Complex below.
+template <typename Functor, typename... Args>
+auto atenTypeDispatch(at::ScalarType type, Functor func, Args&&... args) {
+  switch (type) {
+    case at::ScalarType::Int:
+      return func
+          .template operator()<AtenTypeToNativeType<at::ScalarType::Int>::type>(
+              std::forward<Args>(args)...);
+    case at::ScalarType::Long:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::Long>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Bool:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::Bool>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Float:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::Float>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Double:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::Double>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Half:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::Half>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::BFloat16:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::BFloat16>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::ComplexFloat:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::ComplexFloat>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::ComplexDouble:
+      return func.template
+      operator()<AtenTypeToNativeType<at::ScalarType::ComplexDouble>::type>(
+          std::forward<Args>(args)...);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
+  }
+}
+
+//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
+//! the actual C++ type that corresponds to the given Aten scalar
+//! type. Deduction of the native type is done using
+//! AtenTypeToNativeTypeWithC10Complex, so for example
+//! at::ScalarType::ComplexFloat corresponds to c10::complex<float> rathe than
+//! std::complex<float>. For the latter behavior, please use
+//! atenTypeDispatch above.
+template <typename Functor, typename... Args>
+auto atenTypeDispatchWithC10Complex(
+    at::ScalarType type,
+    Functor func,
+    Args&&... args) {
+  switch (type) {
+    case at::ScalarType::Int:
+      return func.template
+      operator()<AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Int>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Long:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Long>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Bool:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Bool>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Float:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Float>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Double:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Double>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::Half:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Half>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::BFloat16:
+      return func.template operator()<
+          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::BFloat16>::type>(
+          std::forward<Args>(args)...);
+    case at::ScalarType::ComplexFloat:
+      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
+          at::ScalarType::ComplexFloat>::type>(std::forward<Args>(args)...);
+    case at::ScalarType::ComplexDouble:
+      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
+          at::ScalarType::ComplexDouble>::type>(std::forward<Args>(args)...);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
+  }
+}
 
 } // namespace nvfuser

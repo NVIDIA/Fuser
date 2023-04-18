@@ -408,10 +408,7 @@ class VectorizeValidator : public OptInDispatch {
     if (misaligned_vectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
         checkContiguity(validator.domains_, tv);
-      } else if (
-          tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set) {
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
@@ -549,11 +546,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr ||
-              (tv->definition()->isA<UnaryOp>() &&
-               tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                   UnaryOpType::Set) ||
-              tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
@@ -851,21 +844,6 @@ void validatePartialSplit(Fusion* fusion) {
 
 namespace {
 
-//! Utility to make sure targeted gpu capability is
-//!  higher than provided major.minor.
-void validateMinimumArch(int major, int minor) {
-  // Skip checking arch if disabled.
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    return;
-  }
-
-  auto prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_INTERNAL_ASSERT(prop->major >= major);
-  if (prop->major == major) {
-    TORCH_INTERNAL_ASSERT(prop->minor >= minor);
-  }
-}
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -1032,12 +1010,10 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
   switch (ldst->opType()) {
     case LoadStoreOpType::LdMatrix:
     case LoadStoreOpType::LdMatrixTranspose:
-      validateMinimumArch(7, 5);
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      validateMinimumArch(8, 0);
       return;
     default:
       return;
@@ -1057,12 +1033,9 @@ void validateMma(Fusion* fusion) {
 
       switch (mma->options().macro) {
         case MmaOptions::MacroType::Volta_16_16_4:
-          validateMinimumArch(7, 0);
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          validateMinimumArch(7, 5);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1070,8 +1043,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
-          validateMinimumArch(8, 0);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());

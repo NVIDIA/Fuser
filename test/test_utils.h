@@ -439,10 +439,39 @@ inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
   return false;
 }
 
+inline bool cudaArchGuardShouldSkip(
+    int lower_major, // inclusive
+    int lower_minor, // inclusive
+    int upper_major, // exclusive
+    int upper_minor // exclusive
+) {
+  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
+  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  if (capability_major < lower_major ||
+      (capability_major == lower_major && capability_minor < lower_minor)) {
+    return true;
+  }
+  if (capability_major > upper_major ||
+      (capability_major == upper_major && capability_minor >= upper_minor)) {
+    return true;
+  }
+  return false;
+}
+
 #define NVFUSER_TEST_CUDA_ARCH_GUARD(REQUIRED_MAJOR, REQUIRED_MINOR)          \
   if (cudaArchGuardShouldSkip(REQUIRED_MAJOR, REQUIRED_MINOR)) {              \
     GTEST_SKIP() << "Requires GPU capability above " << REQUIRED_MAJOR << "." \
                  << REQUIRED_MINOR << " to run.\n";                           \
+  }
+
+#define NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(                             \
+    LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)                 \
+  if (cudaArchGuardShouldSkip(                                          \
+          LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)) {        \
+    GTEST_SKIP() << "Requires GPU capability >= " << LOWER_MAJOR << "." \
+                 << LOWER_MINOR << " and < " << UPPER_MAJOR << "."      \
+                 << UPPER_MINOR << " to run.\n";                        \
   }
 
 #define NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(                                \
