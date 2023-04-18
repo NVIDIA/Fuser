@@ -159,7 +159,7 @@ table Bool {
   bool_val: bool;
 }
 
-// Data for Constant Double, Float, Half, BFloat16
+// Data for Constant Double, Float
 table Double {
   double_val: double;
   dtype: DataType;
@@ -171,7 +171,7 @@ table Int {
   dtype: DataType;
 }
 
-// Data for Constant Int or Long
+// Data for Half, BFloat16
 table Half {
   half_val: ushort;
   dtype: DataType;
@@ -189,6 +189,7 @@ table ComplexDouble {
 
 table ScalarCpu {
   data : ScalarCpuData;
+  dtype : DataType;
 }
 
 table PhiloxCudaState {

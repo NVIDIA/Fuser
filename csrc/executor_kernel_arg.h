@@ -387,44 +387,53 @@ struct CpuScalarTensorArg : public ArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    flatbuffers::Offset<void> data = 0;
+    flatbuffers::Offset<void> value = 0;
+    serde::DataType dtype = serde::DataType_None;
+    serde::ScalarCpuData data_type = serde::ScalarCpuData_NONE;
+
     if constexpr (std::is_same_v<DATATYPE, bool>) {
-      data = serde::CreateBool(builder, instance_.data).Union();
+      dtype = serde::DataType_Bool;
+      data_type = serde::ScalarCpuData_Bool;
+      value = serde::CreateBool(builder, instance_.data).Union();
     } else if constexpr (std::is_same_v<DATATYPE, double>) {
-      data =
-          serde::CreateDouble(builder, instance_.data, serde::DataType_Double)
-              .Union();
+      dtype = serde::DataType_Double;
+      data_type = serde::ScalarCpuData_Double;
+      value = serde::CreateDouble(builder, instance_.data, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, float>) {
-      data = serde::CreateDouble(builder, instance_.data, serde::DataType_Float)
-                 .Union();
+      dtype = serde::DataType_Float;
+      data_type = serde::ScalarCpuData_Double;
+      value = serde::CreateDouble(builder, instance_.data, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, at::Half>) {
-      data = serde::CreateHalf(builder, instance_.data.x, serde::DataType_Half)
-                 .Union();
+      dtype = serde::DataType_Half;
+      data_type = serde::ScalarCpuData_Half;
+      value = serde::CreateHalf(builder, instance_.data.x, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, at::BFloat16>) {
-      data =
-          serde::CreateHalf(builder, instance_.data.x, serde::DataType_BFloat16)
-              .Union();
+      dtype = serde::DataType_BFloat16;
+      data_type = serde::ScalarCpuData_Half;
+      value = serde::CreateHalf(builder, instance_.data.x, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, int32_t>) {
-      data = serde::CreateInt(builder, instance_.data, serde::DataType_Int32)
-                 .Union();
+      dtype = serde::DataType_Int32;
+      data_type = serde::ScalarCpuData_Int;
+      value = serde::CreateInt(builder, instance_.data, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, int64_t>) {
-      data = serde::CreateInt(builder, instance_.data, serde::DataType_Int)
-                 .Union();
+      dtype = serde::DataType_Int;
+      data_type = serde::ScalarCpuData_Int;
+      value = serde::CreateInt(builder, instance_.data, dtype).Union();
     } else if constexpr (std::is_same_v<DATATYPE, c10::complex<float>>) {
-      data = serde::CreateComplexDouble(
-                 builder,
-                 instance_.data.real(),
-                 instance_.data.imag(),
-                 serde::DataType_ComplexFloat)
-                 .Union();
+      dtype = serde::DataType_ComplexFloat;
+      data_type = serde::ScalarCpuData_ComplexDouble;
+      value = serde::CreateComplexDouble(
+                  builder, instance_.data.real(), instance_.data.imag(), dtype)
+                  .Union();
     } else if constexpr (std::is_same_v<DATATYPE, c10::complex<double>>) {
-      data = serde::CreateComplexDouble(
-                 builder,
-                 instance_.data.real(),
-                 instance_.data.imag(),
-                 serde::DataType_ComplexDouble)
-                 .Union();
+      dtype = serde::DataType_ComplexDouble;
+      data_type = serde::ScalarCpuData_ComplexDouble;
+      value = serde::CreateComplexDouble(
+                  builder, instance_.data.real(), instance_.data.imag(), dtype)
+                  .Union();
     }
+    auto data =
+        serde::CreateScalarCpu(builder, data_type, value, dtype).Union();
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_ScalarCpu, data);
   }
