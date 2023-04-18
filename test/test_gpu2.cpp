@@ -2877,16 +2877,12 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
 
 TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
   std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  // TODO: enable this for complex. Currently, complex yields
-  // silent wrong results:
-  //   Detected abs error of: 3.8062
-  //     absolute tolerance was set to 2.23704e-06
-  //     and relative tolerance set to 2.23704e-08
-  // Reason: variance of complex numbers is a real value instead of a complex
-  // number to enable complex number with Welford, we need to either (1)
-  // find/invent a specific version of Welford for complex numbers or (2)
-  // translate Welford to two-pass approach
+      DataType::ComplexFloat,
+      DataType::ComplexDouble,
+      DataType::Double,
+      DataType::Float,
+      DataType::Half};
+
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
@@ -2958,7 +2954,8 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
 } // namespace
 
 TEST_F(NVFuserTest, FusionVarMean_CUDA) {
-  std::vector<at::ScalarType> dtypes = {at::kFloat, at::kDouble};
+  std::vector<at::ScalarType> dtypes = {
+      at::kFloat, at::kDouble, at::kComplexFloat, at::kComplexDouble};
   std::vector<int> corrections = {0, 1};
   std::vector<bool> keepdims = {false, true};
   for (auto correction : corrections) {

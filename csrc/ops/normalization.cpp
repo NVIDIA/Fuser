@@ -92,19 +92,14 @@ VarMeanResult variance_mean(
       " please upcast to float");
 
   if (isComplexType(x->getDataType().value())) {
-    // There are compilation errors:
-    // __tmp_kernel1.cu(6727): error: namespace "CudaCodeGen::std" has no member
-    // "imagf"
-    // __tmp_kernel1.cu(6753): error: namespace "CudaCodeGen::std" has no member
-    // "realf"
-    TORCH_CHECK(false, "var_mean is not supported for complex types.");
+    // The variance of a complex tensor is a real number its value equals the
+    // sum of real and imaginary variances. The mean of a complex tensor is a
+    // complex number its real and image parts equals the mean of real and
+    // imaginary parts of the original tensor, separately.
     auto out_real = variance_mean(real(x), dims, correction, keepdim);
     auto out_imag = variance_mean(imag(x), dims, correction, keepdim);
-    // variance of a complex tensor is the sum of real and imaginary variances
-    // and is real mean of a complex tensor is complex complex(out_real.mean,
-    // out_imag.mean) It seems construction of a complex tensor from two real
-    // tensors is not supported yet
-    return {add(out_real.var, out_imag.var), nullptr};
+    return {
+        add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
   const size_t kNumberOfDims =

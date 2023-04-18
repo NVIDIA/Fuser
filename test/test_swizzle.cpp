@@ -16,8 +16,10 @@
 
 namespace nvfuser {
 
+class SwizzleTest : public NVFuserTest {};
+
 // Test a basic swizzle pattern
-TEST_F(NVFuserTest, FusionSimpleSwizzle0_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle0_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -58,7 +60,7 @@ TEST_F(NVFuserTest, FusionSimpleSwizzle0_CUDA) {
 }
 
 // Test swizzle inlining
-TEST_F(NVFuserTest, FusionSimpleSwizzle1_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -100,7 +102,7 @@ TEST_F(NVFuserTest, FusionSimpleSwizzle1_CUDA) {
 // Test sync insertion and memory check in parallelized swizzles.
 //  In this test, data is parallel written into smem in zcurve
 //   pattern and then read out and output to global mem unswizzled.
-TEST_F(NVFuserTest, FusionSimpleSwizzle2_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -157,7 +159,7 @@ TEST_F(NVFuserTest, FusionSimpleSwizzle2_CUDA) {
 }
 
 // Test BestEffortReplay behavior with swizzle op
-TEST_F(NVFuserTest, FusionSwizzleMapping_CUDA) {
+TEST_F(SwizzleTest, SwizzleMapping_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -255,7 +257,7 @@ TEST_F(NVFuserTest, FusionSwizzleMapping_CUDA) {
 }
 
 // Test a basic loop swizzle pattern
-TEST_F(NVFuserTest, FusionLoopSwizzle0_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzle0_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -287,7 +289,7 @@ TEST_F(NVFuserTest, FusionLoopSwizzle0_CUDA) {
 }
 
 // Outer block zshape pattern
-TEST_F(NVFuserTest, FusionLoopSwizzle1_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzle1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -323,7 +325,7 @@ TEST_F(NVFuserTest, FusionLoopSwizzle1_CUDA) {
 }
 
 // Test assertion in unsupported pattern: non-leaf loop swizzle.
-TEST_F(NVFuserTest, FusionLoopSwizzleCheck0_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzleCheck0_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -352,7 +354,7 @@ TEST_F(NVFuserTest, FusionLoopSwizzleCheck0_CUDA) {
 }
 
 // Test assertion in unsupported pattern: half-inlined loop swizzle.
-TEST_F(NVFuserTest, FusionLoopSwizzleCheck1_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzleCheck1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -383,7 +385,7 @@ TEST_F(NVFuserTest, FusionLoopSwizzleCheck1_CUDA) {
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
-TEST_F(NVFuserTest, FusionSwizzleVectorize_CUDA) {
+TEST_F(SwizzleTest, SwizzleVectorize_CUDA) {
   // When there is a swizzle, non of the involved dimensions are contiguous, so
   // unable to vectorize.
   Fusion fusion;
@@ -402,7 +404,7 @@ TEST_F(NVFuserTest, FusionSwizzleVectorize_CUDA) {
   ASSERT_ANY_THROW(GpuLower lower(&fusion));
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle1_CUDA) {
+TEST_F(SwizzleTest, TransposeBankConflictSwizzle1_CUDA) {
   // Both Xor and CyclicShift swizzling should fully remove bank confliction of
   // a 32x32 non-vectorized transpose.
   std::vector<Swizzle2DType> swizzles{
@@ -443,7 +445,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle1_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle2_CUDA) {
+TEST_F(SwizzleTest, TransposeBankConflictSwizzle2_CUDA) {
   // ZShape should remove half of the bank confliction of a 32x32 non-vectorized
   // transpose.
   Fusion fusion;
@@ -474,7 +476,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflictSwizzle2_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
 }
 
-TEST_F(NVFuserTest, FusionDataSwizzleGlobal_CUDA) {
+TEST_F(SwizzleTest, DataSwizzleGlobal_CUDA) {
   // Data swizzle is ignored in global indexing, so we should just throw an
   // error if someone wants to do so.
   Fusion fusion;
@@ -534,7 +536,7 @@ at::Tensor getSwizzledTensor(
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionSwizzleExampleZShape_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleZShape_CUDA) {
   //    1 2 3      1 2 3
   //    4 5 6  =>  6 5 4
   //    7 8 9      7 8 9
@@ -547,7 +549,7 @@ TEST_F(NVFuserTest, FusionSwizzleExampleZShape_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(NVFuserTest, FusionSwizzleExampleXor_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleXor_CUDA) {
   //    1   2  3  4       1   2   3  4
   //    5   6  7  8       6   5   8  7
   //    9  10 11 12  =>   11  12  9 10
@@ -563,7 +565,7 @@ TEST_F(NVFuserTest, FusionSwizzleExampleXor_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(NVFuserTest, FusionSwizzleExampleCyclicShift_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleCyclicShift_CUDA) {
   //    1   2  3  4       1   2   3   4
   //    5   6  7  8       8   5   6   7
   //    9  10 11 12  =>   11  12  9  10
@@ -579,14 +581,9 @@ TEST_F(NVFuserTest, FusionSwizzleExampleCyclicShift_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-// TODO: FusionSwizzleExampleScatter_CUDA
-// I need to read more about ld.matrix before I can add that, maybe the
-// following link is a good thing to read:
-// https://github.com/NVIDIA/cutlass/blob/master/media/docs/implicit_gemm_convolution.md
-
 // Small repro for the replay fix needed for non-affine
 //  swizzle support.
-TEST_F(NVFuserTest, FusionSwizzleReplayFixRepro_CUDA) {
+TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeConcreteTensor({32, 32});
@@ -612,6 +609,47 @@ TEST_F(NVFuserTest, FusionSwizzleReplayFixRepro_CUDA) {
           id_ops.end(),
           [](Expr* expr) { return expr->isA<Swizzle2D>(); }),
       "Swizzle op should be removed by backward replay.");
+}
+
+TEST_F(SwizzleTest, SwizzleIndexing170_CUDA) {
+  // https://github.com/NVIDIA/Fuser/issues/170
+  GTEST_SKIP() << "Repro for an unfixed bug";
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({64, 64});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv1->split(1, 8);
+  tv1->split(1, 4);
+  tv1->split(0, 8);
+  tv1->split(0, 4);
+  // [2 4 8 2 4 8]
+  tv1->swizzle(Swizzle2DType::XOR, 1, 4);
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->merge(1);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->merge(0);
+    tv->split(0, 256);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t = at::randn({64, 64}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t});
+
+  testValidate(&fusion, outputs, {t}, {t}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
