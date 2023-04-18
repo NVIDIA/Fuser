@@ -229,7 +229,6 @@ class MergeTransform final : public ViewTransform {
   }
 
   bool operator==(const MergeTransform& other) const {
-    std::cerr << "Comparing with: " << other.toString() << std::endl;
     return ViewTransform::operator==(other);
   }
 

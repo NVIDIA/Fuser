@@ -2049,6 +2049,7 @@ IterDomain::IterDomain(
   TORCH_CHECK(
       !(isRFactorProduct() && isBroadcast()),
       "IterDomain cannot be both a broadcast and rfactor domain.");
+
   TORCH_INTERNAL_ASSERT(
       extent->isIntegralScalar(),
       "Cannot create an iter domain over an extent that is not an int but received ",
@@ -2413,7 +2414,6 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  // Only Inteation is considered for now.
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||

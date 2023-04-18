@@ -356,9 +356,8 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return managed_named_data_.find(key) != managed_named_data_.end();
   }
 
+  //! True if any of tensors has a symblic axis
   bool hasDynamicTransform();
-
-  void concretizeDynamicTransform(const DynamicTransformInfo& info);
 
  protected:
   friend SegmentCandidateFinder;
