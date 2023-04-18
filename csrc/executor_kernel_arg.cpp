@@ -32,49 +32,40 @@ std::string TensorArgAbstract::toString() const {
 namespace {
 
 template <typename T, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
-  switch (nDims) {
+std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
+  switch (tensor.ndimension()) {
     case (0):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 0, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(tensor);
     case (1):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 1, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(tensor);
     case (2):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 2, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(tensor);
     case (3):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 3, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(tensor);
     case (4):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 4, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(tensor);
     case (5):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 5, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(tensor);
     case (6):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 6, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(tensor);
     case (7):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 7, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(tensor);
     case (8):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 8, nvfuser_index_t>,
-          nvfuser_index_t>>();
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(tensor);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
           "Tried to generate a tensor to run a generated kernel with ",
-          nDims,
+          tensor.ndimension(),
           " dimensions, however only 0 to 8 dimensional tensor are supported.");
   }
   return nullptr;
@@ -83,28 +74,25 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
 template <typename nvfuser_index_t>
 struct GetTensorArgWithNativeType {
   template <typename T>
-  std::unique_ptr<TensorArgAbstract> operator()(int ndims) {
-    return getTensorArg<T, nvfuser_index_t>(ndims);
+  std::unique_ptr<TensorArgAbstract> operator()(const at::Tensor& tensor) {
+    return getTensorArg<T, nvfuser_index_t>(tensor);
   };
 };
 
 template <typename INDEX_MODE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims) {
+std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
   return atenTypeDispatchWithC10Complex(
-      dtype, GetTensorArgWithNativeType<INDEX_MODE>(), nDims);
+      tensor.scalar_type(), GetTensorArgWithNativeType<INDEX_MODE>(), tensor);
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims,
-    KernelIndexMode index_mode) {
+    KernelIndexMode index_mode,
+    const at::Tensor& tensor) {
   switch (index_mode) {
     case KernelIndexMode::INT32:
-      return getTensorArg<int>(dtype, nDims);
+      return getTensorArg<int>(tensor);
     case KernelIndexMode::INT64:
-      return getTensorArg<int64_t>(dtype, nDims);
+      return getTensorArg<int64_t>(tensor);
     default:
       break;
   }
@@ -171,19 +159,7 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
     arguments_.push_back(atenTypeDispatchWithC10Complex(
         tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
   } else {
-    int nDims = (int)tensor.ndimension();
-
-    c10::ScalarType dtype = tensor.scalar_type();
-    std::unique_ptr<TensorArgAbstract> tensor_arg =
-        getTensorArg(dtype, nDims, index_mode_);
-    tensor_arg->setTensor(tensor);
-    tensor_arg->setPointer(tensor.data_ptr());
-    tensor_arg->setDataType(aten_to_data_type(dtype));
-    for (const auto i : c10::irange(nDims)) {
-      tensor_arg->setSize(i, tensor.sizes()[i]);
-      tensor_arg->setStride(i, tensor.strides()[i]);
-    }
-    arguments_.push_back(std::move(tensor_arg));
+    arguments_.push_back(getTensorArg(index_mode_, tensor));
   }
 }
 

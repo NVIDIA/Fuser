@@ -29,6 +29,7 @@
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
+#include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/test_gpu_validator.h>
@@ -109,7 +110,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   //  part we have in this unit test.
   // Assumes last 3 dims are mnk
   // The innermost loops are dictated by the type of mma used,
-  //   the scheduler needs to use mma_util::WarpMmaSwizzler to
+  //   the scheduler needs to use mma_utils::WarpMmaSwizzler to
   //   get the right thread swizzle. Currently this is the only
   //   method allowed to schedule the 3/2 inner most loops of
   //   mma input/output.
@@ -317,6 +318,9 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -365,6 +369,9 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     params.tile_sizes = gemm_tile;
     params.double_buffer_options.double_buffer_smem_read = true;
     scheduleMatmul(&fusion, params);
+
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -650,6 +657,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -704,6 +713,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
+
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -770,6 +781,8 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     params.grid_swizzle_factor = swizzle;
 
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -877,6 +890,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
+
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -1019,10 +1034,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(
-      tv4c, gemm_tile2);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv4, gemm_tile2);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile2);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile2);
   //           -8   -7  -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -1035,10 +1048,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv2r->merge(-2);
 
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2cw, gemm_tile2, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2r, gemm_tile2, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2cw, gemm_tile2, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2r, gemm_tile2, 8);
   tv2cw->setMemoryType(MemoryType::Shared);
 
   // Schedule tv2 gmem read and smem write:
@@ -1083,10 +1094,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(
-      tv3c, gemm_tile1);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv3cw, gemm_tile1);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile1);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3cw, gemm_tile1);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -1098,10 +1107,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile1, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile1, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -1109,10 +1116,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile1, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile1, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
 
   // Schedule mma input
@@ -1326,9 +1331,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv4, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -1341,10 +1345,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv2r->merge(-2);
 
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2r, gemm_tile, 8);
   tv2cw->setMemoryType(MemoryType::Shared);
 
   // Schedule tv2 gmem read and smem write:
@@ -1396,9 +1398,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv3, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3, gemm_tile);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -1410,10 +1411,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -1421,10 +1420,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
 
   // Schedule mma input
@@ -1445,7 +1442,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv3->applyMmaSwizzle(
       mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
 
-  // mma_util::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
+  // mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
   // mma_builder1.build());
 
   // Put tv3 result in smem
@@ -1819,6 +1816,8 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -1902,9 +1901,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1914,16 +1912,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   // ---------------------------------------------------------------------------
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
   // [No,Ko,N,K]
   tv1cw->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2062,9 +2058,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2075,10 +2070,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2086,10 +2079,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2229,9 +2220,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2243,10 +2233,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   tv0cw->merge(-2);
   tv0r->merge(-2);
   tv0_reshape->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2254,10 +2242,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2386,15 +2372,14 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
   auto tv2c_rf = tv2c->rFactor({-9, -4, -1});
 
   // tv2c_rf is the actual output of the mma op after
   //  Rfactoring.
   mma_builder.accumulatorTv(tv2c_rf);
 
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
 
   //           -8   -7  -6 -5 -4 -3 -2 -1
   // [Mo No Ko Mwo  Nwo Kwo Mw Nw Mi Ni Ki]
@@ -2411,10 +2396,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   // [Mo,No,Ko,N,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2422,10 +2405,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [Mo,No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2551,7 +2532,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
   //              -9 -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No K2CTA Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   auto tv2c_rf = tv2c->rFactor({-9, -8, -1});
@@ -2560,8 +2541,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   //  Rfactoring.
   mma_builder.accumulatorTv(tv2c_rf);
 
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
 
   //                 -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No K2CTA Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
@@ -2578,10 +2558,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   // [Mo,No,Ko,N,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2589,10 +2567,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [Mo,No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2722,9 +2698,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   // Make warp tile:
   //
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8   -7 -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2859,6 +2834,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -2906,6 +2883,8 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.layout = layout;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
+
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -2961,6 +2940,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
         scheduleMatmul(&fusion, params);
+
+        ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
         at::manual_seed(0);
         auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -3027,6 +3008,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
 
           scheduleMatmul(&fusion, params);
 
+          ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
           at::manual_seed(0);
           auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3086,6 +3069,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 
       scheduleMatmul(&fusion, params);
 
+      ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3138,6 +3123,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
+    ASSERT_TRUE(fusion.bankConflictInfo().empty());
+
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3173,6 +3160,17 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
+
+  TORCH_CHECK(
+      1 == ir_utils::getMmaOps(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+  TORCH_CHECK(
+      ir_utils::getMmaOps(fusion.get()).front()->inputLayout().has_value(),
+      "input layout has not be set for MmaOp");
+  TORCH_CHECK(
+      layout ==
+          ir_utils::getMmaOps(fusion.get()).front()->inputLayout().value(),
+      "input layout from test and MmaOp do not match");
 
   at::manual_seed(0);
 
@@ -3214,6 +3212,17 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
     fusion->addInput(tv0);
     fusion->addInput(tv1);
     fusion->addOutput(tv2);
+
+    TORCH_CHECK(
+        1 == ir_utils::getMmaOps(fusion.get()).size(),
+        "matmul fusion must have at least one MmaOp");
+    TORCH_CHECK(
+        ir_utils::getMmaOps(fusion.get()).front()->inputLayout().has_value(),
+        "input layout has not be set for MmaOp");
+    TORCH_CHECK(
+        layout ==
+            ir_utils::getMmaOps(fusion.get()).front()->inputLayout().value(),
+        "input layout from test and MmaOp do not match");
 
     at::manual_seed(0);
 

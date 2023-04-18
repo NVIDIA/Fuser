@@ -279,6 +279,14 @@ def main():
         nvfuser_package_data = [
             "*.so",
             "lib/*.so",
+            "include/nvfuser/*.h",
+            "include/nvfuser/kernel_db/*.h",
+            "include/nvfuser/multidevice/*.h",
+            "include/nvfuser/ops/*.h",
+            "include/nvfuser/python_frontend/*.h",
+            "include/nvfuser/scheduler/*.h",
+            "include/nvfuser/serde*.h",
+            "share/cmake/nvfuser/NvfuserConfig*",
         ]
 
         setup(
