@@ -2138,16 +2138,22 @@ class TestNvFuserFrontend(TestCase):
 
             fd.add_output(t4)
 
-        # test generating a dot file before execution
+        # test generating a dot file before execution. This will throw an
+        # assertion error if detail_level is Explicit or Verbose
         pre_exec = fd.to_graphviz()
+        print("pre_exec=", pre_exec)
 
         _ = fd.execute(inputs)
 
         # test generating a dot file after execution with different detail levels
         co = fd.to_graphviz("computeOnly")
+        print("ComputeOnly=", co)
         b = fd.to_graphviz("basic")
-        # e = fd.to_graphviz("Explicit")
-        # v = fd.to_graphviz("VERBOSE")
+        print("Basic=", b)
+        e = fd.to_graphviz("Explicit")
+        print("Explicit=", e)
+        v = fd.to_graphviz("VERBOSE")
+        print("Verbose=", v)
 
 
 if __name__ == "__main__":

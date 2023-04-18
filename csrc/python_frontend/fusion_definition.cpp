@@ -173,8 +173,28 @@ std::string FusionDefinition::toGraphviz(
     IrGraphGenerator::DetailLevel detail_level) const {
   TORCH_CHECK(
       id().has_value(), "Cannot create graphviz until definition is complete.");
+
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto fusion = scheds->preschedFusion();
+
+  Fusion* fusion = scheds->auto_gen_schedules->fusion();
+
+  if (detail_level == IrGraphGenerator::DetailLevel::Explicit ||
+      detail_level == IrGraphGenerator::DetailLevel::Verbose) {
+    auto kernel_runtime =
+        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
+    // TODO: handle segmented fusions here
+    if (kernel_runtime->isSegmented()) {
+      std::cout << "Segmented" << std::endl;
+    } else {
+      std::cout << "Not segmented" << std::endl;
+    }
+  }
+
+  TORCH_CHECK(
+      fusion != nullptr, "Could not get Fusion from FusionExecutorCache");
+
+  FusionGuard::setCurFusion(fusion);
+
   return IrGraphGenerator::toGraphviz(fusion, detail_level);
 }
 
