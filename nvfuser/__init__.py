@@ -4,6 +4,7 @@
 
 import os
 import sys
+from typing import Optional, Union
 
 import torch
 
@@ -17,6 +18,13 @@ from ._C import *  # noqa: F401,F403
 
 
 class FusionDefinition(_C._FusionDefinition):
+    _preferred_device: Optional[torch.device] = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # When we execute a Fusion, we
+        self._preferred_device = None
+
     def __enter__(self):
         return self._setup_definition()
 
@@ -60,7 +68,9 @@ class FusionDefinition(_C._FusionDefinition):
 
         result = None
         try:
-            result = self._execute(inputs, override_user_schedule)
+            result = self._execute(
+                inputs, override_user_schedule, preferred_device=self._preferred_device
+            )
         except Exception as err:
             print("\nError executing nvFuser FusionDefinition:")
             print(self)
@@ -172,6 +182,44 @@ class FusionDefinition(_C._FusionDefinition):
         return self._scheduled_fusion_ir_for(
             inputs, tensor_transforms, override_user_schedule
         )
+
+    def set_preferred_device(self, device: Optional[Union[str, int, torch.device]]):
+        """Set the preferred CUDA device to run this Fusion on.
+
+        Each FusionDefinition will be executed on a single CUDA device.
+        Typically, which device to run on is determined by the devices where
+        the input tensors reside. However, if the Fusion is defined such that
+        none of the inputs are tensors, we are not able to infer a device from
+        the inputs. For example, the following FusionDefinition will be unable
+        to unambiguously infer the device of its output:
+
+            with FusionDefinition() as fd:
+                tv1 = fd.ops.full([5])
+                fd.add_output(tv1)
+
+        In that case, we default to selecting the first CUDA
+        device, i.e. `torch.device("cuda:0")`. This method enables selecting an
+        alternative preferred device.
+
+        Note that device must be either None or a CUDA device ("cpu" is not
+        allowed) and if it is something other than None, then all tensor inputs
+        must reside on that device, otherwise an error will be thrown.
+
+        Args:
+            device: CUDA device to infer for "factory" ops.
+        """
+        if self._preferred_device is not None:
+            # check consistency
+            assert self._preferred_device == device, (
+                f"Cannot re-assign preferred device from {self._preferred_device}"
+                f"to {device}"
+            )
+            return
+        # check that this is a CUDA device
+        tdevice = torch.device(device)
+        assert tdevice.type == "cuda", f"Preferred device {device} is not a CUDA device"
+
+        self._preferred_device = tdevice
 
 
 from .nvfuser_version import __version__

@@ -2046,6 +2046,34 @@ class TestNvFuserFrontend(TestCase):
             fd = SchedError()
             _ = fd.execute(inputs)
 
+    @unittest.skipIf(
+        torch.cuda.device_count() == 1, "test_default_device requires multiple GPUs"
+    )
+    def test_default_device(self):
+        """
+        Run the same Fusion as in test_scalar_only_inputs, but on device 1
+        """
+        # We don't allow scalar outputs, currently,
+        # so a tensor has to be returned
+        def fusion_func(fd: FusionDefinition):
+            s0 = fd.define_scalar()
+            s1 = fd.define_scalar()
+            s2 = fd.ops.add(s0, s1)
+            c0 = fd.define_constant(1.0, DataType.Float)
+            fd.set_preferred_device("cuda:1")
+            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t4 = fd.ops.mul(t3, s2)
+            fd.add_output(t4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # TODO: full is broken and does not print its proper definition
+        # Issue: https://github.com/csarofeen/pytorch/issues/2502
+        nvf_out = fd.execute([2.0, 3.0])
+        eager_out = torch.full([2, 2], 1.0) * 5.0
+        self.assertEqual(eager_out, nvf_out[0])
+
 
 if __name__ == "__main__":
     run_tests()
