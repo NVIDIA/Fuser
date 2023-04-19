@@ -7895,9 +7895,9 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, true, false});
@@ -7906,9 +7906,11 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
 
   fusion.addOutput(tv4);
 
+  c10::cuda::CUDACachingAllocator::emptyCache();
+
   // Inputs are small enough to use 32-bit indexing, but the output is
   // not
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2024, 1024}, options);
   at::Tensor t1 = at::randn({2024, 1024}, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
@@ -7930,9 +7932,9 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, true, false});
@@ -7949,7 +7951,7 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   // indexing. However, the current logic should result in forcing
   // 64-bit indexing. This would need to be fixed for matmul for
   // example.
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2024, 1024}, options);
   at::Tensor t1 = at::randn({2024, 1024}, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
