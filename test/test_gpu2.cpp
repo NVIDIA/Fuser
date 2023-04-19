@@ -1364,11 +1364,10 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
 
-  auto at_x =
-      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
-  auto aten_output_float =
+  auto at_x = at_bias.to(c10::ScalarType::Double) +
+      at_input.to(c10::ScalarType::Double);
+  auto aten_output_double =
       at_x * 0.5 * (1.0 + (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh());
-  auto aten_output = aten_output_float.to(c10::ScalarType::Half);
 
   std::vector<c10::IValue> aten_inputs = {at_bias, at_input};
   auto lparams = schedulePointwise(&fusion, aten_inputs);
@@ -1378,7 +1377,12 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {aten_output_double},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
