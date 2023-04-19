@@ -34,7 +34,7 @@ namespace {
 
 using MatmulLayout = MmaOptions::MmaInputLayout;
 using LayoutData =
-    std::pair<c10::optional<MatmulLayout>, c10::optional<std::string>>;
+    std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
 using TensorShape = std::vector<int64_t>;
 using ProblemShape = TensorShape;
 
@@ -95,7 +95,7 @@ PrimDataType getIndexType(const ProblemShape& problem_shape) {
 }
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
-inline c10::optional<MmaOptions::MacroType> getMmaOp(
+inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
   using MacroType = MmaOptions::MacroType;
@@ -122,14 +122,13 @@ inline c10::optional<MmaOptions::MacroType> getMmaOp(
     default:
       break;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 //! A wrapper for core heuristics initialization
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
     const MmaOptions::MacroType& mma_op,
-    const MatmulLayout& layout,
     const ProblemShape& problem_shape) {
   const GemmTile instruction_tile = getMmaOpShape(mma_op);
   GemmTile warp_tile = {-1, -1, -1};
@@ -182,8 +181,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  params->mma_op = mma_op;
-  params->layout = layout;
+  params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
   return true;
@@ -514,7 +512,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape = getProblemShape(
-      fusion, mma_exprs[0]->as<MmaOp>(), runtime_info, layout.value());
+      fusion, mma_exprs.front()->as<MmaOp>(), runtime_info, layout.value());
   TORCH_INTERNAL_ASSERT(
       problem_shape.has_value(), "Failed to acquire problem shape.");
 
@@ -525,8 +523,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_op.has_value(), "Can not determine MMA op for problem.");
 
   // Populate heuristic details
-  auto status = initCoreHeuristics(
-      params, mma_op.value(), layout.value(), problem_shape.value());
+  auto status =
+      initCoreHeuristics(params, mma_op.value(), problem_shape.value());
   TORCH_INTERNAL_ASSERT(
       status, "Core part of heuristics failed to initialize.");
 

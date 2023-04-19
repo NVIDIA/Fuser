@@ -1258,8 +1258,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   const auto a = lowerSrcIndex(mma->inA(), mma->out());
   const auto b = lowerSrcIndex(mma->inB(), mma->out());
   const auto out = lowerDstIndex(mma->out());
-  auto mma_indexed =
-      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->options());
+  auto mma_indexed = IrBuilder::create<MmaOp>(
+      out, a, b, mma->init(), mma->options(), mma->inputLayout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }
