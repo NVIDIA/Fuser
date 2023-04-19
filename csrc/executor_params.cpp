@@ -162,4 +162,34 @@ flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
       &shapes_fb);
 }
 
+void LaunchParams::deserialize(const serde::LaunchParams* buffer) {
+  // table TensorShape {
+  //  shape : [long];
+  // }
+  //
+  // table LaunchParams {
+  //  gdimx : long;
+  //  gdimy : long;
+  //  gdimz : long;
+  //  bdimx : long;
+  //  bdimy : long;
+  //  bdimz : long;
+  //  smem : long;
+  //  output_sizes : [TensorShape];
+  // }
+
+  gdimx_ = buffer->gdimx();
+  gdimy_ = buffer->gdimy();
+  gdimz_ = buffer->gdimz();
+  bdimx_ = buffer->bdimx();
+  bdimy_ = buffer->bdimy();
+  bdimz_ = buffer->bdimz();
+  smem_ = buffer->smem();
+
+  for (auto fb_shape : *buffer->output_sizes()) {
+    output_sizes.emplace_back(
+        fb_shape->shape()->begin(), fb_shape->shape()->end());
+  }
+}
+
 } // namespace nvfuser

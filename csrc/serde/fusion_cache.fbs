@@ -274,7 +274,7 @@ table NvrtcFunction {
 table GlobalBufferInfo {
   sizes : [long];
   strides : [long];
-  type : DataType;
+  dtype : DataType;
   zero_init : bool;
   is_profile_buffer : bool;
 }
@@ -432,7 +432,7 @@ table TensorCreationSymbolic {
 // lowered : GpuLower
 table FusionExecutor {
   configured_device_smem : ulong;
-  maybe_available_smem : ulong;
+  maybe_available_dynamic_smem : ulong;
   device_smem_limit: ulong;
   warp_size: int;
   fusion_id: int;

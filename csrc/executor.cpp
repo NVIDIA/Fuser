@@ -1648,7 +1648,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // table FusionExecutor {
   //  configured_device_smem : ulong;
-  //  maybe_available_smem : ulong;
+  //  maybe_available_dynamic_smem : ulong;
   //  device_smem_limit: ulong;
   //  warp_size: int;
   //  fusion_id: int;
@@ -1656,8 +1656,6 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  kernel_code : string;
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
-  //  compile_params : CompileParams;
-  //  compiled_kernel : NvrtcFunction;
   //  launch_params : LaunchParams;
   //  kernel_summary : KernelSummary;
   //  used_tvs : [ulong];
@@ -1749,6 +1747,99 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       serde::mapToSerdeDtype(data.type),
       data.zero_init,
       data.is_profile_buffer);
+}
+
+void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
+  // table FusionExecutor {
+  //  configured_device_smem : ulong;
+  //  maybe_available_dynamic_smem : ulong;
+  //  device_smem_limit: ulong;
+  //  warp_size: int;
+  //  fusion_id: int;
+  //  fusion_id_counter : int;
+  //  kernel_code : string;
+  //  executor_entry_lookup_keys : [ulong];
+  //  executor_entry_lookup_values : [ExecutorEntry];
+  //  launch_params : LaunchParams;
+  //  kernel_summary : KernelSummary;
+  //  used_tvs : [ulong];
+  // }
+
+  configured_device_smem_ = buffer->configured_device_smem();
+  maybe_available_dynamic_smem_ = buffer->maybe_available_dynamic_smem();
+  device_smem_limit_ = buffer->device_smem_limit();
+  warp_size_ = buffer->warp_size();
+  fusion_id_ = buffer->fusion_id();
+  fusion_id_counter_ = buffer->fusion_id_counter();
+  kernel_code_ = buffer->kernel_code()->str();
+
+  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+    executor_entry_lookup_.emplace(
+        buffer->executor_entry_lookup_keys()->Get(idx),
+        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
+  }
+
+  launch_params_.deserialize(buffer->launch_params());
+}
+
+FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
+    const serde::ExecutorEntry* buffer) {
+  // table ExecutorEntry {
+  //    init : bool;
+  //    launch_params : LaunchParams;
+  //    output_aliases : [int];
+  //    input_aliases : [int];
+  //    outputs : [GlobalBufferInfo];
+  //    intermediates : [GlobalBufferInfo];
+  //    rand_offset : ulong;
+  // }
+  ExecutorEntry entry;
+
+  entry.init = buffer->init();
+
+  entry.launch_params.deserialize(buffer->launch_params());
+
+  for (auto idx : c10::irange(buffer->output_aliases()->size())) {
+    entry.output_to_input_aliases.emplace_back(
+        buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
+  }
+
+  for (auto output_buffer : *buffer->outputs()) {
+    entry.outputs.push_back(deserialize(output_buffer));
+  }
+
+  for (auto intermediate_buffer : *buffer->intermediates()) {
+    entry.outputs.push_back(deserialize(intermediate_buffer));
+  }
+
+  entry.rand_offset = buffer->rand_offset();
+
+  return entry;
+}
+
+FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
+    const serde::GlobalBufferInfo* buffer) {
+  // table GlobalBufferInfo {
+  //  sizes : [long];
+  //  strides : [long];
+  //  dtype : DataType;
+  //  zero_init : bool;
+  //  is_profile_buffer : bool;
+  // }
+  GlobalBufferInfo info;
+
+  for (auto dim_size : *buffer->sizes()) {
+    info.sizes.emplace_back(dim_size);
+  }
+
+  for (auto dim_stride : *buffer->strides()) {
+    info.strides.emplace_back(dim_stride);
+  }
+
+  info.type = mapToAtenDtype(buffer->dtype());
+  info.zero_init = buffer->zero_init();
+  info.is_profile_buffer = buffer->is_profile_buffer();
+  return info;
 }
 
 } // namespace nvfuser

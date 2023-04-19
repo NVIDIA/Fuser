@@ -269,6 +269,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   flatbuffers::Offset<serde::FusionExecutor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  void deserialize(const serde::FusionExecutor* buffer);
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -338,9 +340,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       flatbuffers::FlatBufferBuilder& builder,
       const ExecutorEntry& data) const;
 
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data) const;
+
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
  private:
   CompileOptions options_;

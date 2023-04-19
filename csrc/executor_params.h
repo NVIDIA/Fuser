@@ -146,6 +146,8 @@ class TORCH_CUDA_CU_API LaunchParams {
   flatbuffers::Offset<serde::LaunchParams> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  void deserialize(const serde::LaunchParams* buffer);
+
  private:
   // Spell them out because I want signed ints to know if they were initialized
   // or not.
