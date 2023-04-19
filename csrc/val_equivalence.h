@@ -34,8 +34,7 @@ namespace nvfuser {
 template <typename IndexType>
 class ValEquivalence {
  public:
-  ValEquivalence(IrContainer& container)
-      : container_(container), uf_(0), blacklist_(0) {}
+  ValEquivalence(IrContainer& container) : container_(container), uf_(0) {}
 
   //! Merge the sets containing a and b
   void merge(Val* a, Val* b) {
@@ -57,13 +56,7 @@ class ValEquivalence {
     }
   }
 
-  //! Mark val as ineligible for extraction
-  void blacklist(Val* val) {
-    auto num = val->number();
-    if (num >= size()) {
-      enlarge(num + 1);
     }
-    blacklist_[num] = true;
   }
 
   //! Simplify all given Statements (Exprs or Vals), recursively mapping Vals to
@@ -214,7 +207,6 @@ class ValEquivalence {
   //! Grow this datastructure to a new size
   void enlarge(size_t new_size) {
     uf_.enlarge(new_size);
-    blacklist_.resize(new_size);
   }
 
   IndexType getNumberFor(Val* val) const {
@@ -259,7 +251,7 @@ class ValEquivalence {
     TORCH_CHECK(
         num < vals.size(),
         "Requestion Val number ",
-        num,
+        std::to_string(num),
         " but vals.size()=",
         vals.size());
     return vals[num];
@@ -333,7 +325,6 @@ class ValEquivalence {
  private:
   IrContainer& container_;
   UnionFind<IndexType> uf_;
-  std::vector<bool> blacklist_;
   // denotes a "selected" value for each representative
   std::vector<std::optional<IndexType>> selected_;
   std::vector<IndexType> complexity_;
