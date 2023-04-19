@@ -271,6 +271,16 @@ struct TensorArg : public TensorArgAbstract {
     }
   }
 
+  // Create Metadata TensorArg using Flatbuffers
+  TensorArg(const serde::TensorArg* tensor) {
+    using pointer_type = std::add_pointer_t<typename TENSOR_TYPE::data_type>;
+    instance_.data = (pointer_type)tensor->ptr();
+    for (auto dim : c10::irange(instance_.nDims())) {
+      setSize(dim, tensor->size()->Get(dim));
+      setStride(dim, tensor->stride()->Get(dim));
+    }
+  }
+
   void setSize(int64_t i, int64_t size) {
     instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
   }
