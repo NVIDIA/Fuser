@@ -106,10 +106,18 @@ TEST_F(NVFuserTest, FusionValEquivalence) {
   fusion.addOutput(t3);
 
   fusion.printMath();
-  // ve.extractInPlace(fusion.exprs());
+
+  ve.merge(t0->axis(0)->extent(), t1->axis(0)->extent());
+  ve.merge(t0->axis(2)->extent(), t1->axis(1)->extent());
+  std::vector<Expr*> e(fusion.exprs());
+  ve.extractInPlace(e);
+
+  // During lowering, we'll merge some Val eclasses and do replacement on Exprs
+  GpuLower gpulw(&fusion);
 
   // We should have now deduced that t0 has dimensions {4, i1, 5}
   fusion.printMath();
+
   FAIL();
 }
 
