@@ -113,7 +113,7 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
         opt_index_mode.has_value() ? opt_index_mode.value()
                                    : KernelIndexMode::INT32);
     args.setDeviceIndex(
-        selected_device.has_value() ? selected_device.value() : 0);
+        selected_device.has_value() ? selected_device.value() : (int8_t)0);
     return args;
   }
   auto device_index = getCommonDeviceCUDA(inputs, selected_device);

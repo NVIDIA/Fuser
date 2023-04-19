@@ -2053,6 +2053,7 @@ class TestNvFuserFrontend(TestCase):
         """
         Run the same Fusion as in test_scalar_only_inputs, but on device 1
         """
+
         # We don't allow scalar outputs, currently,
         # so a tensor has to be returned
         def fusion_func(fd: FusionDefinition):
@@ -2060,7 +2061,7 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_constant(1.0, DataType.Float)
-            fd.select_device("cuda:1")
+            fd.set_device("cuda:1")
             t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)

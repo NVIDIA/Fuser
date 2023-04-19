@@ -67,7 +67,9 @@ class FusionDefinition(_C._FusionDefinition):
 
         result = None
         try:
-            result = self._execute(inputs, override_user_schedule, device=self._device)
+            result = self._execute(
+                inputs, override_user_schedule, device=self._device.index
+            )
         except Exception as err:
             print("\nError executing nvFuser FusionDefinition:")
             print(self)

@@ -114,8 +114,8 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, selected_device);
+  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
+      inputs, std::nullopt, selected_device);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
