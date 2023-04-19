@@ -18,6 +18,9 @@ namespace nvfuser {
 
 namespace {
 
+// thread_local variable used only for debugging/testing
+thread_local bool overwrite_disable_fma = false;
+
 // OptionEnum must be an enum like DebugDumpOption
 template <typename OptionEnum>
 auto parseEnvOptions(
@@ -355,7 +358,19 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   return getDebugDumpOptions().count(option);
 }
 
+ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag) {
+  old_flag = overwrite_disable_fma;
+  overwrite_disable_fma = flag;
+}
+
+ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
+  overwrite_disable_fma = old_flag;
+}
+
 bool isOptionDisabled(DisableOption option) {
+  if (options == DisableOption::Fma && overwrite_disable_fma) {
+    return false;
+  }
   return getDisableOptions().count(option);
 }
 
