@@ -73,7 +73,7 @@ os.environ["PYTORCH_NVFUSER_DISABLE"] = (
 os.environ["PYTORCH_NVFUSER_JIT_OPT_LEVEL"] = "0"
 
 # flag used to skip C++ integration test for torchscript
-if os.environ["NVFUSER_TEST_ONLY_RUN_WHEEL_BUILD_SUBSET"] == "1":
+if os.environ.get("NVFUSER_TEST_ONLY_RUN_WHEEL_BUILD_SUBSET", "0") == "1":
     RUN_NVFUSER = False
 
 # TODO: enable complex when we fixes the extremal cases in OpInfo
