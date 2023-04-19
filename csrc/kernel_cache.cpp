@@ -199,8 +199,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  // Note: at this point, the index type of KernelArgumentHolder is
-  // undetermined
   KernelArgumentHolder args = prepareInputs(perm_inputs);
 
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
