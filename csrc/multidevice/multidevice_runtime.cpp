@@ -40,7 +40,7 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
   if (cluster->params().auto_schedule) {
     // Get runtime info from fusion graph and concrete tensor inputs.
     SchedulerRuntimeInfo runtime_info(
-        fusion_from_cluster.get(), cluster_inputs, true);
+        fusion_from_cluster.get(), cluster_inputs);
 
     // Get heuristic tag that applies to the given fusion and input info.
     auto heuristic = SchedulerEntry::proposeHeuristics(
