@@ -572,6 +572,11 @@ bool isReductionTvOp(const Expr* expr) {
   return ir_utils::isTvOp(expr) && isReductionOp(expr);
 }
 
+bool isPointwiseTvOp(const Expr* expr) {
+  return isTvOp(expr) &&
+      expr->isOneOf<UnaryOp, BinaryOp, TernaryOp, LoadStoreOp>();
+}
+
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
