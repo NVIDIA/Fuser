@@ -15,8 +15,8 @@
 #include <ir_iostream.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <test/validator.h>
 #include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 

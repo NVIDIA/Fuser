@@ -28,8 +28,8 @@
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/utils.h>
-#include <test/validator.h>
 #include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
