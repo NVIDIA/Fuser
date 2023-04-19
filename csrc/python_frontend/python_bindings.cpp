@@ -462,11 +462,11 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
+            auto record_type = (dtype == PrimDataType::Double)
+                ? serde::RecordType_ConstantDouble
+                : serde::RecordType_ConstantFloat;
             self.defineRecord(new ConstantRecord<Double, double>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantDouble,
-                val,
-                dtype));
+                {self.recordingState(out())}, record_type, val, dtype));
             return out;
           },
           py::arg("val"),
@@ -482,12 +482,12 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
+            auto record_type = (dtype == PrimDataType::ComplexDouble)
+                ? serde::RecordType_ConstantComplexDouble
+                : serde::RecordType_ConstantComplexFloat;
             self.defineRecord(
                 new ConstantRecord<ComplexDouble, std::complex<double>>(
-                    {self.recordingState(out())},
-                    serde::RecordType_ConstantComplexDouble,
-                    val,
-                    dtype));
+                    {self.recordingState(out())}, record_type, val, dtype));
             return out;
           },
           py::arg("val"),
@@ -523,11 +523,11 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
+            auto record_type = (dtype == PrimDataType::Int)
+                ? serde::RecordType_ConstantLong
+                : serde::RecordType_ConstantInt;
             self.defineRecord(new ConstantRecord<Int, int64_t>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
-                val,
-                dtype));
+                {self.recordingState(out())}, record_type, val, dtype));
             return out;
           },
           py::arg("val"),
