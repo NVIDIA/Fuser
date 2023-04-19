@@ -11,8 +11,8 @@
 #include <torch/torch.h>
 
 #include <python_frontend/fusion_cache.h>
-#include <test/validator.h>
 #include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 using namespace nvfuser::python_frontend;
