@@ -32,7 +32,6 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 // TODO: merge these two
 // check if input is compatible with 32b index mode
 int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
-KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs);
 
 //! Types of debug print-outs
 //!
@@ -543,5 +542,40 @@ auto atenTypeDispatchWithC10Complex(
       TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
   }
 }
+
+// Computes the index type required.
+// Made into a class w/ state to allow reuse with
+// different tensors and without needing to pass an allocated
+// vector of size+stride
+class KernelIndexTypeCompute {
+  // Save 1 more bit besides the sign bit to be conservative
+  static constexpr int64_t most_positive_int32_index =
+      std::numeric_limits<int>::max() / 2;
+
+ public:
+  // Updates counters and returns current reqd mode
+  inline PrimDataType addDim(int64_t size, int64_t stride) {
+    if (size > 1) {
+      TORCH_INTERNAL_ASSERT(
+          stride >= 0, "Negative stride is not supported: ", stride);
+      if (stride > 0) {
+        // Accumulate positive stride
+        tensor_most_positive_index_ += (size - 1) * stride;
+      }
+    }
+    return getType();
+  }
+
+  inline PrimDataType getType() const {
+    if (tensor_most_positive_index_ > most_positive_int32_index) {
+      return PrimDataType::Int;
+    } else {
+      return PrimDataType::Int32;
+    }
+  }
+
+ private:
+  int64_t tensor_most_positive_index_ = 0;
+};
 
 } // namespace nvfuser

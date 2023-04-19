@@ -838,6 +838,7 @@ void bindInputForExprEvaluation(
           "Something went wrong configuring launch. Inputs do not match.");
 
       auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract &&
               tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
