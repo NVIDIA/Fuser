@@ -7900,11 +7900,14 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
   auto tv1 = makeSymbolicTensor(2, DataType::Half);
   fusion.addInput(tv1);
 
-  auto tv2 = broadcast(tv0, {false, true, false});
-  auto tv3 = broadcast(tv1, {true, false, false});
-  auto tv4 = add(tv2, tv3);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = castOp(DataType::Float, tv1);
+  auto tv4 = broadcast(tv2, {false, true, false});
+  auto tv5 = broadcast(tv3, {true, false, false});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = castOp(DataType::Half, tv6);
 
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv7);
 
   c10::cuda::CUDACachingAllocator::emptyCache();
 
