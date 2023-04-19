@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <serde/arg_abstract_serde.h>
+#include <utils.h>
 
 namespace nvfuser::serde {
 
@@ -14,6 +15,65 @@ namespace {
 template <typename T>
 std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(T value) {
   return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(value);
+}
+
+template <typename T, typename nvfuser_index_t>
+std::unique_ptr<TensorArgAbstract> getTensorArg(
+    const serde::TensorArg* tensor) {
+  switch (tensor->ndims()) {
+    case (0):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(tensor);
+    case (1):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(tensor);
+    case (2):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(tensor);
+    case (3):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(tensor);
+    case (4):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(tensor);
+    case (5):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(tensor);
+    case (6):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(tensor);
+    case (7):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(tensor);
+    case (8):
+      return std::make_unique<
+          nvfuser::TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(tensor);
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Tried to generate a tensor to run a generated kernel with ",
+          tensor->ndims(),
+          " dimensions, however only 0 to 8 dimensional tensor are supported.");
+  }
+  return nullptr;
+}
+
+template <typename nvfuser_index_t>
+struct GetTensorArgWithNativeType {
+  template <typename T>
+  std::unique_ptr<TensorArgAbstract> operator()(
+      const serde::TensorArg* tensor) {
+    return getTensorArg<T, nvfuser_index_t>(tensor);
+  };
+};
+
+template <typename INDEX_MODE>
+std::unique_ptr<TensorArgAbstract> getTensorArg(
+    const serde::TensorArg* tensor) {
+  return atenTypeDispatchWithC10Complex(
+      mapToAtenDtype(tensor->dtype()),
+      GetTensorArgWithNativeType<INDEX_MODE>(),
+      tensor);
 }
 
 } // namespace
@@ -96,6 +156,15 @@ void ArgAbstractFactory::registerAllParsers() {
     }
   };
   registerParser(serde::ArgAbstractData_ScalarCpu, deserializeScalarCpu);
+
+  auto deserializeTensorArg = [](const serde::ArgAbstract* buffer) {
+    auto tensor = buffer->data_as_TensorArg();
+    if (tensor->is_int_index_mode()) {
+      return getTensorArg<int>(tensor);
+    }
+    return getTensorArg<int64_t>(tensor);
+  };
+  registerParser(serde::ArgAbstractData_TensorArg, deserializeTensorArg);
 }
 
 } // namespace nvfuser::serde
