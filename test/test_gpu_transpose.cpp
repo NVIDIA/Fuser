@@ -15,8 +15,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/validator.h>
+#include <test/utils.h>
 
 namespace nvfuser {
 

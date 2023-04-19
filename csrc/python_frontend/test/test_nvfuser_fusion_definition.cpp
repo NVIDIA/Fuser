@@ -12,8 +12,8 @@
 
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/validator.h>
+#include <test/utils.h>
 
 namespace nvfuser {
 using namespace nvfuser::python_frontend;

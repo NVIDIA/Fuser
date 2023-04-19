@@ -11,6 +11,7 @@
 #include <executor.h>
 #include <expr_evaluator.h>
 #include <ir_all_nodes.h>
+#include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
 #include <lower2device.h>
 #include <lower_magic_zero.h>
@@ -27,7 +28,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "kernel_cache.h"
 
 namespace nvfuser {
 
