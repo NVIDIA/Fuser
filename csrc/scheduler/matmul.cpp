@@ -756,9 +756,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcw_smem->liftReadAddress();
   }
 
-  if (params.peel_main_loop) {
-    cc->peelPredicatedLoop(2);
-  }
+  // if (params.peel_main_loop) {
+  //   cc->peelPredicatedLoop(2);
+  // }
 
   // Only interleave if using cp.async and
   //  all the shared memory is double buffered.
