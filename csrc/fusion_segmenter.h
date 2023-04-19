@@ -333,7 +333,8 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
   //! Make heuristics for all groups in this segmented fusion
   std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Inline Debug print for segmented fusion
   std::string toString(int verbosity) const;
