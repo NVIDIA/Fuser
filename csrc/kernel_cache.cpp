@@ -558,20 +558,18 @@ void FusionExecutorCache::deserialize(
           std::make_unique<FusionKernelRuntime>(fusion_.get(), args));
 
       // Deserialize FusionExecutors in FusionKernelRuntime
-      // runtimes.back()->deserialize(runtime);
+      runtimes.back()->deserialize(runtime);
 
       all_runtimes.emplace_back(runtimes.back().get());
     }
     kernel_runtimes_.emplace(device_runtimes->device_id(), std::move(runtimes));
   }
 
-  /*
-  for (auto idx : c10::irange(buffer->kernel_cache_keys().size())) {
-    size_t key = buffer->kernel_cache_keys().Get(idx);
-    size_t value_id = buffer->kernel_cache_keys().Get(idx);
+  for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
+    size_t key = buffer->kernel_cache_keys()->Get(idx);
+    size_t value_id = buffer->kernel_cache_keys()->Get(idx);
     id_to_kernel_runtime_.emplace_back(key, all_runtimes.at(value_id));
   }
-  */
 }
 
 FusionKernelRuntime::FusionKernelRuntime(

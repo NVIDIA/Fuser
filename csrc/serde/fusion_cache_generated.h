@@ -2163,7 +2163,7 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SIZES = 4,
     VT_STRIDES = 6,
-    VT_TYPE = 8,
+    VT_DTYPE = 8,
     VT_ZERO_INIT = 10,
     VT_IS_PROFILE_BUFFER = 12
   };
@@ -2173,8 +2173,9 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<int64_t>* strides() const {
     return GetPointer<const flatbuffers::Vector<int64_t>*>(VT_STRIDES);
   }
-  nvfuser::serde::DataType type() const {
-    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_TYPE, 0));
+  nvfuser::serde::DataType dtype() const {
+    return static_cast<nvfuser::serde::DataType>(
+        GetField<int32_t>(VT_DTYPE, 0));
   }
   bool zero_init() const {
     return GetField<uint8_t>(VT_ZERO_INIT, 0) != 0;
@@ -2186,7 +2187,7 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SIZES) &&
         verifier.VerifyVector(sizes()) && VerifyOffset(verifier, VT_STRIDES) &&
         verifier.VerifyVector(strides()) &&
-        VerifyField<int32_t>(verifier, VT_TYPE) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE) &&
         VerifyField<uint8_t>(verifier, VT_ZERO_INIT) &&
         VerifyField<uint8_t>(verifier, VT_IS_PROFILE_BUFFER) &&
         verifier.EndTable();
@@ -2203,9 +2204,9 @@ struct GlobalBufferInfoBuilder {
   void add_strides(flatbuffers::Offset<flatbuffers::Vector<int64_t>> strides) {
     fbb_.AddOffset(GlobalBufferInfo::VT_STRIDES, strides);
   }
-  void add_type(nvfuser::serde::DataType type) {
+  void add_dtype(nvfuser::serde::DataType dtype) {
     fbb_.AddElement<int32_t>(
-        GlobalBufferInfo::VT_TYPE, static_cast<int32_t>(type), 0);
+        GlobalBufferInfo::VT_DTYPE, static_cast<int32_t>(dtype), 0);
   }
   void add_zero_init(bool zero_init) {
     fbb_.AddElement<uint8_t>(
@@ -2232,11 +2233,11 @@ inline flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(
     flatbuffers::FlatBufferBuilder& _fbb,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> sizes = 0,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> strides = 0,
-    nvfuser::serde::DataType type = nvfuser::serde::DataType_Double,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool zero_init = false,
     bool is_profile_buffer = false) {
   GlobalBufferInfoBuilder builder_(_fbb);
-  builder_.add_type(type);
+  builder_.add_dtype(dtype);
   builder_.add_strides(strides);
   builder_.add_sizes(sizes);
   builder_.add_is_profile_buffer(is_profile_buffer);
@@ -2248,13 +2249,13 @@ inline flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     const std::vector<int64_t>* sizes = nullptr,
     const std::vector<int64_t>* strides = nullptr,
-    nvfuser::serde::DataType type = nvfuser::serde::DataType_Double,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool zero_init = false,
     bool is_profile_buffer = false) {
   auto sizes__ = sizes ? _fbb.CreateVector<int64_t>(*sizes) : 0;
   auto strides__ = strides ? _fbb.CreateVector<int64_t>(*strides) : 0;
   return nvfuser::serde::CreateGlobalBufferInfo(
-      _fbb, sizes__, strides__, type, zero_init, is_profile_buffer);
+      _fbb, sizes__, strides__, dtype, zero_init, is_profile_buffer);
 }
 
 struct ExecutorEntry FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
@@ -3703,7 +3704,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_CONFIGURED_DEVICE_SMEM = 4,
-    VT_MAYBE_AVAILABLE_SMEM = 6,
+    VT_MAYBE_AVAILABLE_DYNAMIC_SMEM = 6,
     VT_DEVICE_SMEM_LIMIT = 8,
     VT_WARP_SIZE = 10,
     VT_FUSION_ID = 12,
@@ -3718,8 +3719,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint64_t configured_device_smem() const {
     return GetField<uint64_t>(VT_CONFIGURED_DEVICE_SMEM, 0);
   }
-  uint64_t maybe_available_smem() const {
-    return GetField<uint64_t>(VT_MAYBE_AVAILABLE_SMEM, 0);
+  uint64_t maybe_available_dynamic_smem() const {
+    return GetField<uint64_t>(VT_MAYBE_AVAILABLE_DYNAMIC_SMEM, 0);
   }
   uint64_t device_smem_limit() const {
     return GetField<uint64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3758,7 +3759,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_CONFIGURED_DEVICE_SMEM) &&
-        VerifyField<uint64_t>(verifier, VT_MAYBE_AVAILABLE_SMEM) &&
+        VerifyField<uint64_t>(verifier, VT_MAYBE_AVAILABLE_DYNAMIC_SMEM) &&
         VerifyField<uint64_t>(verifier, VT_DEVICE_SMEM_LIMIT) &&
         VerifyField<int32_t>(verifier, VT_WARP_SIZE) &&
         VerifyField<int32_t>(verifier, VT_FUSION_ID) &&
@@ -3787,9 +3788,11 @@ struct FusionExecutorBuilder {
     fbb_.AddElement<uint64_t>(
         FusionExecutor::VT_CONFIGURED_DEVICE_SMEM, configured_device_smem, 0);
   }
-  void add_maybe_available_smem(uint64_t maybe_available_smem) {
+  void add_maybe_available_dynamic_smem(uint64_t maybe_available_dynamic_smem) {
     fbb_.AddElement<uint64_t>(
-        FusionExecutor::VT_MAYBE_AVAILABLE_SMEM, maybe_available_smem, 0);
+        FusionExecutor::VT_MAYBE_AVAILABLE_DYNAMIC_SMEM,
+        maybe_available_dynamic_smem,
+        0);
   }
   void add_device_smem_limit(uint64_t device_smem_limit) {
     fbb_.AddElement<uint64_t>(
@@ -3849,7 +3852,7 @@ struct FusionExecutorBuilder {
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t configured_device_smem = 0,
-    uint64_t maybe_available_smem = 0,
+    uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
     int32_t warp_size = 0,
     int32_t fusion_id = 0,
@@ -3865,7 +3868,7 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> used_tvs = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_device_smem_limit(device_smem_limit);
-  builder_.add_maybe_available_smem(maybe_available_smem);
+  builder_.add_maybe_available_dynamic_smem(maybe_available_dynamic_smem);
   builder_.add_configured_device_smem(configured_device_smem);
   builder_.add_used_tvs(used_tvs);
   builder_.add_kernel_summary(kernel_summary);
@@ -3882,7 +3885,7 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t configured_device_smem = 0,
-    uint64_t maybe_available_smem = 0,
+    uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
     int32_t warp_size = 0,
     int32_t fusion_id = 0,
@@ -3906,7 +3909,7 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
       configured_device_smem,
-      maybe_available_smem,
+      maybe_available_dynamic_smem,
       device_smem_limit,
       warp_size,
       fusion_id,
