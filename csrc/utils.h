@@ -114,6 +114,7 @@ class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
  public:
   ThreadLocalFmaDisableOverwrite(bool flag = true);
   ~ThreadLocalFmaDisableOverwrite();
+
  private:
   bool old_flag;
 };
