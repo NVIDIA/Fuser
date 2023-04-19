@@ -82,7 +82,7 @@ struct TrieNodeBuilder;
 struct FusionCache;
 struct FusionCacheBuilder;
 
-enum DataType {
+enum DataType : int32_t {
   DataType_Double = 0,
   DataType_Float = 1,
   DataType_Half = 2,
@@ -135,22 +135,24 @@ inline const char* EnumNameDataType(DataType e) {
   return EnumNamesDataType()[index];
 }
 
-enum StateType {
+enum StateType : int32_t {
   StateType_Tensor = 0,
   StateType_Scalar = 1,
-  StateType_None = 2,
+  StateType_Vector = 2,
+  StateType_None = 3,
   StateType_MIN = StateType_Tensor,
   StateType_MAX = StateType_None
 };
 
-inline const StateType (&EnumValuesStateType())[3] {
+inline const StateType (&EnumValuesStateType())[4] {
   static const StateType values[] = {
-      StateType_Tensor, StateType_Scalar, StateType_None};
+      StateType_Tensor, StateType_Scalar, StateType_Vector, StateType_None};
   return values;
 }
 
 inline const char* const* EnumNamesStateType() {
-  static const char* const names[4] = {"Tensor", "Scalar", "None", nullptr};
+  static const char* const names[5] = {
+      "Tensor", "Scalar", "Vector", "None", nullptr};
   return names;
 }
 
@@ -161,7 +163,7 @@ inline const char* EnumNameStateType(StateType e) {
   return EnumNamesStateType()[index];
 }
 
-enum Contiguity {
+enum Contiguity : int32_t {
   Contiguity_Strided = 0,
   Contiguity_Contiguous = 1,
   Contiguity_None = 2,
@@ -188,7 +190,7 @@ inline const char* EnumNameContiguity(Contiguity e) {
   return EnumNamesContiguity()[index];
 }
 
-enum RecordType {
+enum RecordType : int32_t {
   RecordType_Base = 0,
   RecordType_BatchNormOp = 1,
   RecordType_BroadcastOp = 2,
@@ -382,7 +384,7 @@ inline const char* EnumNameRecordType(RecordType e) {
   return EnumNamesRecordType()[index];
 }
 
-enum RecordData {
+enum RecordData : uint8_t {
   RecordData_NONE = 0,
   RecordData_BatchNorm = 1,
   RecordData_Bool = 2,

@@ -65,6 +65,8 @@ struct TORCH_CUDA_CU_API Tensor {
   size_t dims;
 
   //! Pointer to the FusionDefinition used to create this tensor
+  //! The FusionDefinition pointer is necessary to enable special
+  //! dunder operations (ie __add__()) from the python API.
   FusionDefinition* fusion_definition;
 };
 
@@ -79,6 +81,23 @@ struct TORCH_CUDA_CU_API Scalar {
   //! A unique index to identifiy each recorded state item.
   size_t index;
 
+  //! Pointer to the FusionDefinition used to create this scalar
+  //! The FusionDefinition pointer is necessary to enable special
+  //! dunder operations (ie __add__()) from the python API.
+  FusionDefinition* fusion_definition;
+};
+
+struct TORCH_CUDA_CU_API Vector {
+  Vector(size_t _index, FusionDefinition* _fd)
+      : index(_index), fusion_definition(_fd) {}
+
+  size_t operator()() const {
+    return index;
+  }
+
+  //! A unique index to identifiy each recorded state item.
+  size_t index;
+  
   //! Pointer to the FusionDefinition used to create this scalar
   FusionDefinition* fusion_definition;
 };
