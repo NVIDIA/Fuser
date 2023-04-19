@@ -369,7 +369,7 @@ ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
 
 bool isOptionDisabled(DisableOption option) {
   if (option == DisableOption::Fma && overwrite_disable_fma) {
-    return false;
+    return true;
   }
   return getDisableOptions().count(option);
 }
