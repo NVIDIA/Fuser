@@ -1442,17 +1442,16 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto at_bias = at::randn(bias_shape, options);
   auto at_grad = at::randn(input_shape, options);
 
-  auto at_x =
-      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
+  auto at_x = at_bias.to(c10::ScalarType::Double) +
+      at_input.to(c10::ScalarType::Double);
   auto at_tanh_out = (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh();
   auto at_ff = 0.5 * at_x *
           ((1 - at_tanh_out * at_tanh_out) * (k_079 + k_010 * at_x * at_x)) +
       0.5 * (1 + at_tanh_out);
   auto at_out = at_ff * at_grad;
-  auto at_out_half = at_out.to(c10::ScalarType::Half);
 
   std::vector<c10::IValue> aten_inputs = {at_grad, at_bias, at_input};
-  std::vector<at::Tensor> aten_outputs = {at_out, at_out_half};
+  std::vector<at::Tensor> aten_outputs = {at_out, at_out};
 
   auto lparams = schedulePointwise(&fusion, aten_inputs);
 
