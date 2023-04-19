@@ -551,36 +551,31 @@ class KernelIndexTypeCompute {
   // Save 1 more bit besides the sign bit to be conservative
   static constexpr int64_t most_positive_int32_index =
       std::numeric_limits<int>::max() / 2;
-  static constexpr int64_t most_negative_int32_index =
-      std::numeric_limits<int>::min() / 2;
 
  public:
   // Updates counters and returns current reqd mode
   inline PrimDataType addDim(int64_t size, int64_t stride) {
     if (size > 1) {
-      // accumulate based on the sign of stride
+      TORCH_INTERNAL_ASSERT(
+          stride >= 0, "Negative stride is not supported: ", stride);
       if (stride > 0) {
         // Accumulate positive stride
         tensor_most_positive_index_ += (size - 1) * stride;
-      } else {
-        // Accumulate negative stride
-        tensor_most_negative_index_ += (size - 1) * stride;
       }
     }
     return getType();
   }
 
   inline PrimDataType getType() const {
-    if (tensor_most_positive_index_ > most_positive_int32_index ||
-        tensor_most_negative_index_ < most_negative_int32_index) {
+    if (tensor_most_positive_index_ > most_positive_int32_index) {
       return PrimDataType::Int;
+    } else {
+      return PrimDataType::Int32;
     }
-    return PrimDataType::Int32;
   }
 
  private:
   int64_t tensor_most_positive_index_ = 0;
-  int64_t tensor_most_negative_index_ = 0;
 };
 
 } // namespace nvfuser
