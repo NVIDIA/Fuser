@@ -280,19 +280,21 @@ std::string KernelArgumentHolder::toString() const {
 }
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
-  KernelIndexTypeCompute index_type_helper;
   for (const auto& arg : arguments_) {
     auto tensor_arg = dynamic_cast<const TensorArgAbstract*>(arg.get());
     if (tensor_arg == nullptr) {
       continue;
     }
+    KernelIndexTypeCompute index_type_helper;
     for (const auto dim_i : c10::irange(tensor_arg->getRank())) {
       auto size = tensor_arg->getSize(dim_i);
       auto stride = tensor_arg->getStride(dim_i);
-      index_type_helper.addDim(size, stride);
+      if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+        return PrimDataType::Int;
+      }
     }
   }
-  return index_type_helper.getType();
+  return PrimDataType::Int32;
 }
 
 } // namespace nvfuser
