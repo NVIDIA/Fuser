@@ -2786,7 +2786,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto t1 = at::randn({N, K}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {}, LaunchParams(), matmul_cparams);
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
