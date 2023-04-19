@@ -465,7 +465,7 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::ConstantRecord<nvfuser::Bool, bool>(
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ConstantBool,
-        buffer->data_as_Bool()->bool_val(),
+        buffer->data_as_Bool()->value(),
         nvfuser::DataType::Bool);
   };
   registerParser(serde::RecordType_ConstantBool, deserializeConstantBoolRecord);
@@ -476,11 +476,22 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::ConstantRecord<nvfuser::Double, double>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ConstantDouble,
-            data->double_val(),
-            mapToNvfuserDtype(data->dtype()));
+            data->value(),
+            PrimDataType::Double);
       };
   registerParser(
       serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
+
+  auto deserializeConstantFloatRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Float();
+    return new python_frontend::ConstantRecord<nvfuser::Double, double>(
+        parseStateArgs(buffer->outputs()),
+        serde::RecordType_ConstantFloat,
+        data->value(),
+        PrimDataType::Float);
+  };
+  registerParser(
+      serde::RecordType_ConstantFloat, deserializeConstantFloatRecord);
 
   auto deserializeConstantComplexDoubleRecord =
       [](const serde::RecordFunctor* buffer) {
@@ -490,21 +501,45 @@ void RecordFunctorFactory::registerAllParsers() {
                 parseStateArgs(buffer->outputs()),
                 serde::RecordType_ConstantComplexDouble,
                 std::complex<double>(data->real(), data->imag()),
-                mapToNvfuserDtype(data->dtype()));
+                PrimDataType::ComplexDouble);
       };
   registerParser(
       serde::RecordType_ConstantComplexDouble,
       deserializeConstantComplexDoubleRecord);
+
+  auto deserializeConstantComplexFloatRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_ComplexFloat();
+        return new python_frontend::
+            ConstantRecord<nvfuser::ComplexDouble, std::complex<double>>(
+                parseStateArgs(buffer->outputs()),
+                serde::RecordType_ConstantComplexFloat,
+                std::complex<double>(data->real(), data->imag()),
+                PrimDataType::ComplexFloat);
+      };
+  registerParser(
+      serde::RecordType_ConstantComplexFloat,
+      deserializeConstantComplexFloatRecord);
 
   auto deserializeConstantIntRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Int();
     return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ConstantInt,
-        data->int_val(),
-        mapToNvfuserDtype(data->dtype()));
+        data->value(),
+        PrimDataType::Int32);
   };
   registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
+
+  auto deserializeConstantLongRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Long();
+    return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
+        parseStateArgs(buffer->outputs()),
+        serde::RecordType_ConstantLong,
+        data->value(),
+        PrimDataType::Int);
+  };
+  registerParser(serde::RecordType_ConstantLong, deserializeConstantLongRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();

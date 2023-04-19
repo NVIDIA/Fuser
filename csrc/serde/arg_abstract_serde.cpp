@@ -20,19 +20,19 @@ std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(T value) {
 
 void ArgAbstractFactory::registerAllParsers() {
   auto deserializeBool = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<BoolArg>(buffer->data_as_Bool()->bool_val());
+    return std::make_unique<BoolArg>(buffer->data_as_Bool()->value());
   };
   registerParser(serde::ArgAbstractData_Bool, deserializeBool);
 
   auto deserializeDouble = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<DoubleArg>(buffer->data_as_Double()->double_val());
+    return std::make_unique<DoubleArg>(buffer->data_as_Double()->value());
   };
   registerParser(serde::ArgAbstractData_Double, deserializeDouble);
 
-  auto deserializeInt = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<LongArg>(buffer->data_as_Int()->int_val());
+  auto deserializeLong = [](const serde::ArgAbstract* buffer) {
+    return std::make_unique<LongArg>(buffer->data_as_Long()->value());
   };
-  registerParser(serde::ArgAbstractData_Int, deserializeInt);
+  registerParser(serde::ArgAbstractData_Long, deserializeLong);
 
   auto deserializePhilox = [](const serde::ArgAbstract* buffer) {
     auto data = buffer->data_as_PhiloxCudaState();
@@ -51,45 +51,43 @@ void ArgAbstractFactory::registerAllParsers() {
 
   auto deserializeScalarCpu = [](const serde::ArgAbstract* buffer) {
     auto scalar = buffer->data_as_ScalarCpu();
-
-    switch (scalar->dtype()) {
-      case serde::DataType_Bool: {
-        auto value = scalar->data_as_Bool()->bool_val();
+    switch (scalar->data_type()) {
+      case serde::ScalarCpuData_Bool: {
+        auto value = scalar->data_as_Bool()->value();
         return makeCpuScalarTensor<bool>(value);
       }
-      case serde::DataType_Double: {
-        auto value = scalar->data_as_Double()->double_val();
+      case serde::ScalarCpuData_Double: {
+        auto value = scalar->data_as_Double()->value();
         return makeCpuScalarTensor<double>(value);
       }
-      case serde::DataType_Float: {
-        auto value = (float)scalar->data_as_Double()->double_val();
+      case serde::ScalarCpuData_Float: {
+        auto value = scalar->data_as_Float()->value();
         return makeCpuScalarTensor<float>(value);
       }
-      case serde::DataType_Half: {
-        at::Half value{
-            scalar->data_as_Half()->half_val(), at::Half::from_bits()};
+      case serde::ScalarCpuData_Half: {
+        at::Half value{scalar->data_as_Half()->value(), at::Half::from_bits()};
         return makeCpuScalarTensor<at::Half>(value);
       }
-      case serde::DataType_BFloat16: {
+      case serde::ScalarCpuData_BFloat16: {
         at::BFloat16 value{
-            scalar->data_as_Half()->half_val(), at::BFloat16::from_bits()};
+            scalar->data_as_Half()->value(), at::BFloat16::from_bits()};
         return makeCpuScalarTensor<at::BFloat16>(value);
       }
-      case serde::DataType_Int: {
-        auto value = scalar->data_as_Int()->int_val();
+      case serde::ScalarCpuData_Long: {
+        auto value = scalar->data_as_Long()->value();
         return makeCpuScalarTensor<int64_t>(value);
       }
-      case serde::DataType_Int32: {
-        auto value = (int)scalar->data_as_Int()->int_val();
+      case serde::ScalarCpuData_Int: {
+        auto value = scalar->data_as_Int()->value();
         return makeCpuScalarTensor<int>(value);
       }
-      case serde::DataType_ComplexFloat: {
-        auto data = buffer->data_as_ComplexDouble();
-        c10::complex<float> value{(float)data->real(), (float)data->imag()};
+      case serde::ScalarCpuData_ComplexFloat: {
+        auto data = scalar->data_as_ComplexFloat();
+        c10::complex<float> value{data->real(), data->imag()};
         return makeCpuScalarTensor<c10::complex<float>>(value);
       }
-      case serde::DataType_ComplexDouble: {
-        auto data = buffer->data_as_ComplexDouble();
+      case serde::ScalarCpuData_ComplexDouble: {
+        auto data = scalar->data_as_ComplexDouble();
         c10::complex<double> value{data->real(), data->imag()};
         return makeCpuScalarTensor<c10::complex<double>>(value);
       }

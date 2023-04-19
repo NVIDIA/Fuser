@@ -56,8 +56,11 @@ enum RecordType:int {
     CatOp,
     ConstantBool,
     ConstantInt,
+    ConstantLong,
     ConstantDouble,
+    ConstantFloat,
     ConstantComplexDouble,
+    ConstantComplexFloat,
     End,
     FullOp,
     IotaOp,
@@ -116,10 +119,13 @@ union RecordData {
   BroadcastInDim,
   BroadcastInDimSymbolic,
   ComplexDouble,
+  ComplexFloat,
   Double,
   Dtype,
   Dimension,
+  Float,
   Int,
+  Long,
   Norm,
   Output,
   Pad,
@@ -137,7 +143,7 @@ union ArgAbstractData {
   Bool,
   ComplexDouble,
   Double,
-  Int,
+  Long,
   PhiloxCudaState,
   ScalarCpu,
   TensorArg,
@@ -146,9 +152,13 @@ union ArgAbstractData {
 union ScalarCpuData {
   Bool,
   ComplexDouble,
+  ComplexFloat,
   Double,
+  Float,
   Half,
+  BFloat16,
   Int,
+  Long,
 }
 
 // =====================================================================================
@@ -156,32 +166,49 @@ union ScalarCpuData {
 
 // Data for Constant Bool
 table Bool {
-  bool_val: bool;
+  value: bool;
 }
 
-// Data for Constant Double, Float
+// Data for Constant Double
 table Double {
-  double_val: double;
-  dtype: DataType;
+  value: double;
+}
+
+// Data for Constant Double
+table Float {
+  value: float;
 }
 
 // Data for Constant Int or Long
 table Int {
-  int_val: long;
-  dtype: DataType;
+  value: int;
 }
 
-// Data for Half, BFloat16
+// Data for Constant Long
+table Long {
+  value: long;
+}
+
+// Data for Half
 table Half {
-  half_val: ushort;
-  dtype: DataType;
+  value: ushort;
+}
+
+// Data for BFloat16
+table BFloat16 {
+  value: ushort;
 }
 
 // Data for Constant Complex Double or Float
 table ComplexDouble {
   real: double;
   imag: double;
-  dtype: DataType;
+}
+
+// Data for Constant Complex Float
+table ComplexFloat {
+  real: float;
+  imag: float;
 }
 
 //
@@ -189,7 +216,6 @@ table ComplexDouble {
 
 table ScalarCpu {
   data : ScalarCpuData;
-  dtype : DataType;
 }
 
 table PhiloxCudaState {

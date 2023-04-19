@@ -353,6 +353,7 @@ void FusionCache::serialize(std::string filename) const {
   for (auto node : terminal_nodes_) {
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
+
     auto schedule = queryFusionSchedules(node->fusion_id);
     auto serialized_schedule = schedule->auto_gen_schedules->serialize(builder);
     fb_auto_gen_schedules.push_back(serialized_schedule);
@@ -524,7 +525,7 @@ void FusionCache::deserialize(std::string filename) {
   }
 
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : c10::irange(fusion_cache_buffer->max_fusions())) {
+  for (auto idx : c10::irange(fusions_.size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);
