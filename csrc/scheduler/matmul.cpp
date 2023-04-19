@@ -701,6 +701,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   cc->axis(4)->parallelize(ParallelType::TIDz);
   cc->axis(5)->parallelize(ParallelType::TIDy);
 
+  scheduler_utils::parallelizeAllLike(
+      cc,
+      -1,
+      {acr, bcr, ab, bb, a, b},
+      {ParallelType::TIDy, ParallelType::TIDz});
+
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
     TORCH_INTERNAL_ASSERT(
@@ -730,6 +736,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       scheduler_utils::BoundedDirectionalTransformPropagator::Options()
           .propagateParallelType()
           .propagateToBoundary());
+
+  c->axis(-1)->parallelize(ParallelType::Vectorize);
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
