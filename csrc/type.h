@@ -704,6 +704,36 @@ TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
 
+constexpr inline size_t primDataTypeSize(PrimDataType type) {
+  switch (type) {
+    case DataType::Bool:
+      return sizeof(bool);
+    case DataType::ComplexDouble:
+      return sizeof(std::complex<double>);
+    case DataType::ComplexFloat:
+      return sizeof(std::complex<float>);
+    case DataType::Double:
+      return sizeof(double);
+    case DataType::Float:
+      return sizeof(float);
+    case DataType::Half:
+      return sizeof(at::Half);
+    case DataType::BFloat16:
+      return sizeof(at::BFloat16);
+    case DataType::Index:
+      TORCH_INTERNAL_ASSERT(
+          false, "The actual type of Index is only known at compile time.");
+    case DataType::Int:
+      return sizeof(uint64_t);
+    case DataType::Int32:
+      return sizeof(uint32_t);
+    case DataType::SMemAddress:
+      return sizeof(unsigned);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
+  }
+}
+
 TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here

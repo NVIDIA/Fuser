@@ -93,7 +93,6 @@ TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
 //! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
 //!
 enum class DisableOption {
-  ArchCheck, //! Disable hardware-specific checks to enable cross arch debug
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
   Fallback, //! Disable fallback
