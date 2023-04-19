@@ -2069,11 +2069,11 @@ class TestNvFuserFrontend(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
 
-        # TODO: full is broken and does not print its proper definition
-        # Issue: https://github.com/csarofeen/pytorch/issues/2502
         nvf_out = fd.execute([2.0, 3.0])
         eager_out = torch.full([2, 2], 1.0) * 5.0
         self.assertEqual(eager_out, nvf_out[0])
+
+        self.assertTrue(nvf_out[0].device.index == 1)
 
 
 if __name__ == "__main__":
