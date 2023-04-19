@@ -116,7 +116,7 @@ class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
   ~ThreadLocalFmaDisableOverwrite();
 
  private:
-  bool old_flag;
+  bool old_flag_;
 };
 
 TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);

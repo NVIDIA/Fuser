@@ -359,12 +359,12 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
 }
 
 ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag) {
-  old_flag = overwrite_disable_fma;
+  old_flag_ = overwrite_disable_fma;
   overwrite_disable_fma = flag;
 }
 
 ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
-  overwrite_disable_fma = old_flag;
+  overwrite_disable_fma = old_flag_;
 }
 
 bool isOptionDisabled(DisableOption option) {
