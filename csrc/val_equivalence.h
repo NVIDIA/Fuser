@@ -9,8 +9,10 @@
 
 #include <c10/util/Exception.h>
 
+#include <expr_simplifier.h>
 #include <ir_all_nodes.h>
 #include <kernel_ir.h>
+#include <ops/arith.h>
 #include <type.h>
 #include <union_find.h>
 #include <utils.h>
