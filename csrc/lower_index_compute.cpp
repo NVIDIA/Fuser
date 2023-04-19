@@ -118,14 +118,7 @@ IndexingParameters getLinearIndexParameters(
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
-    if (loop->isTrivial()) {
-      // This is useful information in the case of
-      //  MisalignedVectorize and double buffer epilog, etc.
-      loop_index_map[index_domain] = loop->start();
-    } else {
-      // Default use pre-allocated integers for index
-      loop_index_map[index_domain] = loop->index();
-    }
+    loop_index_map[index_domain] = loop->indexOrStart();
     if (rotated_loops.count(loop) > 0) {
       loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
           loop_index_map.at(index_domain), loop->step());
@@ -449,8 +442,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
-                     db_loop->index(), db_loop->step()))
-               : cur_index == db_loop->index());
+                     db_loop->indexOrStart(), db_loop->step()))
+               : cur_index == db_loop->indexOrStart());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));

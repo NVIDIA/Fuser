@@ -418,7 +418,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       if (pred_stop != nullptr) {
         // TODO: this doesn't work with loop rotation
         auto body_pred = IrBuilder::create<kir::Predicate>(
-            IrBuilder::ltExpr(new_loop->index(), pred_stop)->as<Bool>());
+            IrBuilder::ltExpr(new_loop->indexOrStart(), pred_stop)->as<Bool>());
         auto body_ite = IrBuilder::create<kir::IfThenElse>(body_pred);
         body->push_back(body_ite);
         body = &body_ite->thenBody();

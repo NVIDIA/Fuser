@@ -408,7 +408,8 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& original_index = out_N->index();
     std::unordered_map<Val*, Val*> index_replacement_map;
     index_replacement_map.emplace(
-        innermost_loop->index(), GpuLower::current()->kernel()->zeroVal());
+        innermost_loop->indexOrStart(),
+        GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
         ir_utils::replaceValInIndexVal(original_index, index_replacement_map);
