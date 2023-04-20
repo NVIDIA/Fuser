@@ -148,6 +148,10 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
  public:
   static std::vector<Expr*> fuse(const std::vector<Expr*>& exprs) {
     FuseBroadcastWithWarpReduce fuse_broadcast_map(exprs);
+    if (fuse_broadcast_map.val_replacement_map_.empty()) {
+      // No need to run DCE pass if we don't perform any replacements.
+      return exprs;
+    }
     const auto replaced_inputs = ir_utils::replaceInputsInExpr(
         exprs, fuse_broadcast_map.val_replacement_map_);
     return EliminateDeadBroadcastAndAllocate::run(replaced_inputs);
