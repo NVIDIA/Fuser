@@ -2707,14 +2707,13 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
   std::cout << "Initial promotion replay:" << std::endl;
   for (auto iel_expr : iel_stmt_sort.exprs()) {
-    std::cout << "a" << std::endl;
     auto input_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
-    std::cout << "b" << std::endl;
+
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
     std::vector<IterDomain*> promoted_inputs;
     bool an_input_was_promoted = false;
-    std::cout << "c" << std::endl;
+
     for (auto inp : input_groups) {
       auto inp_promo_it = iel_promotion_map.find(inp);
       if (inp_promo_it == iel_promotion_map.end()) {
@@ -2724,12 +2723,12 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         an_input_was_promoted = true;
       }
     }
-    std::cout << "d" << std::endl;
+
     if (!an_input_was_promoted) {
       // No inputs need promotion so just continue
       continue;
     }
-    std::cout << "e" << std::endl;
+
     Expr* replay = nullptr;
 
     IdGroups promoted_input_groups;
@@ -2741,7 +2740,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       }
     }
 
-    std::cout << "f" << std::endl;
     // Before replaying, check if there's already an expression like this, if so
     // use that for promotion. We would need the iel entries for non-promoted
     // inputs to match exactly to reuse the expression.
@@ -2756,7 +2754,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       non_promoted_input_uses.pushBack(
           intersection_exact_loop_graph.uniqueUses(iel_group));
     }
-    std::cout << "g" << std::endl;
+
     for (auto iel_use_group : non_promoted_input_uses) {
       if (transformAtributesMatch(iel_expr->front(), iel_use_group->front())) {
         auto use_inps =
@@ -2793,7 +2791,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       iel_promotion_map[out_groups[i]] = replay_out_ids[i];
     }
   }
-  std::cout << "post" << std::endl;
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<IdGroup, IdGroups> exact_covered_ids;
@@ -2823,8 +2820,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   IdGraphStmtSort exact_stmt_sort(idGraph(IdMappingMode::EXACT));
 
   for (auto exact_expr : exact_stmt_sort.exprs()) {
-    auto input_groups =
-        idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
+    auto input_groups = idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
 
     IdGroups covered;
     for (auto inp_group : input_groups) {
@@ -2942,11 +2938,9 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
   IdGraphStmtSort iel_stmt_sort2(intersection_exact_loop_graph);
   for (auto iel_expr : iel_stmt_sort2.exprs()) {
-    auto iel_inp_groups =
-        intersection_exact_loop_graph.inputGroups(iel_expr);
+    auto iel_inp_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
 
-    auto iel_out_groups =
-        intersection_exact_loop_graph.outputGroups(iel_expr);
+    auto iel_out_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
 
     // When replaying the transformations a second time we want to take loop
     // promotion into consideration. However, we don't want to blindly apply
@@ -3038,8 +3032,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
                 << "    As:" << replay->toString();
     }
 
-    auto output_groups =
-        intersection_exact_loop_graph.outputGroups(iel_expr);
+    auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
 
     // Mark outputs as having a promoted iter domain
     auto replay_out_ids =
@@ -3107,8 +3100,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   IdGraphStmtSort exact_stmt_sort2(idGraph(IdMappingMode::EXACT));
 
   for (auto exact_expr : exact_stmt_sort2.exprs()) {
-    auto input_groups =
-        idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
+    auto input_groups = idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
 
     IdGroups covered;
     for (auto inp_group : input_groups) {
