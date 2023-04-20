@@ -2385,7 +2385,9 @@ std::unordered_map<IdGroup, IdGroups> IterDomainGraphs::
 
 void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   idGraph(IdMappingMode::LOOP) = initializeIdGraph();
-  // idGraph(IdMappingMode::LOOP).disableExprPropagation();
+  // See Indexing20 example for why we shouldn't propagate when generating loop
+  // groups
+  idGraph(IdMappingMode::LOOP).disableExprPropagation();
 
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
@@ -2395,36 +2397,14 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_ca_permissive_maps;
 
+  // Tracks all p2c mappings in permissive maps even those not inlined between
+  // producer and consumer
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+      p2c_permissive_maps;
+
   VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
 
-  auto accumulateInMap =
-      [](std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
-             map,
-         IterDomain* key,
-         IterDomain* new_value) {
-        auto entry_it = map.find(key);
-        if (map.find(key) == map.end()) {
-          map[key] = {new_value};
-        } else {
-          auto& value = entry_it->second;
-          value.pushBack(new_value);
-        }
-      };
-
-  auto accumulateInMapVec =
-      [](std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
-             map,
-         IterDomain* key,
-         const VectorOfUniqueEntries<IterDomain*>& new_values) {
-        auto entry_it = map.find(key);
-        if (map.find(key) == map.end()) {
-          map[key] = new_values;
-        } else {
-          auto& value = entry_it->second;
-          value.pushBack(new_values);
-        }
-      };
-
+  // Grab inlining relationships
   for (auto expr : exprs) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       auto producer_root = producer->getMaybeRFactorDomain();
@@ -2450,46 +2430,92 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         auto resolved_bcast_map = resolvedRootBroadcasts(producer, consumer);
         for (auto entry : resolved_bcast_map) {
-          accumulateInMap(
-              p2c_root_broadcast_resolution_map, entry.first, entry.second);
+          p2c_root_broadcast_resolution_map[entry.first].pushBack(entry.second);
           for (auto other_exact_bcast : *idGraph(IdMappingMode::EXACT)
                                              .disjointIdSet(entry.first)
                                              .first) {
             if (all_producer_ca_deps.has(other_exact_bcast)) {
-              accumulateInMap(
-                  p2c_root_broadcast_resolution_map,
-                  other_exact_bcast,
+              p2c_root_broadcast_resolution_map[other_exact_bcast].pushBack(
                   entry.second);
             }
           }
         }
 
-        auto p2c_ca_permissive_map = idGraph(IdMappingMode::PERMISSIVE)
-                                         .buildMapBetween(
-                                             all_producer_ca_deps.vector(),
-                                             ir_utils::allIDsOf(consumer));
+        auto all_consumer_ids = ir_utils::allIDsOf(consumer);
+        auto all_producer_ids = ir_utils::allIDsOf(producer);
 
-        for (auto entry : p2c_ca_permissive_map) {
+        auto p2c_permissive_map =
+            idGraph(IdMappingMode::PERMISSIVE)
+                .buildMapBetween(all_producer_ids, all_consumer_ids);
+
+        for (auto entry : p2c_permissive_map) {
           if (entry.second.size() == 0) {
             continue;
           }
-          accumulateInMapVec(p2c_ca_permissive_maps, entry.first, entry.second);
+          if (all_producer_ca_deps.has(entry.first)) {
+            p2c_ca_permissive_maps[entry.first].pushBack(entry.second);
+          }
+          p2c_permissive_maps[entry.first].pushBack(entry.second);
+        }
+
+        for (auto entry : p2c_permissive_map) {
+          if (entry.second.size() == 0) {
+            continue;
+          }
+          p2c_permissive_maps[entry.first].pushBack(entry.second);
         }
       }
     }
   }
 
-  // Make sure this is called in a deterministic order
+  // Make sure this is called in a deterministic order. Build all inlined
+  // relationships in loop graph.
   for (auto p_id : ordered_p_ca_ids) {
     auto entry_it = p2c_ca_permissive_maps.find(p_id);
-    if (entry_it == p2c_ca_permissive_maps.end()) {
-      continue;
+    if (entry_it != p2c_ca_permissive_maps.end()) {
+      auto c_ids = entry_it->second;
+      for (auto c_id : c_ids) {
+        std::cout << "Map: " << p_id->toString() << " <-> " << c_id->toString()
+                  << std::endl;
+        idGraph(IdMappingMode::LOOP).mapIds(p_id, c_id);
+      }
     }
-    auto c_ids = entry_it->second;
-    for (auto c_id : c_ids) {
-      std::cout << "Map: " << p_id->toString() << " <-> " << c_id->toString()
-                << std::endl;
-      idGraph(IdMappingMode::LOOP).mapIds(p_id, c_id);
+  }
+
+  // Opportunistically add loop relationships where they don't interfere with
+  // the loop groups.
+  for (auto p_id : ordered_p_ca_ids) {
+    auto entry_it = p2c_permissive_maps.find(p_id);
+    if (entry_it != p2c_permissive_maps.end()) {
+      auto c_ids = entry_it->second;
+      for (auto c_id : c_ids) {
+        if (idGraph(IdMappingMode::LOOP)
+                .disjointIdSets()
+                .permissiveAreMapped(p_id, c_id)) {
+          // Already mapped
+          continue;
+        }
+        // Grab all iter domains already in the loop groups for both iter
+        // domains.
+        auto loop_groups =
+            idGraph(IdMappingMode::LOOP)
+                .toGroups(VectorOfUniqueEntries<IterDomain*>{p_id, c_id});
+        VectorOfUniqueEntries<IterDomain*> all_ids_in_groups;
+        for (auto loop_group : loop_groups) {
+          all_ids_in_groups.pushBack(*loop_group);
+        }
+
+        // Grab the almost exact map of all iter domains in those loop groups
+        auto ae_groups =
+            idGraph(IdMappingMode::ALMOSTEXACT).toGroups(all_ids_in_groups);
+        // If there's no broadcast promotion within the loop group then all the
+        // iter domains will be almost exact mapped with eachother.
+        if (ae_groups.size() == 1) {
+          idGraph(IdMappingMode::LOOP).mapIds(p_id, c_id);
+          std::cout << "Map2: " << p_id->toString() << " <-> "
+                    << c_id->toString() << std::endl;
+        }
+      }
     }
   }
 
