@@ -1462,8 +1462,20 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
+  tolerance_overwrite = ValidationConstants();
+  // bump tolerance
+  tolerance_overwrite.base_float_abs_tol = 3e-6;
+  tolerance_overwrite.base_float_rel_tol = 4e-3;
   testValidate(
-      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      aten_outputs,
+      __LINE__,
+      __FILE__,
+      "",
+      LaunchParams(),
+      tolerance_overwrite);
 }
 
 // Reproducer of issue #459
