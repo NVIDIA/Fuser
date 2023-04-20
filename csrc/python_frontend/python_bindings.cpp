@@ -371,7 +371,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguous,
+             std::vector<c10::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
@@ -393,14 +393,14 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 symbolic_sizes,
-                contiguous,
+                contiguity,
                 dtype,
                 is_cpu));
 
             return out;
           },
           py::arg("symbolic_sizes"),
-          py::arg("contiguous"),
+          py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::return_value_policy::reference)
