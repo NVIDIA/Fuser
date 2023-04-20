@@ -539,7 +539,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
     return input(0);
   }
 
-  Val* indexOrStart() const {
+  Val* indexOrStartIfTrivial() const {
     return isTrivial() ? start() : index();
   }
 

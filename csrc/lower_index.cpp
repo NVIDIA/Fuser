@@ -337,7 +337,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
-      Val* index = loop->indexOrStart();
+      Val* index = loop->indexOrStartIfTrivial();
       pushBack(
           IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
       GpuLower::current()->propagateExprInfo(uop, back());
@@ -509,7 +509,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
     linear_index = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(
             linear_index, loop->iter_domain()->extent()),
-        loop->indexOrStart());
+        loop->indexOrStartIfTrivial());
   }
   return linear_index;
 }
