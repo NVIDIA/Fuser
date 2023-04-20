@@ -108,6 +108,16 @@ enum class DisableOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+// used only for testing/debugging
+class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
+ public:
+  ThreadLocalFmaDisableOverwrite(bool flag = true);
+  ~ThreadLocalFmaDisableOverwrite();
+
+ private:
+  bool old_flag_;
+};
+
 TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option);

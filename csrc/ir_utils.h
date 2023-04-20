@@ -338,6 +338,9 @@ TORCH_CUDA_CU_API bool isReductionOp(const Expr*);
 // Returns if Expr is a reduction op with TensorView or TensorIndex
 TORCH_CUDA_CU_API bool isReductionTvOp(const Expr*);
 
+// Returns if Expr is a pointwise op op with TensorView or TensorIndex
+TORCH_CUDA_CU_API bool isPointwiseTvOp(const Expr* expr);
+
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
