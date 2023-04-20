@@ -144,6 +144,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  void deserialize(const serde::FusionKernelRuntime* buffer);
+
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
