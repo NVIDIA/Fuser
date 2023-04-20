@@ -1392,6 +1392,9 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  // disable fma to avoid numerical issue for reference implementation
+  ThreadLocalFmaDisableOverwrite over_write;
+
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
   const float k_010 = 0.1070322243;
