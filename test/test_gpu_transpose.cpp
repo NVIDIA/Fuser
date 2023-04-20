@@ -15,8 +15,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 
@@ -1027,6 +1027,49 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
 
   // no bank confliction
   TORCH_CHECK(bank_conflict_info.empty());
+}
+
+TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({32, 32, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1, 0, 1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->split(0, 4);
+  tv1->split(0, 32);
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1->axis(-2)->parallelize(ParallelType::TIDx);
+
+  for (auto tv : {tv2, tv3}) {
+    tv->merge(1);
+    tv->split(1, 2);
+    tv->split(1, 32);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+
+  auto bank_conflict_info = fusion.bankConflictInfo();
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({32, 32, 2}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({input});
+
+  auto tv_ref = input.transpose(0, 1);
+
+  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

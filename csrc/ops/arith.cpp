@@ -112,13 +112,13 @@ TensorView* unaryOp(
 
 TensorView* select(TensorView* tv, int dim, Val* index) {
   auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  TORCH_CHECK(dom.size() > 0, "select can not be applied to 0d tensor.");
+  TORCH_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
   std::vector<IterDomain*> new_root;
   new_root.reserve(dom.size() - 1);
 
   if (dim < 0) {
-    dim += dom.size();
+    dim += (int)dom.size();
   }
 
   TORCH_CHECK(
@@ -156,13 +156,13 @@ TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
   TORCH_CHECK(
       index_dom.size() <= 1, "index array must be 1d or scalar tensor.");
 
-  if (index_dom.size() == 0) {
+  if (index_dom.empty()) {
     auto select_tv = select(lookup_tv, dim, index_tv);
     return unsqueeze(select_tv, dim);
   }
 
   if (dim < 0) {
-    dim += lookup_dom.size();
+    dim += (int)lookup_dom.size();
   }
 
   std::vector<IterDomain*> new_root;
@@ -200,13 +200,13 @@ TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   auto idx_domain = TensorDomain::noReductions(index->getMaybeRFactorDomain());
   TORCH_CHECK(
-      inp_domain.size() > 0, "torch.gather can not be applied to 0d tensor.");
+      !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   TORCH_CHECK(
       idx_domain.size() == inp_domain.size(),
       "the input and index tensor must have the same dimensions for torch.gather");
 
   if (dim < 0) {
-    dim += idx_domain.size();
+    dim += (int)idx_domain.size();
   }
   TORCH_CHECK(
       dim >= 0 && dim < (int)inp_domain.size(),
@@ -216,13 +216,14 @@ TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
       inp_domain.size(),
       " non-reduction dims.");
   std::vector<IterDomain*> out_domain;
-  for (int i = 0; i < (int)idx_domain.size(); ++i) {
+  out_domain.reserve(idx_domain.size());
+  for (auto idx_domain_ptr : idx_domain) {
     out_domain.push_back(
-        IterDomainBuilder(idx_domain[i])
+        IterDomainBuilder(idx_domain_ptr)
             .iter_type(
-                idx_domain[i]->getIterType() == IterType::Iteration
+                idx_domain_ptr->getIterType() == IterType::Iteration
                     ? IterType::GatherScatter
-                    : idx_domain[i]->getIterType())
+                    : idx_domain_ptr->getIterType())
             .build());
   }
 
@@ -247,12 +248,12 @@ TensorView* scatterOp(
   auto idx_dom = TensorDomain::noReductions(index->getMaybeRFactorDomain());
   auto src_dom = TensorDomain::noReductions(src->getMaybeRFactorDomain());
 
-  TORCH_CHECK(self_dom.size() > 0, "scatter can not be applied to 0d tensor.");
+  TORCH_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   TORCH_CHECK(
       self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
       "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
   if (dim < 0) {
-    dim += self_dom.size();
+    dim += (int)self_dom.size();
   }
   TORCH_CHECK(
       dim >= 0 && dim < (int)self_dom.size(),
@@ -656,6 +657,20 @@ TensorView* imag(TensorView* tv) {
   return imag(tv->as<Val>())->as<TensorView>();
 }
 
+// construct complex tensor from real and imag tensors
+Val* complex(Val* r, Val* i) {
+  DataType dtype = r->getDataType().value();
+  TORCH_CHECK(
+      dtype == i->getDataType().value(),
+      "real and imag data type should be same in complex().");
+  Val* out = ops::newValLike(r, getComplexTypeFromType(dtype));
+  IrBuilder::create<BinaryOp>(BinaryOpType::Complex, out, r, i);
+  return out;
+}
+
+TensorView* complex(TensorView* tv_r, TensorView* tv_i) {
+  return complex(tv_r->as<Val>(), tv_i->as<Val>())->as<TensorView>();
+}
 // UNARY FLOAT CAST OPERATIONS
 
 #define NVFUSER_DEFINE_UNARY_FLOAT_OP(op_name, op_type)                       \
@@ -1143,11 +1158,33 @@ namespace {
 // PyTorch accepts reductions of zero-dimensional tensors, which are
 // just ignored.
 TensorView* reductionOpZeroDimTensor(TensorView* inp) {
-  TORCH_INTERNAL_ASSERT(inp->domain()->noReductions().size() == 0);
+  TORCH_INTERNAL_ASSERT(inp->domain()->noReductions().empty());
   return set(inp);
 }
 
 } // namespace
+
+std::vector<unsigned int> canonicalizeAxes(
+    const std::vector<int>& axes,
+    size_t ndims) {
+  std::vector<unsigned int> uint_axes;
+  for (int axis : axes) {
+    if (axis < 0) {
+      axis += (int)ndims;
+    }
+
+    TORCH_CHECK(
+        axis >= 0 && axis < (int)ndims,
+        "Reduction on invalid axis, received: ",
+        axis,
+        " however tensor view only has ",
+        ndims,
+        " non-reduction dims.");
+
+    uint_axes.push_back((unsigned int)axis);
+  }
+  return uint_axes;
+}
 
 TensorView* reductionOpRaw(
     BinaryOpType reduction_op_type,
@@ -1170,30 +1207,15 @@ TensorView* reductionOpRaw(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   // PyTorch allows reduction of 0-dim tensors
-  if (tv->domain()->noReductions().size() == 0) {
+  if (tv->domain()->noReductions().empty()) {
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes;
-  const int ndims = tv->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv->domain()->noReductions().size());
 
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
@@ -1229,15 +1251,14 @@ TensorView* maybeFullInsteadOfReduction(
     bool keep_dim,
     DataType dtype) {
   auto tv_root = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  const int ndims = tv_root.size();
+  const auto ndims = tv_root.size();
   for (auto i : axes) {
     if (tv_root.at(i)->extent()->isZeroInt()) {
       std::vector<IterDomain*> new_root;
       new_root.reserve(keep_dim ? ndims : ndims - axes.size());
       int cur_pos = 0;
       for (auto j : c10::irange(ndims)) {
-        bool is_reduction =
-            cur_pos < (int)axes.size() && (int)axes.at(cur_pos) == j;
+        bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
           if (keep_dim) {
@@ -1288,31 +1309,17 @@ TensorView* reductionOp(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   auto tv_root = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  const int ndims = tv_root.size();
+  const auto ndims = tv_root.size();
 
   // PyTorch allows reduction of 0-dim tensors
   if (ndims == 0) {
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes;
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
   // In PyTorch, reduction of a size-0 tensor is effectively creating a tensor
@@ -1331,7 +1338,7 @@ TensorView* reductionOp(
     is_trivial_reduction[axis] = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
     if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back(axis + offset);
+      reduction_axes.push_back((int)axis + offset);
     } else if (!keep_dim) {
       offset--;
     }
@@ -1638,7 +1645,7 @@ WelfordResult WelfordRaw(
       tv->domain()->toString());
 
   TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
-  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   if (init_N == nullptr) {
     init_N = FusionGuard::getCurFusion()->zeroVal();
@@ -1669,24 +1676,8 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes;
-  const int ndims = tv->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
-
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv->domain()->noReductions().size());
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
@@ -1702,7 +1693,6 @@ WelfordResult WelfordRaw(
       init_avg_val,
       init_var_val,
       init_N); /*init avg/var/count */
-
   return WelfordResult(out_avg, out_var, out_N);
 }
 
@@ -1721,39 +1711,24 @@ WelfordResult Welford(
       tv->domain()->toString());
 
   TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
-  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes;
   auto tv_root = tv->domain()->noReductions();
-  const int ndims = tv_root.size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  const auto ndims = tv_root.size();
+  std::vector<unsigned int> uint_axes = canonicalizeAxes(axes, ndims);
   std::sort(uint_axes.begin(), uint_axes.end());
 
   // Squeeze before reduction
   std::vector<int> reduction_axes;
   std::vector<bool> is_trivial_reduction(ndims, false);
   int offset = 0;
-  for (unsigned int axis : uint_axes) {
+  for (auto axis : uint_axes) {
     auto id = tv_root[axis];
     is_trivial_reduction[axis] = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
     if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back(axis + offset);
+      reduction_axes.push_back((int)axis + offset);
     } else {
       offset--;
     }
@@ -1765,7 +1740,21 @@ WelfordResult Welford(
   }
 
   if (!reduction_axes.empty()) {
-    return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    DataType dtype = tv->getDataType().value();
+    if (isComplexType(dtype)) {
+      // var of complex number is a real number, calculate real part and image
+      // part
+      WelfordResult real_part =
+          Welford(real(squeezed), reduction_axes, init_avg, init_var, init_N);
+      WelfordResult imag_part =
+          Welford(imag(squeezed), reduction_axes, init_avg, init_var, init_N);
+      TensorView* out_avg = complex(real_part.avg, imag_part.avg);
+      TensorView* out_var = add(real_part.var_sum, imag_part.var_sum);
+      TensorView* out_N = real_part.n;
+      return WelfordResult(out_avg, out_var, out_N, false);
+    } else {
+      return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    }
   }
 
   // if squeeze only
@@ -1787,21 +1776,25 @@ WelfordResult Welford(
     TORCH_CHECK(
         squeezed->getRootDomain().size() == init_var->getRootDomain().size(),
         "welford op: initial tensor mismatch");
-    return WelfordResult(squeezed, init_var, out_N);
+    return WelfordResult(squeezed, init_var, out_N, false);
   } else {
     return WelfordResult(
-        squeezed, full_like(squeezed, IrBuilder::create<Double>(0)), out_N);
+        squeezed,
+        full_like(squeezed, IrBuilder::create<Double>(0)),
+        out_N,
+        false);
   }
 }
 
 WelfordResult::WelfordResult(
     TensorView* in_avg,
     TensorView* in_var_sum,
-    TensorView* in_n)
+    TensorView* in_n,
+    const bool check_definition)
     : avg(in_avg), var_sum(in_var_sum), n(in_n) {
-  if (avg->definition()->isA<SqueezeOp>()) {
-    // For a squeeze-only welford, the definition of outputs does not have to be
-    // the same.
+  if (!check_definition) {
+    // For squeeze-only and complex welford, the definition of outputs does not
+    // have to be the same.
     return;
   }
   TORCH_INTERNAL_ASSERT(avg->definition()->sameAs(var_sum->definition()));
@@ -1956,7 +1949,7 @@ Val* where(Val* c, Val* v1, Val* v2) {
   v2 = cast_values[1];
 
   TORCH_CHECK(c->getDataType().value() == DataType::Bool);
-  auto out_dtype = common_dtype;
+  const auto& out_dtype = common_dtype;
   auto out_vtype =
       promoteType(v1->getValType().value(), v2->getValType().value());
   // Even when v1 and v2 are scalar, the output is a tensor if the
@@ -2064,7 +2057,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
   // If no reduction is needed sum_to returns the input tv
   TensorView* out = in;
 
-  const int64_t leading_dims = root.size() - sum_to_size.size();
+  const auto leading_dims = root.size() - sum_to_size.size();
 
   // Generate reduction axes for leading dims
   std::vector<int> reduce_dims(leading_dims);
@@ -2079,7 +2072,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
         !root[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
-      reduce_dims.push_back(i);
+      reduce_dims.push_back((int)i);
       reduction_within_shape = true;
     }
   }
@@ -2110,7 +2103,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   // If no reduction is needed sum_to returns the input tv
   TensorView* out = in;
 
-  const int64_t leading_dims = root.size() - sum_to_size.size();
+  const auto leading_dims = root.size() - sum_to_size.size();
 
   // Generate reduction axes for leading dims
   std::vector<int> reduce_dims(leading_dims);
@@ -2124,7 +2117,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   for (const auto i : c10::irange(leading_dims, root.size())) {
     if (sum_to_size[i - leading_dims] == 1 && !root[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
-      reduce_dims.push_back(i);
+      reduce_dims.push_back((int)i);
       reduction_within_shape = true;
     }
   }
@@ -2427,7 +2420,7 @@ TensorView* gather(
 
 TensorView* viewAsScalar(TensorView* inp) {
   auto inp_type = inp->getDataType().value();
-  int vec_size = std::get<ArrayOf>(inp_type.type).size;
+  auto vec_size = std::get<ArrayOf>(inp_type.type).size;
   auto out_type = *std::get<ArrayOf>(inp_type.type).type;
 
   std::vector<IterDomain*> out_domain;
@@ -2439,7 +2432,7 @@ TensorView* viewAsScalar(TensorView* inp) {
 
   IterDomain* id = IterDomainBuilder(
                        inp_domain[0]->container()->zeroVal(),
-                       IrBuilder::create<Int>(vec_size))
+                       IrBuilder::create<Int>((int64_t)vec_size))
                        .iter_type(IterType::VectorComponent)
                        .build();
   out_domain.push_back(id);
@@ -2551,7 +2544,7 @@ TensorView* fusedMultiplySum(
   TORCH_CHECK(tv_a->getDataType().value() == DataType::Half);
   TORCH_CHECK(tv_b->getDataType().value() == DataType::Half);
 
-  TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
+  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
   // TODO:
   //  will lift this in a follow up when we have a
@@ -2559,23 +2552,8 @@ TensorView* fusedMultiplySum(
   TORCH_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes;
-  const int ndims = tv_a->domain()->noReductions().size();
-  for (int axis : axes) {
-    if (axis < 0) {
-      axis += ndims;
-    }
-
-    TORCH_CHECK(
-        axis >= 0 && axis < ndims,
-        "Reduction on invalid axis, received: ",
-        axis,
-        " however tensor view only has ",
-        ndims,
-        " non-reduction dims.");
-
-    uint_axes.push_back((unsigned int)axis);
-  }
+  std::vector<unsigned int> uint_axes =
+      canonicalizeAxes(axes, tv_a->domain()->noReductions().size());
 
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);

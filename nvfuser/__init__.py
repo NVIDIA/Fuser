@@ -8,11 +8,22 @@ import sys
 import torch
 
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
-sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
+pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
+if pytorch_lib_dir not in sys.path:
+    sys.path.append(pytorch_lib_dir)
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
-from . import _C
+try:
+    from . import _C
+except ImportError as err:
+    import logging
+
+    logging.getLogger("nvfuser").error(
+        """==== importing nvfuser failed ====
+             try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
+    )
+    raise err
 from ._C import *  # noqa: F401,F403
 
 
@@ -68,12 +79,15 @@ class FusionDefinition(_C._FusionDefinition):
 
         return result
 
-    def from_pytorch(self, tensor):
+    def from_pytorch(self, tensor, static_sizes=False):
         """
-        Defines an nvfuser input tensor from a pytorch tensor
+        Defines an nvfuser input tensor from a pytorch tensor and defaults
+        to definining a symbolic tensor for dynamic shape usage.
 
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
+            static_sizes (bool)  : Interprets sizes as static rather than
+                                   as symbolic for dynamic shape usage
 
         Returns:
             nvfuser.Tensor
@@ -90,6 +104,7 @@ class FusionDefinition(_C._FusionDefinition):
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
         )
 
     def fusion_ir(self):

@@ -127,7 +127,7 @@ class PrecomputedValues {
   void bindInputs(const KernelArgumentHolder& args);
 
   using ParallelExtentMap =
-      std::unordered_map<ParallelType, std::vector<const Val*>, TypeHash>;
+      std::unordered_map<ParallelType, std::vector<const Val*>>;
 
   //! Bind concrete values from launch constraints
   void bindParallelExtents(
@@ -150,7 +150,7 @@ class PrecomputedValues {
 
   //! Returns value for the given IR node if it's stored
   //!  in the workspace and has been evaluated.
-  c10::optional<EvaluatorValue> getMaybeValueFor(const Val* val);
+  c10::optional<EvaluatorValue> getMaybeValueFor(const Val* val) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -162,7 +162,7 @@ class PrecomputedValues {
 
   //! Contains all the named scalars correspond
   //!  to thread size of each parallel type.
-  std::unordered_map<ParallelType, std::unique_ptr<std::vector<int>>, TypeHash>
+  std::unordered_map<ParallelType, std::unique_ptr<std::vector<int>>>
       thread_dim_value_indices_;
 
   //! Initialize the workspace before first use.

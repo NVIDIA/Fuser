@@ -31,8 +31,12 @@ class TORCH_CUDA_CU_API FusionState {
   //! Prints the Fusion IR representation
   void printIr() const;
 
+  //! Adds a Fusion IR Tensor/Scalar object
+  void addFusionState(Val* val);
   //! Gets a Fusion IR Tensor/Scalar object
   Val* getFusionState(size_t index) const;
+  //! Number of fusion states
+  size_t numFusionStates() const;
   //! Sets a Fusion IR Tensor/Scalar object
   void setFusionState(size_t index, Val* val);
 

@@ -34,8 +34,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -7771,10 +7771,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getIndexMode() == KernelIndexMode::INT64);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getIndexMode() == KernelIndexMode::INT32);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
     {
       FusionExecutor fe;
@@ -7812,7 +7812,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, small_inputs);
+      LaunchParams launch_params;
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
+
       TORCH_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
@@ -7824,31 +7827,13 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
       // This should fail as the Kernel is already compiled for Int32, but
       // the arguments are too large
+      CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
       EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
+          [&]() {
+            fe.runFusion(large_inputs, launch_params, compile_opts_large);
+          },
           testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
-    }
-
-    {
-      FusionExecutor fe;
-      // Lower the kernel with int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-      TORCH_CHECK(
-          fe.kernel()->indexType() == PrimDataType::Int32,
-          "Unexpected kernel index type: ",
-          fe.kernel()->indexType());
-
-      fe.runFusion(small_inputs);
-
-      // This should fail as the Kernel is already compiled for Int32, but
-      // the arguments are too large
-      EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
+              "Kernel index type and compilation index type don't match")));
     }
 
     {
@@ -7867,6 +7852,87 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   }
 
   c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is determined both fusion inputs and outputs
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = castOp(DataType::Float, tv1);
+  auto tv4 = broadcast(tv2, {false, true, false});
+  auto tv5 = broadcast(tv3, {true, false, false});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = castOp(DataType::Half, tv6);
+
+  fusion.addOutput(tv7);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+
+  // Inputs are small enough to use 32-bit indexing, but the output is
+  // not
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is also determined by intermediate
+// tensors. This is not ideal but just tests if the logic produces
+// what is expected at this moment
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = sum(tv4, {-1});
+
+  fusion.addOutput(tv5);
+
+  // Inputs and outputs are small enough to use 32-bit indexing,
+  // however the intermediate, tv4, should cause the kernel to use
+  // 64-bit indexing. This is not ideal as tv4 should be inlined, and
+  // its allocation size should be small enough to use 32-bit
+  // indexing. However, the current logic should result in forcing
+  // 64-bit indexing. This would need to be fixed for matmul for
+  // example.
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  executor_cache.runFusionWithInputs(aten_inputs);
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  // Running again with forced type of Int32
+  executor_cache.runFusionWithInputs(aten_inputs, PrimDataType::Int32);
+  kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
 
 //! Test whether we can create and use float16 scalars
