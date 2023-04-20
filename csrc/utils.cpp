@@ -120,6 +120,7 @@ auto parseDebugDumpOptions() {
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"kernel_args", DebugDumpOption::KernelArgs},
+      {"index_type", DebugDumpOption::IndexType},
       {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
