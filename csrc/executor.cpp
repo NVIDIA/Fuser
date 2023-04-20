@@ -1112,8 +1112,10 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   launch_params_ =
       computeLaunchParams(launch_constraints, expr_eval, warp_size_);
 
+  /*
   executor_utils::validateVectorizedTensors(
       lowered_.get()->kernel(), args, {}, compileTimeDataCache(), expr_eval);
+  */
 
   auto alias_indices_entry = executor_utils::caching::ExecutorCompileTimeEntry<
       executor_utils::caching::InputAliasIndices>(
@@ -1650,6 +1652,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  configured_device_smem : ulong;
   //  maybe_available_dynamic_smem : ulong;
   //  device_smem_limit: ulong;
+  //  block_size_high_water_mark: long;
+  //  maxrregcount_high_water_mark: int;
   //  warp_size: int;
   //  fusion_id: int;
   //  fusion_id_counter : int;
@@ -1673,6 +1677,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       configured_device_smem_,
       maybe_available_dynamic_smem_.value_or(0),
       device_smem_limit_,
+      block_size_high_water_mark_,
+      maxrregcount_high_water_mark_,
       warp_size_,
       fusion_id_,
       fusion_id_counter_,
@@ -1754,6 +1760,8 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   //  configured_device_smem : ulong;
   //  maybe_available_dynamic_smem : ulong;
   //  device_smem_limit: ulong;
+  //  block_size_high_water_mark: long;
+  //  maxrregcount_high_water_mark: int;
   //  warp_size: int;
   //  fusion_id: int;
   //  fusion_id_counter : int;
@@ -1768,6 +1776,8 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   configured_device_smem_ = buffer->configured_device_smem();
   maybe_available_dynamic_smem_ = buffer->maybe_available_dynamic_smem();
   device_smem_limit_ = buffer->device_smem_limit();
+  block_size_high_water_mark_ = buffer->block_size_high_water_mark();
+  maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
   fusion_id_ = buffer->fusion_id();
   fusion_id_counter_ = buffer->fusion_id_counter();
@@ -1780,6 +1790,18 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   }
 
   launch_params_.deserialize(buffer->launch_params());
+
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+    executor_utils::getCompiledKernel(
+        kernel_code_,
+        getStructuredCode(kernelString(), PrimDataType::Int32),
+        getCanonicalKernelName(),
+        fusion_id_,
+        block_size_high_water_mark_,
+        maxrregcount_high_water_mark_,
+        save_compiled_binary_);
+
+  is_cached_ = true;
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(

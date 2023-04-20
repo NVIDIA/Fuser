@@ -3721,15 +3721,17 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_CONFIGURED_DEVICE_SMEM = 4,
     VT_MAYBE_AVAILABLE_DYNAMIC_SMEM = 6,
     VT_DEVICE_SMEM_LIMIT = 8,
-    VT_WARP_SIZE = 10,
-    VT_FUSION_ID = 12,
-    VT_FUSION_ID_COUNTER = 14,
-    VT_KERNEL_CODE = 16,
-    VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
-    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
-    VT_LAUNCH_PARAMS = 22,
-    VT_KERNEL_SUMMARY = 24,
-    VT_USED_TVS = 26
+    VT_BLOCK_SIZE_HIGH_WATER_MARK = 10,
+    VT_MAXRREGCOUNT_HIGH_WATER_MARK = 12,
+    VT_WARP_SIZE = 14,
+    VT_FUSION_ID = 16,
+    VT_FUSION_ID_COUNTER = 18,
+    VT_KERNEL_CODE = 20,
+    VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 22,
+    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 24,
+    VT_LAUNCH_PARAMS = 26,
+    VT_KERNEL_SUMMARY = 28,
+    VT_USED_TVS = 30
   };
   uint64_t configured_device_smem() const {
     return GetField<uint64_t>(VT_CONFIGURED_DEVICE_SMEM, 0);
@@ -3739,6 +3741,12 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   uint64_t device_smem_limit() const {
     return GetField<uint64_t>(VT_DEVICE_SMEM_LIMIT, 0);
+  }
+  int64_t block_size_high_water_mark() const {
+    return GetField<int64_t>(VT_BLOCK_SIZE_HIGH_WATER_MARK, 0);
+  }
+  int32_t maxrregcount_high_water_mark() const {
+    return GetField<int32_t>(VT_MAXRREGCOUNT_HIGH_WATER_MARK, 0);
   }
   int32_t warp_size() const {
     return GetField<int32_t>(VT_WARP_SIZE, 0);
@@ -3776,6 +3784,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         VerifyField<uint64_t>(verifier, VT_CONFIGURED_DEVICE_SMEM) &&
         VerifyField<uint64_t>(verifier, VT_MAYBE_AVAILABLE_DYNAMIC_SMEM) &&
         VerifyField<uint64_t>(verifier, VT_DEVICE_SMEM_LIMIT) &&
+        VerifyField<int64_t>(verifier, VT_BLOCK_SIZE_HIGH_WATER_MARK) &&
+        VerifyField<int32_t>(verifier, VT_MAXRREGCOUNT_HIGH_WATER_MARK) &&
         VerifyField<int32_t>(verifier, VT_WARP_SIZE) &&
         VerifyField<int32_t>(verifier, VT_FUSION_ID) &&
         VerifyField<int32_t>(verifier, VT_FUSION_ID_COUNTER) &&
@@ -3812,6 +3822,18 @@ struct FusionExecutorBuilder {
   void add_device_smem_limit(uint64_t device_smem_limit) {
     fbb_.AddElement<uint64_t>(
         FusionExecutor::VT_DEVICE_SMEM_LIMIT, device_smem_limit, 0);
+  }
+  void add_block_size_high_water_mark(int64_t block_size_high_water_mark) {
+    fbb_.AddElement<int64_t>(
+        FusionExecutor::VT_BLOCK_SIZE_HIGH_WATER_MARK,
+        block_size_high_water_mark,
+        0);
+  }
+  void add_maxrregcount_high_water_mark(int32_t maxrregcount_high_water_mark) {
+    fbb_.AddElement<int32_t>(
+        FusionExecutor::VT_MAXRREGCOUNT_HIGH_WATER_MARK,
+        maxrregcount_high_water_mark,
+        0);
   }
   void add_warp_size(int32_t warp_size) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_WARP_SIZE, warp_size, 0);
@@ -3869,6 +3891,8 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     uint64_t configured_device_smem = 0,
     uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
+    int64_t block_size_high_water_mark = 0,
+    int32_t maxrregcount_high_water_mark = 0,
     int32_t warp_size = 0,
     int32_t fusion_id = 0,
     int32_t fusion_id_counter = 0,
@@ -3882,6 +3906,7 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> used_tvs = 0) {
   FusionExecutorBuilder builder_(_fbb);
+  builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
   builder_.add_maybe_available_dynamic_smem(maybe_available_dynamic_smem);
   builder_.add_configured_device_smem(configured_device_smem);
@@ -3894,6 +3919,7 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
   builder_.add_warp_size(warp_size);
+  builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   return builder_.Finish();
 }
 
@@ -3902,6 +3928,8 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     uint64_t configured_device_smem = 0,
     uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
+    int64_t block_size_high_water_mark = 0,
+    int32_t maxrregcount_high_water_mark = 0,
     int32_t warp_size = 0,
     int32_t fusion_id = 0,
     int32_t fusion_id_counter = 0,
@@ -3926,6 +3954,8 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       configured_device_smem,
       maybe_available_dynamic_smem,
       device_smem_limit,
+      block_size_high_water_mark,
+      maxrregcount_high_water_mark,
       warp_size,
       fusion_id,
       fusion_id_counter,
