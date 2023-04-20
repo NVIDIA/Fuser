@@ -433,6 +433,8 @@ table FusionExecutor {
   configured_device_smem : ulong;
   maybe_available_dynamic_smem : ulong;
   device_smem_limit: ulong;
+  block_size_high_water_mark: long;
+  maxrregcount_high_water_mark: int;
   warp_size: int;
   fusion_id: int;
   // shared static value

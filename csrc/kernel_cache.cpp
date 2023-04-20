@@ -62,14 +62,11 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
   // Used to get the ordering for the lru_cache
   std::unordered_map<std::string, size_t> lru_ordering;
 
-  std::cout << "serialize InputsIdLookup\t" << std::endl;
   std::vector<fb_string> lru_cache_fb;
   for (const auto& str : used_entry_) {
-    std::cout << str << std::endl;
     lru_cache_fb.push_back(builder.CreateString(str));
     lru_ordering.emplace(str, lru_ordering.size());
   }
-  std::cout << "==============================" << std::endl;
 
   std::vector<fb_string> encoding_lookup_keys_fb;
   std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
@@ -100,7 +97,6 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
   //   encoding_lookup_keys : [string];
   //   encoding_lookup_values : [EncodingEntry];
   // }
-
   using list_iter = std::list<std::string>::iterator;
   std::vector<list_iter> used_entry_iterators;
 
@@ -539,7 +535,6 @@ void FusionExecutorCache::deserialize(
   //    device_id : ulong;
   //    values : [FusionKernelRuntime];
   // }
-
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
@@ -567,7 +562,7 @@ void FusionExecutorCache::deserialize(
 
   for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
-    size_t value_id = buffer->kernel_cache_keys()->Get(idx);
+    size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
   }
 }
