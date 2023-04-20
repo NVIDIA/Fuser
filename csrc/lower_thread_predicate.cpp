@@ -540,7 +540,7 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     return;
   }
 
-  auto root_domain = out_tv->getRootDomain();
+  const auto& root_domain = out_tv->getMaybeRFactorDomain();
   // For each broadcast root domain, find a concretized domain from its
   // exact mapped domain set.
   auto getConcretizedBroadcastRootDomain = [&]() {
