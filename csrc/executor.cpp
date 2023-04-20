@@ -178,7 +178,6 @@ void FusionExecutor::debugCompileFusionFromStr(
 
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
-    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
@@ -250,17 +249,20 @@ void FusionExecutor::compileFusion(
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
   // arguments.
-  auto arg_index_type = args.getIndexType();
+  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
     TORCH_INTERNAL_ASSERT(
-        !(compile_params.index_type.value() == DataType::Int32 &&
-          arg_index_type == DataType::Int),
+        !(compile_params.index_type.value() == PrimDataType::Int32 &&
+          arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-  } else {
-    // If the given compile option doesn't specify the index type, use
-    // the type determined by the arguments
+  } else if (arg_index_type == PrimDataType::Int) {
+    // If the given compile option doesn't specify the index type, and
+    // the arguments require 64-bit indexing, we need to use 64-bit
+    // indexing. Note that if the arg type is 32-bit, it doesn't mean
+    // it's safe to use 32-bit for the whole kernel, so unless it's
+    // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
   }
 
@@ -1036,7 +1038,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
   const auto kernel = lowered_->kernel();
 
-  KernelArgumentHolder ret(args.getIndexMode());
+  KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
   CompileOptions meta_options = options_;
@@ -1086,7 +1088,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
 
   ExecutorEntry* executor_entry = nullptr;
-  c10::optional<size_t> opt_code = args.getCacheId();
+  auto opt_code = args.getCacheId();
   if (opt_code.has_value()) {
     executor_entry = &executor_entry_lookup_[*opt_code];
   }
@@ -1151,24 +1153,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 namespace {
 
 // Make sure the index type of Kernel is valid
-// TODO: Check the size of all tensors, not just inputs.
 void validateIndexType(
     kir::Kernel* kernel,
-    KernelArgumentHolder& args,
     const CompileParams& compile_params) {
-  // Currently, once a Fusion is lowered to a Kernel, the index type
-  // has to be resolved completely. This means that
-  // args.getIndexType() must be equal to the index type of the
-  // compiled kernel.
-  TORCH_INTERNAL_ASSERT(
-      kernel->indexType() == args.getIndexType(),
-      "Invalid pair of kernel index type and argument index type. Kernel type: ",
-      kernel->indexType(),
-      ". Argument index type: ",
-      args.getIndexType());
-
-  // Similarly, if the type of the index type in the given compile
-  // parameters doesn't match, that's also an error.
   TORCH_INTERNAL_ASSERT(
       !compile_params.index_type.has_value() ||
           kernel->indexType() == compile_params.index_type.value(),
@@ -1383,7 +1370,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
-  validateIndexType(kernel(), args, compile_params);
+  validateIndexType(kernel(), compile_params);
 
   const auto num_inputs = args.size();
 
@@ -1505,6 +1492,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
+    auto arg_buffer = args.getBuffer(kernel()->indexType());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1517,7 +1505,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          args.getBuffer(),
+          arg_buffer,
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
@@ -1531,7 +1519,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          args.getBuffer()));
+          arg_buffer));
     }
   }
 
@@ -1613,7 +1601,7 @@ float FusionExecutor::runRtc(
   CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
   CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
-  KernelArgumentHolder kernel_arguments(index_type);
+  KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(args);
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
@@ -1628,7 +1616,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(),
+      kernel_arguments.getBuffer(index_type),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

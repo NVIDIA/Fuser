@@ -1035,17 +1035,16 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   //  after additional cleaning ups.
   struct OptionsInMma {
     MmaOptions::MacroType macro = MmaOptions::MacroType::NoMMA;
-    MmaOptions::MmaInputLayout operand_layout = MmaOptions::MmaInputLayout::TT;
     int accumulator_stride = 0;
 
     bool operator==(const OptionsInMma& other) const {
-      return macro == other.macro && operand_layout == other.operand_layout &&
+      return macro == other.macro &&
           accumulator_stride == other.accumulator_stride;
     }
   };
 
   using AxesData = std::vector<int>;
-  using MmaInputLayoutOpt = c10::optional<MmaOptions::MmaInputLayout>;
+  using MmaInputLayoutOpt = std::optional<MmaOptions::MmaInputLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1056,7 +1055,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      OptionsInMma options);
+      const OptionsInMma& options,
+      const MmaInputLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

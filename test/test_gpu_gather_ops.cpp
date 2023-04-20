@@ -15,8 +15,8 @@
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <torch/torch.h>
 

@@ -9,8 +9,8 @@
 
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 
@@ -347,7 +347,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   std::vector<c10::IValue> aten_inputs = {input_pre, input1, input0, input_idx};
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs, true);
+  SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
   auto sch_fail = SchedulerEntry::canSchedule(
       ScheduleHeuristic::PointWise, &fusion_fail, runtime_info);
 
@@ -375,8 +375,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   std::vector<c10::IValue> aten_sum_inputs = {
       input_pre, input1, input0, input_idx};
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_sum_info(
-      &fusion_sum_fail, aten_sum_inputs, true);
+  SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
   auto sch_sum_fail = SchedulerEntry::canSchedule(
       ScheduleHeuristic::Reduction, &fusion_sum_fail, runtime_sum_info);
 
@@ -397,7 +396,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   fusion_pass.addOutput(tv3_p);
   // Schedule through magic scheduler
   std::vector<c10::IValue> aten_inputs_pass = {input1, input0, input_idx};
-  SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass, true);
+  SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass);
   auto sch_pass = SchedulerEntry::canSchedule(
       ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
 

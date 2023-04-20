@@ -1350,7 +1350,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  c10::optional<MmaOptions::MmaInputLayout> input_layout = c10::nullopt;
+  std::optional<MmaOptions::MmaInputLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1393,30 +1393,30 @@ MmaOptions::MmaInputLayout getInputLayout(
   // A = [M, K, b]
   // B = [b, K, N]
   // C = [M, r, N]
-  if ((m_axes.back() < in_a.bcasts.back()) &&
-      (k_axes.back() < in_a.bcasts.back()) &&
-      (in_b.bcasts.back() < k_axes.back()) &&
-      (in_b.bcasts.back() < n_axes.back())) {
+  if ((m_axes.front() < in_a.bcasts.front()) &&
+      (k_axes.front() < in_a.bcasts.front()) &&
+      (in_b.bcasts.front() < k_axes.front()) &&
+      (in_b.bcasts.front() < n_axes.front())) {
     return MmaOptions::MmaInputLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
   // B = [b, N, K]
   // C = [M, N, r]
-  if ((m_axes.back() < in_a.bcasts.back()) &&
-      (in_a.bcasts.back() < k_axes.back()) &&
-      (in_b.bcasts.back() < n_axes.back()) &&
-      (in_b.bcasts.back() < k_axes.back())) {
+  if ((m_axes.front() < in_a.bcasts.front()) &&
+      (in_a.bcasts.front() < k_axes.front()) &&
+      (in_b.bcasts.front() < n_axes.front()) &&
+      (in_b.bcasts.front() < k_axes.front())) {
     return MmaOptions::MmaInputLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
   // B = [K, b, N]
   // C = [r, M, N]
-  if ((k_axes.back() < in_a.bcasts.back()) &&
-      (m_axes.back() < in_a.bcasts.back()) &&
-      (k_axes.back() < in_b.bcasts.back()) &&
-      (in_b.bcasts.back() < n_axes.back())) {
+  if ((k_axes.front() < in_a.bcasts.front()) &&
+      (m_axes.front() < in_a.bcasts.front()) &&
+      (k_axes.front() < in_b.bcasts.front()) &&
+      (in_b.bcasts.front() < n_axes.front())) {
     return MmaOptions::MmaInputLayout::NT;
   }
 
@@ -1578,7 +1578,6 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init)
     : Expr(passkey) {
-  // Check output type
   TORCH_INTERNAL_ASSERT(
       out->getValType().value() == ValType::TensorView ||
           out->getValType().value() == ValType::TensorIndex,
@@ -1593,14 +1592,6 @@ MmaOp::MmaOp(
       in_b->getValType().value() == ValType::TensorView ||
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
-
-  MmaOpUtils::MmaOpDetails mma_details;
-  // Detailed consistency checks for use case with TensorViews as inputs/output
-  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
-      out->isA<TensorView>()) {
-    mma_details = MmaOpUtils::getMmaOpDetails(
-        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
-  }
 
   addOutput(out);
   addInput(in_a);
@@ -1622,6 +1613,15 @@ MmaOp::MmaOp(
   addAttribute(
       IrBuilder::create<Attribute<MmaInputLayoutOpt>>(passkey.ir_container_));
 
+  MmaOpUtils::MmaOpDetails mma_details;
+  // Detailed consistency checks for use case with TensorViews as
+  // inputs/output
+  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
+      out->isA<TensorView>()) {
+    mma_details = MmaOpUtils::getMmaOpDetails(
+        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
+  }
+
   attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value =
       std::move(mma_details.m_axes);
   attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value =
@@ -1640,9 +1640,27 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    OptionsInMma options)
+    const OptionsInMma& options,
+    const MmaInputLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
+
+  const auto input_layout_ = attribute(ATTR_POS_INPUT_LAYOUT)
+                                 ->as<Attribute<MmaInputLayoutOpt>>()
+                                 ->value;
+  if (input_layout_.has_value()) {
+    TORCH_INTERNAL_ASSERT(
+        input_layout_.value() == input_layout.value(),
+        "Input layout mismatch, infered attribute (",
+        nvfuser::toString(input_layout_.value()),
+        "), provided attribute (",
+        nvfuser::toString(input_layout.value()),
+        ")");
+  } else {
+    attribute(ATTR_POS_INPUT_LAYOUT)
+        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->value = input_layout;
+  }
 }
 
 std::string MmaOp::toString(int indent_size) const {
@@ -1667,7 +1685,6 @@ void MmaOp::configureOptions(MmaOptions options) {
       options.accumulator_stride > 0, "Un-configured accumulator stride.");
   opt.accumulator_stride = options.accumulator_stride;
   opt.macro = options.macro;
-  opt.operand_layout = options.operand_layout;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2498,7 +2515,7 @@ void IterDomain::parallelize(ParallelType t) {
     //  they are swizzled.
     TORCH_CHECK(
         t == ParallelType::Vectorize || t == ParallelType::TIDx ||
-            t == ParallelType::Serial,
+            t == ParallelType::Serial || t == ParallelType::Mma,
         "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
   }
 

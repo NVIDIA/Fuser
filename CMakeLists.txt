@@ -213,8 +213,8 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 
 if (PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
-  # TODO: setup header and lib installation
-  # installing nvfuser lib
+  # this is to find pip installed nvrtc .so
+  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
@@ -287,6 +287,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
+    set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "$ORIGIN/../torch/lib")
     install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION lib)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
@@ -331,14 +332,14 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
-    ${NVFUSER_ROOT}/test/test_utils.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
+    ${NVFUSER_ROOT}/test/test_external_src.cpp
     ${NVFUSER_ROOT}/test/test_swizzle.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
     ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
@@ -347,7 +348,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp

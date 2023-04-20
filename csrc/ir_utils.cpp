@@ -572,6 +572,15 @@ bool isReductionTvOp(const Expr* expr) {
   return ir_utils::isTvOp(expr) && isReductionOp(expr);
 }
 
+bool isPointwiseTvOp(const Expr* expr) {
+  // LoadStoreOp with rfactor domain means transpose, which is not
+  // considered pointwise
+  return isTvOp(expr) &&
+      (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
+       (expr->isA<LoadStoreOp>() &&
+        !ir_utils::getTvOutput(expr)->hasRFactor()));
+}
+
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 

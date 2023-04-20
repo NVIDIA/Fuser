@@ -32,8 +32,8 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -313,8 +313,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Volta_16_16_4;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Volta_16_16_4;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
@@ -364,8 +363,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Volta_16_16_4;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Volta_16_16_4;
     params.tile_sizes = gemm_tile;
     params.double_buffer_options.double_buffer_smem_read = true;
     scheduleMatmul(&fusion, params);
@@ -649,8 +647,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -705,8 +702,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
-      params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
-      params.layout = layout;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
@@ -769,8 +765,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -882,8 +877,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
-      params.mma_op = MmaOptions::MacroType::Ampere_16_8_16;
-      params.layout = layout;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
@@ -1811,8 +1805,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Turing_16_8_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
@@ -2793,7 +2786,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto t1 = at::randn({N, K}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {}, LaunchParams(), matmul_cparams);
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -2825,8 +2818,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2879,8 +2871,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Turing_16_16_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Turing_16_16_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
@@ -2934,8 +2925,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
         MatmulParams params;
-        params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-        params.layout = layout;
+        params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
@@ -2998,8 +2988,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
           MatmulParams params;
-          params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-          params.layout = layout;
+          params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
           params.double_buffer_options.double_buffer_smem_write = true;
@@ -3059,8 +3048,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
       MatmulParams params;
-      params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-      params.layout = layout;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
@@ -3114,8 +3102,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
-    params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-    params.layout = layout;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;

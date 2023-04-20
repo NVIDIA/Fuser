@@ -17,6 +17,45 @@
 
 namespace nvfuser {
 
+// TODO: macro this and the printer below
+enum class ArgType {
+  PhiloxCudaState,
+  Long,
+  Double,
+  ComplexDouble,
+  Bool,
+  Tensor,
+  CpuScalarTensor
+};
+
+inline std::string argTypeToString(ArgType type) {
+  std::string ret;
+  switch (type) {
+    case ArgType::PhiloxCudaState:
+      ret = "PhiloxCudaState";
+      break;
+    case ArgType::Long:
+      ret = "Long";
+      break;
+    case ArgType::Double:
+      ret = "Double";
+      break;
+    case ArgType::ComplexDouble:
+      ret = "ComplexDouble";
+      break;
+    case ArgType::Bool:
+      ret = "Bool";
+      break;
+    case ArgType::Tensor:
+      ret = "Tensor";
+      break;
+    case ArgType::CpuScalarTensor:
+      ret = "CpuScalarTensor";
+      break;
+  }
+  return ret;
+}
+
 // This should match the tensor used in the code generation (almost exactly)
 template <typename T, int N, typename nvfuser_index_t>
 struct TensorArgCodegen {
@@ -87,45 +126,6 @@ struct CpuScalarTensorCodegen {
 
   T data;
 };
-
-// TODO: macro this and the printer below
-enum class ArgType {
-  PhiloxCudaState,
-  Long,
-  Double,
-  ComplexDouble,
-  Bool,
-  Tensor,
-  CpuScalarTensor
-};
-
-inline std::string argTypeToString(ArgType type) {
-  std::string ret;
-  switch (type) {
-    case ArgType::PhiloxCudaState:
-      ret = "PhiloxCudaState";
-      break;
-    case ArgType::Long:
-      ret = "Long";
-      break;
-    case ArgType::Double:
-      ret = "Double";
-      break;
-    case ArgType::ComplexDouble:
-      ret = "ComplexDouble";
-      break;
-    case ArgType::Bool:
-      ret = "Bool";
-      break;
-    case ArgType::Tensor:
-      ret = "Tensor";
-      break;
-    case ArgType::CpuScalarTensor:
-      ret = "CpuScalarTensor";
-      break;
-  }
-  return ret;
-}
 
 struct ArgAbstract {
   virtual ~ArgAbstract() = default;
@@ -205,6 +205,10 @@ struct TensorArgAbstract : ArgAbstract {
   virtual DataType getDataType() const = 0;
   virtual int64_t numel() const = 0;
   virtual at::Tensor getTensor() const = 0;
+  virtual bool isIndexTypeResolved() const = 0;
+  //! Returns the index type of the tensor. It's an error if the
+  //! tensor does not have a resolved index type.
+  virtual PrimDataType getIndexType() const = 0;
 
   std::string toString() const override;
 };
@@ -213,8 +217,10 @@ template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
   at::Tensor tensor_;
+  bool index_type_resolved_ = false;
 
-  TensorArg(const at::Tensor& tensor) : tensor_(tensor) {
+  TensorArg(const at::Tensor& tensor, bool index_type_resolved)
+      : tensor_(tensor), index_type_resolved_(index_type_resolved) {
     setPointer(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
@@ -262,7 +268,40 @@ struct TensorArg : public TensorArgAbstract {
     return ret;
   }
 
-  DEF_HELPEE_FUNC(Tensor, instance_)
+  bool isIndexTypeResolved() const override {
+    return index_type_resolved_;
+  }
+
+  PrimDataType getIndexType() const override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
+  }
+
+  bool isType(ArgType t) const override {
+    return type() == t;
+  }
+
+  ArgType type() const override {
+    return ArgType::Tensor;
+  }
+
+  //! Returns the address of an tensor argument struct. It's an error
+  //! if called with a tensor with no resolved index type
+  const void* arg() const override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return &instance_;
+  }
+
+  //! Returns the address of an tensor argument struct. It's an error
+  //! if called with a tensor with no resolved index type
+  void* arg() override {
+    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    return &instance_;
+  }
+
+  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+    return std::make_unique<TensorArg>(*this);
+  }
 };
 
 template <typename CPU_TENSOR_TYPE>
@@ -290,31 +329,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! the ownership of the memory from the original inputs, but just recording
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      const std::optional<KernelIndexMode>& index_mode = std::nullopt);
+      const c10::ArrayRef<c10::IValue>& inputs);
 
-  KernelIndexMode getIndexMode() const {
-    return index_mode_;
-  }
-
-  void setIndexMode(KernelIndexMode mode) {
-    index_mode_ = mode;
-  }
-
-  PrimDataType getIndexType() const {
-    return indexModeToDtype(index_mode_);
-  }
-
-  explicit KernelArgumentHolder(KernelIndexMode index_mode)
-      : index_mode_(index_mode) {}
-
-  explicit KernelArgumentHolder(PrimDataType index_type)
-      : index_mode_(indexTypeToMode(index_type)) {}
+  KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self)
-      : device_index_(self.getDeviceIndex()),
-        cache_id_(self.getCacheId()),
-        index_mode_(self.getIndexMode()) {
+      : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
@@ -322,12 +342,15 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder& operator=(const KernelArgumentHolder& self) {
     device_index_ = self.getDeviceIndex();
-    index_mode_ = self.getIndexMode();
     for (const auto& arg : self.arguments_) {
       push(arg.get());
     }
     return *this;
   }
+
+  //! Computes the smallest index type for the currently held
+  //! arguments. It does not consider any other tensors used in a kernel.
+  PrimDataType getSmallestIndexTypeOfArguments() const;
 
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
@@ -337,9 +360,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void push(const at::PhiloxCudaState& val);
 
-  // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
-  // in the buffer
-  void** getBuffer();
+  // Create a buffer, flatten arguments into it, align by 8 Bytes, return
+  // pointers in the buffer. Tensor arguments are passed with the given index
+  // type.
+  void** getBuffer(PrimDataType index_type);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 
@@ -386,7 +410,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     cache_id_ = id;
   }
 
-  c10::optional<size_t> getCacheId() const {
+  std::optional<size_t> getCacheId() const {
     return cache_id_;
   }
 
@@ -395,11 +419,9 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
  private:
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;
   std::vector<void*> void_ptrs_;
-  bool changed_ = true;
 
   int8_t device_index_ = 0;
-  c10::optional<size_t> cache_id_ = c10::nullopt;
-  KernelIndexMode index_mode_ = KernelIndexMode::INT64;
+  std::optional<size_t> cache_id_ = std::nullopt;
 };
 
 } // namespace nvfuser
