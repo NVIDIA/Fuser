@@ -10,7 +10,7 @@
 #include <ops/arith.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
 
 #include <sstream>
 #include <string>
@@ -19,6 +19,8 @@
 #include <unordered_set>
 
 namespace nvfuser {
+
+class MatmulSASSTest : public NVFuserTest {};
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
@@ -86,7 +88,7 @@ sass::Container getSASSFor(
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSSanityCheck_CUDA) {
+TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -134,7 +136,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSSanityCheck_CUDA) {
 // load/store, mma, and sync instructions. Currently, the ground truth in this
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSModifiersCheck_CUDA) {
+TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   bool found_LDGSTS = false;
@@ -267,7 +269,7 @@ We need to reinvestigate the test below to determine whether to change it or del
 //   LDSM.16.M88.2 R144, [R213+0xa00] ;
 //   LDSM.16.M88.2 R146, [R213+0xc00] ;
 //   LDSM.16.M88.2 R148, [R213+0xe00] ;
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSRegisterUsageLDSM_CUDA) {
+TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 

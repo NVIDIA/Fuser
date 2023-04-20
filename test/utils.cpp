@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <test/test_utils.h>
+#include <test/utils.h>
 
 #include <c10/util/Exception.h>
 

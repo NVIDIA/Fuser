@@ -35,8 +35,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -1391,6 +1391,9 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   }
   Fusion fusion;
   FusionGuard fg(&fusion);
+
+  // disable fma to avoid numerical issue for reference implementation
+  ThreadLocalFmaDisableOverwrite over_write;
 
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
