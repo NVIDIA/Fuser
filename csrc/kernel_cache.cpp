@@ -568,7 +568,7 @@ void FusionExecutorCache::deserialize(
   for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_keys()->Get(idx);
-    id_to_kernel_runtime_.emplace_back(key, all_runtimes.at(value_id));
+    id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
   }
 }
 
@@ -645,6 +645,17 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 
   return serde::CreateFusionKernelRuntimeDirect(
       builder, args_metadata_.serialize(builder), &executors_fb);
+}
+
+void FusionKernelRuntime::deserialize(
+    const serde::FusionKernelRuntime* buffer) {
+  // table FusionKernelRuntime {
+  //  args : KernelArgumentHolder;
+  //  executors : [FusionExecutor];
+  // }
+  for (auto idx : c10::irange(buffer->executors()->size())) {
+    executors_.at(idx).deserialize(buffer->executors()->Get(idx));
+  }
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
