@@ -35,8 +35,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -1364,11 +1364,10 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
 
-  auto at_x =
-      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
-  auto aten_output_float =
+  auto at_x = at_bias.to(c10::ScalarType::Double) +
+      at_input.to(c10::ScalarType::Double);
+  auto aten_output_double =
       at_x * 0.5 * (1.0 + (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh());
-  auto aten_output = aten_output_float.to(c10::ScalarType::Half);
 
   std::vector<c10::IValue> aten_inputs = {at_bias, at_input};
   auto lparams = schedulePointwise(&fusion, aten_inputs);
@@ -1378,7 +1377,12 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {aten_output_double},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
@@ -1387,6 +1391,9 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   }
   Fusion fusion;
   FusionGuard fg(&fusion);
+
+  // disable fma to avoid numerical issue for reference implementation
+  ThreadLocalFmaDisableOverwrite over_write;
 
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
@@ -1431,24 +1438,23 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   fusion.addOutput(t27);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(1);
+  at::manual_seed(0);
   std::vector<int64_t> input_shape{6, 512, 4096};
   std::vector<int64_t> bias_shape{4096};
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
   auto at_grad = at::randn(input_shape, options);
 
-  auto at_x =
-      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
+  auto at_x = at_bias.to(c10::ScalarType::Double) +
+      at_input.to(c10::ScalarType::Double);
   auto at_tanh_out = (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh();
   auto at_ff = 0.5 * at_x *
           ((1 - at_tanh_out * at_tanh_out) * (k_079 + k_010 * at_x * at_x)) +
       0.5 * (1 + at_tanh_out);
   auto at_out = at_ff * at_grad;
-  auto at_out_half = at_out.to(c10::ScalarType::Half);
 
   std::vector<c10::IValue> aten_inputs = {at_grad, at_bias, at_input};
-  std::vector<at::Tensor> aten_outputs = {at_out, at_out_half};
+  std::vector<at::Tensor> aten_outputs = {at_out, at_out};
 
   auto lparams = schedulePointwise(&fusion, aten_inputs);
 
@@ -5131,7 +5137,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
 
   std::vector<at::Tensor> aten_inputs = {t0, t1};
 
-  KernelArgumentHolder args(KernelIndexMode::INT32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
 
@@ -5465,7 +5471,7 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(KernelIndexMode::INT32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
 
@@ -5509,7 +5515,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(KernelIndexMode::INT32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
   c10::IValue scalar = 1.0;
@@ -5554,7 +5560,7 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args(KernelIndexMode::INT32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
 
@@ -8185,7 +8191,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
 
   c10::IValue val = at_d56;
 
-  KernelArgumentHolder args(KernelIndexMode::INT32);
+  KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
   args.push(val);
@@ -9026,27 +9032,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i1435;
-  i1435 = T0.size[2] * T0.size[1];
-  int64_t i1438;
-  i1438 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1440;
-  i1440 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i1472;
-  i1472 = i1438 % i1440;
-  int64_t i1449;
-  i1449 = T0.size[2] * T0.size[3];
-  int64_t i1473;
-  i1473 = i1472 % i1449;
-  if ((i1438 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i1777;
+  i1777 = T0.size[2] * T0.size[1];
+  int64_t i1780;
+  i1780 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1782;
+  i1782 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i7574;
+  i7574 = i1780 % i1782;
+  int64_t i1791;
+  i1791 = T0.size[2] * T0.size[3];
+  int64_t i7647;
+  i7647 = i7574 % i1791;
+  if ((i1780 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1435 * T0.size[3]) * (i1438 / i1440)) + (i1435 * (i1473 % T0.size[3]))) + (T0.size[2] * (i1472 / i1449))) + (i1473 / T0.size[3]))];
+       = T2[(((((i1777 * T0.size[3]) * (i1780 / i1782)) + (i1777 * (i7647 % T0.size[3]))) + (T0.size[2] * (i7574 / i1791))) + (i7647 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1438];
+       = T0[i1780];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9066,7 +9072,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1438]
+    T7[i1780]
        = T10[0];
   }
 }
@@ -9159,7 +9165,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   std::vector<c10::IValue> aten_inputs({aten_input});
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   TORCH_CHECK(SchedulerEntry::canSchedule(
       ScheduleHeuristic::Persistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
@@ -9347,7 +9353,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation1_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9410,7 +9416,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9494,7 +9500,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   at::Tensor aten_t5 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0, aten_t5}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0, aten_t5});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9573,7 +9579,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   at::Tensor aten_t0 = at::randn({99, 101}, options);
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
@@ -9696,7 +9702,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
         tv->toString());
   }
 
-  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1}, true);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1});
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_info);
 

@@ -331,13 +331,13 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
-    ${NVFUSER_ROOT}/test/test_utils.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
+    ${NVFUSER_ROOT}/test/test_external_src.cpp
     ${NVFUSER_ROOT}/test/test_swizzle.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
     ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
@@ -346,7 +346,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp

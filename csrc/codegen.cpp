@@ -935,7 +935,9 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     ss << toString(options.macro);
 
     if (isVolta(options.macro)) {
-      ss << toString(options.operand_layout);
+      TORCH_INTERNAL_ASSERT(
+          mma->inputLayout().has_value(), "mma unknown input layout");
+      ss << toString(mma->inputLayout().value());
     } else if (isTuring(options.macro) || isAmpere(options.macro)) {
       // mma's in turing and ampere TN only, transpose is handled either
       //  via ldmatrix for fp16 or explicitly for other types.
