@@ -9,7 +9,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
-#include <inlining.h>
+
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <executor_utils.h>
@@ -636,6 +636,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
 
+  // Set computeAt, setup the loop nesting structure on the kernel.
+  //   TODO: this section goes to a separate matmul util,
+  //   and needs more configurability.
+  // ------------------------------------------------------------------
+  // CTA tile:
+
+  a->computeAt(c, 2);
+  b->computeAt(c, 2);
+
+  // Prolog:
+  a->computeAt(cc, 3);
+  b->computeAt(cc, 3);
+
+  // Main Loop:
+  acr->computeAt(cc, -6);
+  bcr->computeAt(cc, -6);
+
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
@@ -700,18 +717,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {acr, bcr, ab, bb, a, b},
       {ParallelType::TIDy, ParallelType::TIDz});
 
-  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-      cc,
-      -1,
-      {c},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType()
-          .propagateToBoundary());
-
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
-  
-  inlineMost();
-
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
     TORCH_INTERNAL_ASSERT(
@@ -734,11 +739,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcr->doubleBuffer();
   }
 
+  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+      cc,
+      -1,
+      {c},
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+          .propagateParallelType()
+          .propagateToBoundary());
+
+  c->axis(-1)->parallelize(ParallelType::Vectorize);
+
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
     scheduler_utils::rotateLoop(cc, 2, {acr, bcr});
   }
-
 }
 
 } // namespace nvfuser
