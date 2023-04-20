@@ -8160,8 +8160,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
 
     std::vector<int64_t> shape0;
     std::vector<int64_t> shape1({2, 64, 128, 2048});
-
-    for (int i = 0; i < shape1.size(); i++) {
+    const int ndim = shape1.size();
+    for (int i = 0; i < ndim; i++) {
       if (!is_broadcast[i]) {
         shape0.push_back(shape1[i]);
       }
@@ -8196,7 +8196,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     int first_broadcast_dim = shape1.size(), last_iter_dim = -1;
     int first_iter_dim = shape1.size(), last_broadcast_dim = -1;
     // last dim is not merged
-    for (int i = 0; i < shape1.size() - 1; i++) {
+    for (int i = 0; i < ndim - 1; i++) {
       if (is_broadcast[i]) {
         first_broadcast_dim = std::min(first_broadcast_dim, i);
         last_broadcast_dim = std::max(last_broadcast_dim, i);
@@ -8253,7 +8253,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     }
 
     at::Tensor tb = t0;
-    for (int i = 0; i < shape1.size(); i++) {
+    for (int i = 0; i < ndim; i++) {
       if (is_broadcast[i]) {
         tb = tb.unsqueeze(i);
       }
