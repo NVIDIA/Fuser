@@ -455,8 +455,6 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
   void handle(BroadcastOp* op) override;
 
-  void handle(SqueezeOp* op) override;
-
   void handle(ExpandOp* op) override {
     mapPointwiseOrReductionOp(op);
   }

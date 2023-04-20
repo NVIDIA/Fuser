@@ -141,7 +141,6 @@ bool isTvOp(const Expr* expr) {
           LoadStoreOp,
           MmaOp,
           BroadcastOp,
-          SqueezeOp,
           ExpandOp,
           ShiftOp,
           GatherOp,

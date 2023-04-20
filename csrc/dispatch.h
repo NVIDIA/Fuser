@@ -95,7 +95,6 @@ class GroupedWelfordOp;
 class LoadStoreOp;
 class MmaOp;
 class BroadcastOp;
-class SqueezeOp;
 class ExpandOp;
 class ShiftOp;
 class GatherOp;
@@ -184,7 +183,6 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const LoadStoreOp* stmt);
   virtual void handle(const MmaOp* stmt);
   virtual void handle(const BroadcastOp* stmt);
-  virtual void handle(const SqueezeOp* stmt);
   virtual void handle(const CatOp* stmt);
   virtual void handle(const PadOp* stmt);
   virtual void handle(const SliceOp* stmt);
@@ -265,7 +263,6 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(LoadStoreOp* stmt);
   virtual void handle(MmaOp* stmt);
   virtual void handle(BroadcastOp* stmt);
-  virtual void handle(SqueezeOp* stmt);
   virtual void handle(CatOp* stmt);
   virtual void handle(PadOp* stmt);
   virtual void handle(SliceOp* stmt);

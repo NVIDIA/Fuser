@@ -167,9 +167,12 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
       ". Input tensor: ",
       x->toString());
 
-  std::vector<IterDomain*> out_domain;
+  std::vector<IterDomain*> root_dom;
+  root_dom.reserve(ndims);
+  std::vector<IterDomain*> rfactor_dom;
   for (const auto idx : c10::irange(ndims)) {
-    auto id = x_dom[idx];
+    auto id = x_dom[idx]->cloneWithoutRFactor();
+    root_dom.push_back(id);
     if (to_squeeze[idx]) {
       TORCH_CHECK(
           id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
@@ -179,16 +182,19 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
           id->extent()->isOneInt(),
           "Can not squeeze dimension(s) with size != 1.");
     } else {
-      out_domain.push_back(id->cloneWithoutRFactor());
+      rfactor_dom.push_back(id);
     }
   }
 
   auto out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          root_dom,
+          rfactor_dom,
+          rfactor_dom,
+          TensorDomain::getContiguityFilledWith(rfactor_dom, true)),
       *x->getDataType());
 
-  IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  IrBuilder::create<LoadStoreOp>(x->container(), LoadStoreOpType::Set, out, x);
 
   return out;
 }

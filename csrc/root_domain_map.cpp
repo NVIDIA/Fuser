@@ -95,11 +95,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     broadcast_flags = bop->getBroadcastDimFlags();
   }
 
-  std::vector<bool> squeeze_flags;
-  if (SqueezeOp* sop = dynamic_cast<SqueezeOp*>(consumer_tv_->definition())) {
-    squeeze_flags = sop->getSqueezeDimFlags();
-  }
-
   IterDomain* selected_id = nullptr;
   bool select_skip_consumer = true;
   if (SelectOp* sop = dynamic_cast<SelectOp*>(consumer_tv_->definition())) {
@@ -141,14 +136,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     if (!broadcast_flags.empty() && broadcast_flags.at(itc)) {
       TORCH_INTERNAL_ASSERT(consumer_id->isBroadcast());
       itc++;
-      continue;
-    }
-
-    // When the producer ID is a removed broadcast domain, there is no
-    // mapping for it.
-    if (!squeeze_flags.empty() && squeeze_flags.at(itp)) {
-      TORCH_INTERNAL_ASSERT(producer_id->isBroadcast());
-      itp++;
       continue;
     }
 
@@ -749,8 +736,7 @@ void ComputeAtRootDomainMapBuilder::initializeBcastMap(
   // in non-broadcast rfactor domains, and 4) squeeze inputs as broadcasts can
   // be removed by squeeze.
   TORCH_INTERNAL_ASSERT(
-      tv->isFusionOutput() || ir_utils::isSqueezeInput(tv) ||
-          tv->definition()->outputs().size() > 1 ||
+      tv->isFusionOutput() || tv->definition()->outputs().size() > 1 ||
           tv->isDefinitionType<ViewOp>(),
       "Invalid tensor to initialize bcast map t",
       tv->name(),
@@ -883,7 +869,6 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
 
   // Broadcast is handled separately, so e should never be BroadcastOp.
   TORCH_INTERNAL_ASSERT(!e->isA<BroadcastOp>());
-  TORCH_INTERNAL_ASSERT(!e->isA<SqueezeOp>());
 
   TORCH_INTERNAL_ASSERT(!e->outputs().empty());
   const TensorView* out_tv = e->output(0)->as<TensorView>();
@@ -970,54 +955,6 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
         " of ",
         out_td);
     root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
-  }
-}
-
-void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
-  const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root =
-      TensorDomain::noReductions(in_td->getMaybeRFactorDomain());
-  const auto& out_root = out_td->getRootDomain();
-  const auto& squeeze_dim_flags = op->getSqueezeDimFlags();
-  TORCH_INTERNAL_ASSERT(
-      in_root.size() == squeeze_dim_flags.size(),
-      "dim flags: ",
-      squeeze_dim_flags,
-      ", in root: ",
-      in_root);
-  auto in_it = in_root.begin();
-  auto out_it = out_root.begin();
-  while (in_it != in_root.end() && out_it != out_root.end()) {
-    if (squeeze_dim_flags.at(std::distance(in_root.begin(), in_it))) {
-      // new broadcast dim. No matching dimension in the input
-      // tensor.
-      root_map_.removed_broadcast_domains_.insert(DomainKey(in_td, *in_it));
-      ++in_it;
-      continue;
-    }
-    setMaybeMapped(in_td, *in_it, out_td, *out_it);
-    ++in_it;
-    ++out_it;
-  }
-  // At this point, the output domain should have been scanned
-  // entirely.
-  TORCH_INTERNAL_ASSERT(
-      out_it == out_root.end(),
-      "Unmatched domain detected: ",
-      *out_it,
-      " of ",
-      out_td);
-  // On the other hand, the input may still have some domains left,
-  // and they must be removed broadcast domains.
-  for (; in_it != in_root.end(); ++in_it) {
-    TORCH_INTERNAL_ASSERT(
-        squeeze_dim_flags.at(std::distance(in_root.begin(), in_it)),
-        "Unmatched domain detected: ",
-        *in_it,
-        " of ",
-        in_td);
-    root_map_.removed_broadcast_domains_.insert(DomainKey(in_td, *in_it));
   }
 }
 

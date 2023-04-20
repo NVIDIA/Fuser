@@ -518,53 +518,6 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   }
 };
 
-//! Squeeze in to match out. is_squeeze_dims are relative to in. Where
-//! is_squeeze_dims.size() == in->nDims(). Squeeze is the opposite of
-//! broadcast.
-class TORCH_CUDA_CU_API SqueezeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  //! \param out The output tensor
-  //! \param in The input tensor
-  //! \param is_squeeze_dims True when input dim is a removed broadcast domain
-  SqueezeOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      std::vector<bool> is_broadcast_dims);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "SqueezeOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
-  }
-  Val* in() const {
-    return input(0);
-  }
-
-  bool isSqueezeDim(size_t dim) const {
-    return getSqueezeDimFlags().at(dim);
-  }
-
-  //! The same list passed to the squeeze arithmetic op. Each
-  //! element corresponds to an IterDomain of the input tensor and is
-  //! true when the IterDomain is a broadcast domain that is removed in the
-  //! output. Note that the output tensor may still contain broadcast domains
-  //! because the input tensor may have broadcast domains that we don't want to
-  //! remove (false flag).
-  const std::vector<bool>& getSqueezeDimFlags() const {
-    return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
-  }
-};
-
 //! Reduction operation. Out is first initialized to _init. Then
 //! reduction_op_type is used to update out as out = reductionOp(out, in).
 //! Output's axes marked as reduction will be reduced to produce an output

@@ -36,16 +36,6 @@ class UnaryOpInserter : private kir::ExprMutator {
     GpuLower::current()->propagateExprInfo(old_expr, new_expr);
   }
 
-  void handle(SqueezeOp* sop) final {
-    auto out = sop->out();
-    auto in = sop->in();
-    auto container = out->container();
-    registerReplaceAndPropagate(
-        sop,
-        IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Set, out, in));
-  }
-
   void handle(ExpandOp* eop) final {
     auto out = eop->out();
     auto in = eop->in();

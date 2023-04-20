@@ -719,31 +719,6 @@ Val* replaceValInIndexVal(
   return ReplaceValInIndexVal::replace(index, replacement_map);
 }
 
-bool isSqueezeInput(const TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SqueezeOp>()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i] != id) {
-      continue;
-    }
-    for (auto squeeze : squeezes) {
-      if (squeeze->isSqueezeDim(i)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
   const auto& domain = tv->domain()->domain();

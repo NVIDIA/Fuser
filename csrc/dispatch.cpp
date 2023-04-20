@@ -189,10 +189,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<BroadcastOp>());
     return;
   }
-  if (expr->isStrictlyA<SqueezeOp>()) {
-    ptr(handler)->handle(expr->as<SqueezeOp>());
-    return;
-  }
   if (expr->isStrictlyA<CatOp>()) {
     ptr(handler)->handle(expr->as<CatOp>());
     return;
@@ -473,10 +469,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<BroadcastOp>()) {
     ptr(handler)->handle(expr->as<BroadcastOp>());
-    return;
-  }
-  if (expr->isStrictlyA<SqueezeOp>()) {
-    ptr(handler)->handle(expr->as<SqueezeOp>());
     return;
   }
   if (expr->isStrictlyA<CatOp>()) {
@@ -888,9 +880,6 @@ void OptOutConstDispatch::handle(const MmaOp* stmt) {
 void OptOutConstDispatch::handle(const BroadcastOp* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const SqueezeOp* stmt) {
-  unhandled(stmt);
-}
 void OptOutConstDispatch::handle(const CatOp* stmt) {
   unhandled(stmt);
 }
@@ -1080,9 +1069,6 @@ void OptOutDispatch::handle(MmaOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(BroadcastOp* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(SqueezeOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(CatOp* stmt) {
