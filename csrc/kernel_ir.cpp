@@ -627,7 +627,8 @@ bool ForLoop::isTrivial() const {
   }
 
   // Extent-1 loop: for (int i = 0; i < 1; ++i) {
-  if (start()->isZeroInt() && stop()->isOneInt() && step()->isOneInt()) {
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
     return true;
   }
 
