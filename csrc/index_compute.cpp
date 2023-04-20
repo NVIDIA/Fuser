@@ -1272,7 +1272,7 @@ indexMapFromTV(
     if (!within_alloc) {
       if ((loop->iter_domain()->isThreadDim() && is_shared) ||
           (loop->iter_domain()->isThread() && is_global)) {
-        idx = loop->index();
+        idx = loop->indexOrStartIfTrivial();
       } else {
         idx = GpuLower::current()->kernel()->zeroVal();
         zero_loops.insert(loop);
@@ -1282,13 +1282,7 @@ indexMapFromTV(
       idx = GpuLower::current()->kernel()->zeroVal();
       zero_loops.insert(loop);
     } else {
-      idx = loop->index();
-    }
-
-    // If the loop is trivial, the loop index can only be the loop
-    // start value.
-    if (idx == loop->index() && loop->isTrivial()) {
-      idx = loop->start();
+      idx = loop->indexOrStartIfTrivial();
     }
 
     if (rotated_loops.count(loop) > 0 && zero_loops.count(loop) == 0) {
@@ -1730,8 +1724,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     if (db_loop != nullptr) {
       auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
           db_loop->iter_domain());
-      auto loop_index =
-          db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+      auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
       }
@@ -2191,13 +2184,13 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       if (is_prolog && is_circular_buffer_loop) {
         // The buffer switching logic is the same as original index
         //  in the case of circular buffer prolog.
-        db_switch_index = db_loop->index();
+        db_switch_index = db_loop->indexOrStartIfTrivial();
         if (rotated_loops.count(db_loop)) {
           db_switch_index =
               SimplifyingIrBuilder::addExpr(db_switch_index, db_loop->step());
         }
       } else {
-        auto loop_index = db_loop->index();
+        auto loop_index = db_loop->indexOrStartIfTrivial();
         if (rotated_loops.count(db_loop)) {
           loop_index =
               SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
