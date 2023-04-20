@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <inlining.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
@@ -636,23 +637,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
 
-  // Set computeAt, setup the loop nesting structure on the kernel.
-  //   TODO: this section goes to a separate matmul util,
-  //   and needs more configurability.
-  // ------------------------------------------------------------------
-  // CTA tile:
-
-  a->computeAt(c, 2);
-  b->computeAt(c, 2);
-
-  // Prolog:
-  a->computeAt(cc, 3);
-  b->computeAt(cc, 3);
-
-  // Main Loop:
-  acr->computeAt(cc, -6);
-  bcr->computeAt(cc, -6);
-
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
@@ -716,6 +700,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       -1,
       {acr, bcr, ab, bb, a, b},
       {ParallelType::TIDy, ParallelType::TIDz});
+
+  // auto inline for all tensors except register tensors and output tensor
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
+
+  // if auto inline, will inline to position-7, leads to performance regression
+  inlineSelectedAt({acr, bcr, ab, bb}, {cc}, 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
