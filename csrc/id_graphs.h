@@ -46,11 +46,11 @@ class TORCH_CUDA_CU_API IdGraph {
   // Same as getDisjointIdSet but for the Expression sets.
   std::pair<ExprGroup, bool> disjointExprSet(Expr* expr) const;
 
-  // TODO: Audit usage of toGroups:
-  //   Being used when only a single expr or id, break that into a separate
-  //   function.
-  //   There may be an assumption that the size of incoming vector is same as
-  //   output, that is not the case.
+  // Convert expr to its exprGroup, assert that it exists.
+  ExprGroup toGroup(Expr* expr) const;
+
+  // Convert iter domain to its IdGroup, assert that it exists.
+  IdGroup toGroup(IterDomain* id) const;
 
   // Convert unique vector of expressions to unique vector of its groups
   ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
@@ -58,11 +58,21 @@ class TORCH_CUDA_CU_API IdGraph {
   // Convert unique vector of IterDomain to unique vector of its groups
   IdGroups toGroups(const VectorOfUniqueEntries<IterDomain*>& ids) const;
 
-  // Return output iter domain groups of provided expr
-  IdGroups outputGroups(ExprGroup expr) const;
+  // Return output/input iter domain groups of provided expr
+  std::vector<IdGroup> outputGroups(ExprGroup expr) const;
+  std::vector<IdGroup> inputGroups(ExprGroup expr) const;
 
-  // Return input iter domain groups of provided expr
-  IdGroups inputGroups(ExprGroup expr) const;
+  // Returns if for each group in id_groups0 is the same as all groups in
+  // id_groups1. Requires size and order to be exact.
+  bool groupsMatch(
+      std::vector<IdGroup> id_groups0,
+      std::vector<IdGroup> id_groups1) const;
+
+  // Returns if for each group in expr_groups0 is the same as all groups in
+  // expr_groups1. Requires size and order to be exact.
+  bool groupsMatch(
+      std::vector<ExprGroup> expr_groups0,
+      std::vector<ExprGroup> expr_groups1) const;
 
   // Traverses uses of the IdGroups in 'of' and returns all ExprGroups
   // that have a use in their definition of provided of IdGroups.
@@ -179,10 +189,30 @@ class TORCH_CUDA_CU_API IdGraph {
   // mappings from IdGraph::isTrivialExpr
   void removeTrivialExprs();
 
+  // See comment on propagate_expr_ member bool for description
+  void enableExprPropagation() {
+    propagate_exprs_ = true;
+  }
+  // See comment on propagate_expr_ member bool for description
+  void disableExprPropagation() {
+    propagate_exprs_ = false;
+  }
+
  private:
   // Removes the provided expression group from unique_definitions_ and
   // unique_uses_ breaking traversal through them.
   void eraseExprGroup(ExprGroup expr_group);
+
+  // If propagate_exprs_ = false, then mapThroughExpr will not be called as a
+  // consequence of calling mapIds. As well as mapThroughExpr will not be called
+  // (again) as a result of calling mapThroughExpr.
+  //
+  // Note: For the second sentence of above... mapThroughExpr can call mapIds
+  // which could in return call mapThoughExpr again, but propagate_exprs_ as
+  // mentioned above prevents that from happening.
+  //
+  // TODO: Should propagate_exprs_ be a const member?
+  bool propagate_exprs_ = true;
 
   // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
   //
@@ -236,10 +266,10 @@ class TORCH_CUDA_CU_API IdGraphVisitor {
   IdGraphVisitor() = delete;
 
   IdGraphVisitor(const IdGraphVisitor& other) = default;
-  IdGraphVisitor& operator=(const IdGraphVisitor& other) = default;
+  IdGraphVisitor& operator=(const IdGraphVisitor& other) = delete;
 
   IdGraphVisitor(IdGraphVisitor&& other) = default;
-  IdGraphVisitor& operator=(IdGraphVisitor&& other) = default;
+  IdGraphVisitor& operator=(IdGraphVisitor&& other) = delete;
 
   virtual ~IdGraphVisitor() = default;
 

@@ -909,9 +909,9 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
   // [3, 5, 7]
   fusion.addOutput(tv7);
 
-  tv4->merge(0)->split(0, 3, false);
+  tv4->merge(0)->split(0, 2, false);
   // [3, 5]
-  // [3, 3*5/3]
+  // [3, 3*5//2]
 
   TransformPropagatorWithCheck propagator(tv4);
   MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
@@ -922,10 +922,11 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
   tv2->inlineAt(1);
   tv4->inlineAt(1);
 
-  tv5->merge(1)->split(1, 5, false);
-  // [3, 3*5/3, 7]
-  tv7->merge(1)->split(1, 5, false);
-  // [3, 5, (3*5/3)*7/5]
+  // [2, 3*5//2]
+  tv5->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*1//4]
+  tv7->merge(1)->split(1, 4, false);
+  // [2, 4, (3*5//2)*7//4]
   tv5->inlineAt(2);
 
   fusion.printKernel();

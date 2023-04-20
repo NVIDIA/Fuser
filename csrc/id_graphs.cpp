@@ -146,8 +146,8 @@ std::string exprGroupStringShort(
     const IdGraph& id_graph,
     ExprGroup expr_group) {
   std::stringstream ss;
-  auto inputs = id_graph.inputGroups(expr_group);
-  auto outputs = id_graph.outputGroups(expr_group);
+  auto inputs = IdGroups(id_graph.inputGroups(expr_group));
+  auto outputs = IdGroups(id_graph.outputGroups(expr_group));
   ss << idGroupsStringShortInline(inputs) << " -"
      << exprGroupStringShort(expr_group) << "-> "
      << idGroupsStringShortInline(outputs);
@@ -295,8 +295,8 @@ void IdGraphVisitor::traverse() {
           if (all_exprs.has(def)) {
             continue;
           }
-          auto inp_groups = graph().inputGroups(def);
-          auto out_groups = graph().outputGroups(def);
+          auto inp_groups = IdGroups(graph().inputGroups(def));
+          auto out_groups = IdGroups(graph().outputGroups(def));
           if (inp_groups.subtract(all_ids).empty() &&
               out_groups.subtract(all_ids).empty()) {
             all_exprs.pushBack(def);
@@ -314,8 +314,8 @@ void IdGraphVisitor::traverse() {
     IdGroups not_inputs;
     IdGroups not_outputs;
     for (auto expr_group : all_exprs) {
-      auto inp_groups = graph().inputGroups(expr_group);
-      auto out_groups = graph().outputGroups(expr_group);
+      auto inp_groups = IdGroups(graph().inputGroups(expr_group));
+      auto out_groups = IdGroups(graph().outputGroups(expr_group));
 
       if (inp_groups.intersect(out_groups).size() > 0) {
         // Expression is just a loop to its current group, ignore
@@ -505,13 +505,29 @@ std::pair<ExprGroup, bool> IdGraph::disjointExprSet(Expr* expr) const {
   return std::make_pair(disjoint_set_it->second, true);
 }
 
+ExprGroup IdGraph::toGroup(Expr* expr) const {
+  auto disjoint_set_pair = disjointExprSet(expr);
+  TORCH_INTERNAL_ASSERT(
+      disjoint_set_pair.second,
+      "\nExpr group could not be found in graph associated with: ",
+      expr->toString());
+  return disjoint_set_pair.first;
+}
+
+IdGroup IdGraph::toGroup(IterDomain* id) const {
+  auto disjoint_set_pair = disjointIdSet(id);
+  TORCH_INTERNAL_ASSERT(
+      disjoint_set_pair.second,
+      "\nId group could not be found in graph associated with: ",
+      id->toString(),
+      "\n");
+  return disjoint_set_pair.first;
+}
+
 ExprGroups IdGraph::toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const {
   ExprGroups expr_groups;
   for (auto expr : exprs) {
-    auto disjoint_set_pair = disjointExprSet(expr);
-    if (disjoint_set_pair.second) {
-      expr_groups.pushBack(disjoint_set_pair.first);
-    }
+    expr_groups.pushBack(toGroup(expr));
   }
   return expr_groups;
 }
@@ -520,30 +536,55 @@ IdGroups IdGraph::toGroups(
     const VectorOfUniqueEntries<IterDomain*>& ids) const {
   IdGroups id_groups;
   for (auto id : ids) {
-    auto disjoint_set_pair = disjointIdSet(id);
-    if (disjoint_set_pair.second) {
-      id_groups.pushBack(disjoint_set_pair.first);
-    }
+    id_groups.pushBack(toGroup(id));
   }
   return id_groups;
 }
 
-IdGroups IdGraph::outputGroups(ExprGroup expr) const {
-  VectorOfUniqueEntries<IterDomain*> id_outputs;
+std::vector<IdGroup> IdGraph::outputGroups(ExprGroup expr) const {
+  std::vector<IdGroup> output_groups;
   for (auto id_output :
        ir_utils::filterByType<IterDomain>(expr->front()->outputs())) {
-    id_outputs.pushBack(id_output);
+    output_groups.push_back(toGroup(id_output));
   }
-  return toGroups(id_outputs);
+  return output_groups;
 }
 
-IdGroups IdGraph::inputGroups(ExprGroup expr) const {
-  VectorOfUniqueEntries<IterDomain*> id_inputs;
+std::vector<IdGroup> IdGraph::inputGroups(ExprGroup expr) const {
+  std::vector<IdGroup> input_groups;
   for (auto id_input :
        ir_utils::filterByType<IterDomain>(expr->front()->inputs())) {
-    id_inputs.pushBack(id_input);
+    input_groups.push_back(toGroup(id_input));
   }
-  return toGroups(id_inputs);
+  return input_groups;
+}
+
+bool IdGraph::groupsMatch(
+    std::vector<IdGroup> id_groups0,
+    std::vector<IdGroup> id_groups1) const {
+  if (id_groups0.size() != id_groups1.size()) {
+    return false;
+  }
+  for (auto id_g_i : c10::irange(id_groups0.size())) {
+    if (id_groups0[id_g_i] != id_groups1[id_g_i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool IdGraph::groupsMatch(
+    std::vector<ExprGroup> expr_groups0,
+    std::vector<ExprGroup> expr_groups1) const {
+  if (expr_groups0.size() != expr_groups1.size()) {
+    return false;
+  }
+  for (auto id_g_i : c10::irange(expr_groups0.size())) {
+    if (expr_groups0[id_g_i] != expr_groups1[id_g_i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
@@ -629,7 +670,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     for (auto expr_group : all_exprs) {
       auto inp_groups = inputGroups(expr_group);
       auto out_groups = outputGroups(expr_group);
-      if (inp_groups.intersect(out_groups).size() > 0) {
+      if (IdGroups(inp_groups).intersect(IdGroups(out_groups)).size() > 0) {
         // Expression is just a loop to its current group, ignore
         continue;
       }
@@ -1129,34 +1170,18 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  // TODO: make these class functions for convenience, there are too many
-  // asserts in this file.
-  auto assert_get_expr_group = [&](Expr* expr) {
-    auto expr_group_pair = disjointExprSet(expr);
-    TORCH_INTERNAL_ASSERT(
-        expr_group_pair.second, "Could not find entry for expression: ", expr);
-    return expr_group_pair.first;
-  };
-
-  auto assert_get_id_group = [&](IterDomain* id) {
-    auto id_group_pair = disjointIdSet(id);
-    TORCH_INTERNAL_ASSERT(
-        id_group_pair.second, "Could not find entry for IterDomain: ", id);
-    return id_group_pair.first;
-  };
-
-  ExprGroup expr0_orig_group = assert_get_expr_group(expr0);
-  ExprGroup expr1_orig_group = assert_get_expr_group(expr1);
+  ExprGroup expr0_orig_group = toGroup(expr0);
+  ExprGroup expr1_orig_group = toGroup(expr1);
 
   disjointExprSets().mapEntries(expr0, expr1);
 
-  auto expr_new_group = assert_get_expr_group(expr0);
+  auto expr_new_group = toGroup(expr0);
 
   // Update unique uses of producers
   IdGroups producers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
     for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-      producers.pushBack(assert_get_id_group(input_id));
+      producers.pushBack(toGroup(input_id));
     }
   }
 
@@ -1170,7 +1195,7 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
   IdGroups consumers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
     for (auto output_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-      consumers.pushBack(assert_get_id_group(output_id));
+      consumers.pushBack(toGroup(output_id));
     }
   }
 
@@ -1225,8 +1250,17 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
           auto use0 = use_group_0->front();
           auto use1 = use_group_1->front();
           if (exprsMap(use0, use1, true)) {
-            mapExprs(use0, use1);
-            mapThroughExpr(use0, use1, true);
+            if (propagate_exprs_) {
+              mapExprs(use0, use1);
+              mapThroughExpr(use0, use1, true);
+            } else if ((groupsMatch(
+                            inputGroups(toGroup(use0)),
+                            inputGroups(toGroup(use1))) &&
+                        groupsMatch(
+                            outputGroups(toGroup(use0)),
+                            outputGroups(toGroup(use1))))) {
+              mapExprs(use0, use1);
+            }
           }
         }
       }
@@ -1245,8 +1279,17 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
           auto def0 = def_group_0->front();
           auto def1 = def_group_1->front();
           if (exprsMap(def0, def1, false)) {
-            mapExprs(def0, def1);
-            mapThroughExpr(def0, def1, false);
+            if (propagate_exprs_) {
+              mapExprs(def0, def1);
+              mapThroughExpr(def0, def1, false);
+            } else if ((groupsMatch(
+                            inputGroups(toGroup(def0)),
+                            inputGroups(toGroup(def1))) &&
+                        groupsMatch(
+                            outputGroups(toGroup(def0)),
+                            outputGroups(toGroup(def1))))) {
+              mapExprs(def0, def1);
+            }
           }
         }
       }
@@ -1327,7 +1370,7 @@ void IdGraph::removeTrivialExprs() {
   for (auto expr_group : disjointExprSets().disjointSets()) {
     auto inp_groups = inputGroups(expr_group);
     auto out_groups = outputGroups(expr_group);
-    if (inp_groups.intersect(out_groups).size()) {
+    if (IdGroups(inp_groups).intersect(IdGroups(out_groups)).size()) {
       trivial_expr_groups.pushBack(expr_group);
     }
   }
@@ -2025,6 +2068,9 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       ForwardingInfo permissive_forwarding(p_tv, c_tv);
       for (auto entry : permissive_forwarding.producer_forwarding_map) {
+        std::cout << "Permissive producer forwarding: "
+                  << entry.first->toString() << " -> "
+                  << entry.second->toString() << std::endl;
         idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
       }
 
@@ -2032,11 +2078,17 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
+          std::cout << "Permissive producer compliment: "
+                    << entry.first->toString() << " -> " << entry_2->toString()
+                    << std::endl;
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
       }
 
       for (auto entry : permissive_forwarding.consumer_forwarding_map) {
+        std::cout << "Permissive consumer forwarding: "
+                  << entry.first->toString() << " -> "
+                  << entry.second->toString() << std::endl;
         idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
       }
 
@@ -2044,6 +2096,9 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
+          std::cout << "Permissive consumer compliment: "
+                    << entry.first->toString() << " -> " << entry_2->toString()
+                    << std::endl;
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
       }
@@ -2201,7 +2256,7 @@ std::unordered_map<IdGroup, IdGroups> IterDomainGraphs::
     for (auto def_group : definition_pair_it.first) {
       auto inp_groups =
           idGraph(IdMappingMode::ALMOSTEXACT).inputGroups(def_group);
-      producer_groups.pushBack(inp_groups);
+      producer_groups.pushBack(inp_groups.begin(), inp_groups.end());
     }
     return producer_groups;
   };
@@ -2330,6 +2385,7 @@ std::unordered_map<IdGroup, IdGroups> IterDomainGraphs::
 
 void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   idGraph(IdMappingMode::LOOP) = initializeIdGraph();
+  // idGraph(IdMappingMode::LOOP).disableExprPropagation();
 
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
@@ -2431,9 +2487,15 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
     auto c_ids = entry_it->second;
     for (auto c_id : c_ids) {
+      std::cout << "Map: " << p_id->toString() << " <-> " << c_id->toString()
+                << std::endl;
       idGraph(IdMappingMode::LOOP).mapIds(p_id, c_id);
     }
   }
+
+  std::cout << "Loop groups: "
+            << debug_string::idGroups(idGraph(IdMappingMode::LOOP))
+            << std::endl;
 
   // Terminal loop ids are iteration domains in each loop group that:
   // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
@@ -2645,13 +2707,14 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
   std::cout << "Initial promotion replay:" << std::endl;
   for (auto iel_expr : iel_stmt_sort.exprs()) {
-    IdGroups input_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
-
+    std::cout << "a" << std::endl;
+    auto input_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
+    std::cout << "b" << std::endl;
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
     std::vector<IterDomain*> promoted_inputs;
     bool an_input_was_promoted = false;
-
+    std::cout << "c" << std::endl;
     for (auto inp : input_groups) {
       auto inp_promo_it = iel_promotion_map.find(inp);
       if (inp_promo_it == iel_promotion_map.end()) {
@@ -2661,18 +2724,24 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         an_input_was_promoted = true;
       }
     }
-
+    std::cout << "d" << std::endl;
     if (!an_input_was_promoted) {
       // No inputs need promotion so just continue
       continue;
     }
-
+    std::cout << "e" << std::endl;
     Expr* replay = nullptr;
 
-    auto promoted_input_groups = intersection_exact_loop_graph.toGroups(
-        VectorOfUniqueEntries<IterDomain*>{
-            promoted_inputs.begin(), promoted_inputs.end()});
+    IdGroups promoted_input_groups;
+    for (auto inp_id : promoted_inputs) {
+      auto inp_disjoint_set_pair =
+          intersection_exact_loop_graph.disjointIdSet(inp_id);
+      if (inp_disjoint_set_pair.second) {
+        promoted_input_groups.pushBack(inp_disjoint_set_pair.first);
+      }
+    }
 
+    std::cout << "f" << std::endl;
     // Before replaying, check if there's already an expression like this, if so
     // use that for promotion. We would need the iel entries for non-promoted
     // inputs to match exactly to reuse the expression.
@@ -2687,7 +2756,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       non_promoted_input_uses.pushBack(
           intersection_exact_loop_graph.uniqueUses(iel_group));
     }
-
+    std::cout << "g" << std::endl;
     for (auto iel_use_group : non_promoted_input_uses) {
       if (transformAtributesMatch(iel_expr->front(), iel_use_group->front())) {
         auto use_inps =
@@ -2721,10 +2790,10 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     TORCH_INTERNAL_ASSERT(replay_out_ids.size() == out_groups.size());
 
     for (auto i : c10::irange(replay_out_ids.size())) {
-      iel_promotion_map[out_groups.vector()[i]] = replay_out_ids[i];
+      iel_promotion_map[out_groups[i]] = replay_out_ids[i];
     }
   }
-
+  std::cout << "post" << std::endl;
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<IdGroup, IdGroups> exact_covered_ids;
@@ -2754,7 +2823,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   IdGraphStmtSort exact_stmt_sort(idGraph(IdMappingMode::EXACT));
 
   for (auto exact_expr : exact_stmt_sort.exprs()) {
-    auto input_groups = idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
+    auto input_groups =
+        idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
 
     IdGroups covered;
     for (auto inp_group : input_groups) {
@@ -2872,9 +2942,11 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
   IdGraphStmtSort iel_stmt_sort2(intersection_exact_loop_graph);
   for (auto iel_expr : iel_stmt_sort2.exprs()) {
-    auto iel_inp_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
+    auto iel_inp_groups =
+        intersection_exact_loop_graph.inputGroups(iel_expr);
 
-    auto iel_out_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
+    auto iel_out_groups =
+        intersection_exact_loop_graph.outputGroups(iel_expr);
 
     // When replaying the transformations a second time we want to take loop
     // promotion into consideration. However, we don't want to blindly apply
@@ -2888,14 +2960,12 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
     IdGroups inp_loop_groups;
     for (auto iel_inp_group : iel_inp_groups) {
-      inp_loop_groups.pushBack(
-          loop_graph_copy.toGroups({iel_inp_group->front()}).front());
+      inp_loop_groups.pushBack(loop_graph_copy.toGroup(iel_inp_group->front()));
     }
 
     IdGroups out_loop_groups;
     for (auto iel_out_group : iel_out_groups) {
-      out_loop_groups.pushBack(
-          loop_graph_copy.toGroups({iel_out_group->front()}).front());
+      out_loop_groups.pushBack(loop_graph_copy.toGroup(iel_out_group->front()));
     }
 
     bool loop_promote_inputs =
@@ -2908,8 +2978,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     // Promote inputs for replay
     for (auto iel_inp_group : iel_inp_groups) {
       // Prefer loop promotion
-      auto loop_copy_group =
-          loop_graph_copy.toGroups({iel_inp_group->front()}).front();
+      auto loop_copy_group = loop_graph_copy.toGroup(iel_inp_group->front());
       auto inp_loop_promo_it =
           loop_graph_copy_promotion_map.find(loop_copy_group);
       if (loop_promote_inputs &&
@@ -2937,8 +3006,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     // use that for promotion.
     ExprGroups promoted_input_uses;
     for (auto inp_id : promoted_inputs) {
-      auto inp_exact_group =
-          idGraph(IdMappingMode::EXACT).toGroups({inp_id}).front();
+      auto inp_exact_group = idGraph(IdMappingMode::EXACT).toGroup(inp_id);
       promoted_input_uses.pushBack(
           idGraph(IdMappingMode::EXACT).uniqueUses(inp_exact_group));
     }
@@ -2970,7 +3038,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
                 << "    As:" << replay->toString();
     }
 
-    auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
+    auto output_groups =
+        intersection_exact_loop_graph.outputGroups(iel_expr);
 
     // Mark outputs as having a promoted iter domain
     auto replay_out_ids =
@@ -2981,9 +3050,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     for (auto i : c10::irange(replay_out_ids.size())) {
       if (!idGraph(IdMappingMode::EXACT)
                .disjointIdSets()
-               .strictAreMapped(
-                   replay_out_ids[i], output_groups.vector()[i]->front())) {
-        iel_promotion_map[output_groups.vector()[i]] = replay_out_ids[i];
+               .strictAreMapped(replay_out_ids[i], output_groups[i]->front())) {
+        iel_promotion_map[output_groups[i]] = replay_out_ids[i];
       }
     }
   }
@@ -3039,7 +3107,8 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   IdGraphStmtSort exact_stmt_sort2(idGraph(IdMappingMode::EXACT));
 
   for (auto exact_expr : exact_stmt_sort2.exprs()) {
-    auto input_groups = idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
+    auto input_groups =
+        idGraph(IdMappingMode::EXACT).inputGroups(exact_expr);
 
     IdGroups covered;
     for (auto inp_group : input_groups) {
@@ -3505,8 +3574,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     for (auto tv_id : all_ids) {
       // Use emplace here as it multiple tv_ids could map to the same ae_group.
       // Emplace will simply grab the first one that appears.
-      ae_group_2_id.emplace(
-          std::make_pair(ae_graph.toGroups({tv_id}).front(), tv_id));
+      ae_group_2_id.emplace(std::make_pair(ae_graph.toGroup(tv_id), tv_id));
     }
 
     auto ae_leaf_groups = ae_graph.toGroups(VectorOfUniqueEntries<IterDomain*>{
@@ -3559,8 +3627,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       // so use that for promotion.
       ExprGroups promoted_output_defs;
       for (auto out_id : promoted_outputs) {
-        auto index_group =
-            idGraph(IdMappingMode::INDEX).toGroups({out_id}).front();
+        auto index_group = idGraph(IdMappingMode::INDEX).toGroup(out_id);
         promoted_output_defs.pushBack(
             idGraph(IdMappingMode::INDEX).uniqueDefinitions(index_group));
       }
@@ -3600,10 +3667,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         bool inps_match = true;
         for (auto inp_id : index_def_inputs) {
           IterDomain* promoted_inp = nullptr;
-          std::cout << inp_id->toString() << std::endl;
           auto ae_group_pair = ae_graph.disjointIdSet(inp_id);
-
-          std::cout << inp_id->toString() << std::endl;
           if (ae_group_pair.second &&
               ae_group_2_id.find(ae_group_pair.first) != ae_group_2_id.end()) {
             promoted_inp = ae_group_2_id.at(ae_group_pair.first);
@@ -3640,7 +3704,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
         std::unordered_map<IterDomain*, IterDomain*> replacement_map;
         for (auto id : ae_inps_outs) {
-          auto ae_group = ae_graph.toGroups({id}).front();
+          auto ae_group = ae_graph.toGroup(id);
           auto promoted_it = ae_group_2_id.find(ae_group);
           if (promoted_it == ae_group_2_id.end()) {
             replacement_map[id] = id->cloneWithoutRFactor();
@@ -3651,6 +3715,9 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
 
         replay = addExprWithReplacement(replacement_map, ae_expr->front());
         std::cout << "      ***REPLAY3***:\n        "
+                  << "        " << replay->toString();
+      } else {
+        std::cout << "      ***MATCH3***:\n        "
                   << "        " << replay->toString();
       }
 
@@ -3671,7 +3738,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       TORCH_INTERNAL_ASSERT(ae_inps.size() == replay_inps.size());
 
       for (auto inp_i : c10::irange(ae_inps.size())) {
-        auto ae_group = ae_graph.toGroups({ae_inps[inp_i]}).front();
+        auto ae_group = ae_graph.toGroup(ae_inps[inp_i]);
         // Only replace if entry does not exist.
         ae_group_2_id.emplace(std::make_pair(ae_group, replay_inps[inp_i]));
       }

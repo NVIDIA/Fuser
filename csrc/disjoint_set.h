@@ -57,6 +57,15 @@ class VectorOfUniqueEntries {
 
   template <class InputIt>
   VectorOfUniqueEntries(InputIt first, InputIt last) {
+    pushBack(first, last);
+  }
+
+  template <class Container>
+  VectorOfUniqueEntries(const Container& container)
+      : VectorOfUniqueEntries(container.begin(), container.end()) {}
+
+  template <class InputIt>
+  void pushBack(InputIt first, InputIt last) {
     while (first != last) {
       pushBack(*first++);
     }
