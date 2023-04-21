@@ -10,8 +10,8 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <swizzle.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_iter.h>
 
 namespace nvfuser {

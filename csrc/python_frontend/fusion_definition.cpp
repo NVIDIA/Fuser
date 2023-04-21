@@ -193,7 +193,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   return scheds->auto_gen_schedules->runFusionWithInputs(
-      inputs, selected_device);
+      inputs, std::nullopt, selected_device);
 }
 
 std::string FusionDefinition::fusionIr() {

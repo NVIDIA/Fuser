@@ -32,18 +32,28 @@ std::vector<c10::optional<bool>> computeContiguity(
   TORCH_CHECK(
       sizes.size() == strides.size(),
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
+  // Not a broadcast means neither the stride == 0 (size can be non-zero)
+  // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
+  // Contiguity defaults to vector of all None's
   std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
-  if (contiguity.empty()) {
+  if (contiguity.empty()) { // zero-dim tensor
     return contiguity;
   }
-  int64_t last = (int64_t)sizes.size() - 1;
+  int64_t last = (int64_t)sizes.size() - 1; // inner most dimension
+  // Contiguity normallly is determined by the current dimension and one
+  // dimension to the right.  The innermost dimension, that is not broadcasted,
+  // does not have any dimension to it's right and needs to be specially marked
+  // contiguous.
   for (; last >= 0; --last) {
     if (not_broadcast(last)) {
       contiguity[last] = (strides.at(last) == 1);
       break;
     }
   }
+  // Dimensions are marked contiguous by inspecting the current dimension and
+  // one to the right towards the inner dimension while skipping over broadcast
+  // dimensions.
   for (int64_t i = 0; i < last;) {
     if (not_broadcast(i)) {
       auto l = i++;
@@ -369,7 +379,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguous,
+             std::vector<c10::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
@@ -391,14 +401,14 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 symbolic_sizes,
-                contiguous,
+                contiguity,
                 dtype,
                 is_cpu));
 
             return out;
           },
           py::arg("symbolic_sizes"),
-          py::arg("contiguous"),
+          py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::return_value_policy::reference)
