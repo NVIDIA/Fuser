@@ -241,6 +241,7 @@ exclude_patterns = [
     '**/*.bash',
     '**/git-pre-commit',
     '**/git-clang-format',
+    'tools/pre-push',
     'third_party/**',
 ]
 command = [
