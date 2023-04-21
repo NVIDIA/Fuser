@@ -209,6 +209,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
 
+  std::vector<std::unique_ptr<Fusion>> fusions_;
+
   //! Heuristics object holding scheduler entries for all segments
   std::unique_ptr<FusionHeuristics> heuristics_;
 

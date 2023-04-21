@@ -1378,6 +1378,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // Placeholder for the case where parameter cache is not used
   ExecutorEntry temporary_executor_entry;
 
+  // TODO Why is parameter_cache randomly disabled in some python tests?
   ExecutorEntry* executor_entry =
       args.getCacheId().has_value() && !disable_parameter_cache_
       ? &executor_entry_lookup_[*args.getCacheId()]
@@ -1486,8 +1487,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
-    auto arg_buffer = args.getBuffer(kernel()->indexType());
-    if (!kernel()->summary().has_cooperative_grid_reduction) {
+    auto arg_buffer = args.getBuffer(indexType());
+    if (!kernel_summary_.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_.function,
@@ -1666,7 +1667,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       launch_params_.serialize(builder),
-      0 /* kernel_summary */,
+      serialize(builder, kernel_summary_),
       nullptr /* used_tvs */);
 }
 
@@ -1735,7 +1736,30 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       data.is_profile_buffer);
 }
 
-void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
+flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const kir::KernelSummary& summary) const {
+  // table KernelSummary {
+  //   max_rng_offsets : int = -1;
+  //   has_cooperative_grid_reduction : bool;
+  //   lhs_splits_to_validate : [long];
+  //   rhs_splits_to_validate : [long];
+  //   PrimDataType index_type_ = PrimDataType::Int;
+  //   vectorized_set_info : VectorizedTensorInfo;
+  // }
+  return CreateKernelSummaryDirect(
+      builder,
+      summary.max_rng_offsets,
+      summary.has_cooperative_grid_reduction,
+      nullptr /* lhs_splits_to_validate */,
+      nullptr /* rhs_splits_to_validate */,
+      serde::mapToSerdeDtype(summary.index_type_),
+      0 /* vectorized_set_info */);
+}
+
+void FusionExecutor::deserialize(
+    const serde::FusionExecutor* buffer,
+    Fusion* fusion) {
   // table FusionExecutor {
   //  configured_device_smem : ulong;
   //  maybe_available_dynamic_smem : ulong;
@@ -1752,6 +1776,10 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   //  kernel_summary : KernelSummary;
   //  used_tvs : [ulong];
   // }
+
+  // Capture prescheduled fusion without lowered kernel IR
+  fusion_ = fusion;
+  is_cached_ = true;
 
   configured_device_smem_ = buffer->configured_device_smem();
   maybe_available_dynamic_smem_ = buffer->maybe_available_dynamic_smem();
@@ -1770,18 +1798,17 @@ void FusionExecutor::deserialize(const serde::FusionExecutor* buffer) {
   }
 
   launch_params_.deserialize(buffer->launch_params());
+  kernel_summary_ = deserialize(buffer->kernel_summary());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
-          getStructuredCode(kernelString(), PrimDataType::Int32),
+          getStructuredCode(),
           getCanonicalKernelName(),
           fusion_id_,
           block_size_high_water_mark_,
           maxrregcount_high_water_mark_,
           save_compiled_binary_);
-
-  is_cached_ = true;
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
@@ -1842,6 +1869,16 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
+}
+
+kir::KernelSummary FusionExecutor::deserialize(
+    const serde::KernelSummary* buffer) {
+  kir::KernelSummary summary;
+  summary.max_rng_offsets = buffer->max_rng_offsets();
+  summary.has_cooperative_grid_reduction =
+      buffer->has_cooperative_grid_reduction();
+  summary.index_type_ = serde::mapToNvfuserDtype(buffer->index_type());
+  return summary;
 }
 
 } // namespace nvfuser
