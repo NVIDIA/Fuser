@@ -2580,7 +2580,8 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_HAS_COOPERATIVE_GRID_REDUCTION = 6,
     VT_LHS_SPLITS_TO_VALIDATE = 8,
     VT_RHS_SPLITS_TO_VALIDATE = 10,
-    VT_VECTORIZED_SET_INFO = 12
+    VT_INDEX_TYPE = 12,
+    VT_VECTORIZED_SET_INFO = 14
   };
   int32_t max_rng_offsets() const {
     return GetField<int32_t>(VT_MAX_RNG_OFFSETS, -1);
@@ -2596,6 +2597,10 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return GetPointer<const flatbuffers::Vector<int64_t>*>(
         VT_RHS_SPLITS_TO_VALIDATE);
   }
+  nvfuser::serde::DataType index_type() const {
+    return static_cast<nvfuser::serde::DataType>(
+        GetField<int32_t>(VT_INDEX_TYPE, 0));
+  }
   const nvfuser::serde::VectorizedTensorInfo* vectorized_set_info() const {
     return GetPointer<const nvfuser::serde::VectorizedTensorInfo*>(
         VT_VECTORIZED_SET_INFO);
@@ -2608,6 +2613,7 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         verifier.VerifyVector(lhs_splits_to_validate()) &&
         VerifyOffset(verifier, VT_RHS_SPLITS_TO_VALIDATE) &&
         verifier.VerifyVector(rhs_splits_to_validate()) &&
+        VerifyField<int32_t>(verifier, VT_INDEX_TYPE) &&
         VerifyOffset(verifier, VT_VECTORIZED_SET_INFO) &&
         verifier.VerifyTable(vectorized_set_info()) && verifier.EndTable();
   }
@@ -2639,6 +2645,10 @@ struct KernelSummaryBuilder {
     fbb_.AddOffset(
         KernelSummary::VT_RHS_SPLITS_TO_VALIDATE, rhs_splits_to_validate);
   }
+  void add_index_type(nvfuser::serde::DataType index_type) {
+    fbb_.AddElement<int32_t>(
+        KernelSummary::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
+  }
   void add_vectorized_set_info(
       flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
           vectorized_set_info) {
@@ -2663,10 +2673,12 @@ inline flatbuffers::Offset<KernelSummary> CreateKernelSummary(
         0,
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> rhs_splits_to_validate =
         0,
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
     flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
         vectorized_set_info = 0) {
   KernelSummaryBuilder builder_(_fbb);
   builder_.add_vectorized_set_info(vectorized_set_info);
+  builder_.add_index_type(index_type);
   builder_.add_rhs_splits_to_validate(rhs_splits_to_validate);
   builder_.add_lhs_splits_to_validate(lhs_splits_to_validate);
   builder_.add_max_rng_offsets(max_rng_offsets);
@@ -2680,6 +2692,7 @@ inline flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
     bool has_cooperative_grid_reduction = false,
     const std::vector<int64_t>* lhs_splits_to_validate = nullptr,
     const std::vector<int64_t>* rhs_splits_to_validate = nullptr,
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
     flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
         vectorized_set_info = 0) {
   auto lhs_splits_to_validate__ = lhs_splits_to_validate
@@ -2694,6 +2707,7 @@ inline flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
       has_cooperative_grid_reduction,
       lhs_splits_to_validate__,
       rhs_splits_to_validate__,
+      index_type,
       vectorized_set_info);
 }
 

@@ -330,16 +330,16 @@ std::string FusionExecutorCache::getCode(
   if (intrinsic_code) {
     const auto& execs = kernel_runtime->executors();
     const FusionExecutor& fe = execs[0];
-    auto index_type = fe.indexType();
+    auto index_type = fe.kernel()->indexType();
     // Make sure all the segment index types match. All segments currently
     // use the same index type but this code change in the future.
     for (const auto& exec : execs) {
       TORCH_CHECK(
-          index_type == exec.indexType(),
+          index_type == exec.kernel()->indexType(),
           "Index Type mismatch between Segment Executors: ",
           index_type,
           " ",
-          exec.indexType());
+          exec.kernel()->indexType());
     }
     std::string full_code = fe.getStructuredCode(kernel_code, index_type);
     return full_code;
@@ -625,8 +625,14 @@ void FusionKernelRuntime::deserialize(
   //  args : KernelArgumentHolder;
   //  executors : [FusionExecutor];
   // }
+  TORCH_INTERNAL_ASSERT(
+      runtime_workspace_.group_run_order.size() == executors_.size());
+
   for (auto idx : c10::irange(buffer->executors()->size())) {
-    executors_.at(idx).deserialize(buffer->executors()->Get(idx));
+    auto sg = runtime_workspace_.group_run_order.at(idx);
+    fusions_.emplace_back(segmented_fusion_->makeFusion(sg));
+    executors_.at(idx).deserialize(
+        buffer->executors()->Get(idx), fusions_.back().get());
   }
 }
 

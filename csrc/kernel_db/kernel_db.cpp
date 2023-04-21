@@ -210,6 +210,7 @@ bool KernelDb::query(
       }
     }
   }
+  std::cout << "KernelDB::query\t" << status << std::endl;
   return status;
 }
 

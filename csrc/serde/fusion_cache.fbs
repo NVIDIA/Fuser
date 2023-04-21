@@ -316,6 +316,10 @@ table KernelSummary {
   lhs_splits_to_validate : [long];
   rhs_splits_to_validate : [long];
 
+  // Is this kernel being compiled with int32 or int64 indexing. This
+  // information is required to resolve DataType::Index
+  index_type : DataType;
+
   // Track information on vectorized set operations for runtime validation
   vectorized_set_info : VectorizedTensorInfo;
 }

@@ -279,7 +279,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   flatbuffers::Offset<serde::FusionExecutor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  void deserialize(const serde::FusionExecutor* buffer);
+  void deserialize(const serde::FusionExecutor* buffer, Fusion* fusion);
 
  private:
   static std::string kernelNamespace() {
@@ -358,6 +358,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
+  flatbuffers::Offset<serde::KernelSummary> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const kir::KernelSummary& summary) const;
+
+  kir::KernelSummary deserialize(const serde::KernelSummary* buffer);
+
   std::vector<at::Tensor> allocOutputs(
       const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
       const std::vector<std::pair<int, int>>& output_to_input_aliases,
@@ -403,8 +409,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   int64_t block_size_high_water_mark_ = 1;
   int maxrregcount_high_water_mark_ = 255;
 
-  // lookup table to take short cut to retrieve recorded information in order to
-  // launch kernels without re-inference parameters.
+  // lookup table to take short cut to retrieve recorded information in order
+  // to launch kernels without re-inference parameters.
   std::unordered_map<size_t, ExecutorEntry> executor_entry_lookup_;
 
   // Compile time information caching. This is used for shape inference
@@ -423,8 +429,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Profiling support: knob to enable measuring kernel execution time
   bool measure_kernel_time_ = false;
 
-  // Profiling support: the last kernel execution time, if measure_kernel_time_
-  // is true
+  // Profiling support: the last kernel execution time, if
+  // measure_kernel_time_ is true
   float kernel_time_ms_ = 0;
 
   // Profiling support: the last kernel Bytes processed
