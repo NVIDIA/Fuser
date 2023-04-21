@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+#
+# This hook is called with the following parameters:
+#
+# $1 -- Name of the remote to which the push is being done
+# $2 -- URL to which the push is being done
+#
+# If pushing without using a named remote those arguments will be equal.
+#
+# Information about the commits which are being pushed is supplied as lines to
+# the standard input in the form:
+#
+#   <local ref> <local sha1> <remote ref> <remote sha1>
+
+import sys
+
+warning_message = '''
+ ###  ###  ###                                                     ###  ###  ###
+ ###  ###  ###  #    #    ##    #####   #    #  #  #    #   ####   ###  ###  ###
+ ###  ###  ###  #    #   #  #   #    #  ##   #  #  ##   #  #    #  ###  ###  ###
+  #    #    #   #    #  #    #  #    #  # #  #  #  # #  #  #        #    #    #
+                # ## #  ######  #####   #  # #  #  #  # #  #  ###
+ ###  ###  ###  ##  ##  #    #  #   #   #   ##  #  #   ##  #    #  ###  ###  ###
+ ###  ###  ###  #    #  #    #  #    #  #    #  #  #    #   ####   ###  ###  ###
+
+'''
+
+protected_branch="main"
+protected_remote="NVIDIA/fuser"
+
+url = sys.argv[2]
+read_stdin_line = sys.stdin.readline().split()
+if len(read_stdin_line) != 4:
+  # no changes are pushed, we'll just let it slip
+  exit(0)
+
+remote_ref = read_stdin_line[2]
+
+if remote_ref.endswith(protected_branch) and (protected_remote in url):
+  print(warning_message)
+  print("You are pushing to " + remote_ref + " at remote: " + url)
+  print("This is protected branch and you should not push there! Are you sure you want to push? (y/n)")
+  for read_response in sys.stdin:
+    if read_response.rstrip() == "y":
+      exit(0)
+    elif read_response.rstrip() == "n":
+      exit(1)
+    else:
+      print("response not recognized, are you sure you want to push? (y/n)")
+
+exit(0)
