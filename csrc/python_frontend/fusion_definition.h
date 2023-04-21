@@ -80,7 +80,7 @@ struct TORCH_CUDA_CU_API Vector {
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
-  
+
   //! Pointer to the FusionDefinition used to create this scalar
   FusionDefinition* fusion_definition;
 };
