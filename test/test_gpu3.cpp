@@ -8099,6 +8099,83 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
+TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  {
+    auto tv0 = TensorViewBuilder().ndims(2).shape({-1, -1}).contiguity({true, true}).dtype(DataType::Floaat).build();
+    fusion->addInput(tv0);
+    auto tv1 = TensorViewBuilder().ndims(1).shape({-1}).contiguity({true}).dtype(DataType::Int).build();
+    fusion->addInput(tv1);
+    auto tv2 = max(tv0, axes=[1], keepdim=False, dtype=DataType.Null);
+    auto tv3 = expand(broadcast(tv2, {false, true}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>>(1)});  
+    auto tv4 = expand(broadcast(tv3, {false, false}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv5 = sub(tv0, tv4);
+    auto tv6 = exp(tv5);
+    auto tv7 = sum(tv6, axes=[1], keepdim=False, dtype=DataType.Null);
+    auto tv8 = expand(broadcast(tv7, {false, true}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>>(1)});  
+    auto tv9 = expand(broadcast(tv8, {false, false}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv10 = div(tv6, tv9);
+    auto tv11 = log(tv10);
+    auto tv12 = neg(tv11);
+    auto tv13 = reshape(tv1, original_shape=[128], new_shape=[128, 1]);
+    auto tv14 = gather(tv12, tv13, dim=1);
+    auto s15 = IrBuilder::create<Int>(5, dtype=DataType.Int);
+    auto tv16 = eq(tv13, s15);
+    auto s17 = IrBuilder::create<Double>(0.0, dtype=DataType.Double);
+    auto tv18 = where(tv16, s17, tv14);
+    auto tv19 = sum(tv18, axes=[0, 1], keepdim=False, dtype=DataType.Null);
+    auto tv20 = castOp(DataType::Float, tv16);
+    auto tv21 = sum(tv20, axes=[0, 1], keepdim=False, dtype=DataType.Null);
+    auto s22 = IrBuilder::create<Double>(128.0, dtype=DataType.Double);
+    auto tv23 = sub(s22, tv21);
+    auto tv24 = div(tv19, tv23);
+    fusion->addOutput(tv24);
+  }
+
+  auto options = at::TensorOptions().dtype(kFloat).device(at::kCUDA, 0);
+  std::vector<IValue> inputs;
+  std::vector<Tensor> outputs;
+
+  {
+    auto t0 = at::randn({128, 371}, options);
+    inputs.push_back(t0);
+    auto t1 = at::randint(371, {128}, options).to(ScalarType::Int);
+    inputs.push_back(t1);
+    auto t2 = at::max(t0, axes=[1], keepdim=False, dtype=DataType.Null);
+    auto t3 = t2.unsqueeze(1).expand({128, 1});
+    auto t4 = t3.expand({128, 371});
+    auto t5 = at::sub(t0, t4);
+    auto t6 = at::exp(t5);
+    auto t7 = at::sum(t6, axes=[1], keepdim=False, dtype=DataType.Null);
+    auto t8 = t7.unsqueeze(1).expand({128, 1});
+    auto t9 = t8.expand({128, 371});
+    auto t10 = at::div(t6, t9);
+    auto t11 = at::log(t10);
+    auto t12 = at::neg(t11);
+    auto t13 = at::reshape(t1, original_shape=[128], new_shape=[128, 1]);
+    auto t14 = at::gather(t12, t13, dim=1);
+    auto s15 = 5;
+    auto t16 = at::eq(t13, s15);
+    auto s17 = 0.0;
+    auto t18 = at::where(t16, s17, t14);
+    auto t19 = at::sum(t18, axes=[0, 1], keepdim=False, dtype=DataType.Null);
+    auto t20 = t16.to(ScalarType::Float);
+    auto t21 = at::sum(t20, axes=[0, 1], keepdim=False, dtype=DataType.Null);
+    auto s22 = 128.0;
+    auto t23 = at::sub(s22, t21);
+    auto t24 = at::div(t19, t23);
+    outputs.push_back(t24);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
