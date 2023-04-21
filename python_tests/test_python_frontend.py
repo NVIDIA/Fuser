@@ -2061,7 +2061,6 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_constant(1.0, DataType.Float)
-            fd.set_device("cuda:1")
             t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
@@ -2069,7 +2068,7 @@ class TestNvFuserFrontend(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
 
-        nvf_out = fd.execute([2.0, 3.0])
+        nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
         eager_out = torch.full([2, 2], 1.0) * 5.0
         self.assertEqual(eager_out, nvf_out[0])
 
