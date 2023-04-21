@@ -746,10 +746,20 @@ bool HaloInfo::needsShiftPredicate(Expr* expr) const {
 
 std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
     const LoopIndexing& loop_indexing) const {
+  const auto& global_halo_info = GpuLower::current()->haloInfo();
+
+  // If no root ID has halo, no need to analyze descendants
+  if (std::none_of(
+          loop_indexing.loopRootDomains().begin(),
+          loop_indexing.loopRootDomains().end(),
+          [&](IterDomain* root_id) {
+            return global_halo_info->hasHaloWidth(root_id);
+          })) {
+    return {};
+  }
+
   // Use a local workspace to avoid re-defining halo info.
   HaloInfo local_halo_info = *GpuLower::current()->haloInfo();
-
-  auto global_halo_info = GpuLower::current()->haloInfo();
 
   // Setup root:
   for (auto consumer_root_id : loop_indexing.consumerTv()->getRootDomain()) {
