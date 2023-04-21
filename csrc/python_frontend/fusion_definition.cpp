@@ -44,36 +44,12 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-bool State::operator==(const State& other) const {
-  return (index == other.index) && (stype == other.stype);
-}
-
-bool State::operator!=(const State& other) const {
-  return (index != other.index) || (stype != other.stype);
-}
-
-// Generalized printing of State
-std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType_Scalar) {
-    os << "S";
-  } else if (state.stype == serde::StateType_Tensor) {
-    os << "T";
-  } else if (state.stype == serde::StateType_None) {
-    os << "None";
-  } else {
-    TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
-  }
-  os << state.index;
-  return os;
-}
-
 FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
       fusion_cache_(FusionCache::get()),
       trie_node_(nullptr),
-      recording_state_(),
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),

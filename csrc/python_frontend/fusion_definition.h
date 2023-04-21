@@ -27,23 +27,6 @@ struct TrieNode;
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
-struct TORCH_CUDA_CU_API State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
-
-  bool operator==(const State& other) const;
-  bool operator!=(const State& other) const;
-
-  //! A unique index to identifiy each recorded state item.
-  size_t index;
-  //! StateType is either: Tensor or Scalar
-  serde::StateType stype;
-};
-
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    const State& state);
-
 //! The Tensor and Scalar classes are used to define separate function signtures
 //! in the FusionDefinition to identify the appropriate Operator function.
 //!
@@ -198,9 +181,6 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.
   TrieNode* trie_node_;
-
-  //! A vector of state recorded in the FusionDefinition
-  std::vector<State> recording_state_;
 
   // Book keeping data members for user created schedules
 

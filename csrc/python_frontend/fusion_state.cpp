@@ -15,9 +15,33 @@ using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
 
+bool State::operator==(const State& other) const {
+  return (index == other.index) && (stype == other.stype);
+}
+
+bool State::operator!=(const State& other) const {
+  return (index != other.index) || (stype != other.stype);
+}
+
+// Generalized printing of State
+std::ostream& operator<<(std::ostream& os, const State& state) {
+  if (state.stype == serde::StateType_Scalar) {
+    os << "S";
+  } else if (state.stype == serde::StateType_Tensor) {
+    os << "T";
+  } else if (state.stype == serde::StateType_None) {
+    os << "None";
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
+  }
+  os << state.index;
+  return os;
+}
+
 FusionState::FusionState()
     : end_record_(new EndRecord()),
       recording_(),
+      recording_state_(),
       fusion_(nullptr),
       fusion_state_(),
       num_recording_states_(0) {}
@@ -65,14 +89,24 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
   TORCH_CHECK(fusion != nullptr, "Fusion is undefined.");
   fusion_ = fusion;
   fusion_state_.clear();
-  fusion_state_.resize(size, nullptr);
+  fusion_state_.resize(size, {});
 }
 
 void FusionState::addFusionState(Val* val) {
+  fusion_state_.push_back({val});
+}
+
+void FusionState::addFusionState(std::vector<Val*> val) {
   fusion_state_.push_back(val);
 }
 
 Val* FusionState::getFusionState(size_t index) const {
+  const auto& ret = fusion_state_.at(index);
+  TORCH_CHECK(ret.size() == 1, "Expecting to return only one Val*.");
+  return ret[0];
+}
+
+std::vector<Val*> FusionState::getFusionStateVector(size_t index) const {
   return fusion_state_.at(index);
 }
 
@@ -81,7 +115,11 @@ size_t FusionState::numFusionStates() const {
 }
 
 void FusionState::setFusionState(size_t index, Val* val) {
-  fusion_state_.at(index) = val;
+  fusion_state_.at(index) = {val};
+}
+
+void FusionState::setFusionState(size_t index, std::vector<Val*> val) {
+  fusion_state_.at(index) = {val};
 }
 
 void FusionState::addInput(Val* input) {
