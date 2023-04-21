@@ -143,6 +143,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/ops/alias.cpp
     ${NVFUSER_SRCS_DIR}/ops/arith.cpp
     ${NVFUSER_SRCS_DIR}/ops/composite.cpp
+    ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
     ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
     ${NVFUSER_SRCS_DIR}/ops/utils.cpp
     ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp

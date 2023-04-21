@@ -12,7 +12,7 @@
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
 #include <kernel_cache.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
 #include <test/utils.h>

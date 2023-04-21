@@ -1,0 +1,45 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <c10/macros/Export.h>
+
+#include <ir_interface_nodes.h>
+#include <type.h>
+
+namespace nvfuser {
+
+TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
+
+// index_select
+TORCH_CUDA_CU_API TensorView* index_select(
+    TensorView* input,
+    int dim,
+    TensorView* index);
+
+// torch.gather
+TORCH_CUDA_CU_API TensorView* torch_gather(
+    TensorView* input,
+    int dim,
+    TensorView* index);
+
+// torch.scatter
+TORCH_CUDA_CU_API TensorView* scatterOp(
+    ScatterOpType type,
+    TensorView* self,
+    int dim,
+    TensorView* index,
+    TensorView* src);
+
+TORCH_CUDA_CU_API TensorView* scatter(
+    TensorView* self,
+    int dim,
+    TensorView* index,
+    TensorView* src);
+
+} // namespace nvfuser
