@@ -529,9 +529,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
 
-  // Get exact configurations from mma builder.
+  // Set accumulation tv for mma op.
   mma_builder.accumulatorTv(cc);
-  auto mma_options = mma_builder.build();
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -558,7 +557,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // TODO:
   // Also a few additional parameters should be introduced
   // to control this stage of scheduling.
-  if (isVolta(mma_options.macro)) {
+  if (isVolta(params.mma_macro)) {
     acw_smem = ab->cacheAfter();
     bcw_smem = bb->cacheAfter();
     // Cache again to be able to vectorize.
@@ -641,7 +640,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
-  if (isTuring(mma_options.macro) || isAmpere(mma_options.macro)) {
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     moveInnerBroadcastLeft(ab);
     moveInnerBroadcastLeft(bb);
   }
