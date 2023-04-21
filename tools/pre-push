@@ -39,13 +39,8 @@ remote_ref = read_stdin_line[2]
 if remote_ref.endswith(protected_branch) and (protected_remote in url):
   print(warning_message)
   print("You are pushing to " + remote_ref + " at remote: " + url)
-  print("This is protected branch and you should not push there! Are you sure you want to push? (y/n)")
-  for read_response in sys.stdin:
-    if read_response.rstrip() == "y":
-      exit(0)
-    elif read_response.rstrip() == "n":
-      exit(1)
-    else:
-      print("response not recognized, are you sure you want to push? (y/n)")
+  print("-- This is protected branch and you should not push directly!")
+  print("-- Please open a PR to contribute!")
+  exit(1)
 
 exit(0)
