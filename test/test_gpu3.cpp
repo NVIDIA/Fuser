@@ -8148,29 +8148,7 @@ TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
     inputs.push_back(t0);
     auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Int);
     inputs.push_back(t1);
-    auto t2 = std::get<0>(at::max(t0, 1));
-    auto t3 = t2.unsqueeze(1).expand({128, 1});
-    auto t4 = t3.expand({128, 371});
-    auto t5 = at::sub(t0, t4);
-    auto t6 = at::exp(t5);
-    auto t7 = at::sum(t6, {1});
-    auto t8 = t7.unsqueeze(1).expand({128, 1});
-    auto t9 = t8.expand({128, 371});
-    auto t10 = at::div(t6, t9);
-    auto t11 = at::log(t10);
-    auto t12 = at::neg(t11);
-    auto t13 = at::reshape(t1, {128}, {128, 1});
-    auto t14 = at::gather(t12, t13, 1);
-    auto s15 = 5;
-    auto t16 = at::eq(t13, s15);
-    auto s17 = 0.0;
-    auto t18 = at::where(t16, s17, t14);
-    auto t19 = at::sum(t18, {0, 1});
-    auto t20 = t16.to(at::ScalarType::Float);
-    auto t21 = at::sum(t20, {0, 1});
-    auto s22 = 128.0;
-    auto t23 = at::sub(s22, t21);
-    auto t24 = at::div(t19, t23);
+    t24 = cross_entropy(t0, t1, ignore_index=5)
     outputs.push_back(t24);
   }
 
