@@ -159,9 +159,7 @@ void HaloInfo::setRootAxisInfo(
   return;
 }
 
-HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map)
-    // Make a copy of the permissive map for extent comparators
-    : permissive_map_(ca_map->idGraph().permissiveNodes()) {
+HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   const auto vals = fusion->usedMathVals();
   auto tvs = ir_utils::filterByType<TensorView>(vals);
 
@@ -386,6 +384,8 @@ void HaloInfo::build(TensorDomain* td) {
   // outputs of halo-extended axes.
 
   for (auto expr : exprs) {
+    // clang-tidy complains without this about expr being nullptr
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
       TORCH_INTERNAL_ASSERT(
@@ -678,11 +678,23 @@ bool extentCompare(
 } // namespace
 
 bool HaloInfo::extentLessEqual(IterDomain* id1, IterDomain* id2) const {
-  return extentCompare(*this, id1, id2, std::less_equal<>(), permissive_map_);
+  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  return extentCompare(
+      *this,
+      id1,
+      id2,
+      std::less_equal<>(),
+      GpuLower::current()->caMap()->idGraph().permissiveNodes());
 }
 
 bool HaloInfo::extentEqual(IterDomain* id1, IterDomain* id2) const {
-  return extentCompare(*this, id1, id2, std::equal_to<>(), permissive_map_);
+  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  return extentCompare(
+      *this,
+      id1,
+      id2,
+      std::equal_to<>(),
+      GpuLower::current()->caMap()->idGraph().permissiveNodes());
 }
 
 std::string HaloInfo::toString() const {
@@ -753,6 +765,8 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
   std::unordered_set<IterDomain*> merged_shifted_ids;
 
   for (auto expr : loop_indexing.getForwardExprList()) {
+    // clang-tidy complains without this about expr being nullptr
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
       TORCH_INTERNAL_ASSERT(

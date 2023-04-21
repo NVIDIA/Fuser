@@ -65,6 +65,8 @@ class AxisHaloInfo {
 class TORCH_CUDA_CU_API HaloInfo {
  public:
   //! Scan a fusion and collect all information for lowering
+  // HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap>
+  // ca_map);
   HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map);
 
   //! Almost exact duplicate of build(TensorDomain* td), except that
@@ -172,9 +174,6 @@ class TORCH_CUDA_CU_API HaloInfo {
   void setHaloWidth(IterDomain* id, int halo_width);
 
  private:
-  // Copy the permissive map from the passed in compute at map
-  const DisjointSets<IterDomain*> permissive_map_;
-
   //! Halo information of root axes
   std::unordered_map<IterDomain*, AxisHaloInfo> root_axis_map_;
 
