@@ -144,7 +144,7 @@ TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
       inp->getDataType().value());
 
   IrBuilder::create<TorchGatherOp>(
-      out_tensor, inp, dim, inp_domain[dim], index);
+      out_tensor, inp, dim, inp_domain[dim], index, false);
   return out_tensor->as<TensorView>();
 }
 
@@ -202,6 +202,67 @@ TensorView* scatter(
     TensorView* index,
     TensorView* src) {
   return scatterOp(ScatterOpType::Set, self, dim, index, src);
+}
+
+TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
+  const auto inp_domain =
+      TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  const auto idx_domain =
+      TensorDomain::noReductions(index->getMaybeRFactorDomain());
+
+  TORCH_CHECK(
+      !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
+  TORCH_CHECK(
+      idx_domain.size() == inp_domain.size(),
+      "The input and index tensor must have the same dimensions for take_along_axis");
+
+  if (dim < 0) {
+    dim += (int)idx_domain.size();
+  }
+
+  TORCH_CHECK(
+      dim >= 0 && dim < (int)inp_domain.size(),
+      "take_along_axis on invalid axis, received: ",
+      dim,
+      " however tensor view only has ",
+      inp_domain.size(),
+      " non-reduction dims.");
+
+  std::vector<IterDomain*> out_domain(idx_domain.size());
+
+  for (const auto i : c10::irange(idx_domain.size())) {
+    auto inp_id = inp_domain.at(i);
+    auto idx_id = idx_domain.at(i);
+
+    // Both inp_id and idx_id can be a broadcast domain, however,
+    // since the extent of inp_id cannot be smaller than the extent of
+    // idx_id, it doesn't make sense to have a broadcast input id and
+    // a non-broadcast index id. Specifically, when the extent of the
+    // input ID is one, the index extent must also be one.
+    if (inp_id->getMaybeExpandedExtent()->isOneInt()) {
+      TORCH_CHECK(
+          idx_id->getMaybeExpandedExtent()->isOneInt(),
+          "Invalid combination of input (",
+          inp_id->toString(),
+          ") and index domains (",
+          idx_id->toString(),
+          "). Input extent is one, but the index extent may not be so.");
+    }
+
+    out_domain.at(i) =
+        IterDomainBuilder(static_cast<int64_t>(i) == dim ? idx_id : inp_id)
+            .build();
+  }
+
+  TensorView* out_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+
+  IrBuilder::create<TorchGatherOp>(
+      out_tensor, inp, dim, inp_domain[dim], index, true);
+
+  return out_tensor->as<TensorView>();
 }
 
 } // namespace nvfuser

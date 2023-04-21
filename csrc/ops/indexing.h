@@ -42,4 +42,11 @@ TORCH_CUDA_CU_API TensorView* scatter(
     TensorView* index,
     TensorView* src);
 
+// numpy.take_along_axis
+// (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
+TORCH_CUDA_CU_API TensorView* take_along_axis(
+    TensorView* input,
+    TensorView* index,
+    int64_t dim);
+
 } // namespace nvfuser

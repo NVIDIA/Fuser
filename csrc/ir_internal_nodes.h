@@ -115,18 +115,28 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
+
+  //! torch.gather and numpy.take_along_axis mostly have the same
+  //! semantics, except for that in torch.gather the extents of the
+  //!  non-indexed dimensions of the index tensor may have smaller
+  //! extents than those of the input tensor
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
       int dim,
       IterDomain* select_id,
-      Val* index);
+      Val* index,
+      bool is_take_along_axis);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   virtual const char* getOpString() const override {
-    return "TorchGatherOp";
+    if (isTakeAlongAxis()) {
+      return "TakeAlongAxisOp";
+    } else {
+      return "TorchGatherOp";
+    }
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -146,6 +156,10 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   IterDomain* getSelectAxis() const {
     return attribute(0)->as<IterDomain>();
+  }
+
+  bool isTakeAlongAxis() const {
+    return attribute(2)->as<Attribute<bool>>()->value;
   }
 };
 

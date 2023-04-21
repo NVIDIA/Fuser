@@ -208,13 +208,16 @@ TorchGatherOp::TorchGatherOp(
     Val* in,
     int dim,
     IterDomain* select_id,
-    Val* indices)
+    Val* indices,
+    bool is_take_along_axis)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
   addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(IrBuilder::create<Attribute<bool>>(
+      passkey.ir_container_, is_take_along_axis));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
