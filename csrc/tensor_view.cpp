@@ -1023,7 +1023,8 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options());
+        this_mma->options(),
+        this_mma->inputLayout());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.

@@ -224,12 +224,11 @@ static void SingleMatmulBase(
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
 
-  // Always use 32b indexing mode for now.
-  TORCH_INTERNAL_ASSERT(args.getIndexMode() == KernelIndexMode::INT32);
-
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
+  // Always use 32b indexing mode for now.
+  cparams.index_type = PrimDataType::Int32;
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
@@ -309,8 +308,7 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
-  params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-  params.layout = layout;
+  params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
