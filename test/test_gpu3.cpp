@@ -8146,9 +8146,13 @@ TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
   {
     auto t0 = at::randn({128, 371}, options);
     inputs.push_back(t0);
-    auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Int);
+    auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
     inputs.push_back(t1);
-    t24 = cross_entropy(t0, t1, ignore_index=5)
+    // note: reduction arg
+    //   none -> 0
+    //   mean -> 1
+    //   sum  -> 2
+    auto t24 = at::cross_entropy_loss_symint(t0, t1, None, 1, 5, 0.0);
     outputs.push_back(t24);
   }
 
