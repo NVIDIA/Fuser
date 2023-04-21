@@ -65,8 +65,6 @@ class AxisHaloInfo {
 class TORCH_CUDA_CU_API HaloInfo {
  public:
   //! Scan a fusion and collect all information for lowering
-  // HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap>
-  // ca_map);
   HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map);
 
   //! Almost exact duplicate of build(TensorDomain* td), except that
