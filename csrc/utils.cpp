@@ -18,6 +18,9 @@ namespace nvfuser {
 
 namespace {
 
+// thread_local variable used only for debugging/testing
+thread_local bool overwrite_disable_fma = false;
+
 // OptionEnum must be an enum like DebugDumpOption
 template <typename OptionEnum>
 auto parseEnvOptions(
@@ -117,6 +120,7 @@ auto parseDebugDumpOptions() {
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"kernel_args", DebugDumpOption::KernelArgs},
+      {"index_type", DebugDumpOption::IndexType},
       {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
@@ -150,7 +154,6 @@ const auto& getDebugDumpOptions() {
 
 auto parseDisableOptions() {
   const std::unordered_map<std::string, DisableOption> available_options = {
-      {"arch_check", DisableOption::ArchCheck},
       {"compile_to_sass", DisableOption::CompileToSass},
       {"fallback", DisableOption::Fallback},
       {"fma", DisableOption::Fma},
@@ -309,54 +312,23 @@ int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
   }
 }
 
-KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs) {
-  // Save 1 more bit besides the sign bit to be conservative
-  constexpr int64_t most_positive_int32_index =
-      std::numeric_limits<int>::max() / 2;
-  constexpr int64_t most_negative_int32_index =
-      std::numeric_limits<int>::min() / 2;
-
-  // Check all runtime inputs, and if any one of
-  //  the input's index exceeds max_int32 will
-  //  fall back to int64 indexing
-  for (auto ivalue_input : inputs) {
-    if (ivalue_input.isTensor()) {
-      auto tensor_input = ivalue_input.toTensor();
-      int64_t tensor_most_positive_index = 0;
-      int64_t tensor_most_negative_index = 0;
-      for (auto dim_i = 0; dim_i < tensor_input.ndimension(); dim_i++) {
-        // Ignore broadcast dimensions
-        if (tensor_input.size(dim_i) > 1) {
-          // accumulate based on the sign of stride
-          if (tensor_input.stride(dim_i) > 0) {
-            // Acuumulate positive stride
-            tensor_most_positive_index +=
-                (tensor_input.size(dim_i) - 1) * tensor_input.stride(dim_i);
-          } else {
-            // Acuumulate negative stride
-            tensor_most_negative_index +=
-                (tensor_input.size(dim_i) - 1) * tensor_input.stride(dim_i);
-          }
-        }
-      }
-
-      // Fall back to int64 if it can be either too positive
-      //  or too negative.
-      if (tensor_most_positive_index > most_positive_int32_index ||
-          tensor_most_negative_index < most_negative_int32_index) {
-        return KernelIndexMode::INT64;
-      }
-    }
-  }
-  // return index mode as int32
-  return KernelIndexMode::INT32;
-}
-
 bool isDebugDumpEnabled(DebugDumpOption option) {
   return getDebugDumpOptions().count(option);
 }
 
+ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag) {
+  old_flag_ = overwrite_disable_fma;
+  overwrite_disable_fma = flag;
+}
+
+ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
+  overwrite_disable_fma = old_flag_;
+}
+
 bool isOptionDisabled(DisableOption option) {
+  if (option == DisableOption::Fma && overwrite_disable_fma) {
+    return true;
+  }
   return getDisableOptions().count(option);
 }
 

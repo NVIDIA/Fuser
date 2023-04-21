@@ -15,8 +15,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 
@@ -1038,7 +1038,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   auto tv1 = set(tv0);
   auto tv2 = transpose(tv1, 0, 1);
   auto tv3 = set(tv2);
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   tv1->setMemoryType(MemoryType::Shared);
 

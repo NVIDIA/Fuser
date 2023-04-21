@@ -133,7 +133,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Print this fusion to an output stream
   std::ostream& print(
       std::ostream& os = std::cout,
-      bool include_tensor_transforms = false);
+      bool include_tensor_transforms = true);
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs

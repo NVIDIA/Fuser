@@ -9,6 +9,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
+#include <lower_bank_conflict.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -223,16 +224,23 @@ static void SingleMatmulBase(
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
 
-  // Always use 32b indexing mode for now.
-  TORCH_INTERNAL_ASSERT(args.getIndexMode() == KernelIndexMode::INT32);
-
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
+  // Always use 32b indexing mode for now.
+  cparams.index_type = PrimDataType::Int32;
 
   // Compile kernel
+  auto launch_constraints = LaunchParams();
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, LaunchParams(), cparams);
+  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
+  if (properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5)) {
+    TORCH_CHECK(
+        getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+        "Shared memory bank conflict not removed.");
+  }
 
   // Warm up run
   auto outputs = fe.runFusion({inputs.first, inputs.second});
@@ -300,8 +308,7 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
-  params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-  params.layout = layout;
+  params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;

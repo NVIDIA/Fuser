@@ -559,21 +559,14 @@ void IndexCompute::handle(Swizzle2D* swizzle_2d) {
     // Handle inactive swizzles by just passing through index
     //  and extend information.
 
-    TORCH_INTERNAL_ASSERT(
-        index_map_.count(in_x_id) == index_map_.count(in_y_id),
-        "input index should be either both defined or both undefined");
-    if (index_map_.count(in_x_id)) {
-      // Only propagate original index through if
-      //  the input index hasn't been computed.
-      // TODO:
-      //  This part should be cleaner once we remove the
-      // second index traversal pass.
-      return;
+    if (!index_map_.count(in_x_id)) {
+      index_map_[in_x_id] = out_x_ind;
+      extent_map_[in_x_id] = getExtent(out_x_id);
     }
-    index_map_[in_x_id] = out_x_ind;
-    index_map_[in_y_id] = out_y_ind;
-    extent_map_[in_y_id] = getExtent(out_y_id);
-    extent_map_[in_x_id] = getExtent(out_x_id);
+    if (!index_map_.count(in_y_id)) {
+      index_map_[in_y_id] = out_y_ind;
+      extent_map_[in_y_id] = getExtent(out_y_id);
+    }
   } else {
     // Generate integer swizzle math if the
     //  swizzle is activated. See also
@@ -1279,7 +1272,7 @@ indexMapFromTV(
     if (!within_alloc) {
       if ((loop->iter_domain()->isThreadDim() && is_shared) ||
           (loop->iter_domain()->isThread() && is_global)) {
-        idx = loop->index();
+        idx = loop->indexOrStartIfTrivial();
       } else {
         idx = GpuLower::current()->kernel()->zeroVal();
         zero_loops.insert(loop);
@@ -1289,13 +1282,7 @@ indexMapFromTV(
       idx = GpuLower::current()->kernel()->zeroVal();
       zero_loops.insert(loop);
     } else {
-      idx = loop->index();
-    }
-
-    // If the loop is trivial, the loop index can only be the loop
-    // start value.
-    if (idx == loop->index() && loop->isTrivial()) {
-      idx = loop->start();
+      idx = loop->indexOrStartIfTrivial();
     }
 
     if (rotated_loops.count(loop) > 0 && zero_loops.count(loop) == 0) {
@@ -1737,8 +1724,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     if (db_loop != nullptr) {
       auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
           db_loop->iter_domain());
-      auto loop_index =
-          db_loop->isTrivial() ? db_loop->start() : db_loop->index();
+      auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
       }
@@ -2198,13 +2184,13 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       if (is_prolog && is_circular_buffer_loop) {
         // The buffer switching logic is the same as original index
         //  in the case of circular buffer prolog.
-        db_switch_index = db_loop->index();
+        db_switch_index = db_loop->indexOrStartIfTrivial();
         if (rotated_loops.count(db_loop)) {
           db_switch_index =
               SimplifyingIrBuilder::addExpr(db_switch_index, db_loop->step());
         }
       } else {
-        auto loop_index = db_loop->index();
+        auto loop_index = db_loop->indexOrStartIfTrivial();
         if (rotated_loops.count(db_loop)) {
           loop_index =
               SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());

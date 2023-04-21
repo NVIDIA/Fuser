@@ -844,21 +844,6 @@ void validatePartialSplit(Fusion* fusion) {
 
 namespace {
 
-//! Utility to make sure targeted gpu capability is
-//!  higher than provided major.minor.
-void validateMinimumArch(int major, int minor) {
-  // Skip checking arch if disabled.
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    return;
-  }
-
-  auto prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_INTERNAL_ASSERT(prop->major >= major);
-  if (prop->major == major) {
-    TORCH_INTERNAL_ASSERT(prop->minor >= minor);
-  }
-}
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -913,7 +898,8 @@ void validateMmaTensors(MmaOp* mma) {
                   //  CA axis are constant sized to ensure early detection of
                   //  invalid mma schedules.
                   ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial);
+                   id->getParallelType() == ParallelType::Serial) ||
+                  id->isThread();
             }),
         "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
         tv);
@@ -1024,12 +1010,10 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
   switch (ldst->opType()) {
     case LoadStoreOpType::LdMatrix:
     case LoadStoreOpType::LdMatrixTranspose:
-      validateMinimumArch(7, 5);
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      validateMinimumArch(8, 0);
       return;
     default:
       return;
@@ -1049,12 +1033,9 @@ void validateMma(Fusion* fusion) {
 
       switch (mma->options().macro) {
         case MmaOptions::MacroType::Volta_16_16_4:
-          validateMinimumArch(7, 0);
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          validateMinimumArch(7, 5);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1062,8 +1043,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
-          validateMinimumArch(8, 0);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());

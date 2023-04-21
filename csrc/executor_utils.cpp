@@ -838,6 +838,7 @@ void bindInputForExprEvaluation(
           "Something went wrong configuring launch. Inputs do not match.");
 
       auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract &&
               tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
@@ -1198,7 +1199,7 @@ void fillCompileOptions(
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
-  // (since older driver doesn't necessrily recognize PTX emitted by new
+  // (since older driver doesn't necessarily recognize PTX emitted by new
   // toolkit);
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
@@ -1378,10 +1379,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const int max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    TORCH_WARN(
-        "NVFuser Compile: arch check disabled, should not compile any kernel");
-  }
 
   at::cuda::jit::initializeCudaContext();
 
@@ -1403,11 +1400,11 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     compile_to_sass = false;
   }
 
-  NvrtcCompileDriver nvrtc_comiple_driver;
+  NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
   fillCompileOptions(
-      nvrtc_comiple_driver,
+      nvrtc_compile_driver,
       module_load_driver,
       compile_to_sass,
       major,
@@ -1419,7 +1416,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
 
   if (compile_to_sass) {
     log << "\nCompile options: ";
-    for (const auto& opt : nvrtc_comiple_driver.options()) {
+    for (const auto& opt : nvrtc_compile_driver.options()) {
       log << opt << " ";
     }
     if (opt_block_size.has_value()) {
@@ -1431,7 +1428,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   std::vector<char> object_code;
   std::string lowered_kernel_name_str;
   const auto compile_args =
-      toDelimitedString(nvrtc_comiple_driver.options(), " ");
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
@@ -1444,7 +1441,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             lowered_kernel_name_str,
             object_code))) {
     std::tie(object_code, lowered_kernel_name_str) = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_comiple_driver);
+        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
 
     if (use_kernel_db) {
       auto result = kernel_db.write(
@@ -1476,10 +1473,6 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   if (!return_compiled_binary) {
     object_code.clear();
   }
-
-  TORCH_CHECK(
-      !isOptionDisabled(DisableOption::ArchCheck),
-      "NVFuser Compile: arch check disabled, should not return any compiled kernel");
 
   return {compiled_kernel, log.str(), object_code};
 }

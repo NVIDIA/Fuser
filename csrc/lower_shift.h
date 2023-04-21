@@ -172,9 +172,6 @@ class TORCH_CUDA_CU_API HaloInfo {
   void setHaloWidth(IterDomain* id, int halo_width);
 
  private:
-  // Copy the permissive map from the passed in compute at map
-  const DisjointSets<IterDomain*> permissive_map_;
-
   //! Halo information of root axes
   std::unordered_map<IterDomain*, AxisHaloInfo> root_axis_map_;
 

@@ -883,7 +883,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getReductionHeuristics");
 
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
 }
@@ -958,8 +958,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     max_dtype_size = std::max(
         max_dtype_size,
         static_cast<int64_t>(dataTypeSize(
-            tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode()))));
+            tv->getDataType().value(), runtime_info.getIndexType())));
     n_tensor_inputs++;
   }
 
@@ -974,7 +973,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       n_tensor_inputs,
       max_dtype_size,
       vectorize_factor);
-  heuristic->cparams.index_type = indexModeToDtype(runtime_info.getIndexMode());
+  heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
 

@@ -198,6 +198,8 @@ TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
 
 // Return the corresponding scalar of a complex type
 DataType getTypeFromComplexType(DataType dtype);
+// Return the corresponding complex type of a scalar
+DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 
@@ -409,7 +411,10 @@ enum class BinaryOpType {
   // is boolean op. These ops also don't work on floating point inputs.
   And,
   Or,
-  Xor
+  Xor,
+
+  // generate complex from real and imaginary parts
+  Complex
 };
 
 enum class ScatterOpType { Set };
@@ -526,14 +531,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class Swizzle2DType {
-  NoSwizzle = 0,
-  ZShape,
-  Transpose,
-  XOR,
-  Scatter,
-  CyclicShift
-};
+enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
 enum class SwizzleMode { NoSwizzle = 0, Data, Loop };
@@ -705,6 +703,36 @@ TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
 TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
+
+constexpr inline size_t primDataTypeSize(PrimDataType type) {
+  switch (type) {
+    case DataType::Bool:
+      return sizeof(bool);
+    case DataType::ComplexDouble:
+      return sizeof(std::complex<double>);
+    case DataType::ComplexFloat:
+      return sizeof(std::complex<float>);
+    case DataType::Double:
+      return sizeof(double);
+    case DataType::Float:
+      return sizeof(float);
+    case DataType::Half:
+      return sizeof(at::Half);
+    case DataType::BFloat16:
+      return sizeof(at::BFloat16);
+    case DataType::Index:
+      TORCH_INTERNAL_ASSERT(
+          false, "The actual type of Index is only known at compile time.");
+    case DataType::Int:
+      return sizeof(uint64_t);
+    case DataType::Int32:
+      return sizeof(uint32_t);
+    case DataType::SMemAddress:
+      return sizeof(unsigned);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
+  }
+}
 
 TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
 
