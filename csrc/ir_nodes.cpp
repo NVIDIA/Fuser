@@ -3026,6 +3026,8 @@ std::vector<IterDomain*> TensorDomain::getAnnihilatedBroadcastInRFactor() const 
   std::unordered_set<IterDomain*> rfactor_ids_set(
       getRFactorDomain().begin(), getRFactorDomain().end());
   for (auto id : getRootDomain()) {
+    std::cout << id->toString() << ": " << id->uses().empty() << ", " << id->isBroadcast() << ", " << (rfactor_ids_set.count(id) == 0) << std::endl;
+    std::cout << ir_utils::toString(id->uses()) << std::endl;
     if (id->uses().empty() && id->isBroadcast() &&
         rfactor_ids_set.count(id) == 0) {
       result.emplace_back(id);

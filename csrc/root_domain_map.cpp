@@ -735,11 +735,18 @@ void ComputeAtRootDomainMapBuilder::initializeBcastMap(
   // outputs as broadcasts can be merged with non-broadcast domains, resulting
   // in non-broadcast rfactor domains, and 4) squeeze inputs as broadcasts can
   // be removed by squeeze.
+  if (!(tv->isFusionOutput() || ir_utils::isSqueezeInput(tv) ||
+          tv->definition()->outputs().size() > 1 ||
+          tv->isDefinitionType<ViewOp>())) {
+            tv->fusion()->print();
+            std::cout << "getAnnihilatedBroadcastInRFactor:" << ir_utils::toString(tv->domain()->getAnnihilatedBroadcastInRFactor()) << std::endl;
+          }
   TORCH_INTERNAL_ASSERT(
-      tv->isFusionOutput() || tv->definition()->outputs().size() > 1 ||
-          tv->isDefinitionType<ViewOp>(),
-      "Invalid tensor to initialize bcast map t",
-      tv->name(),
+      tv->isFusionOutput() || ir_utils::isSqueezeInput(tv) ||
+          tv->definition()->outputs().size() > 1 ||
+          tv->isDefinitionType<ViewOp>() || !tv->domain()->getAnnihilatedBroadcastInRFactor().empty(),
+      "Invalid tensor to initialize bcast ",
+      id->toString(),
       " in tensor ",
       tv->toString());
   root_map_.bcast_map_.insert({key, {id}});

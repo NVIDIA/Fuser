@@ -984,17 +984,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
       {producer_root.begin(), producer_root.end()},
       {producer_CA_ids.begin(), producer_CA_ids.end()});
 
-  // Figure out minimal set of root IDs needed to produce producer_CA_ids:
-  std::unordered_set<IterDomain*> producer_CA_root_ids;
-  for (IterDomain* id : producer_root) {
-    if (std::find(all_CA_id_deps.begin(), all_CA_id_deps.end(), id) !=
-        all_CA_id_deps.end()) {
-      producer_CA_root_ids.emplace(id);
-    }
-  }
-
-  const auto p2c_root_map = root_map.mapProducerToConsumer(
-      producer->domain(), consumer->domain(), producer_CA_root_ids);
+  const auto p2c_root_map =
+      root_map.mapProducerToConsumer(producer->domain(), consumer->domain());
 
   // See FusionAdvancedComputeAt7 for an example of the forwarding logic
   ForwardingInfo forwarding_info(producer, consumer, root_map);
@@ -1042,15 +1033,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
   auto consumer_CA_root_vals = IterVisitor::getInputsTo(
       std::vector<Val*>(consumer_CA_ids.begin(), consumer_CA_ids.end()));
 
-  std::unordered_set<IterDomain*> consumer_CA_root_ids;
-  for (auto val : consumer_CA_root_vals) {
-    if (val->getValType().value() == ValType::IterDomain) {
-      consumer_CA_root_ids.emplace(val->as<IterDomain>());
-    }
-  }
-
-  const auto c2p_root_map = root_map.mapConsumerToProducer(
-      consumer->domain(), producer->domain(), consumer_CA_root_ids);
+  const auto c2p_root_map =
+      root_map.mapConsumerToProducer(consumer->domain(), producer->domain());
 
   ForwardingInfo forwarding_info(producer, consumer, root_map);
 

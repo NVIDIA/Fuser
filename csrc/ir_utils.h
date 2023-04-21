@@ -200,7 +200,7 @@ TORCH_CUDA_CU_API TensorView* rfactorHelper(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(const Val* val);
 
 // Return immediate consumers of val, this function can be used on any Val and
 // will return consumers through Exprs.
@@ -210,7 +210,7 @@ TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(const Val* val);
 
 // Return immediate siblings of val, this function can be used on any Val and
 // will return siblings through Exprs.
@@ -220,7 +220,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(const Val* val);
 
 // Return immediate producers of vals, this function can be used on any vals and
 // will return producers through Exprs.
@@ -252,7 +252,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 
 // Return immediate consumers of tv, this function will return all immediate
 // consumers of tv through Exprs.
@@ -262,7 +262,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 
 // Return immediate siblings of tv, this function will return all immediate
 // siblings of tv through Exprs.
@@ -272,7 +272,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
 
 // Return immediate producers of tvs, this function will return all immediate
 // producers of tvs through Exprs.
@@ -357,6 +357,12 @@ std::string toString(const T& nodes) {
   }
   return ss.str();
 }
+
+// Test if the given tensor is an input of squeeze op
+TORCH_CUDA_CU_API bool isSqueezeInput(const TensorView* tv);
+
+// Test if the given ID in the given tensor is squeezed
+TORCH_CUDA_CU_API bool isSqueezedID(TensorView* tv, const IterDomain* id);
 
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and
 // unique.

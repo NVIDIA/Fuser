@@ -237,7 +237,7 @@ std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
 } // namespace
 
 // Return immediate producers of val
-std::vector<Val*> producerValsOf(Val* val) {
+std::vector<Val*> producerValsOf(const Val* val) {
   if (val->definition() == nullptr) {
     return {};
   }
@@ -246,7 +246,7 @@ std::vector<Val*> producerValsOf(Val* val) {
 }
 
 // Return immediate consumers of val
-std::vector<Val*> consumerValsOf(Val* val) {
+std::vector<Val*> consumerValsOf(const Val* val) {
   std::vector<Val*> consumer_vals;
   for (auto use_expr : val->uses()) {
     auto outputs = use_expr->outputs();
@@ -256,7 +256,7 @@ std::vector<Val*> consumerValsOf(Val* val) {
 }
 
 // Return immediate siblings of val
-std::vector<Val*> siblingValsOf(Val* val) {
+std::vector<Val*> siblingValsOf(const Val* val) {
   std::vector<Val*> sibling_vals;
   auto def = val->definition();
   if (def != nullptr) {
@@ -295,19 +295,19 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals) {
   return uniqueEntries<Val>(all_consumer_vals);
 }
 
-std::vector<TensorView*> producerTvsOf(TensorView* tv) {
+std::vector<TensorView*> producerTvsOf(const TensorView* tv) {
   auto producer_vals = producerValsOf(tv);
   auto producer_tvs = ir_utils::filterByType<TensorView>(producer_vals);
   return {producer_tvs.begin(), producer_tvs.end()};
 }
 
-std::vector<TensorView*> consumerTvsOf(TensorView* tv) {
+std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
   auto consumer_vals = consumerValsOf(tv);
   auto consumer_tvs = ir_utils::filterByType<TensorView>(consumer_vals);
   return {consumer_tvs.begin(), consumer_tvs.end()};
 }
 
-std::vector<TensorView*> siblingTvsOf(TensorView* tv) {
+std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
   auto sibling_vals = siblingValsOf(tv);
   auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
@@ -717,6 +717,41 @@ Val* replaceValInIndexVal(
     Val* index,
     const std::unordered_map<Val*, Val*>& replacement_map) {
   return ReplaceValInIndexVal::replace(index, replacement_map);
+}
+
+bool isSqueezeInput(const TensorView* tv) {
+  auto consumers = ir_utils::consumerTvsOf(tv);
+  for (auto consumer_tv : consumers) {
+    if (!consumer_tv->domain()->getAnnihilatedBroadcastInRFactor().empty()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool isSqueezedID(TensorView* tv, const IterDomain* id) {
+  auto rfactor_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto consumers = ir_utils::consumerTvsOf(tv);
+  for (auto rf_id : rfactor_dom) {
+    if (rf_id != id) {
+      continue;
+    }
+    for (auto consumer_tv : consumers) {
+      auto annihilated =
+          consumer_tv->domain()->getAnnihilatedBroadcastInRFactor();
+      std::unordered_set<IterDomain*> annihilated_set(
+          annihilated.begin(), annihilated.end());
+      auto c2p = PairwiseRootDomainMap(tv, consumer_tv)
+                     .mapConsumerToProducer(
+                         consumer_tv->domain(), tv->domain(), annihilated_set);
+      for (auto& [cid, pid] : c2p) {
+        if (pid == id) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
