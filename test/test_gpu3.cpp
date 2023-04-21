@@ -8110,13 +8110,17 @@ TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
     auto tv1 = TensorViewBuilder().ndims(1).contiguity({true}).dtype(DataType::Int).build();
     fusion->addInput(tv1);
     auto tv2 = max(tv0, {1});
-    auto tv3 = expand(broadcast(tv2, {false, true}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>>(1)});  
-    auto tv4 = expand(broadcast(tv3, {false, false}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 = expand(tv3, 
+                      {IrBuilder::create<Int>(128),
+                       IrBuilder::create<Int>(371)});
     auto tv5 = sub(tv0, tv4);
     auto tv6 = exp(tv5);
     auto tv7 = sum(tv6, {1});
-    auto tv8 = expand(broadcast(tv7, {false, true}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>>(1)});  
-    auto tv9 = expand(broadcast(tv8, {false, false}), {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv8 = broadcast(tv7, {false, true});
+    auto tv9 = expand(tv8, 
+                      {IrBuilder::create<Int>(128),
+                       IrBuilder::create<Int>(371)});
     auto tv10 = div(tv6, tv9);
     auto tv11 = log(tv10);
     auto tv12 = neg(tv11);
@@ -8135,9 +8139,9 @@ TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
     fusion->addOutput(tv24);
   }
 
-  auto options = at::TensorOptions().dtype(kFloat).device(at::kCUDA, 0);
-  std::vector<IValue> inputs;
-  std::vector<Tensor> outputs;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
 
   {
     auto t0 = at::randn({128, 371}, options);
