@@ -1805,6 +1805,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
     return hasRFactor() ? getRFactorDomain() : getRootDomain();
   }
 
+  // For example, if root: [I1, I2, b1, b3] and rfactor [I1, b2, I2, b1], then
+  // this returns {b2}
+  std::vector<IterDomain*> getCreatedBroadcastInRFactor() const;
+
+  // For example, if root: [I1, I2, b1, b3] and rfactor [I1, b2, I2, b1], then
+  // this returns {b3}
+  std::vector<IterDomain*> getAnnihilatedBroadcastInRFactor() const;
+
   void resetDomains() {
     no_reduction_domain_ = noReductions(domain_);
     no_bcast_domain_ = noBroadcasts(domain_);

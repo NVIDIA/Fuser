@@ -720,7 +720,16 @@ Val* replaceValInIndexVal(
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
+  std::vector<IterDomain*> root_domain = tv->getRootDomain();
+  std::unordered_set<IterDomain*> root_dom_set(
+      root_domain.begin(), root_domain.end());
+  if (tv->hasRFactor()) {
+    for (auto id : tv->getRFactorDomain()) {
+      if (id->definition() == nullptr && root_dom_set.count(id) == 0) {
+        root_domain.emplace_back(id);
+      }
+    }
+  }
   const auto& domain = tv->domain()->domain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
@@ -728,7 +737,14 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
 
   // Filter so we only have iteration domains (ignore Ints used in split)
   auto all_ids = ir_utils::filterByType<IterDomain>(all_vals);
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
+  std::vector<IterDomain*> result(all_ids.begin(), all_ids.end());
+  std::unordered_set<IterDomain*> result_set(result.begin(), result.end());
+  for (auto id : root_domain) {
+    if (result_set.count(id) == 0) {
+      result.emplace_back(id);
+    }
+  }
+  return result;
 }
 
 bool isSelectInput(TensorView* tv) {

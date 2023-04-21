@@ -3002,6 +3002,38 @@ bool TensorDomain::hasReduction(const std::vector<IterDomain*>& td) {
   return false;
 }
 
+std::vector<IterDomain*> TensorDomain::getCreatedBroadcastInRFactor() const {
+  if (!hasRFactor()) {
+    return {};
+  }
+  std::vector<IterDomain*> result;
+  std::unordered_set<IterDomain*> root_ids_set(
+      getRootDomain().begin(), getRootDomain().end());
+  for (auto id : getRFactorDomain()) {
+    if (id->definition() == nullptr && id->isBroadcast() &&
+        root_ids_set.count(id) == 0) {
+      result.emplace_back(id);
+    }
+  }
+  return result;
+}
+
+std::vector<IterDomain*> TensorDomain::getAnnihilatedBroadcastInRFactor() const {
+  if (!hasRFactor()) {
+    return {};
+  }
+  std::vector<IterDomain*> result;
+  std::unordered_set<IterDomain*> rfactor_ids_set(
+      getRFactorDomain().begin(), getRFactorDomain().end());
+  for (auto id : getRootDomain()) {
+    if (id->uses().empty() && id->isBroadcast() &&
+        rfactor_ids_set.count(id) == 0) {
+      result.emplace_back(id);
+    }
+  }
+  return result;
+}
+
 TensorDomain* TensorDomain::view(const AnalyzeViewResult& view_analysis) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to view transform a 0-dim domain");
   return transformView(this, view_analysis);

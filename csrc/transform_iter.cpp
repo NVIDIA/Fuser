@@ -704,102 +704,131 @@ struct ForwardingInfo {
   std::unordered_map<IterDomain*, std::vector<IterDomain*>>
       consumer_compliment_map;
 
-  ForwardingInfo(const TensorView* producer, const TensorView* consumer) {
-    // Either producer or consumer maps depending on operation
-    std::unordered_map<IterDomain*, IterDomain*>* active_forwarding_map =
-        nullptr;
-    std::unordered_map<IterDomain*, std::vector<IterDomain*>>*
-        active_compliment_map = nullptr;
-
-    // Either squeeze or broadcast dimension flags depending on operation
-    const std::vector<bool>* active_dim_flags = nullptr;
-
-    // Either producer or consumer depending on operation
-    std::vector<IterDomain*> active_root_dom;
-    const TensorView* active_tv = nullptr;
+  ForwardingInfo(
+      const TensorView* producer,
+      const TensorView* consumer,
+      const RootDomainMap& root_map) {
+    std::unordered_set<IterDomain*> created_broadcasts_in_consumer;
+    std::unordered_set<IterDomain*> annihilated_broadcasts_in_producer;
 
     if (auto bop = dynamic_cast<BroadcastOp*>(consumer->definition())) {
-      active_forwarding_map = &consumer_forwarding_map;
-      active_compliment_map = &consumer_compliment_map;
-      active_dim_flags = &bop->getBroadcastDimFlags();
-      active_root_dom = consumer->getRootDomain();
-      active_tv = consumer;
-    } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
-      active_forwarding_map = &producer_forwarding_map;
-      active_compliment_map = &producer_compliment_map;
-      active_dim_flags = &sop->getSqueezeDimFlags();
-      active_root_dom =
-          TensorDomain::noReductions(producer->getMaybeRFactorDomain());
-      active_tv = producer;
-    } else {
-      return;
-    }
-
-    // Collect which root ids are only in active_tv but not in the inactive
-    // tensor.
-    std::unordered_set<IterDomain*> forwarded_ids;
-    TORCH_INTERNAL_ASSERT(active_root_dom.size() == active_dim_flags->size());
-    for (auto i : c10::irange(active_dim_flags->size())) {
-      if (active_dim_flags->at(i)) {
-        forwarded_ids.emplace(active_root_dom.at(i));
+      auto bflags = bop->getBroadcastDimFlags();
+      TORCH_INTERNAL_ASSERT(consumer->getRootDomain().size() == bflags.size());
+      for (auto i : c10::irange(bflags.size())) {
+        if (bflags.at(i)) {
+          created_broadcasts_in_consumer.emplace(
+              consumer->getRootDomain().at(i));
+        }
       }
     }
+    if (producer->hasRFactor()) {
+      auto created = producer->domain()->getCreatedBroadcastInRFactor();
+      auto p2c = root_map.mapProducerToConsumer(
+          producer->domain(), consumer->domain());
+      std::transform(
+          created.begin(),
+          created.end(),
+          std::inserter(
+              created_broadcasts_in_consumer,
+              created_broadcasts_in_consumer.end()),
+          [&](IterDomain* pid) { return p2c.at(pid); });
+    }
+    if (consumer->hasRFactor()) {
+      auto annihilated = consumer->domain()->getAnnihilatedBroadcastInRFactor();
+      auto c2p = root_map.mapConsumerToProducer(
+          consumer->domain(), producer->domain());
+      std::transform(
+          annihilated.begin(),
+          annihilated.end(),
+          std::inserter(
+              annihilated_broadcasts_in_producer,
+              annihilated_broadcasts_in_producer.end()),
+          [&](IterDomain* cid) { return c2p.at(cid); });
+    }
 
-    // We have root axes in active_tv that don't exist in the inactive tensor,
-    // now forward those to include all id's in active_tv comprised of only axes
-    // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
-        FusionGuard::getCurFusion(),
-        std::vector<Val*>(
-            active_tv->domain()->domain().begin(),
-            active_tv->domain()->domain().end()));
+    auto forward =
+        [&](const TensorView* active_tv,
+            const std::vector<IterDomain*>& active_root_dom,
+            std::unordered_set<IterDomain*>& active_forwarded_ids,
+            std::unordered_map<IterDomain*, IterDomain*>& active_forwarding_map,
+            std::unordered_map<IterDomain*, std::vector<IterDomain*>>&
+                active_compliment_map) {
+          // We have root axes in active_tv that don't exist in the inactive
+          // tensor, now forward those to include all id's in active_tv
+          // comprised of only axes not in the inactive tensor.
+          std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+              FusionGuard::getCurFusion(),
+              std::vector<Val*>(
+                  active_tv->domain()->domain().begin(),
+                  active_tv->domain()->domain().end()));
 
-    auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
-      return forwarded_ids.count(input_id) > 0;
-    };
+          auto isIdOnlyInActiveTv =
+              [&active_forwarded_ids](IterDomain* input_id) {
+                return active_forwarded_ids.count(input_id) > 0;
+              };
 
-    for (auto expr : active_tv_history) {
-      auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
-      // If expr inputs are all in forwarded_ids, then so are all outputs
-      if (std::all_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
-        for (auto output_ids :
-             ir_utils::filterByType<IterDomain>(expr->outputs())) {
-          forwarded_ids.emplace(output_ids);
-        }
-      } else if (
-          expr->isA<Merge>() &&
-          std::any_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
-        auto merge_expr = expr->as<Merge>();
-        // If
-        // - one of the inputs is made of id's in active_tv that don't map to
-        //   the inactive tensor,
-        // - && the other input maps to an id in both the active and inactive
-        //   tensor
-        // - && this is a merge
-        //
-        // For the sake of BestEffortReplay we can forward the input mapping
-        //   to both the active and inactive tensor to the output of the
-        //   expression
-        std::vector<IterDomain*> forwarded_ids;
-        std::vector<IterDomain*> compliment_ids;
+          for (auto expr : active_tv_history) {
+            auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
+            // If expr inputs are all in active_forwarded_ids, then so are all
+            // outputs
+            if (std::all_of(
+                    input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
+              for (auto output_ids :
+                   ir_utils::filterByType<IterDomain>(expr->outputs())) {
+                active_forwarded_ids.emplace(output_ids);
+              }
+            } else if (
+                expr->isA<Merge>() &&
+                std::any_of(
+                    input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
+              auto merge_expr = expr->as<Merge>();
+              // If
+              // - one of the inputs is made of id's in active_tv that don't map
+              // to
+              //   the inactive tensor,
+              // - && the other input maps to an id in both the active and
+              // inactive
+              //   tensor
+              // - && this is a merge
+              //
+              // For the sake of BestEffortReplay we can forward the input
+              // mapping
+              //   to both the active and inactive tensor to the output of the
+              //   expression
+              std::vector<IterDomain*> forwarded_ids;
+              std::vector<IterDomain*> compliment_ids;
 
-        for (auto input_id : input_ids) {
-          if (!isIdOnlyInActiveTv(input_id)) {
-            forwarded_ids.emplace_back(input_id);
-            active_forwarding_map->emplace(
-                std::make_pair(input_id, merge_expr->out()));
-          } else {
-            compliment_ids.push_back(input_id);
+              for (auto input_id : input_ids) {
+                if (!isIdOnlyInActiveTv(input_id)) {
+                  forwarded_ids.emplace_back(input_id);
+                  active_forwarding_map.emplace(
+                      std::make_pair(input_id, merge_expr->out()));
+                } else {
+                  compliment_ids.push_back(input_id);
+                }
+              }
+
+              // Set up compliment map
+              for (auto forwarded_id : forwarded_ids) {
+                active_compliment_map.emplace(
+                    std::make_pair(forwarded_id, compliment_ids));
+              }
+            }
           }
-        }
+        };
 
-        // Set up compliment map
-        for (auto forwarded_id : forwarded_ids) {
-          active_compliment_map->emplace(
-              std::make_pair(forwarded_id, compliment_ids));
-        }
-      }
-    }
+    forward(
+        consumer,
+        consumer->getRootDomain(),
+        created_broadcasts_in_consumer,
+        consumer_forwarding_map,
+        consumer_compliment_map);
+    forward(
+        producer,
+        TensorDomain::noReductions(producer->getMaybeRFactorDomain()),
+        annihilated_broadcasts_in_producer,
+        producer_forwarding_map,
+        producer_compliment_map);
   }
 };
 
@@ -968,7 +997,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
       producer->domain(), consumer->domain(), producer_CA_root_ids);
 
   // See FusionAdvancedComputeAt7 for an example of the forwarding logic
-  ForwardingInfo forwarding_info(producer, consumer);
+  ForwardingInfo forwarding_info(producer, consumer, root_map);
 
   auto consumer_replay = BestEffortReplay(
       consumer->domain()->domain(),
@@ -1023,7 +1052,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   const auto c2p_root_map = root_map.mapConsumerToProducer(
       consumer->domain(), producer->domain(), consumer_CA_root_ids);
 
-  ForwardingInfo forwarding_info(producer, consumer);
+  ForwardingInfo forwarding_info(producer, consumer, root_map);
 
   // Instead of replaying from the root, lets try to play forward the history
   // of producer if they match ops on consumer. Enforce if we modify an
