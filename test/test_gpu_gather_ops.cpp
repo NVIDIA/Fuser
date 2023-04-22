@@ -443,43 +443,47 @@ TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
       &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
 }
 
+// Test take_along_axis with a broadcast index tensor
 TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  for (const auto index_dim : {1, 3}) {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(3);
-  auto tv1 = makeSymbolicTensor(1, DataType::Int);
-  auto tv2 = makeSymbolicTensor(3);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
+    auto tv0 = makeSymbolicTensor(3);
+    auto tv1 =
+        makeConcreteTensor({index_dim == 1 ? index_dim : -1}, DataType::Int);
+    auto tv2 = makeConcreteTensor({-1, index_dim == 1 ? index_dim : -1, -1});
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
 
-  auto tv3 = broadcast(tv1, {true, false, true});
-  auto tv4 = take_along_axis(tv0, tv3, 1);
-  auto tv5 = add(tv4, tv2);
-  fusion.addOutput(tv5);
+    auto tv3 = broadcast(tv1, {true, false, true});
+    auto tv4 = take_along_axis(tv0, tv3, 1);
+    auto tv5 = add(tv4, tv2);
+    fusion.addOutput(tv5);
 
-  std::vector<int64_t> input_dims{10, 11, 12};
-  std::vector<int64_t> index_dims{3};
-  std::vector<int64_t> out_dims = input_dims;
-  out_dims[1] = index_dims[0];
+    std::vector<int64_t> input_dims{10, 11, 12};
+    std::vector<int64_t> index_dims{index_dim};
+    std::vector<int64_t> out_dims = input_dims;
+    out_dims[1] = index_dims[0];
 
-  at::manual_seed(0);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_dims, options);
-  at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
-  at::Tensor t2 = at::randn(out_dims, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+    at::manual_seed(0);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn(input_dims, options);
+    at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
+    at::Tensor t2 = at::randn(out_dims, options);
+    std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t4 = at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
-  auto ref = t4 + t2;
+    auto t4 = at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+    auto ref = t4 + t2;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  }
 }
 
 } // namespace nvfuser
