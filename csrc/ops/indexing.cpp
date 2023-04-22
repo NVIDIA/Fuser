@@ -246,7 +246,7 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
           inp_id->toString(),
           ") and index domains (",
           idx_id->toString(),
-          "). Input extent is one, but the index extent may not be so.");
+          "). Input extent is one, but the index extent may be larger than one.");
     }
 
     out_domain.at(i) =
