@@ -132,11 +132,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   virtual const char* getOpString() const override {
-    if (isTakeAlongAxis()) {
-      return "TakeAlongAxisOp";
-    } else {
-      return "TorchGatherOp";
-    }
+    return "TorchGatherOp";
   }
 
   std::string toString(int indent_size = 0) const override;
