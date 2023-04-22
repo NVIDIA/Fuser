@@ -309,7 +309,7 @@ TEST_F(NVFuserTest, TorchGatherSumAdd_CUDA) {
         at::Tensor output = at::zeros(index_dims, options);
 
         auto t_gather = at::gather(input, dim, input_idx);
-        auto t_sum = at::sum(t_gather, {0}, true);
+        auto t_sum = at::sum(t_gather.to(at::kDouble), {0}, true);
         auto tv_out_ref = at::add(input2, t_sum);
 
         std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
