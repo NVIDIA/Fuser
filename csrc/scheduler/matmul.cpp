@@ -704,7 +704,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, {cc}, 6);
+  inlineSelectedAt({acr, bcr, ab, bb}, cc, 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
