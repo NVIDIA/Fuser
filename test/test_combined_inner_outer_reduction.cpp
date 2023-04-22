@@ -42,7 +42,7 @@ std::tuple<float, float> getMeanVar(const std::vector<float>& v) {
 // This case is to test the correctness of the combined inner and outer
 // scheduler used in layer norm backward. It can also be configured to test the
 // performance using different data types.
-TEST_F(NVFuserTest, FusionCombinedSchedulerLayerNormBackward_CUDA) {
+TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -274,7 +274,7 @@ TEST_F(NVFuserTest, FusionCombinedSchedulerLayerNormBackward_CUDA) {
 // fusion should be segmented since the current combined scheduler assumes there
 // is no shared consumer between inter reductions and outer reductions and among
 // tensors in outer reductions.
-TEST_F(NVFuserTest, FusionCombinedSchedulerSharedConsumer_CUDA) {
+TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -415,7 +415,7 @@ TEST_F(NVFuserTest, FusionCombinedSchedulerSharedConsumer_CUDA) {
 // This case is to test the correctness of the combined inner and outer
 // scheduler. One tensor is using the inner reduction results and outer
 // reduction results. should be segmented.
-TEST_F(NVFuserTest, FusionCombinedSchedulerSharedProducer_CUDA) {
+TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -625,7 +625,7 @@ TEST_F(NVFuserTest, FusionCombinedSchedulerSharedProducer_CUDA) {
 }
 
 // Manual schedule of inner and outer reduction on the same tensor
-TEST_F(NVFuserTest, FusionCombinedReduction_CUDA) {
+TEST_F(NVFuserTest, CombinedReduction_CUDA) {
   // https://github.com/csarofeen/pytorch/issues/2566
   // this case will fail, if using tidx = 8 and tidy = 64
   // for inner reduction, tidy is derived as 10240 / (tidx*vecx*nloadx) = 64
@@ -786,7 +786,7 @@ TEST_F(NVFuserTest, FusionCombinedReduction_CUDA) {
 
 // Manual schedule of inner and outer reduction on the same tensor. Each block
 // will do multiple reductions.
-TEST_F(NVFuserTest, FusionCombinedReductionMultiPerBlock_CUDA) {
+TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
   auto ceilDiv = [](const int a, const int b) { return (a + b - 1) / b; };
   constexpr bool verbose = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
