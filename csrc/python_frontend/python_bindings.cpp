@@ -553,7 +553,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
             self.defineRecord(
-                new ScalarRecord({self.recordingState(out())}, dtype));
+                new ScalarRecord<dtype, std::nullptr_t>({self.recordingState(out())}, nullptr, dtype, true));
             return out;
           },
           py::arg("dtype") = DataType::Double,

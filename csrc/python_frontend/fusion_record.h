@@ -1990,14 +1990,21 @@ struct TorchGatherOpRecord : RecordFunctor {
 
 //! Specialized Record Functor for recording FusionState input scalars.
 
+template <typename NvfuserDType, typename ValueType>
 struct ScalarRecord : RecordFunctor {
-  ScalarRecord(std::vector<State> _outputs, PrimDataType dtype)
+  ScalarRecord(std::vector<State> _outputs,
+      serde::RecordType record_type,
+      ValueType val,
+      PrimDataType dtype,
+      bool is_input)
       : RecordFunctor(
             {},
             std::move(_outputs),
             "define_scalar",
             serde::RecordType_Scalar),
-        dtype_(dtype) {}
+        value_(val),
+        dtype_(dtype),
+        is_input_(is_input) {}
   virtual ~ScalarRecord() = default;
   virtual RecordFunctor* clone() final {
     return new ScalarRecord(*this);
@@ -2044,17 +2051,30 @@ struct ScalarRecord : RecordFunctor {
       os << ")";
     }
   }
-
+  /*
   virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
         serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
   }
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return valueRecordData(builder, value_);
+  };
+
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      ValueType value) const;
+  */
 
  private:
+  //! The scalar's value.
+  ValueType value_;
   //! Scalar data type.
   PrimDataType dtype_;
+  //! Indicates scalar is a symbolic input
+  bool is_input_;
 };
 
 //! Specialized Record Functor for the slice operation.
