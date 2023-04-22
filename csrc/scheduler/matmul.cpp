@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <inlining.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
@@ -528,9 +529,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
 
-  // Get exact configurations from mma builder.
+  // Set accumulation tv for mma op.
   mma_builder.accumulatorTv(cc);
-  auto mma_options = mma_builder.build();
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -557,7 +557,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // TODO:
   // Also a few additional parameters should be introduced
   // to control this stage of scheduling.
-  if (isVolta(mma_options.macro)) {
+  if (isVolta(params.mma_macro)) {
     acw_smem = ab->cacheAfter();
     bcw_smem = bb->cacheAfter();
     // Cache again to be able to vectorize.
@@ -636,28 +636,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
 
-  // Set computeAt, setup the loop nesting structure on the kernel.
-  //   TODO: this section goes to a separate matmul util,
-  //   and needs more configurability.
-  // ------------------------------------------------------------------
-  // CTA tile:
-
-  a->computeAt(c, 2);
-  b->computeAt(c, 2);
-
-  // Prolog:
-  a->computeAt(cc, 3);
-  b->computeAt(cc, 3);
-
-  // Main Loop:
-  acr->computeAt(cc, -6);
-  bcr->computeAt(cc, -6);
-
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
-  if (isTuring(mma_options.macro) || isAmpere(mma_options.macro)) {
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     moveInnerBroadcastLeft(ab);
     moveInnerBroadcastLeft(bb);
   }
@@ -716,6 +699,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       -1,
       {acr, bcr, ab, bb, a, b},
       {ParallelType::TIDy, ParallelType::TIDz});
+
+  // auto inline for all tensors except register tensors and output tensor
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
+
+  // if auto inline, will inline to position-7, leads to performance regression
+  inlineSelectedAt({acr, bcr, ab, bb}, {cc}, 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
