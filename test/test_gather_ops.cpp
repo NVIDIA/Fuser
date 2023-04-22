@@ -31,13 +31,21 @@ auto randomVector(int64_t low, int64_t high, int rank) {
   return out;
 }
 
+// When take_along_axis is true, the extents of non-indexed dimensions
+// are set to be the same as those of the input dimensions
 auto randomIndexVector(
     const std::vector<int64_t>& input_dims,
     int64_t low,
-    int rank) {
+    int rank,
+    bool take_along_axis = false,
+    int indexed_dim = -1) {
   std::vector<int64_t> index_dims(rank, 0);
   for (int idim = 0; idim < rank; ++idim) {
-    index_dims[idim] = (std::rand() % (input_dims[idim] - low)) + low;
+    if (!take_along_axis || idim == indexed_dim) {
+      index_dims[idim] = (std::rand() % (input_dims[idim] - low)) + low;
+    } else {
+      index_dims[idim] = input_dims.at(idim);
+    }
   }
   return index_dims;
 }
@@ -66,7 +74,7 @@ at::Tensor generateScatter2DIndex(
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionScatter1DIndexZerosSelfTvSameShape_CUDA) {
+TEST_F(NVFuserTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
   const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
 
   const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
@@ -120,230 +128,250 @@ TEST_F(NVFuserTest, FusionScatter1DIndexZerosSelfTvSameShape_CUDA) {
 
 // Test the correctness of gather operator in different dimensions and selcted
 // dim.
-TEST_F(NVFuserTest, FusionTorchGatherAllRankAllSelectedDim_CUDA) {
+TEST_F(NVFuserTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  for (int rank = 1; rank <= 5; ++rank) {
-    for (int dim = 0; dim < rank; ++dim) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
+  for (const auto is_take_along : {false, true}) {
+    for (int rank = 1; rank <= 5; ++rank) {
+      for (int dim = 0; dim < rank; ++dim) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
 
-      TensorView* tv1 = makeContigTensor(rank);
-      TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
-      fusion.addInput(tv1);
-      fusion.addInput(tv_idx);
-      auto tv_out = torch_gather(tv1, dim, tv_idx);
-      fusion.addOutput(tv_out);
+        TensorView* tv1 = makeContigTensor(rank);
+        TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
+        fusion.addInput(tv1);
+        fusion.addInput(tv_idx);
+        TensorView* tv_out = is_take_along ? take_along_axis(tv1, tv_idx, dim)
+                                           : torch_gather(tv1, dim, tv_idx);
+        fusion.addOutput(tv_out);
 
-      auto input_dims = randomVector(2, max_dim_size, rank);
-      auto index_dims = randomIndexVector(input_dims, 1, rank);
-      at::Tensor input = at::randn(input_dims, options);
-      at::Tensor input_idx =
-          at::randint(0, input_dims[dim], index_dims, options_i);
-      at::Tensor output = at::zeros(index_dims, options);
+        auto input_dims = randomVector(2, max_dim_size, rank);
+        auto index_dims =
+            randomIndexVector(input_dims, 1, rank, is_take_along, dim);
+        at::Tensor input = at::randn(input_dims, options);
+        at::Tensor input_idx =
+            at::randint(0, input_dims[dim], index_dims, options_i);
+        at::Tensor output = at::zeros(index_dims, options);
 
-      auto tv_out_ref = at::gather(input, dim, input_idx);
-      std::vector<c10::IValue> aten_inputs = {input, input_idx};
+        auto tv_out_ref = at::gather(input, dim, input_idx);
+        std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-      testValidate(
-          &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+      }
     }
   }
 }
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
-TEST_F(NVFuserTest, FusionTorchGatherAddMul_CUDA) {
+TEST_F(NVFuserTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  for (int rank = 1; rank <= 5; ++rank) {
-    for (int dim = 0; dim < rank; ++dim) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
+  for (const auto is_take_along : {false, true}) {
+    for (int rank = 1; rank <= 5; ++rank) {
+      for (int dim = 0; dim < rank; ++dim) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
 
-      TensorView* tv1 = makeContigTensor(rank);
-      TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
-      fusion.addInput(tv1);
-      fusion.addInput(tv_idx);
-      auto tv_gather = torch_gather(tv1, dim, tv_idx);
-      auto tv_add = add(tv_gather, tv_gather);
-      auto tv_out = mul(tv_gather, tv_add);
-      fusion.addOutput(tv_out);
+        TensorView* tv1 = makeContigTensor(rank);
+        TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
+        fusion.addInput(tv1);
+        fusion.addInput(tv_idx);
+        auto tv_gather = is_take_along ? take_along_axis(tv1, tv_idx, dim)
+                                       : torch_gather(tv1, dim, tv_idx);
+        auto tv_add = add(tv_gather, tv_gather);
+        auto tv_out = mul(tv_gather, tv_add);
+        fusion.addOutput(tv_out);
 
-      auto input_dims = randomVector(2, max_dim_size, rank);
-      auto index_dims = randomIndexVector(input_dims, 1, rank);
+        auto input_dims = randomVector(2, max_dim_size, rank);
+        auto index_dims =
+            randomIndexVector(input_dims, 1, rank, is_take_along, dim);
 
-      at::Tensor input = at::randn(input_dims, options); // lookup
-      at::Tensor input_idx =
-          at::randint(0, input_dims[dim], index_dims, options_i);
-      at::Tensor output = at::zeros(index_dims, options);
+        at::Tensor input = at::randn(input_dims, options); // lookup
+        at::Tensor input_idx =
+            at::randint(0, input_dims[dim], index_dims, options_i);
+        at::Tensor output = at::zeros(index_dims, options);
 
-      auto t_gather = at::gather(input, dim, input_idx);
-      auto t_add = at::add(t_gather, t_gather);
-      auto tv_out_ref = at::mul(t_gather, t_add);
+        auto t_gather = at::gather(input, dim, input_idx);
+        auto t_add = at::add(t_gather, t_gather);
+        auto tv_out_ref = at::mul(t_gather, t_add);
 
-      std::vector<c10::IValue> aten_inputs = {input, input_idx};
+        std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-      testValidate(
-          &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+      }
     }
   }
 }
 // Test the fusion support of index tensor as fusion input in gather operator
-TEST_F(NVFuserTest, FusionAddGatherSumAdd_CUDA) {
+TEST_F(NVFuserTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  for (int rank = 2; rank <= 5; ++rank) {
-    for (int dim = 0; dim < rank; ++dim) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
+  for (const auto is_take_along : {false, true}) {
+    for (int rank = 2; rank <= 5; ++rank) {
+      for (int dim = 0; dim < rank; ++dim) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
 
-      TensorView* tv_lookup = makeContigTensor(rank);
-      TensorView* tv_idx_1 = makeContigTensor(rank, DataType::Int);
-      TensorView* tv_idx_2 = makeContigTensor(rank, DataType::Int);
+        TensorView* tv_lookup = makeContigTensor(rank);
+        TensorView* tv_idx_1 = makeContigTensor(rank, DataType::Int);
+        TensorView* tv_idx_2 = makeContigTensor(rank, DataType::Int);
 
-      fusion.addInput(tv_lookup);
-      fusion.addInput(tv_idx_1);
-      fusion.addInput(tv_idx_2);
+        fusion.addInput(tv_lookup);
+        fusion.addInput(tv_idx_1);
+        fusion.addInput(tv_idx_2);
 
-      auto tv_index = add(tv_idx_1, tv_idx_2);
-      auto tv_out = torch_gather(tv_lookup, dim, tv_index);
+        auto tv_index = add(tv_idx_1, tv_idx_2);
+        auto tv_out = is_take_along ? take_along_axis(tv_lookup, tv_index, dim)
+                                    : torch_gather(tv_lookup, dim, tv_index);
 
-      fusion.addOutput(tv_out);
+        fusion.addOutput(tv_out);
 
-      auto input_dims = randomVector(2, max_dim_size, rank);
-      auto index_dims = randomIndexVector(input_dims, 1, rank);
+        auto input_dims = randomVector(2, max_dim_size, rank);
+        auto index_dims =
+            randomIndexVector(input_dims, 1, rank, is_take_along, dim);
 
-      at::Tensor t_lookup = at::randn(input_dims, options); // lookup
-      at::Tensor t_idx_1 =
-          at::randint(0, input_dims[dim] / 2, index_dims, options_i);
-      at::Tensor t_idx_2 =
-          at::randint(0, input_dims[dim] / 2, index_dims, options_i);
+        at::Tensor t_lookup = at::randn(input_dims, options); // lookup
+        at::Tensor t_idx_1 =
+            at::randint(0, input_dims[dim] / 2, index_dims, options_i);
+        at::Tensor t_idx_2 =
+            at::randint(0, input_dims[dim] / 2, index_dims, options_i);
 
-      auto t_index = at::add(t_idx_1, t_idx_2);
-      auto t_out = at::gather(t_lookup, dim, t_index);
+        auto t_index = at::add(t_idx_1, t_idx_2);
+        auto t_out = at::gather(t_lookup, dim, t_index);
 
-      std::vector<c10::IValue> aten_inputs = {t_lookup, t_idx_1, t_idx_2};
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-      testValidate(
-          &fusion, cg_outputs, aten_inputs, {t_out}, __LINE__, __FILE__);
+        std::vector<c10::IValue> aten_inputs = {t_lookup, t_idx_1, t_idx_2};
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {t_out}, __LINE__, __FILE__);
+      }
     }
   }
 }
 // Test the fusion support of gather operator and reduce
-TEST_F(NVFuserTest, FusionTorchGatherSumAdd_CUDA) {
+TEST_F(NVFuserTest, TorchGatherSumAdd_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  for (int rank = 2; rank <= 5; ++rank) {
-    for (int dim = 0; dim < rank; ++dim) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
+  for (const auto is_take_along : {false, true}) {
+    for (int rank = 2; rank <= 5; ++rank) {
+      for (int dim = 0; dim < rank; ++dim) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
 
-      TensorView* tv1 = makeContigTensor(rank);
-      TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
-      TensorView* tv2 = makeContigTensor(rank - 1);
+        TensorView* tv1 = makeContigTensor(rank);
+        TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
+        TensorView* tv2 = makeContigTensor(rank - 1);
 
-      fusion.addInput(tv1);
-      fusion.addInput(tv_idx);
-      fusion.addInput(tv2);
+        fusion.addInput(tv1);
+        fusion.addInput(tv_idx);
+        fusion.addInput(tv2);
 
-      auto tv_gather = torch_gather(tv1, dim, tv_idx);
-      auto tv_sum = sum(tv_gather, {0}, true);
-      auto tv_out = add(tv_sum, tv2);
+        auto tv_gather = is_take_along ? take_along_axis(tv1, tv_idx, dim)
+                                       : torch_gather(tv1, dim, tv_idx);
+        auto tv_sum = sum(tv_gather, {0}, true);
+        auto tv_out = add(tv_sum, tv2);
 
-      fusion.addOutput(tv_out);
+        fusion.addOutput(tv_out);
 
-      auto input_dims = randomVector(2, max_dim_size, rank);
-      auto index_dims = randomIndexVector(input_dims, 1, rank);
-      std::vector<int64_t> input2_dims(rank - 1, 0);
-      for (int idim = 0; idim < rank - 1; ++idim) {
-        input2_dims[idim] = index_dims[idim + 1];
+        auto input_dims = randomVector(2, max_dim_size, rank);
+        auto index_dims =
+            randomIndexVector(input_dims, 1, rank, is_take_along, dim);
+        std::vector<int64_t> input2_dims(rank - 1, 0);
+        for (int idim = 0; idim < rank - 1; ++idim) {
+          input2_dims[idim] = index_dims[idim + 1];
+        }
+
+        at::Tensor input = at::randn(input_dims, options); // lookup
+        at::Tensor input2 = at::randn(input2_dims, options); // lookup
+        at::Tensor input_idx =
+            at::randint(0, input_dims[dim], index_dims, options_i);
+        at::Tensor output = at::zeros(index_dims, options);
+
+        auto t_gather = at::gather(input, dim, input_idx);
+        auto t_sum = at::sum(t_gather, {0}, true);
+        auto tv_out_ref = at::add(input2, t_sum);
+
+        std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
+
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
       }
-
-      at::Tensor input = at::randn(input_dims, options); // lookup
-      at::Tensor input2 = at::randn(input2_dims, options); // lookup
-      at::Tensor input_idx =
-          at::randint(0, input_dims[dim], index_dims, options_i);
-      at::Tensor output = at::zeros(index_dims, options);
-
-      auto t_gather = at::gather(input, dim, input_idx);
-      auto t_sum = at::sum(t_gather, {0}, true);
-      auto tv_out_ref = at::add(input2, t_sum);
-
-      std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
-
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-      testValidate(
-          &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
     }
   }
 }
 // Test the correctness when input/index tensor is very large
-TEST_F(NVFuserTest, FusionTorchGatherAddMulHugeSize_CUDA) {
+TEST_F(NVFuserTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  for (int rank = 1; rank <= 2; ++rank) {
-    for (int dim = 0; dim < rank; ++dim) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
+  for (const auto is_take_along : {false, true}) {
+    for (int rank = 1; rank <= 2; ++rank) {
+      for (int dim = 0; dim < rank; ++dim) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
 
-      TensorView* tv1 = makeContigTensor(rank);
-      TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
+        TensorView* tv1 = makeContigTensor(rank);
+        TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
 
-      fusion.addInput(tv1);
-      fusion.addInput(tv_idx);
-      auto tv_gather = torch_gather(tv1, dim, tv_idx);
-      auto tv_add = add(tv_gather, tv_gather);
-      auto tv_out = mul(tv_gather, tv_add);
-      fusion.addOutput(tv_out);
+        fusion.addInput(tv1);
+        fusion.addInput(tv_idx);
+        auto tv_gather = is_take_along ? take_along_axis(tv1, tv_idx, dim)
+                                       : torch_gather(tv1, dim, tv_idx);
+        auto tv_add = add(tv_gather, tv_gather);
+        auto tv_out = mul(tv_gather, tv_add);
+        fusion.addOutput(tv_out);
 
-      auto input_dims = randomVector(2, max_dim_size, rank);
-      auto index_dims = randomIndexVector(input_dims, 1, rank);
+        auto input_dims = randomVector(2, max_dim_size, rank);
+        auto index_dims =
+            randomIndexVector(input_dims, 1, rank, is_take_along, dim);
 
-      at::Tensor input = at::randn(input_dims, options); // lookup
-      at::Tensor input_idx =
-          at::randint(0, input_dims[dim], index_dims, options_i);
-      at::Tensor output = at::zeros(index_dims, options);
+        at::Tensor input = at::randn(input_dims, options); // lookup
+        at::Tensor input_idx =
+            at::randint(0, input_dims[dim], index_dims, options_i);
+        at::Tensor output = at::zeros(index_dims, options);
 
-      auto t_gather = at::gather(input, dim, input_idx);
-      auto t_add = at::add(t_gather, t_gather);
-      auto tv_out_ref = at::mul(t_gather, t_add);
+        auto t_gather = at::gather(input, dim, input_idx);
+        auto t_add = at::add(t_gather, t_gather);
+        auto tv_out_ref = at::mul(t_gather, t_add);
 
-      std::vector<c10::IValue> aten_inputs = {input, input_idx};
+        std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-      testValidate(
-          &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+      }
     }
   }
 }
 // Test the fusion support of input tensor as fusion input
-TEST_F(NVFuserTest, FusionTorchGatherInput_CUDA) {
+TEST_F(NVFuserTest, TorchGatherInput_CUDA) {
   const int rank = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -370,7 +398,7 @@ TEST_F(NVFuserTest, FusionTorchGatherInput_CUDA) {
 
 // Test when then extent of iteration domain is euqal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
-TEST_F(NVFuserTest, FusionTorchGatherIndexTvExtentIsOne_CUDA) {
+TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   std::vector<int64_t> input_dims{16384, 60};
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
@@ -413,6 +441,45 @@ TEST_F(NVFuserTest, FusionTorchGatherIndexTvExtentIsOne_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
   testValidate(
       &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  auto tv2 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = broadcast(tv1, {true, false, true});
+  auto tv4 = take_along_axis(tv0, tv3, 1);
+  auto tv5 = add(tv4, tv2);
+  fusion.addOutput(tv5);
+
+  std::vector<int64_t> input_dims{10, 11, 12};
+  std::vector<int64_t> index_dims{3};
+  std::vector<int64_t> out_dims = input_dims;
+  out_dims[1] = index_dims[0];
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(input_dims, options);
+  at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
+  at::Tensor t2 = at::randn(out_dims, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto t4 = at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+  auto ref = t4 + t2;
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

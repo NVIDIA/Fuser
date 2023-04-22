@@ -42,8 +42,10 @@ TORCH_CUDA_CU_API TensorView* scatter(
     TensorView* index,
     TensorView* src);
 
-// numpy.take_along_axis
-// (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
+//! numpy.take_along_axis
+//! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
+//! Note the order of the parameters follows the numpy order, which is
+//! different from torch_gather.
 TORCH_CUDA_CU_API TensorView* take_along_axis(
     TensorView* input,
     TensorView* index,
