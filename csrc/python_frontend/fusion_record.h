@@ -1839,7 +1839,8 @@ struct TorchGatherOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-//! Specialized Record Functor for recording FusionState input scalars.
+//! Specialized Record Functor for recording FusionState scalars for both
+//! inputs and constants.
 
 template <typename ValueType>
 struct ScalarRecord : RecordFunctor {
@@ -1871,7 +1872,8 @@ struct ScalarRecord : RecordFunctor {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (value_ == child_ptr->value_) && (dtype_ == child_ptr->dtype_);
+      result = result && (value_ == child_ptr->value_) &&
+          (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
@@ -1892,7 +1894,8 @@ struct ScalarRecord : RecordFunctor {
       }
       fd.addInput(output);
     } else {
-      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(value_, dtype_);
+      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(
+          value_, dtype_);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -1910,9 +1913,9 @@ struct ScalarRecord : RecordFunctor {
     return valueRecordData(builder, value_);
   };
 
-  inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-valueRecordData(flatbuffers::FlatBufferBuilder& builder, ValueType value)
-const;
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      ValueType value) const;
 
  private:
   //! The scalar's value.
@@ -1929,7 +1932,10 @@ template <>
 inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
     bool>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, bool value)
     const {
-  return {serde::RecordData_Bool, serde::CreateBool(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
+  return {
+      serde::RecordData_Bool,
+      serde::CreateBool(builder, value, serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 template <>
@@ -1968,9 +1974,14 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
 
 template <>
 inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    std::nullptr_t>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, std::nullptr_t value)
-    const {
-  return {serde::RecordData_ScalarInput, serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+    std::nullptr_t>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::nullptr_t value) const {
+  return {
+      serde::RecordData_ScalarInput,
+      serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 //! Specialized Record Functor for the slice operation.
