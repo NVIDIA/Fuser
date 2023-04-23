@@ -454,16 +454,20 @@ void IterDomainGraph::build(Fusion* fusion) {
         //
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
+        const auto pairwise_resize_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                             .mapDifferentExtents(true)
+                                             .mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, true)
+                p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
         auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv, true)
+            PairwiseRootDomainMap(p_tv, c_tv)
+                .mapBroadcast(false)
                 .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
         // Same as permissive above but for exact

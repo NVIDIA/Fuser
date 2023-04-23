@@ -44,7 +44,8 @@ int getProducerHaloOffset(
   // For indexing, having same extents is not required for root
   // domains
   auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv, false, false)
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapDifferentExtents(true)
           .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
 
   auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
@@ -1544,7 +1545,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
   auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv, true)
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapBroadcast(false)
           .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
 
   // This replay has to be consistent with compute at index map.
@@ -1649,8 +1651,11 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       continue;
     }
 
+    auto override_it = override_index.find(root_dom[i]);
+    const bool is_overriden = override_it != override_index.end();
+
     TORCH_INTERNAL_ASSERT(
-        index_map.find(root_dom[i]) != index_map.end(),
+        is_overriden || index_map.find(root_dom[i]) != index_map.end(),
         "Couldn't find root mapping for ",
         producer_tv->toString(),
         " dim: ",
@@ -1658,8 +1663,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         " id: ",
         root_dom[i]->toString());
 
-    auto override_it = override_index.find(root_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
     auto root_ind_i =
         is_overriden ? override_it->second : index_map.at(root_dom[i]);
 
@@ -1686,15 +1689,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       if (skip_indexing.count(root_dom[j])) {
         continue;
       }
-
-      TORCH_INTERNAL_ASSERT(
-          index_map.find(root_dom[j]) != index_map.end(),
-          "Couldn't find root mapping for ",
-          producer_tv->name(),
-          " dim: ",
-          j,
-          " id: ",
-          root_dom[j]->toString());
 
       auto root_ext_j = extent_map.find(root_dom[j]) == extent_map.end()
           ? root_dom[j]->extent()
@@ -1865,7 +1859,10 @@ std::vector<Val*> Index::getProducerRootIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::getProducerRootIndices");
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
-  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv, false);
+  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
+
+  // bool debug = producer_tv->name() == 1;
+  bool debug = false;
 
   TensorDomain* producerAsC =
       TransformReplay::replayPasC(
@@ -1875,10 +1872,17 @@ std::vector<Val*> Index::getProducerRootIndices(
   // Make the producer_tv look like consumer while performing indexing math
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
+  if (debug) {
+    std::cerr << "Producer like consume: " << producer_tv->toString()
+              << std::endl;
+    std::cerr << "Consumer: " << consumer_tv->toString() << std::endl;
+  }
+
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
   auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv, true)
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapBroadcast(false)
           .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
 
   // This replay has to be consistent with compute at index map.
@@ -1910,10 +1914,10 @@ std::vector<Val*> Index::getProducerRootIndices(
   // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
   // is not what we want.
   const auto p2c_map_ = invertOneToOneMap(c2p_map);
-  for (const auto& kv :
-       PairwiseRootDomainMap(producer_tv, consumer_tv, true, false)
-           .mapConsumerToProducer(
-               consumer_tv->domain(), producer_tv->domain())) {
+  for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
+                            .mapDifferentExtents(true)
+                            .mapConsumerToProducer(
+                                consumer_tv->domain(), producer_tv->domain())) {
     auto consumer_root_id = kv.first;
     auto producer_root_id = kv.second;
     if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
@@ -1998,6 +2002,12 @@ std::vector<Val*> Index::getProducerRootIndices(
         root_ind, root_dom[i], producer_tv, consumer_tv);
 
     root_inds.at(i) = root_ind;
+  }
+
+  if (debug) {
+    for (auto ri : root_inds) {
+      std::cerr << "Root id: " << ri->toInlineString() << std::endl;
+    }
   }
 
   return root_inds;

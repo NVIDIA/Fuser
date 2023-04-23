@@ -1048,8 +1048,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       cached_inputs,
       cached_outputs);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser

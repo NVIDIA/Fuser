@@ -93,9 +93,22 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
   //! \param is_exact If true, broadcast andnon-broadcast IDs are not mapped
   explicit PairwiseRootDomainMap(
       const TensorView* producer,
-      const TensorView* consumer,
-      bool is_exact = false,
-      bool require_same_extent = true);
+      const TensorView* consumer);
+
+  PairwiseRootDomainMap& mapBroadcast(bool b) {
+    map_broadcast_ = b;
+    return *this;
+  }
+
+  PairwiseRootDomainMap& mapDifferentExtents(bool b) {
+    map_different_extents_ = b;
+    return *this;
+  }
+
+  PairwiseRootDomainMap& mapIndexedDomains(bool b) {
+    map_indexed_domains_ = b;
+    return *this;
+  }
 
   const TensorView* producerTv() const {
     return producer_tv_;
@@ -117,9 +130,16 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
  private:
   const TensorView* producer_tv_ = nullptr;
   const TensorView* consumer_tv_ = nullptr;
-  //! If true, does not map broadcast IDs with non-broadcast IDs
-  const bool is_exact_ = false;
-  const bool require_same_extent_ = false;
+
+  //! Options to allow more permissive mappings
+
+  //! Map broadcast and non-broadcast domains. Note that this is on by
+  //! default
+  bool map_broadcast_ = true;
+  //! Map domains that may have different extents, e.g., torch_gather
+  bool map_different_extents_ = false;
+  //! Map domains that are indirectly accessed, e.g., index_select
+  bool map_indexed_domains_ = false;
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for

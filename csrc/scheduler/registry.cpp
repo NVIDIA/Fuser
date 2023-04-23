@@ -67,9 +67,17 @@ bool rejectScheduleForSelectLikeOps(
     Fusion* fusion,
     ScheduleHeuristic schedule_strategy) {
   for (auto expr : fusion->exprs()) {
-    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
+    if ((expr->isOneOf<SelectOp, IndexSelectOp>() ||
+         (expr->isA<TorchGatherOp>() &&
+          !expr->as<TorchGatherOp>()->isTakeAlongAxis())) &&
         rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
       return true;
+    }
+    if (schedule_strategy == ScheduleHeuristic::Reduction) {
+      if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
+          rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
     }
   }
   return false;
@@ -359,6 +367,8 @@ class SchedulerTopologyChecker {
     // If reductions are on fastest dim, don't fuse any operations (after
     // reductions) that requires an input that is not an input to the
     // reductions.
+    //
+    // Why?
     if (fastest_dim_reduction) {
       auto post_reduction_vals = DependencyCheck::getAllValsBetween(
           reduction_tv_set,
@@ -1557,7 +1567,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto select : ir_utils::getSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           select->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (select->getSelectAxis() == root[root.size() - 1]) {
+      if (select->getIndexedProducerDomain() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "SelectOp on inner dim is not supported by transpose scheduler yet."
@@ -1568,7 +1578,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto idx_sel : ir_utils::getIndexSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           idx_sel->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (idx_sel->getSelectAxis() == root[root.size() - 1]) {
+      if (idx_sel->getIndexedProducerDomain() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "IndexSelectOp on inner dim is not supported by transpose scheduler yet."

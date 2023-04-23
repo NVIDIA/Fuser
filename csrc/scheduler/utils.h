@@ -548,11 +548,11 @@ inline void rotateLoop(
 //! tv1 still uses tv1.
 TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
-//! If a resized tensor induces a data dependency between threads,
+//! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
 //! the dependency. A proper RAW sync will be automatically inserted
 //! when the fusion is lowered.
-TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
+TORCH_CUDA_CU_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
 

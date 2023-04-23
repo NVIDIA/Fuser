@@ -58,28 +58,25 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
  public:
   using Expr::Expr;
 
-  SelectOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      IterDomain* select_id,
-      Val* index);
+  SelectOp(IrBuilderPasskey, Val* out, Val* in, int dim, Val* index);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "SelectOp";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  IterDomain* getSelectAxis() const {
-    return attribute(0)->as<IterDomain>();
+  int dim() const {
+    return attribute(0)->as<Attribute<int>>()->value;
   }
 
+  IterDomain* getIndexedProducerDomain() const;
+
   std::unordered_map<IterDomain*, Val*> getIndexOverridingMap() const {
-    return {{getSelectAxis(), input(1)}};
+    return {{getIndexedProducerDomain(), input(1)}};
   }
 };
 
@@ -87,28 +84,31 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexSelectOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in1,
-      int dim,
-      IterDomain* select_id,
-      Val* in3);
+  IndexSelectOp(IrBuilderPasskey, Val* out, Val* in1, int dim, Val* in3);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "IndexSelectOp";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  IterDomain* getSelectAxis() const {
-    return attribute(0)->as<IterDomain>();
+  TensorView* lookupTv() const {
+    return input(0)->as<TensorView>();
   }
+
+  TensorView* indexTv() const {
+    return input(1)->as<TensorView>();
+  }
+
+  IterDomain* getIndexedProducerDomain() const;
+
+  IterDomain* getIndexedConsumerDomain() const;
+
   int dim() const {
-    return attribute(1)->as<Attribute<int>>()->value;
+    return attribute(0)->as<Attribute<int>>()->value;
   }
 };
 
@@ -125,13 +125,12 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
       Val* out,
       Val* in,
       int dim,
-      IterDomain* select_id,
       Val* index,
       bool is_take_along_axis);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TorchGatherOp";
   }
 
@@ -147,15 +146,15 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   }
 
   int dim() const {
-    return attribute(1)->as<Attribute<int>>()->value;
+    return attribute(0)->as<Attribute<int>>()->value;
   }
 
-  IterDomain* getSelectAxis() const {
-    return attribute(0)->as<IterDomain>();
-  }
+  IterDomain* getIndexedConsumerDomain() const;
+
+  IterDomain* getIndexedProducerDomain() const;
 
   bool isTakeAlongAxis() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute(1)->as<Attribute<bool>>()->value;
   }
 };
 

@@ -776,6 +776,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     bool replay_resize) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
+  // Allow replay through indexing exprs
+  root_map.mapIndexedDomains(true);
   return replayPasC(
       producer,
       consumer,
@@ -792,6 +794,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     bool replay_swizzle) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
+  // Allow replay through indexing exprs
+  root_map.mapIndexedDomains(true);
   return replayCasP(
       consumer, producer, compute_at_axis, root_map, replay_swizzle);
 }
@@ -807,7 +811,9 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
     bool skip_resize) {
   FUSER_PERF_SCOPE("transform_replay.cpp::getMatchedLeafPosWithoutReplayPasC");
 
-  const auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+  // Allow replay through indexing exprs
+  const auto pairwise_map =
+      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map c2p_root_map = pairwise_map.mapConsumerToProducer(
       consumer->domain(), producer->domain());
 
@@ -878,7 +884,9 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
     bool skip_resize) {
   FUSER_PERF_SCOPE("transform_replay.cpp::getMatchedLeafPosWithoutReplayCasP");
 
-  const auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+  // Allow replay through indexing exprs
+  const auto pairwise_map =
+      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map p2c_root_map = pairwise_map.mapProducerToConsumer(
       producer->domain(), consumer->domain());
 

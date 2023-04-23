@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <executor.h>
+#include <inlining.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
 #include <kernel_cache.h>
@@ -396,7 +397,7 @@ TEST_F(NVFuserTest, TorchGatherInput_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t1, t_idx});
 }
 
-// Test when then extent of iteration domain is euqal to one, and the iteration
+// Test when then extent of iteration domain is equal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
 TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   std::vector<int64_t> input_dims{16384, 60};
@@ -424,6 +425,8 @@ TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
       clamp(tv_gather, IrBuilder::create<Int>(-1), IrBuilder::create<Int>(1));
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
+
+  fusion.printMath();
 
   at::Tensor input_1 = at::randn(input_dims, options);
   at::Tensor input_2 = at::randn(index_dims, options);
@@ -484,6 +487,299 @@ TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
 
     testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
+}
+
+TEST_F(NVFuserTest, TMP1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({99, 101});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  fusion.addOutput(tv4);
+
+  scheduler_utils::prepareForMemoryTypePromotion(&fusion);
+
+  tv4->split(1, 2);
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  fusion.printMath();
+
+  inlineMost();
+
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // std::cerr << "Input:\n" << t0 << std::endl;
+  // std::cerr << "Index:\n" << t1 << std::endl;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  auto outputs = fe.runFusion(aten_inputs);
+
+  // std::cerr << "Output:\n" << outputs[0] << std::endl;
+
+  auto ref =
+      at::gather(t0 + 1, 1, t1.unsqueeze(-1).expand({shape[0], shape[1]}));
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// Same as TMP1 but with the pointwise scheduler
+TEST_F(NVFuserTest, TMP2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({99, 101});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  fusion.addOutput(tv4);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // std::cerr << "Input:\n" << t0 << std::endl;
+  // std::cerr << "Index:\n" << t1 << std::endl;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto runtime = fec.getMostRecentKernelRuntime();
+
+  TORCH_CHECK(!runtime->isSegmented());
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+      ScheduleHeuristic::PointWise);
+
+  auto ref =
+      at::gather(t0 + 1, 1, t1.unsqueeze(-1).expand({shape[0], shape[1]}));
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// reduction + take_along_axis
+TEST_F(NVFuserTest, TMP3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100, 1000});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv4 = take_along_axis(tv2, tv1, 0);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[0], {2}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // std::cerr << "Input:\n" << t0 << std::endl;
+  // std::cerr << "Index:\n" << t1 << std::endl;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // std::cerr << "Output:\n" << outputs[0] << std::endl;
+
+  auto ref = at::gather(t0.to(at::kDouble).sum({1}), 0, t1);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// normalization + take_along_axis
+TEST_F(NVFuserTest, TMP4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({32, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv0, tv3);
+  auto tv5 = take_along_axis(tv4, tv1, 1);
+  fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // std::cerr << "Input:\n" << t0 << std::endl;
+  // std::cerr << "Index:\n" << t1 << std::endl;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // std::cerr << "Output:\n" << outputs[0] << std::endl;
+
+  auto t0_d = t0.to(at::kDouble);
+  auto ref = at::gather(t0_d / t0_d.sum({1}).unsqueeze(-1), 1, t1);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// normalization + take_along_axis + reduction
+TEST_F(NVFuserTest, TMP5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({32, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv0, tv3);
+  auto tv5 = take_along_axis(tv4, tv1, 1);
+  auto tv6 = sum(tv5, {0, 1});
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // std::cerr << "Input:\n" << t0 << std::endl;
+  // std::cerr << "Index:\n" << t1 << std::endl;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto t0_d = t0.to(at::kDouble);
+  auto t5 = at::gather(t0_d / t0_d.sum({1}).unsqueeze(-1), 1, t1);
+  auto ref = t5.sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  {
+    auto tv0 = TensorViewBuilder()
+                   .ndims(2)
+                   .contiguity({true, true})
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv1 = TensorViewBuilder()
+                   .ndims(1)
+                   .contiguity(true)
+                   .dtype(DataType::Int)
+                   .build();
+    fusion->addInput(tv1);
+    auto tv2 = max(tv0, {1});
+    auto tv3 = broadcast(tv2, {false, true});
+    auto tv4 =
+        expand(tv3, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv5 = sub(tv0, tv4);
+    auto tv6 = exp(tv5);
+    auto tv7 = sum(tv6, {1});
+    auto tv8 = broadcast(tv7, {false, true});
+    auto tv9 =
+        expand(tv8, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+    auto tv10 = div(tv6, tv9);
+    auto tv11 = log(tv10);
+    auto tv12 = neg(tv11);
+    auto tv13 = reshape(tv1, {128}, {128, 1});
+    // auto tv14 = torch_gather(tv12, 1, tv13);
+    auto tv14 = take_along_axis(tv12, tv13, 1);
+    auto s15 = IrBuilder::create<Int>(5);
+    auto tv16 = eq(tv13, s15);
+    auto s17 = IrBuilder::create<Double>(0.0);
+    auto tv18 = where(tv16, s17, tv14);
+    auto tv19 = sum(tv18, {0, 1});
+    auto tv20 = castOp(DataType::Float, tv16);
+    auto tv21 = sum(tv20, {0, 1});
+    auto s22 = IrBuilder::create<Double>(128.0);
+    auto tv23 = sub(s22, tv21);
+    auto tv24 = div(tv19, tv23);
+    fusion->addOutput(tv24);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  auto t0 = at::randn({128, 371}, options);
+  inputs.push_back(t0);
+  auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
+  inputs.push_back(t1);
+
+  // note: reduction arg
+  //   none -> 0
+  //   mean -> 1
+  //   sum  -> 2
+  auto t24 = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
+  outputs.push_back(t24);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

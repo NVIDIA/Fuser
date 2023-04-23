@@ -104,6 +104,10 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   TORCH_INTERNAL_ASSERT(largest_out != nullptr);
 
+  fusion->printMath();
+  std::cout << std::endl;
+  std::cerr << "Largest: " << largest_out->toString() << std::endl;
+
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
@@ -803,8 +807,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   inlineMost(inner_most_tensors);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser

@@ -1154,8 +1154,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Inline
   inlineMost();
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser
