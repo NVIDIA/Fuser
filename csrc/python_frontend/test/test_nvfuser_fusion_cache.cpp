@@ -114,8 +114,12 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
   {
     std::unique_ptr<RecordFunctor> cached_record(new TensorRecord(
         {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
-    std::unique_ptr<RecordFunctor> new_record(
-        new ScalarRecord({State(1, serde::StateType_Scalar)}, DataType::Float));
+    std::unique_ptr<RecordFunctor> new_record(new ScalarRecord<std::nullptr_t>(
+        {State(1, serde::StateType_Scalar)},
+        serde::RecordType_ScalarInput,
+        nullptr,
+        DataType::Float,
+        true));
     TrieNode* root = fc->rootTriePtr();
     TrieNode* node = nullptr;
 

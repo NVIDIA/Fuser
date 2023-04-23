@@ -20,6 +20,9 @@ serde::DataType mapToSerdeDtype(PrimDataType t);
 //! A function to map the serde dtype to its corresponding nvfuser dtype
 PrimDataType mapToNvfuserDtype(serde::DataType t);
 
+//! A function to map the nvFuser dtype to a serde ScalarRecord Type
+serde::RecordType mapToSerdeScalarRecordType(PrimDataType t);
+
 // OpRecord Function Signatures
 // ========================================================================
 // Unary Functions

@@ -94,6 +94,33 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   return PrimDataType::Null;
 }
 
+serde::RecordType mapToSerdeScalarRecordType(PrimDataType t) {
+  switch (t) {
+    case PrimDataType::Bool:
+      return serde::RecordType_ScalarConstantBool;
+    case PrimDataType::ComplexDouble:
+      return serde::RecordType_ScalarConstantComplexDouble;
+    case PrimDataType::Double:
+      return serde::RecordType_ScalarConstantDouble;
+    case PrimDataType::Int:
+      return serde::RecordType_ScalarConstantInt;
+    case PrimDataType::Null:
+      return serde::RecordType_ScalarInput;
+    case PrimDataType::ComplexFloat:
+    case PrimDataType::Float:
+    case PrimDataType::Half:
+    case PrimDataType::BFloat16:
+    case PrimDataType::Int32:
+      TORCH_CHECK(
+          false, "Unsupported nvFuser ScalarRecord type for DataType:", t);
+      break;
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unsupported nvFuser DataType.", t);
+      break;
+  }
+  return serde::RecordType_Base;
+}
+
 c10::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:
@@ -518,50 +545,59 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
 
-  auto deserializeConstantBoolRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::ConstantRecord<nvfuser::Bool, bool>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantBool,
-        buffer->data_as_Bool()->bool_val(),
-        nvfuser::DataType::Bool);
-  };
-  registerParser(serde::RecordType_ConstantBool, deserializeConstantBoolRecord);
+  auto deserializeScalarConstantBoolRecord =
+      [](const serde::RecordFunctor* buffer) {
+        return new python_frontend::ScalarRecord<bool>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarConstantBool,
+            buffer->data_as_Bool()->bool_val(),
+            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()),
+            false);
+      };
+  registerParser(
+      serde::RecordType_ScalarConstantBool,
+      deserializeScalarConstantBoolRecord);
 
-  auto deserializeConstantDoubleRecord =
+  auto deserializeScalarConstantDoubleRecord =
       [](const serde::RecordFunctor* buffer) {
         auto data = buffer->data_as_Double();
-        return new python_frontend::ConstantRecord<nvfuser::Double, double>(
+        return new python_frontend::ScalarRecord<double>(
             parseStateArgs(buffer->outputs()),
-            serde::RecordType_ConstantDouble,
+            serde::RecordType_ScalarConstantDouble,
             data->double_val(),
-            mapToNvfuserDtype(data->dtype()));
+            mapToNvfuserDtype(data->dtype()),
+            false);
       };
   registerParser(
-      serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
+      serde::RecordType_ScalarConstantDouble,
+      deserializeScalarConstantDoubleRecord);
 
-  auto deserializeConstantComplexDoubleRecord =
+  auto deserializeScalarConstantComplexDoubleRecord =
       [](const serde::RecordFunctor* buffer) {
         auto data = buffer->data_as_ComplexDouble();
-        return new python_frontend::
-            ConstantRecord<nvfuser::ComplexDouble, std::complex<double>>(
-                parseStateArgs(buffer->outputs()),
-                serde::RecordType_ConstantComplexDouble,
-                std::complex<double>(data->real(), data->imag()),
-                mapToNvfuserDtype(data->dtype()));
+        return new python_frontend::ScalarRecord<std::complex<double>>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarConstantComplexDouble,
+            std::complex<double>(data->real(), data->imag()),
+            mapToNvfuserDtype(data->dtype()),
+            false);
       };
   registerParser(
-      serde::RecordType_ConstantComplexDouble,
-      deserializeConstantComplexDoubleRecord);
+      serde::RecordType_ScalarConstantComplexDouble,
+      deserializeScalarConstantComplexDoubleRecord);
 
-  auto deserializeConstantIntRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Int();
-    return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantInt,
-        data->int_val(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
+  auto deserializeScalarConstantIntRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_Int();
+        return new python_frontend::ScalarRecord<int64_t>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarConstantInt,
+            data->int_val(),
+            mapToNvfuserDtype(data->dtype()),
+            false);
+      };
+  registerParser(
+      serde::RecordType_ScalarConstantInt, deserializeScalarConstantIntRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();
@@ -652,12 +688,15 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 
-  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::ScalarRecord(
+  auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ScalarRecord<std::nullptr_t>(
         parseStateArgs(buffer->outputs()),
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+        serde::RecordType_ScalarInput,
+        nullptr,
+        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()),
+        true);
   };
-  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
+  registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
 
   auto deserializeSliceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Slice();

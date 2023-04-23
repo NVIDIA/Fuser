@@ -463,101 +463,54 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("is_cpu") = false,
           py::return_value_policy::reference)
       .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             double val,
-             PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (double)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Double, double>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantDouble,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Double,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             std::complex<double> val,
-             PrimDataType dtype = DataType::ComplexDouble) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (complex)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ConstantRecord<ComplexDouble, std::complex<double>>(
-                    {self.recordingState(out())},
-                    serde::RecordType_ConstantComplexDouble,
-                    val,
-                    dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::ComplexDouble,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             bool val,
-             PrimDataType dtype = DataType::Bool) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (bool)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Bool, bool>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantBool,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Bool,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             int64_t val,
-             PrimDataType dtype = DataType::Int) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (int)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Int, int64_t>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Int,
-          py::return_value_policy::reference)
-      .def(
           "define_scalar",
           [](FusionDefinition& self,
              PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+            FUSER_PERF_SCOPE("FusionDefinition.define_scalar (input_specific)");
             TORCH_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ScalarRecord<dtype, std::nullptr_t>({self.recordingState(out())}, nullptr, dtype, true));
+            self.defineRecord(new ScalarRecord<std::nullptr_t>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarInput,
+                nullptr,
+                dtype,
+                true));
             return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
+
+// This is the canonical version of define_scalar, therefore, it is possible
+// to also define a scalar input with type Null/std::nullptr_t
+// The ScalarRecord will be responsible for checking if is_input is valid.
+#define NVFUSER_PYTHON_BINDING_SCALAR(Nvfuser_DType, CType)                    \
+  fusion_def.def(                                                              \
+      "define_scalar",                                                         \
+      [](FusionDefinition& self, CType val, PrimDataType dtype, bool is_input) \
+          -> Scalar {                                                          \
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                    \
+        Scalar out = self.defineScalar();                                      \
+        self.defineRecord(new ScalarRecord<CType>(                             \
+            {self.recordingState(out())},                                      \
+            serde::mapToSerdeScalarRecordType(Nvfuser_DType),                  \
+            val,                                                               \
+            dtype,                                                             \
+            is_input));                                                        \
+        return out;                                                            \
+      },                                                                       \
+      py::arg("val"),                                                          \
+      py::arg("dtype") = Nvfuser_DType,                                        \
+      py::arg("is_input") = false,                                             \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_SCALAR(DataType::Bool, bool);
+  NVFUSER_PYTHON_BINDING_SCALAR(DataType::ComplexDouble, std::complex<double>);
+  NVFUSER_PYTHON_BINDING_SCALAR(DataType::Double, double);
+  NVFUSER_PYTHON_BINDING_SCALAR(DataType::Int, int64_t);
+  NVFUSER_PYTHON_BINDING_SCALAR(DataType::Null, std::nullptr_t);
+#undef NVFUSER_PYTHON_BINDING_CONSTANT
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.

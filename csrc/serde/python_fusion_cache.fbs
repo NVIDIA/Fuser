@@ -53,10 +53,6 @@ enum RecordType:int {
     CastTv,
     CastVal,
     CatOp,
-    ConstantBool,
-    ConstantInt,
-    ConstantDouble,
-    ConstantComplexDouble,
     End,
     FullOp,
     IotaOp,
@@ -94,7 +90,11 @@ enum RecordType:int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    Scalar,
+    ScalarConstantBool,
+    ScalarConstantComplexDouble,
+    ScalarConstantDouble,
+    ScalarConstantInt,
+    ScalarInput,
     SliceOp,
     SqueezeOp,
     Start,
@@ -124,25 +124,39 @@ union RecordData {
   Squeeze,
   Reduction,
   Reshape,
+  ScalarInput,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
 }
 
-// Data for Constant Bool
+// Data for Scalar Constant Bool
 table Bool {
   bool_val: bool;
+  dtype: DataType;
 }
 
-// Data for Constant Double or Float
+// Data for Scalar Constant Complex Double or Float
+table ComplexDouble {
+  real: double;
+  imag: double;
+  dtype: DataType;
+}
+
+// Data for Scalar Constant Double or Float
 table Double {
   double_val: double;
   dtype: DataType;
 }
 
-// Data for Constant Int or Long
+// Data for Scalar Constant Int or Long
 table Int {
   int_val: long;
+  dtype: DataType;
+}
+
+// Data for Scalar Input
+table ScalarInput {
   dtype: DataType;
 }
 
@@ -167,13 +181,6 @@ table BroadcastInDim {
 table BroadcastInDimSymbolic {
   output_shape: [State];
   broadcast_dims: [long];
-}
-
-// Data for Constant Complex Double or Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
 }
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord

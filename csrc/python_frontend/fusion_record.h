@@ -1235,155 +1235,6 @@ struct CatOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-//! Specialized Record Functor for recording FusionDefinition constant state.
-
-template <typename ExprType, typename ValueType>
-struct ConstantRecord : RecordFunctor {
-  ConstantRecord(
-      std::vector<State> _outputs,
-      serde::RecordType record_type,
-      ValueType val,
-      PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_constant", record_type),
-        value_(val),
-        dtype_(dtype) {}
-  virtual ~ConstantRecord() = default;
-  virtual RecordFunctor* clone() final {
-    return new ConstantRecord(*this);
-  }
-
-  //! Going to start out hashing nothing extra since hashing a complex number
-  //! seems complicated.  Initially, the thought was to simply static cast the
-  //! value_
-  virtual size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    return result;
-  }
-
-  virtual bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const ConstantRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
-        if constexpr (
-            std::is_same_v<ValueType, float> ||
-            std::is_same_v<ValueType, double>) {
-          if (std::isnan(value_) && std::isnan(child_ptr->value_)) {
-            return true;
-          } else {
-            result = (value_ == child_ptr->value_);
-          }
-        } else {
-          result = (value_ == child_ptr->value_);
-        }
-      }
-    }
-    return result;
-  }
-
-  virtual void operator()(FusionState& fd) final {
-    Val* output = IrBuilder::create<ExprType>(value_, dtype_);
-    fd.setFusionState(outputs_.at(0).index, output);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if constexpr (std::is_same_v<ValueType, bool>) {
-      bool value = __toBool(value_);
-      os << (value ? "True" : "False");
-    } else if constexpr (
-        std::is_same_v<ValueType, std::complex<float>> ||
-        std::is_same_v<ValueType, std::complex<double>>) {
-      os << std::showpoint << std::real(value_) << "+" << std::showpoint
-         << std::imag(value_) << "j";
-    } else if constexpr (
-        std::is_same_v<ValueType, float> || std::is_same_v<ValueType, double>) {
-      if (std::isinf(value_)) {
-        if (std::signbit(value_)) {
-          os << "float(\"-inf\")";
-        } else {
-          os << "float(\"inf\")";
-        }
-      } else if (std::isnan(value_)) {
-        os << "float(\"nan\")";
-      } else {
-        os << std::showpoint << value_;
-      }
-    } else {
-      os << std::showpoint << value_;
-    }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
-
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return valueRecordData(builder, value_);
-  };
-
-  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
-      flatbuffers::FlatBufferBuilder& builder,
-      ValueType value) const;
-
- private:
-  //! The constants literal value.
-  ValueType value_;
-
-  //! The DataType provided
-  PrimDataType dtype_;
-};
-
-//! valueRecordData Specializations used by recordData()
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Bool,
-    bool>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, bool value)
-    const {
-  return {serde::RecordData_Bool, serde::CreateBool(builder, value).Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    ComplexDouble,
-    std::complex<double>>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::complex<double> value) const {
-  return {
-      serde::RecordData_ComplexDouble,
-      serde::CreateComplexDouble(
-          builder, value.real(), value.imag(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Double,
-    double>::
-    valueRecordData(flatbuffers::FlatBufferBuilder& builder, double value)
-        const {
-  return {
-      serde::RecordData_Double,
-      serde::CreateDouble(builder, value, serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Int,
-    int64_t>::
-    valueRecordData(flatbuffers::FlatBufferBuilder& builder, int64_t value)
-        const {
-  return {
-      serde::RecordData_Int,
-      serde::CreateInt(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
-}
-
 //! Specialized Record Functor for recording FusionState End.
 //! The accompanying Fusion Cache Entry holds a Fusion Object.
 
@@ -1990,18 +1841,15 @@ struct TorchGatherOpRecord : RecordFunctor {
 
 //! Specialized Record Functor for recording FusionState input scalars.
 
-template <typename NvfuserDType, typename ValueType>
+template <typename ValueType>
 struct ScalarRecord : RecordFunctor {
-  ScalarRecord(std::vector<State> _outputs,
+  ScalarRecord(
+      std::vector<State> _outputs,
       serde::RecordType record_type,
       ValueType val,
       PrimDataType dtype,
       bool is_input)
-      : RecordFunctor(
-            {},
-            std::move(_outputs),
-            "define_scalar",
-            serde::RecordType_Scalar),
+      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
         value_(val),
         dtype_(dtype),
         is_input_(is_input) {}
@@ -2051,22 +1899,15 @@ struct ScalarRecord : RecordFunctor {
       os << ")";
     }
   }
-  /*
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData_Dtype,
-        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
-  }
+
   virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return valueRecordData(builder, value_);
   };
 
-  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
-      flatbuffers::FlatBufferBuilder& builder,
-      ValueType value) const;
-  */
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
+valueRecordData(flatbuffers::FlatBufferBuilder& builder, ValueType value)
+const;
 
  private:
   //! The scalar's value.
@@ -2076,6 +1917,56 @@ struct ScalarRecord : RecordFunctor {
   //! Indicates scalar is a symbolic input
   bool is_input_;
 };
+
+//! valueRecordData Specializations used by recordData() for ScalarRecord
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    bool>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, bool value)
+    const {
+  return {serde::RecordData_Bool, serde::CreateBool(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    std::complex<double>>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::complex<double> value) const {
+  return {
+      serde::RecordData_ComplexDouble,
+      serde::CreateComplexDouble(
+          builder, value.real(), value.imag(), serde::mapToSerdeDtype(dtype_))
+          .Union()};
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    double>::
+    valueRecordData(flatbuffers::FlatBufferBuilder& builder, double value)
+        const {
+  return {
+      serde::RecordData_Double,
+      serde::CreateDouble(builder, value, serde::mapToSerdeDtype(dtype_))
+          .Union()};
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    int64_t>::
+    valueRecordData(flatbuffers::FlatBufferBuilder& builder, int64_t value)
+        const {
+  return {
+      serde::RecordData_Int,
+      serde::CreateInt(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    std::nullptr_t>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, std::nullptr_t value)
+    const {
+  return {serde::RecordData_ScalarInput, serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+}
 
 //! Specialized Record Functor for the slice operation.
 //! Note: the python API is significantly different from the Codegen function.
