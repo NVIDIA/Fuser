@@ -33,6 +33,13 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
+struct RuntimeWorkSpace {
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order;
+
+  //! Pre-determined order to bind tensor input meta data
+  std::vector<Val*> group_extent_binding_order;
+};
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -90,6 +97,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+
+  const std::vector<int>& getArgsNumAfterSegmentRuns() {
+    return num_live_args_after_segment_runs_;
+  }
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);
@@ -218,19 +229,18 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::unique_ptr<SegmentedFusion> segmented_fusion_ = nullptr;
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
-  struct RuntimeWorkSpace {
-    //! Pre-determined order to run the segmented groups
-    std::vector<SegmentedGroup*> group_run_order;
-
-    //! Pre-determined order to bind tensor input meta data
-    std::vector<Val*> group_extent_binding_order;
-  } runtime_workspace_;
+  RuntimeWorkSpace runtime_workspace_;
 
   //! Utility to speed up value evaluation at runtime
   std::unique_ptr<PrecomputedValues> precomputed_values_;
 
   //! Cache of all tensors in the complete fusion
   std::vector<TensorView*> all_tvs_;
+
+  //! store number of arguments in KernelArgumentHolder after each segment
+  //! used to check if arguments are erased if not being used in the following
+  //! segments
+  std::vector<int> num_live_args_after_segment_runs_;
 
   // States for profiling support
   bool profiling_ = false;
