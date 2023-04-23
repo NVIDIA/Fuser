@@ -1859,36 +1859,41 @@ struct ScalarRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 ---------------------------------------  0 |
-  //! | Dtype                                         |
+  //! | 31       | 30 ---------------------------------------  0 |
+  //! | is_input | Dtype                                         |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+    result |= static_cast<size_t>(is_input) << 31;
+    return result | (static_cast<size_t>(dtype_) & 0x7fffffff);
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (dtype_ == child_ptr->dtype_);
+      result = result && (value_ == child_ptr->value_) && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
 
   virtual void operator()(FusionState& fd) final {
     Val* output = nullptr;
-    if (dtype_ == DataType::Double) {
-      output = IrBuilder::create<Double>();
-    } else if (dtype_ == DataType::ComplexDouble) {
-      output = IrBuilder::create<ComplexDouble>();
-    } else if (dtype_ == DataType::Bool) {
-      output = IrBuilder::create<Bool>();
-    } else if (dtype_ == DataType::Int) {
-      output = IrBuilder::create<Int>();
+    if constexpr (std::is_same<ValueType, std::nullptr_t>::value) {
+      if (dtype_ == DataType::Double) {
+        output = IrBuilder::create<Double>();
+      } else if (dtype_ == DataType::ComplexDouble) {
+        output = IrBuilder::create<ComplexDouble>();
+      } else if (dtype_ == DataType::Bool) {
+        output = IrBuilder::create<Bool>();
+      } else if (dtype_ == DataType::Int) {
+        output = IrBuilder::create<Int>();
+      } else {
+        TORCH_CHECK(false, "Dtype is not supported:", dtype_);
+      }
+      fd.addInput(output);
     } else {
-      TORCH_CHECK(false, "Dtype is not supported:", dtype_);
+      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(value_, dtype_);
     }
-    fd.addInput(output);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
