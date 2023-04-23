@@ -1863,7 +1863,7 @@ struct ScalarRecord : RecordFunctor {
   //! | is_input | Dtype                                         |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
-    result |= static_cast<size_t>(is_input) << 31;
+    result |= static_cast<size_t>(is_input_) << 31;
     return result | (static_cast<size_t>(dtype_) & 0x7fffffff);
   }
 

@@ -148,10 +148,29 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   const c10::optional<UnderlyingType> maybe_value_;
 };
 
-using Bool = Scalar<bool>;
-using Int = Scalar<int64_t>;
-using Double = Scalar<double>;
-using ComplexDouble = Scalar<std::complex<double>>;
+template <typename T>
+struct DtypeToScalarType;
+
+template <typename T>
+struct DataTypeToDtype;
+
+#define DEFINE_NVFUSER_SCALAR_TYPE(data_type, named_type) \
+  using named_type = Scalar<data_type>;                   \
+  template <>                                             \
+  struct DtypeToScalarType<data_type> {                   \
+    using type = named_type;                              \
+  };                                                      \
+  template <>                                             \
+  struct DataTypeToDtype<named_type> {                    \
+    using type = data_type;                               \
+  };
+
+DEFINE_NVFUSER_SCALAR_TYPE(bool, Bool);
+DEFINE_NVFUSER_SCALAR_TYPE(int64_t, Int);
+DEFINE_NVFUSER_SCALAR_TYPE(double, Double);
+DEFINE_NVFUSER_SCALAR_TYPE(std::complex<double>, ComplexDouble);
+
+#undef DEFINE_NVFUSER_SCALAR_TYPE
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the
