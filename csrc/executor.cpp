@@ -665,7 +665,7 @@ std::vector<at::Tensor> allocOutputs(
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
-    const AllocatedOutputsHolder& userHolder) {
+    const AllocatedOutputsHolder& preAllocatedOutputs) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
 
   std::vector<at::Tensor> outputs;
@@ -696,7 +696,8 @@ std::vector<at::Tensor> allocOutputs(
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(at::empty({0}, tensor_options));
     } else {
-      if (userHolder.has(kernel->outputs().at(output_idx))) {
+      // Checking if an output was already passed in, for this output val
+      if (preAllocatedOutputs.has(kernel->outputs().at(output_idx))) {
         outputs.emplace_back(userHolder.get(kernel->outputs().at(output_idx)));
       } else {
         outputs.emplace_back(at::native::empty_strided_cuda(
@@ -1419,7 +1420,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  // only allocate outputs when not given
+  // We used to require the number of output tensors - if provided - to be
+  // matching the number of outputs from the current fusion. However now the
+  // allocated at::Tensors are bound to the fusion's output values,
+  // we don't rely on the ordering anymore - so it allows to proceed even if we
+  // have only some outputs allocated. That is required to support segmented
+  // fusions with "user outputs" (as only some of them can end-up being passed
+  // down to this function).
   auto outputs = allocOutputs(
       kernel(),
       executor_entry->outputs,

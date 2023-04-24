@@ -20,12 +20,14 @@
 
 namespace nvfuser {
 
+//! Wrapper around a map that is used to bind fusion outputs (only tensors for
+//! now) to at::tensors that could have been allocated outside of nvFuser.
 class TORCH_CUDA_CU_API AllocatedOutputsHolder {
  public:
   AllocatedOutputsHolder() = default;
 
   //! Binds a Val* to an allocated at::Tensor
-  void bind(Val* val, at::Tensor tensor) {
+  inline void bind(Val* val, at::Tensor tensor) {
     if (has(val)) {
       TORCH_INTERNAL_ASSERT(false, "Cannot rebind a tensor");
     }
@@ -35,16 +37,16 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Returns the # of vals+at::tensor pairs held
-  size_t size() const {
+  inline size_t size() const {
     return map_.size();
   }
 
-  bool empty() const {
+  inline bool empty() const {
     return size() == 0;
   }
 
   //! Checks whether a Val* has an output already bound in the holder
-  bool has(Val* val) const {
+  inline bool has(Val* val) const {
     if (!val->isA<TensorView>()) {
       return false;
     }
@@ -52,7 +54,7 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Checks whether every Val* has an output already bound in the holder
-  bool has(const std::vector<Val*>& vals) const {
+  inline bool has(const std::vector<Val*>& vals) const {
     for (auto val : vals) {
       if (!has(val)) {
         return false;
@@ -62,7 +64,7 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Retrieves the aten tensor given a val*
-  at::Tensor get(Val* val) const {
+  inline at::Tensor get(Val* val) const {
     TORCH_INTERNAL_ASSERT(val->isA<TensorView>());
     auto it = map_.find(val);
     TORCH_INTERNAL_ASSERT(it != map_.end());
@@ -70,17 +72,13 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Retrieves a vector of aten::tensors with the same order as input
-  std::vector<at::Tensor> get(const std::vector<Val*>& vals) const {
+  inline std::vector<at::Tensor> get(const std::vector<Val*>& vals) const {
     std::vector<at::Tensor> outputs;
     outputs.reserve(vals.size());
     for (auto val : vals) {
       outputs.emplace_back(get(val));
     }
     return outputs;
-  }
-
-  void print() const {
-    std::cout << map_.begin()->first << std::endl;
   }
 
  private:
@@ -169,6 +167,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const AllocatedOutputsHolder& outputs_map = {});
 
+  // This overload is not just a wrapper. .
   std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
@@ -176,16 +175,20 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       std::vector<at::Tensor> outputs) {
     AllocatedOutputsHolder outputs_map;
     if (!outputs.empty()) {
+      // If there's a mismatch in number of outputs we can't map them.
       auto fusion_outputs = fusion_->outputs();
       TORCH_INTERNAL_ASSERT(
           fusion_outputs.size() == outputs.size(),
           "Passed a raw vector of output tensors. So we need to assume they are in the same order and number as fusion->outputs(). "
           "To pass only a few outputs, consider making a \"AllocatedOutputsHolder\"");
 
+      // We assume same ordering
       for (const auto i : c10::irange(outputs.size())) {
         outputs_map.bind(fusion_outputs[i], outputs[i]);
       }
     }
+    // Using the "safest" version that does not rely on output ordering - and
+    // can work with only some outputs
     return runFusion(args, launch_constraints, compile_params, outputs_map);
   }
 

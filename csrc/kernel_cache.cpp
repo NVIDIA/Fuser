@@ -205,7 +205,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
+  // TODO permute outputs ? But can allocatedOutputs even come from Pytorch?
   bool skipCacheLookup = !allocatedOutputs.empty();
+  // TODO Should we skip caching? Won't it result in re-compiling?
   KernelArgumentHolder args = prepareInputs(perm_inputs, skipCacheLookup);
 
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
@@ -478,12 +480,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
-  if (!allocatedOutputs.empty()) {
-    TORCH_INTERNAL_ASSERT(
-        sg->outputs().size() == allocatedOutputs.size(),
-        "runKernelWithInput: mismatch in number of outputs provided and number of fusion outputs");
-  }
-
   TORCH_INTERNAL_ASSERT(executors_.at(group_id).compiled(), "?");
 
   auto fusionOutputs = executors_.at(group_id).kernel()->outputs();
@@ -494,7 +490,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // allocated and bind the to val* of the compiled fusion.
   AllocatedOutputsHolder fusionOutputsHolder;
   for (auto i : c10::irange(fusionOutputs.size())) {
-    std::cout << segmentOutputs[i] << std::endl;
     if (allocatedOutputs.has(segmentOutputs[i])) {
       fusionOutputsHolder.bind(
           fusionOutputs[i], allocatedOutputs.get(segmentOutputs[i]));

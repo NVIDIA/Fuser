@@ -3786,20 +3786,23 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
   FusionGuard fg(fusion.get());
 
   std::vector<int64_t> input_shape{32, 64, 8};
-  const int kReductionAxis = 1;
 
   auto tv0 = TensorViewBuilder()
                  .ndims(input_shape.size())
                  .dtype(DataType::Double)
                  .build();
 
-  fusion->addInput(tv0);
-
   auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
   auto tv2 = sum(tv1, {2}); // Group 0
+  auto tv3 = softmax(tv2, 0); // Group 1
 
-  auto output = softmax(tv2, kReductionAxis); // Group 1
-  fusion->addOutput(output);
+  auto tv4 = add(tv3, IrBuilder::create<Double>(1.0));
+  auto tv5 = softmax(tv4, 0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
@@ -3807,10 +3810,22 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
 
   auto t1 = at_x.add(1.0);
   auto t2 = t1.sum({2});
-  auto t_ref = at::_softmax(t2.to(at::kDouble), -1, false);
+  auto t3 = at::_softmax(t2.to(at::kDouble), 0, false);
+  auto t4 = t3.add(1.0);
+  auto t5 = at::_softmax(t4.to(at::kDouble), 0, false);
 
-  auto at_out = at::zeros(t_ref.sizes(), options);
-  auto outputs = executor_cache.runFusionWithInputs({at_x}, {}, {at_out});
+  auto expectedOutputs = {t1, t3, t5};
+
+  auto allocatedOutputs = {
+      at::zeros(t1.sizes(), options),
+      // Skipping t2, necessary for second segment. so will necessarily be
+      // internally allocated. So checking that it works
+      at::zeros(t3.sizes(), options),
+      // Skipping an output
+      at::zeros(t5.sizes(), options)};
+
+  auto fusionOutputs =
+      executor_cache.runFusionWithInputs({at_x}, {}, allocatedOutputs);
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
@@ -3819,10 +3834,20 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
       "segmentation didn't happen as expected");
 
   testValidate(
-      executor_cache.fusion(), outputs, {at_x}, {t_ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      allocatedOutputs,
+      {at_x},
+      expectedOutputs,
+      __LINE__,
+      __FILE__);
 
   testValidate(
-      executor_cache.fusion(), {at_out}, {at_x}, {t_ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      fusionOutputs,
+      {at_x},
+      expectedOutputs,
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGridPersistence_CUDA) {
