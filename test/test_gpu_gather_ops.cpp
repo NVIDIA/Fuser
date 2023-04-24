@@ -486,4 +486,54 @@ TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, TakeAlongBroadcastInput_CUDA) {
+  for (const auto inp_indexed_dim : {1, 11}) {
+    for (const auto idx_index_dim : {1, 3}) {
+      // [B, B, I] when inp_indexed_dim == 1, otherwise [B, I, I]
+      std::vector<int64_t> input_dims{1, inp_indexed_dim, 12};
+      // [I, B] when idx_index_dim == 1, otherwise [I, I]
+      std::vector<int64_t> index_dims{5, idx_index_dim};
+      // This needs to match with the take_along_axis output
+      std::vector<int64_t> out_dims{
+          index_dims.at(0), index_dims.at(1), input_dims.at(2)};
+
+      auto fusion_ptr = std::make_unique<Fusion>();
+      Fusion& fusion = *fusion_ptr.get();
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeConcreteTensor({1, inp_indexed_dim == 1 ? 1 : -1, -1});
+      auto tv1 =
+          makeConcreteTensor({-1, idx_index_dim == 1 ? 1 : -1}, DataType::Int);
+      auto tv2 =
+          makeConcreteTensor({-1, idx_index_dim == 1 ? idx_index_dim : -1, -1});
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
+      fusion.addInput(tv2);
+
+      auto tv3 = broadcast(tv1, {false, false, true});
+      auto tv4 = take_along_axis(tv0, tv3, 1);
+      auto tv5 = add(tv4, tv2);
+      fusion.addOutput(tv5);
+
+      at::manual_seed(0);
+      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+      auto options_i =
+          at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+      at::Tensor t0 = at::randn(input_dims, options);
+      at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
+      at::Tensor t2 = at::randn(out_dims, options);
+      std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+      FusionExecutorCache executor_cache(std::move(fusion_ptr));
+      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+      auto t4 =
+          at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+      auto ref = t4 + t2;
+
+      testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+    }
+  }
+}
+
 } // namespace nvfuser
