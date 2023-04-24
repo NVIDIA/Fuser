@@ -279,6 +279,7 @@ struct TensorArg : public TensorArgAbstract {
       setSize(dim, tensor->size()->Get(dim));
       setStride(dim, tensor->stride()->Get(dim));
     }
+    index_type_resolved_ = tensor->index_type_resolved();
   }
 
   void setSize(int64_t i, int64_t size) {
@@ -358,7 +359,6 @@ struct TensorArg : public TensorArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
     std::vector<int64_t> sizes_fb;
     std::vector<int64_t> strides_fb;
     sizes_fb.reserve(getRank());
@@ -375,7 +375,8 @@ struct TensorArg : public TensorArgAbstract {
         builder.CreateVector(strides_fb),
         instance_.nDims(),
         serde::mapToSerdeDtype(getDataType()),
-        std::is_same_v<typename TENSOR_TYPE::index_type, int>);
+        std::is_same_v<typename TENSOR_TYPE::index_type, int>,
+        index_type_resolved_);
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_TensorArg, data.Union());
   }

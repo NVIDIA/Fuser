@@ -1529,7 +1529,8 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_STRIDE = 8,
     VT_NDIMS = 10,
     VT_DTYPE = 12,
-    VT_IS_INT_INDEX_MODE = 14
+    VT_IS_INT_INDEX_MODE = 14,
+    VT_INDEX_TYPE_RESOLVED = 16
   };
   uint64_t ptr() const {
     return GetField<uint64_t>(VT_PTR, 0);
@@ -1550,6 +1551,9 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool is_int_index_mode() const {
     return GetField<uint8_t>(VT_IS_INT_INDEX_MODE, 0) != 0;
   }
+  bool index_type_resolved() const {
+    return GetField<uint8_t>(VT_INDEX_TYPE_RESOLVED, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_PTR) &&
@@ -1558,6 +1562,7 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         VerifyField<int64_t>(verifier, VT_NDIMS) &&
         VerifyField<int32_t>(verifier, VT_DTYPE) &&
         VerifyField<uint8_t>(verifier, VT_IS_INT_INDEX_MODE) &&
+        VerifyField<uint8_t>(verifier, VT_INDEX_TYPE_RESOLVED) &&
         verifier.EndTable();
   }
 };
@@ -1588,6 +1593,12 @@ struct TensorArgBuilder {
         static_cast<uint8_t>(is_int_index_mode),
         0);
   }
+  void add_index_type_resolved(bool index_type_resolved) {
+    fbb_.AddElement<uint8_t>(
+        TensorArg::VT_INDEX_TYPE_RESOLVED,
+        static_cast<uint8_t>(index_type_resolved),
+        0);
+  }
   explicit TensorArgBuilder(flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
@@ -1605,13 +1616,15 @@ inline flatbuffers::Offset<TensorArg> CreateTensorArg(
     flatbuffers::Offset<flatbuffers::Vector<int64_t>> stride = 0,
     int64_t ndims = 0,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
-    bool is_int_index_mode = false) {
+    bool is_int_index_mode = false,
+    bool index_type_resolved = false) {
   TensorArgBuilder builder_(_fbb);
   builder_.add_ndims(ndims);
   builder_.add_ptr(ptr);
   builder_.add_dtype(dtype);
   builder_.add_stride(stride);
   builder_.add_size(size);
+  builder_.add_index_type_resolved(index_type_resolved);
   builder_.add_is_int_index_mode(is_int_index_mode);
   return builder_.Finish();
 }
@@ -1623,11 +1636,19 @@ inline flatbuffers::Offset<TensorArg> CreateTensorArgDirect(
     const std::vector<int64_t>* stride = nullptr,
     int64_t ndims = 0,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
-    bool is_int_index_mode = false) {
+    bool is_int_index_mode = false,
+    bool index_type_resolved = false) {
   auto size__ = size ? _fbb.CreateVector<int64_t>(*size) : 0;
   auto stride__ = stride ? _fbb.CreateVector<int64_t>(*stride) : 0;
   return nvfuser::serde::CreateTensorArg(
-      _fbb, ptr, size__, stride__, ndims, dtype, is_int_index_mode);
+      _fbb,
+      ptr,
+      size__,
+      stride__,
+      ndims,
+      dtype,
+      is_int_index_mode,
+      index_type_resolved);
 }
 
 struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {

@@ -230,6 +230,7 @@ table TensorArg {
   ndims : long;
   dtype: DataType;
   is_int_index_mode : bool;
+  index_type_resolved : bool;
 }
 
 table ArgAbstract {
