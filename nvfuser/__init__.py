@@ -75,7 +75,18 @@ class FusionDefinition(_C._FusionDefinition):
         except Exception as err:
             print("\nError executing nvFuser FusionDefinition:")
             print(self)
-            raise RuntimeError(err)
+            print("# Generate similar inputs to reproduce:")
+            print("inputs = [")
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    if i.dtype.is_floating_point:
+                        print(f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}').as_strided({tuple(i.size())}, {tuple(i.stride())}),")
+                    else:
+                        print(f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}').as_strided({tuple(i.size())}, {tuple(i.stride())}),")
+                else:
+                    print(f"    {i},")
+            print("]")
+            raise err
 
         return result
 
