@@ -7,6 +7,8 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
+#include <ir_internal_nodes.h>
+#include <ir_utils.h>
 #include <kernel_ir_dispatch.h>
 #include <lower2device.h>
 #include <lower_utils.h>
@@ -98,6 +100,16 @@ class EliminateDeadBroadcastAndAllocate {
         if (auto ti = dynamic_cast<kir::TensorIndex*>(inp)) {
           if (candidate_tv_set_.count(ti->view())) {
             live_tvs_.insert(ti->view());
+          }
+          // Also find any TVs used in index expressions.
+          // These expressions will likely not be in the Expr tree we are
+          // provided, so we need to traverse to find them.
+          auto all_index_roots =
+              InputsOf::outputs(FusionGuard::getCurFusion(), {ti->index()});
+          auto index_root_tis =
+              ir_utils::filterByType<kir::TensorIndex>(all_index_roots);
+          for (auto rootti : index_root_tis) {
+            live_tvs_.insert(rootti->view());
           }
         }
       }
