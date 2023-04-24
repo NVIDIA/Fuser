@@ -3232,6 +3232,40 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
   }
 }
 
+// Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
+//   with strict ref check hence single layout check
+TEST_F(NVFuserTest, FusionMatmulSegmenterCheckAllocatedOutputs_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  const int M = 128, N = 256, K = 512;
+  const auto layout = MatmulLayout::TT;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = matmul(tv0, tv1, layout);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  at::manual_seed(0);
+
+  at::Tensor A = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+  at::Tensor B = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+  at::Tensor D = matmulAtInput(M, N, K, layout, TensorMatmulPos::D, at::kFloat);
+  at::Tensor tref = atMatmul(A, B, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({A, B}, {}, {D});
+
+  testValidate(
+      executor_cache.fusion(), {D}, {A, B}, {tref}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, {A, B}, {tref}, __LINE__, __FILE__);
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
