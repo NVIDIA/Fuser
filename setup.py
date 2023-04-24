@@ -333,7 +333,9 @@ def main():
         )
 
         if BUILD_SETUP and PATCH_NVFUSER:
-            subprocess.check_call(["patch-nvfuser"])
+            from nvfuser_python_utils.patch_nvfuser import patch_installation
+
+            patch_installation()
 
 
 if __name__ == "__main__":
