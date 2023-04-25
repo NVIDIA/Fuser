@@ -234,6 +234,8 @@ def cmake():
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
+    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
+
     # this is used to suppress import error.
     # so we can get the right pytorch prefix for cmake
     import logging
@@ -242,7 +244,6 @@ def cmake():
     logger_level = logger.getEffectiveLevel()
     logger.setLevel(logging.CRITICAL)
 
-    from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
 
     logger.setLevel(logger_level)
