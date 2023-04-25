@@ -116,10 +116,11 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
 
-  //! torch.gather and numpy.take_along_axis mostly have the same
-  //! semantics, except for that in torch.gather the extents of the
-  //!  non-indexed dimensions of the index tensor may have smaller
-  //! extents than those of the input tensor
+  //! Parameter exact_sizes indicates whether the non-indexed domains
+  //! of the index tensor have the same extents of those of the input
+  //! tensor. It's true in the case of torch.take_along_dim and
+  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
+  //! they are the same.
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
@@ -127,11 +128,11 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
       int dim,
       IterDomain* select_id,
       Val* index,
-      bool is_take_along_axis);
+      bool exact_sizes);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TorchGatherOp";
   }
 
@@ -154,7 +155,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
     return attribute(0)->as<IterDomain>();
   }
 
-  bool isTakeAlongAxis() const {
+  bool exactSizes() const {
     return attribute(2)->as<Attribute<bool>>()->value;
   }
 };

@@ -209,15 +209,15 @@ TorchGatherOp::TorchGatherOp(
     int dim,
     IterDomain* select_id,
     Val* indices,
-    bool is_take_along_axis)
+    bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
   addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
-  addAttribute(IrBuilder::create<Attribute<bool>>(
-      passkey.ir_container_, is_take_along_axis));
+  addAttribute(
+      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
@@ -225,15 +225,14 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = "
-                          << (isTakeAlongAxis() ? "take_along_axis"
-                                                : "torch_gather")
+                          << (exactSizes() ? "take_along_axis" : "torch_gather")
                           << "( ";
   if (lookupTv()->isA<kir::TensorIndex>()) {
     ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
   } else {
     ss << lookupTv()->toString();
   }
-  if (isTakeAlongAxis()) {
+  if (exactSizes()) {
     ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
   } else {
     ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";

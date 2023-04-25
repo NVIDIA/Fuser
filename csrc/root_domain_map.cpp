@@ -87,7 +87,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
       consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() ==
           producerTv() &&
-      !consumer_tv_->definition()->as<TorchGatherOp>()->isTakeAlongAxis() &&
+      !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
       require_same_extent_) {
     // Nothing to map when having same extent is required
     return {};
