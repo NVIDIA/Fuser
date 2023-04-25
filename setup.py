@@ -256,6 +256,7 @@ def cmake():
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
         cmd_str.append("-DBUILD_PYTHON=ON")
+        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
 
