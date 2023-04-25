@@ -208,26 +208,35 @@ TorchGatherOp::TorchGatherOp(
     Val* in,
     int dim,
     IterDomain* select_id,
-    Val* indices)
+    Val* indices,
+    bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
   addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = torch_gather( ";
+  indent(ss, indent_size) << " = "
+                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << "( ";
   if (lookupTv()->isA<kir::TensorIndex>()) {
     ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
   } else {
     ss << lookupTv()->toString();
   }
-  ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+  if (exactSizes()) {
+    ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
+  } else {
+    ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+  }
   return ss.str();
 }
 
