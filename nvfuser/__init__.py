@@ -94,9 +94,15 @@ class FusionDefinition(_C._FusionDefinition):
             for i in inputs:
                 if isinstance(i, torch.Tensor):
                     if i.dtype.is_floating_point:
-                        msg += f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}').as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        msg += (
+                            f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
                     else:
-                        msg += f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}').as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        msg += (
+                            f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
                 else:
                     msg += f"    {i},\n"
             msg += "]"
