@@ -28,7 +28,7 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
 
   //! Binds a Val* to an allocated at::Tensor
   inline void bind(Val* val, at::Tensor tensor) {
-    if (has(val)) {
+    if (contains(val)) {
       TORCH_INTERNAL_ASSERT(false, "Cannot rebind a tensor");
     }
 
@@ -46,7 +46,7 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Checks whether a Val* has an output already bound in the holder
-  inline bool has(Val* val) const {
+  inline bool contains(Val* val) const {
     if (!val->isA<TensorView>()) {
       return false;
     }
@@ -54,9 +54,9 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Checks whether every Val* has an output already bound in the holder
-  inline bool has(const std::vector<Val*>& vals) const {
+  inline bool contains(const std::vector<Val*>& vals) const {
     for (auto val : vals) {
-      if (!has(val)) {
+      if (!contains(val)) {
         return false;
       }
     }
@@ -72,11 +72,21 @@ class TORCH_CUDA_CU_API AllocatedOutputsHolder {
   }
 
   //! Retrieves a vector of aten::tensors with the same order as input
-  inline std::vector<at::Tensor> get(const std::vector<Val*>& vals) const {
+  inline std::vector<at::Tensor> get(
+      const std::vector<Val*>& vals,
+      bool padMissing = false) const {
     std::vector<at::Tensor> outputs;
     outputs.reserve(vals.size());
     for (auto val : vals) {
-      outputs.emplace_back(get(val));
+      if (!padMissing) {
+        outputs.emplace_back(get(val));
+      } else {
+        if (contains(val)) {
+          outputs.emplace_back(get(val));
+        } else {
+          outputs.emplace_back(at::empty({0}));
+        }
+      }
     }
     return outputs;
   }

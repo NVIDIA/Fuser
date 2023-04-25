@@ -3814,16 +3814,18 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
   auto t4 = t3.add(1.0);
   auto t5 = at::_softmax(t4.to(at::kDouble), 0, false);
 
-  auto expectedOutputs = {t1, t3, t5};
+  auto tv1_out = at::zeros(t1.sizes(), options);
+  // Skipping t2, necessary for second segment. so will necessarily be
+  // internally allocated. So checking that it works
+  auto tv3_out = at::zeros(t3.sizes(), options);
+  // Skipping an output
+  auto tv5_out = at::zeros(t5.sizes(), options);
 
-  auto allocatedOutputs = {
-      at::zeros(t1.sizes(), options),
-      // Skipping t2, necessary for second segment. so will necessarily be
-      // internally allocated. So checking that it works
-      at::zeros(t3.sizes(), options),
-      // Skipping an output
-      at::zeros(t5.sizes(), options)};
+  AllocatedOutputsHolder allocatedOutputs;
+  allocatedOutputs.bind(tv1, tv1_out);
+  allocatedOutputs.bind(tv3, tv3_out);
 
+  // Test where we pass only two out of three outputs
   auto fusionOutputs =
       executor_cache.runFusionWithInputs({at_x}, {}, allocatedOutputs);
 
@@ -3833,11 +3835,11 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
       optimized_fusion->fusionSegments()->groups().size() == 2,
       "segmentation didn't happen as expected");
 
-  testValidate(
+   testValidate(
       executor_cache.fusion(),
-      allocatedOutputs,
+      {tv1_out, tv3_out, fusionOutputs[2]},
       {at_x},
-      expectedOutputs,
+      {t1, t3, t5},
       __LINE__,
       __FILE__);
 
@@ -3845,7 +3847,28 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
       executor_cache.fusion(),
       fusionOutputs,
       {at_x},
-      expectedOutputs,
+      {t1, t3, t5},
+      __LINE__,
+      __FILE__);
+
+  // Adding the third output
+  allocatedOutputs.bind(tv5, tv5_out);
+  fusionOutputs =
+      executor_cache.runFusionWithInputs({at_x}, {}, allocatedOutputs);
+
+  testValidate(
+      executor_cache.fusion(),
+      {tv1_out, tv3_out, tv5_out},
+      {at_x},
+      {t1, t3, t5},
+      __LINE__,
+      __FILE__);
+
+  testValidate(
+      executor_cache.fusion(),
+      fusionOutputs,
+      {at_x},
+      {t1, t3, t5},
       __LINE__,
       __FILE__);
 }

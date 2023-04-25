@@ -697,8 +697,9 @@ std::vector<at::Tensor> allocOutputs(
       outputs.emplace_back(at::empty({0}, tensor_options));
     } else {
       // Checking if an output was already passed in, for this output val
-      if (preAllocatedOutputs.has(kernel->outputs().at(output_idx))) {
-        outputs.emplace_back(userHolder.get(kernel->outputs().at(output_idx)));
+      if (preAllocatedOutputs.contains(kernel->outputs().at(output_idx))) {
+        outputs.emplace_back(
+            preAllocatedOutputs.get(kernel->outputs().at(output_idx)));
       } else {
         outputs.emplace_back(at::native::empty_strided_cuda(
             buf_info.sizes,
@@ -1382,9 +1383,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   const auto num_inputs = args.size();
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
-    auto outputs = outputs_map.has(fusion_->outputs())
-        ? outputs_map.get(fusion_->outputs())
-        : std::vector<at::Tensor>{};
+    auto outputs = outputs_map.empty()
+        ? std::vector<at::Tensor>{}
+        : outputs_map.get(fusion_->outputs(), true); // Adding empty tensors
     dumpFusionArgs(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
@@ -1404,7 +1405,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
-    auto outputs = outputs_map.has(fusion_->outputs())
+    auto outputs = outputs_map.contains(fusion_->outputs())
         ? outputs_map.get(fusion_->outputs())
         : std::vector<at::Tensor>{};
 

@@ -185,7 +185,7 @@ void FusionExecutorCache::compileFusionAsync(
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
-    const std::vector<at::Tensor>& allocatedOutputs) {
+    const AllocatedOutputsHolder& allocatedOutputs) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   // Permute input tensor for kernel execution.
@@ -229,7 +229,25 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       "run_fused_kernel",
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
-  auto outputs = kernel_runtime->runWithInputs(args, allocatedOutputs);
+
+  // Translating passed in outputs to segmented fusion vals*
+  TORCH_INTERNAL_ASSERT(
+      fusion_->outputs().size() ==
+          kernel_runtime->fusionSegments()->outputs().size(),
+      "This should be unreachable. Segmented fusion has not the same number of ouputs as the original fusion");
+
+  // Holder associates at::tensors to fusion outputs, so 
+  // we remake it, but with the segented fusion outputs
+  AllocatedOutputsHolder segmentedFusionOutputs;
+  for (int i : c10::irange(fusion_->outputs().size())) {
+    if (allocatedOutputs.contains(fusion_->outputs()[i])) {
+      segmentedFusionOutputs.bind(
+          kernel_runtime->fusionSegments()->outputs()[i],
+          allocatedOutputs.get(fusion_->outputs()[i]));
+    }
+  }
+
+  auto outputs = kernel_runtime->runWithInputs(args, segmentedFusionOutputs);
   RECORD_OUTPUTS(outputs);
 
   // Permute output tensor returned by kernel execution.
@@ -456,7 +474,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg,
-    const AllocatedOutputsHolder& allocatedOutputs) {
+    const AllocatedOutputsHolder& segmentOutputHolder) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
   // This function will be called once on un-segmented fusion,
@@ -487,12 +505,12 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   TORCH_INTERNAL_ASSERT(fusionOutputs.size() == segmentOutputs.size(), "?");
 
   // We iterate over both output vectors and select tensors that were already
-  // allocated and bind the to val* of the compiled fusion.
+  // allocated and that are required for this fusion
   AllocatedOutputsHolder fusionOutputsHolder;
   for (auto i : c10::irange(fusionOutputs.size())) {
-    if (allocatedOutputs.has(segmentOutputs[i])) {
+    if (segmentOutputHolder.contains(segmentOutputs[i])) {
       fusionOutputsHolder.bind(
-          fusionOutputs[i], allocatedOutputs.get(segmentOutputs[i]));
+          fusionOutputs[i], segmentOutputHolder.get(segmentOutputs[i]));
     }
   }
 
@@ -696,7 +714,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& allocatedOutputs) {
+    const AllocatedOutputsHolder& allocatedOutputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -778,7 +796,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     runSegmentsWithInputs(
         KernelArgumentHolder& args,
         bool is_dry_run,
-        const std::vector<at::Tensor>& allocatedOutputs) {
+        const AllocatedOutputsHolder& allocatedOutputs) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -788,17 +806,6 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
       mapFusionInputsToArgs(args);
-
-  if (allocatedOutputs.size()) {
-    TORCH_INTERNAL_ASSERT(
-        allocatedOutputs.size() == segmented_fusion_->outputs().size(),
-        "Outputs must match expected output count");
-  }
-
-  AllocatedOutputsHolder holder;
-  for (auto i : c10::irange(allocatedOutputs.size())) {
-    holder.bind(segmented_fusion_->outputs()[i], allocatedOutputs[i]);
-  }
 
   auto update_outputs = [&args, &tensor_map](
                             auto group_outputs, auto group_runtime_outputs) {
@@ -841,8 +848,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
           dryRunKernelWithInput(group_runtime_inputs, group_to_run);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     } else {
-      std::vector<at::Tensor> group_runtime_outputs =
-          runKernelWithInput(group_runtime_inputs, group_to_run, holder);
+      std::vector<at::Tensor> group_runtime_outputs = runKernelWithInput(
+          group_runtime_inputs, group_to_run, allocatedOutputs);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     }
   }

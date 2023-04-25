@@ -3258,7 +3258,10 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterCheckAllocatedOutputs_CUDA) {
   at::Tensor tref = atMatmul(A, B, layout);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({A, B}, {}, {D});
+
+  AllocatedOutputsHolder holder;
+  holder.bind(tv2, D);
+  auto outputs = executor_cache.runFusionWithInputs({A, B}, {}, holder);
 
   testValidate(
       executor_cache.fusion(), {D}, {A, B}, {tref}, __LINE__, __FILE__);

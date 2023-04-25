@@ -91,7 +91,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(
       KernelArgumentHolder& args,
-      const std::vector<at::Tensor>& outputs = {});
+      const AllocatedOutputsHolder& outputs = {});
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);
@@ -167,7 +167,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
       KernelArgumentHolder& args,
       bool is_dry_run,
-      const std::vector<at::Tensor>& outputs = {});
+      const AllocatedOutputsHolder& outputs = {});
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
@@ -384,7 +384,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
-      const std::vector<at::Tensor>& outputs = {});
+      const AllocatedOutputsHolder& outputs = {});
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! async, there's some restriction on the user side. e.g. Do not overlap
