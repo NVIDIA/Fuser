@@ -397,7 +397,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (auto it = ref_transform.shapes.begin() + 1;
          it != ref_transform.shapes.end();
          ++it) {
-      auto shape = *it;
+      const auto& shape = *it;
       std::vector<Val*> shape_arg;
       for (const auto i : c10::irange(shape.size())) {
         (void)i;
@@ -616,6 +616,109 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
       info1.toString(),
       "and\n",
       info2.toString());
+}
+
+// Test FusionExecutorCache with dynamic reshapes
+TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion->addInput(tv1);
+
+  auto reshape_shape0 = IrBuilder::create<Int>();
+  fusion->addInput(reshape_shape0);
+  auto reshape_shape1 = IrBuilder::create<Int>();
+  fusion->addInput(reshape_shape1);
+
+  auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
+  auto tv3 = add(tv1, tv2);
+
+  fusion->addOutput(tv3);
+
+  // tv2 has symbolic axes as reshape is dynamic
+  TORCH_CHECK(
+      tv2->domain()->hasSymbolicAxis(),
+      "Expected to have symbolic axes: ",
+      tv2->toString());
+
+  // The symbolic axes of tv2 should not be propagated to tv3 as tv1
+  // is fully concrete
+  TORCH_CHECK(
+      !tv3->domain()->hasSymbolicAxis(),
+      "Not expected to have symbolic axes: ",
+      tv3->toString());
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // Return pair of: number of concretizations & total number of kernel runtimes
+  auto countRuntimes = [&executor_cache]() {
+    std::unordered_set<const std::pair<
+        size_t,
+        std::optional<DynamicTransformConcretizationInfo>>*>
+        concs;
+    size_t runtime_count = 0;
+    for (auto& it : executor_cache.getKernelRuntimes()) {
+      concs.insert(&it.first);
+      runtime_count += it.second.size();
+    }
+    return std::make_pair(concs.size(), runtime_count);
+  };
+
+  TORCH_CHECK(countRuntimes().second == 0, "Expect to start with no runtimes");
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  { // trivial reshape
+    auto t0 = at::randn({3, 4}, options);
+    auto t1 = at::randn({3, 4}, options);
+    int64_t size0 = 3;
+    int64_t size1 = 4;
+    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto ref = t0 + t1;
+    testValidate(
+        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+    TORCH_CHECK(
+        countRuntimes().second == 1, "Expect to create a single runtime");
+  }
+  { // non-trivial reshape: merge and split
+    auto t0 = at::randn({3, 4}, options);
+    auto t1 = at::randn({4, 3}, options);
+    int64_t size0 = 4;
+    int64_t size1 = 3;
+    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto ref = t0.view({size0, size1}) + t1;
+    testValidate(
+        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+    auto num_rts = countRuntimes();
+    TORCH_CHECK(
+        num_rts.second == 2, "Non-trivial reshape should create new runtime");
+    TORCH_CHECK(
+        num_rts.first == 2,
+        "Non-trivial reshape should create new concretization cache level");
+  }
+  { // different non-trivial reshape
+    auto t0 = at::randn({2, 6}, options);
+    auto t1 = at::randn({4, 3}, options);
+    int64_t size0 = 4;
+    int64_t size1 = 3;
+    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto ref = t0.view({size0, size1}) + t1;
+    testValidate(
+        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+    auto num_rts = countRuntimes();
+    TORCH_CHECK(
+        num_rts.second == 2,
+        "Second non-trivial reshape should not create new runtime");
+    TORCH_CHECK(
+        num_rts.first == 2,
+        "Second non-trivial reshape should not create new concretization cache level");
+  }
 }
 
 } // namespace nvfuser

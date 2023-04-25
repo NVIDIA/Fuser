@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <dynamic_transform.h>
 #include <evaluator_common.h>
 #include <executor.h>
 #include <fusion.h>
@@ -33,6 +34,19 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
+//! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
+//! there are a lot of options how to combine hashes. In a case where one
+//! element of the pair is unlikely to change much, the following hash is fast
+//! and effective.
+struct SimplePairHash {
+  template <typename T, typename U>
+  size_t operator()(const std::pair<T, U>& p) const {
+    auto hT = std::hash<T>{}(p.first);
+    auto hU = std::hash<U>{}(p.second);
+    return hT ^ hU;
+  }
+};
+
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -45,7 +59,7 @@ struct ExecutorLog {
 class TORCH_CUDA_CU_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
-      Fusion* fusion,
+      std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -439,6 +453,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
+  //! Get all cached runtimes
+  auto& getKernelRuntimes() {
+    return kernel_runtimes_;
+  }
+
   void profile(bool to_profile) {
     profiling_ = to_profile;
     for (auto& it : kernel_runtimes_) {
@@ -478,14 +497,18 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
  private:
-  //! original un-scheduled `Fusion`;
+  //! original un-scheduled `Fusion`. This may contain dynamic transforms and
+  //! Symbolic IterDomains.
   std::unique_ptr<Fusion> fusion_;
 
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
   //! Graphs after input dependent transfoms
-  std::unordered_map<size_t, std::vector<std::unique_ptr<FusionKernelRuntime>>>
+  std::unordered_map<
+      std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
+      std::vector<std::unique_ptr<FusionKernelRuntime>>,
+      SimplePairHash>
       kernel_runtimes_;
 
   //! Logging state for most recent compilation
@@ -501,6 +524,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! TODO: this can be largely expanded to look at complete
   //!   caching profiles. Currently it just makes it easier to test
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
+
+  //! Whether fusion_ contains dynamic reshapes
+  bool has_dynamic_reshape_ = false;
 };
 
 class GraphCache {
