@@ -66,7 +66,6 @@ LstmResult lstm(
   TORCH_INTERNAL_ASSERT(cell_x != nullptr, "Cell-gate input is invalid");
   TORCH_INTERNAL_ASSERT(out_x != nullptr, "Out-gate input is invalid");
 
-  const auto in_gate = sigmoid(in_x);
   const auto forget_gate = sigmoid(forget_x);
   const auto cell_gate = tanh(cell_x);
   const auto out_gate = sigmoid(out_x);
@@ -75,6 +74,48 @@ LstmResult lstm(
   const auto hidden = mul(out_gate, tanh(cell));
 
   return {cell, hidden};
+}
+
+TensorView* _matmul_nn(TensorView* input1, TensorView* input2) {
+  TORCH_INTERNAL_ASSERT(false, "Matmul with Layout NN is not implemented!");
+  // [K, M] (non-transposed)
+  auto tv1b = broadcast(input1, {true, false, false});
+  // [N, K] (non-transposed)
+  auto tv2b = broadcast(input2, {false, false, true});
+
+  // [N, K, M] - (transposed)
+  auto output = fusedMultiplySum(tv1b, tv2b, {1});
+  return output;
+}
+TensorView* _matmul_nt(TensorView* input1, TensorView* input2) {
+  // [K, M] (non-transposed)
+  auto tv1b = broadcast(input1, {false, false, true});
+  // [K, N] (transposed)
+  auto tv2b = broadcast(input2, {false, true, false});
+
+  // [K, M, N]
+  auto output = fusedMultiplySum(tv1b, tv2b, {0});
+  return output;
+}
+TensorView* _matmul_tn(TensorView* input1, TensorView* input2) {
+  // [M, K] (transposed)
+  auto tv1b = broadcast(input1, {false, true, false});
+  // [N, K] (non-transposed)
+  auto tv2b = broadcast(input2, {true, false, false});
+
+  // [M, N, K]
+  auto output = fusedMultiplySum(tv1b, tv2b, {2});
+  return output;
+}
+TensorView* _matmul_tt(TensorView* input1, TensorView* input2) {
+  // [M, K] (transposed)
+  auto tv1b = broadcast(input1, {false, false, true});
+  // [K, N] (transposed)
+  auto tv2b = broadcast(input2, {true, false, false});
+
+  // [M, K, N]
+  auto output = fusedMultiplySum(tv1b, tv2b, {1});
+  return output;
 }
 
 namespace {
