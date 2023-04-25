@@ -102,7 +102,7 @@ class FusionDefinition(_C._FusionDefinition):
                 else:
                     msg += f"    {i},\n"
             msg += "]"
-            msg += f"\nfd.execute(inputs)\n"
+            msg += "\nfd.execute(inputs)\n"
             msg += "```\n"
             logger.exception(msg)
             raise
