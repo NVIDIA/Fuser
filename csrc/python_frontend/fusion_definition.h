@@ -159,6 +159,8 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   Scalar defineScalar();
   //! Defines a Tensor State Record
   Tensor defineTensor(size_t dims);
+  //! Defines a Vector State Record
+  Vector defineVector();
   //! Defines a Record that records the operation required to
   //! build the corresponding Fusion IR operation on cache miss.
   void defineRecord(RecordFunctor* record);
