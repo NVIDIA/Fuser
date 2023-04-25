@@ -30,8 +30,10 @@ TORCH_CUDA_CU_API TensorView* reshape(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
-//! Dynamic version of reshape. The number of dimensions cannot
-//! change, but the actual sizes of the dimensions can be symbolic.
+//! Dynamic version of reshape. The number of dimensions is statically
+//! fixed as the length of the new_sizes vector, but the size Vals can be
+//! symbolic, which are then concretized at run time with actual
+//! fusion inputs.
 TORCH_CUDA_CU_API TensorView* reshape(
     TensorView* x,
     const std::vector<Val*>& new_sizes);
