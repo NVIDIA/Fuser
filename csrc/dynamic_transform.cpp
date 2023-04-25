@@ -402,13 +402,6 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   const auto& root_domain = consumer->getRootDomain();
 
-  std::vector<IterType> output_domain_types;
-  std::transform(
-      root_domain.begin(),
-      root_domain.end(),
-      std::back_inserter(output_domain_types),
-      [](auto id) { return id->getIterType(); });
-
   auto def = consumer->definition();
 
   bool is_concretized = false;
