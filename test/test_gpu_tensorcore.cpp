@@ -23,6 +23,7 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <lower2device.h>
+#include <lower_bank_conflict.h>
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
@@ -317,9 +318,6 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    // prologSwizzle on Volta is not supported yet
-    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -332,6 +330,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -368,9 +368,6 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     params.double_buffer_options.double_buffer_smem_read = true;
     scheduleMatmul(&fusion, params);
 
-    // prologSwizzle on Volta is not supported yet
-    // ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -383,6 +380,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -651,10 +650,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
-
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
@@ -668,6 +666,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -710,8 +709,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       params.double_buffer_options.smem_double_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
 
-      ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -724,6 +721,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -777,8 +775,6 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
     scheduleMatmul(&fusion, params);
 
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -792,6 +788,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -885,8 +882,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       params.double_buffer_options.double_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
 
-      ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -899,6 +894,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -1809,14 +1805,13 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2826,8 +2821,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -2840,6 +2833,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2875,8 +2869,6 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -2889,6 +2881,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2931,8 +2924,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.double_buffer_options.double_buffer_smem_write = true;
         scheduleMatmul(&fusion, params);
 
-        ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
         at::manual_seed(0);
         auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -2945,6 +2936,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2997,8 +2989,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
 
           scheduleMatmul(&fusion, params);
 
-          ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
           at::manual_seed(0);
           auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3011,6 +3001,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
                   {inputs.first, inputs.second},
                   LaunchParams(),
                   matmul_cparams));
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
           auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
           auto tref = atMatmul(
               inputs.first.to(at::kFloat),
@@ -3057,8 +3048,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 
       scheduleMatmul(&fusion, params);
 
-      ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
       at::manual_seed(0);
       auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3071,6 +3060,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3110,8 +3100,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
-    ASSERT_TRUE(fusion.bankConflictInfo().empty());
-
     at::manual_seed(0);
     auto inputs = fp16MatmulAtInput(M, N, K, layout);
 
@@ -3124,6 +3112,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
