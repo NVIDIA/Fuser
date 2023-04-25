@@ -2047,15 +2047,13 @@ class TestNvFuserFrontend(TestCase):
             _ = fd.execute(inputs)
 
     @unittest.skipIf(
-        torch.cuda.device_count() == 1, "test_selected_device requires multiple GPUs"
+        torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
     )
     def test_selected_device(self):
         """
         Run the same Fusion as in test_scalar_only_inputs, but on device 1
         """
 
-        # We don't allow scalar outputs, currently,
-        # so a tensor has to be returned
         def fusion_func(fd: FusionDefinition):
             s0 = fd.define_scalar()
             s1 = fd.define_scalar()
@@ -2069,7 +2067,7 @@ class TestNvFuserFrontend(TestCase):
             fusion_func(fd)
 
         nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
-        eager_out = torch.full([2, 2], 1.0) * 5.0
+        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * 5.0
         self.assertEqual(eager_out, nvf_out[0])
 
         self.assertTrue(nvf_out[0].device.index == 1)
