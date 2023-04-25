@@ -481,7 +481,8 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    auto t4 = at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+    auto t4 = at::take_along_dim(
+        t0, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims), 1);
     auto ref = t4 + t2;
 
     testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
@@ -533,7 +534,7 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastInput_CUDA) {
       auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
       auto t4 =
-          at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+          at::take_along_dim(t0, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims), 1);
       auto ref = t4 + t2;
 
       testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
