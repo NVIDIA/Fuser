@@ -881,7 +881,7 @@ size_t AnalyzeViewResult::hash() const {
   auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
     size_t hash = 0;
     for (const auto i : c10::irange(vec.size())) {
-      hash = hash * 2 + static_cast<size_t>(vec.at(i));
+      hash = (hash << 1) + static_cast<size_t>(vec.at(i));
     }
     return hash;
   };

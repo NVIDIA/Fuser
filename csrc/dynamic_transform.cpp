@@ -274,16 +274,27 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   if (tv->hasRFactor()) {
     // Note that it is assumed that theres's no further expression
     // beyond the rfactor domain as asserted above
-    auto all_id_stmts = StmtSort::getStmtsBetween(
+    auto all_id_exprs = StmtSort::getExprsBetween(
         tv->fusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()});
-    for (auto expr : ir_utils::filterByType<Expr>(all_id_stmts)) {
+    for (auto expr : all_id_exprs) {
+      // Assume outputs of IterDomain exprs are always IterDomains. If
+      // the assumption is invalidated, the logic here would need to
+      // be updated. Assert the assumption to immediately detect such
+      // a case if happened.
+      for (auto out_val : expr->outputs()) {
+        TORCH_INTERNAL_ASSERT(
+            out_val->isA<IterDomain>(),
+            "Unexpected output: ",
+            out_val->toString(),
+            ". IterDomain was expected.");
+      }
+
       // If none of the output IDs is symbolic, nothing to concretize
       if (std::all_of(
               expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                TORCH_INTERNAL_ASSERT(output->isA<IterDomain>());
                 return output->as<IterDomain>()->getIterType() !=
                     IterType::Symbolic;
               })) {
