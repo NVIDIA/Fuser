@@ -117,6 +117,10 @@ class LoopIndexing {
     return loop_domains_;
   }
 
+  const auto& loopRootDomains() const {
+    return loop_root_;
+  }
+
   //! Returns the consumer tv that the view info
   //!  was derived from.
   auto consumerTv() const {
