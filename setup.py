@@ -20,6 +20,9 @@
 #   --no-ninja
 #     In case you want to use make instead of ninja for build
 #
+#   --debug
+#     Building nvfuser in debug mode
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -50,6 +53,7 @@ NO_NINJA = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
+BUILD_TYPE = "Release"
 INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -67,6 +71,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg == "--debug":
+        BUILD_TYPE = "Debug"
         continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
@@ -245,6 +252,7 @@ def cmake():
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
+        "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         "-B",
         build_dir_name,
     ]
