@@ -852,5 +852,93 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
+namespace {
+
+class ValidateDomainEquivalence : private IterVisitor {
+ public:
+  ValidateDomainEquivalence(
+      const std::vector<IterDomain*>& initial_domain,
+      const std::vector<IterDomain*>& derived_domain)
+      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
+        derived_domain_({derived_domain.begin(), derived_domain.end()}),
+        frontier_({initial_domain.begin(), initial_domain.end()}) {
+    TORCH_INTERNAL_ASSERT(!initial_domain.empty());
+    TORCH_INTERNAL_ASSERT(!derived_domain.empty());
+    // Make sure there's no duplicate in the parameter vectors
+    TORCH_INTERNAL_ASSERT(
+        initial_domain.size() == initial_domain_.size(),
+        "Duplicated entry is detected in inial_domain: ",
+        toDelimitedString(initial_domain));
+    TORCH_INTERNAL_ASSERT(
+        derived_domain.size() == derived_domain_.size(),
+        "Duplicated entry is detected in derived_domain: ",
+        toDelimitedString(derived_domain));
+    traverseTo(
+        initial_domain.at(0)->fusion(),
+        {derived_domain.begin(), derived_domain.end()});
+    // If there's any symbolic ID, can't completely validate. Just
+    // make sure all non-symbolic IDs are included in the frontier set
+    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
+          return id->getIterType() == IterType::Symbolic;
+        })) {
+      TORCH_INTERNAL_ASSERT(std::all_of(
+          derived_domain.begin(), derived_domain.end(), [&](auto id) {
+            return id->getIterType() == IterType::Symbolic ||
+                frontier_.count(id);
+          }));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          derived_domain_ == frontier_,
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
+    }
+  };
+
+  std::vector<Statement*> next(Val* v) override {
+    if (initial_domain_.find(v) != initial_domain_.end()) {
+      return std::vector<Statement*>();
+    }
+    return IterVisitor::next(v);
+  }
+
+  void handle(Expr* expr) override {
+    // If any of the inputs is included in derived_domain_, that means there's a
+    // dependency within derived_domain_, which is invalid
+    TORCH_INTERNAL_ASSERT(
+        std::none_of(
+            expr->inputs().begin(),
+            expr->inputs().end(),
+            [&](Val* input_val) {
+              return derived_domain_.find(input_val) != derived_domain_.end();
+            }),
+        "Invalid derived domain due to expr: ",
+        expr->toString(),
+        ". Derived domain: ",
+        toDelimitedString(derived_domain_));
+    for (auto inp : expr->inputs()) {
+      frontier_.erase(inp);
+    }
+    for (auto inp : expr->outputs()) {
+      frontier_.insert(inp);
+    }
+  }
+
+ private:
+  const std::unordered_set<Val*> initial_domain_;
+  const std::unordered_set<Val*> derived_domain_;
+  //! Traversal frontier vals
+  std::unordered_set<Val*> frontier_;
+};
+
+} // namespace
+
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain) {
+  ValidateDomainEquivalence(initial_domain, derived_domain);
+}
+
 } // namespace ir_utils
 } // namespace nvfuser
