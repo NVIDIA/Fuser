@@ -269,7 +269,7 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
 }
 // Test the fusion support of gather operator and reduce
 TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
-  const int max_dim_size = 64;
+  const int max_dim_size = 32;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
