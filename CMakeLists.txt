@@ -335,6 +335,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
+    ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
@@ -355,7 +356,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
   )
