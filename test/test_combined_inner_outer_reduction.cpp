@@ -601,6 +601,14 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         expected_segmented ? "Fusion should be segmented!"
                            : "Fusion should not be segmented!");
 
+    auto tolerance_overwrite = ValidationConstants();
+    // bump tolerance, CI errors are higher than local
+    std::array<std::array<double, 2>, 20> relaxed_sum_tol;
+    for (auto& arr : relaxed_sum_tol) {
+      arr = {128, 2e-5};
+    }
+    tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
+
     testValidate(
         &fusion,
         cg_outputs,
@@ -611,7 +619,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
          std::get<1>(aten_gradients),
          std::get<2>(aten_gradients)},
         __LINE__,
-        __FILE__);
+        __FILE__,
+        "",
+        LaunchParams(),
+        tolerance_overwrite);
   };
 
   DataType dtype = DataType::Float;

@@ -1899,7 +1899,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     auto& reduction_tvs = reduction_tv_entry.get();
     bool inner_reduction = false;
     bool outer_reduction = false;
-    TensorView* first_inner_reduction_tv;
+    TensorView* first_inner_reduction_tv = nullptr;
     for (auto tv : reduction_tvs) {
       if (scheduler_utils::isFastestDimReduction(tv)) {
         first_inner_reduction_tv = tv;
