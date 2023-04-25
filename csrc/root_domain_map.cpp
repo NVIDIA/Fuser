@@ -1276,4 +1276,9 @@ std::string ExactRootDomainMap::toString() const {
   return eq_sets_.toString();
 }
 
+const DisjointSets<const IterDomain*>& ExactRootDomainMap::getMappedSets()
+    const {
+  return eq_sets_;
+}
+
 } // namespace nvfuser

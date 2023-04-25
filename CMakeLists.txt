@@ -75,6 +75,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/codegen.cpp
     ${NVFUSER_SRCS_DIR}/contiguity.cpp
     ${NVFUSER_SRCS_DIR}/dispatch.cpp
+    ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
     ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
     ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
     ${NVFUSER_SRCS_DIR}/executor.cpp
@@ -332,6 +333,7 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
