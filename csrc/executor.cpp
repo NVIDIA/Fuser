@@ -1838,7 +1838,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   }
 
   for (auto intermediate_buffer : *buffer->intermediates()) {
-    entry.outputs.push_back(deserialize(intermediate_buffer));
+    entry.intermediates.push_back(deserialize(intermediate_buffer));
   }
 
   entry.rand_offset = buffer->rand_offset();
