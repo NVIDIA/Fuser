@@ -3835,7 +3835,7 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmaxAllocatedOutputs_CUDA) {
       optimized_fusion->fusionSegments()->groups().size() == 2,
       "segmentation didn't happen as expected");
 
-   testValidate(
+  testValidate(
       executor_cache.fusion(),
       {tv1_out, tv3_out, fusionOutputs[2]},
       {at_x},

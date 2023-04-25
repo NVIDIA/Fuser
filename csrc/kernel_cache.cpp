@@ -236,7 +236,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
           kernel_runtime->fusionSegments()->outputs().size(),
       "This should be unreachable. Segmented fusion has not the same number of ouputs as the original fusion");
 
-  // Holder associates at::tensors to fusion outputs, so 
+  // Holder associates at::tensors to fusion outputs, so
   // we remake it, but with the segented fusion outputs
   AllocatedOutputsHolder segmentedFusionOutputs;
   for (int i : c10::irange(fusion_->outputs().size())) {
