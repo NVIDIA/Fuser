@@ -254,10 +254,16 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
         "Unsupported IterType of an index domian: ",
         idx_id->toString());
 
-    // When the input ID is a broadcat with no expanded extent, the
-    // extent as well as the type of the output ID is determined by the index ID
+    // Even for the non-indexed domains, the output ID should be
+    // determined by the index ID when:
+    // 1. The input is a broadcast but the index is not
+    // 2. Both the input and index are broadcast, but the index is
+    // expanded. The input may also be expanded, but that shouldn't
+    // matter.
     if (static_cast<int>(i) == dim ||
-        (inp_id->isBroadcast() && !inp_id->hasExpandedExtent())) {
+        (inp_id->isBroadcast() && !idx_id->isBroadcast()) ||
+        (inp_id->isBroadcast() && idx_id->isBroadcast() &&
+         idx_id->hasExpandedExtent())) {
       out_domain.at(i) = IterDomainBuilder(idx_id).build();
     } else {
       out_domain.at(i) = IterDomainBuilder(inp_id).build();
