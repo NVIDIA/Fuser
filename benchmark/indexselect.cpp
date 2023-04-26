@@ -20,6 +20,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 static void setupFusion(Fusion* fusion) {
   FusionGuard fg(fusion);

@@ -420,6 +420,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/indexselect.cpp
     ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/benchmark/main.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
   )
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
