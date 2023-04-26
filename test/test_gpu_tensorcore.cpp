@@ -698,7 +698,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
