@@ -1654,9 +1654,8 @@ MmaOp::MmaOp(
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
 
-  const auto input_layout_ = attribute(ATTR_POS_INPUT_LAYOUT)
-                                 ->as<Attribute<MmaLayoutOpt>>()
-                                 ->value;
+  const auto input_layout_ =
+      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
   if (input_layout_.has_value()) {
     TORCH_INTERNAL_ASSERT(
         input_layout_.value() == input_layout.value(),
@@ -1666,9 +1665,8 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaLayoutOpt>>()
-        ->value = input_layout;
+    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
+        input_layout;
   }
 }
 
