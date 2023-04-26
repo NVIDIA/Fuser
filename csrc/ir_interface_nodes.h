@@ -544,6 +544,79 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
+  // [rFactor movement around the fusion]
+  //
+  // Assume we have the following fusion: T0 --set--> T1 --set--> T2 where
+  // T0: root = [I0, I1], no rfactor
+  // T1: root = [I0, I1], rfactor = [I1, I0]
+  // T2: root = [I1, I0], no rfactor
+  // Then pushRFactorForward will transform the fusion as
+  // T0: root = [I0, I1], no rfactor
+  // T1: root = [I0, I1], no rfactor
+  // T2: root = [I0, I1], rfactor = [I1, I0]
+  // And pushRFactorBackward will transform the fusion as
+  // T0: root = [I0, I1], rfactor = [I1, I0]
+  // T1: root = [I1, I0], no rfactor
+  // T2: root = [I1, I0], no rfactor
+  //
+  // It is possible to specify intermediate state to only push part of the
+  // transformations. For example, if T0--view-->T1--sin-->T2 and
+  // T0: root = [I0, I1, I2], no rfactor
+  // T1: root = [I0, I1, I2], rfactor = [I1*I0/4, 4, I2]
+  // T2: root = [I1*I0/4, 4, I2], no rfactor
+  // Then pushRFactorBackward([I1*I0, I2]) will get
+  // T0: root = [I0, I1, I2], rfactor = [I1*I0, I2]
+  // T1: root = [I1*I0, I2], rfactor = [I1*I0/4, 4, I2]
+  // T2: root = [I1*I0/4, 4, I2], no rfactor
+  // Note that for this case, T0 might have implicit view, that is, a view that
+  // happens implicitly at some op that is not ViewOp.
+  //
+  // And pushRFactorForward([I1*I0, I2]) will get
+  // T0: root = [I0, I1, I2], no rfactor
+  // T1: root = [I0, I1, I2], rfactor = [I1*I0, I2]
+  // T2: root = [I1*I0, I2], rfactor = [I1*I0/4, 4, I2]
+  // Note that for this case, T2 will be have implicit view, that is, a view
+  // that happens implicitly at some op that is not ViewOp.
+  //
+  // Right now, implicit view is valid, and we do have a few test cases for it.
+  // But it is not thoroughly tested. So please do expect bugs if your scheduler
+  // is making use of this feature.
+  //
+  // If the current tensor has more than one producers, then a backward push
+  // will push its rfactor domain to all its producers. Similarly, if the
+  // current tensor has multiple consumers, then a forward push will push it to
+  // all its consumers.
+  //
+  // Not all pushes are valid. A push must be compatible with the current
+  // schedule. For example, if you have T0->T1 where
+  // T0: root = [I0, I1, I2], no rfactor, leaf = [I0, I1*I2]
+  // T1: root = [I0, I1, I2], rfactor = [I0*I1, I2], leaf = [I0*I1, I2]
+  // Then T1->pushRFactorBackward() is illegal
+  // However, if
+  // T0: root = [I0, I1, I2], no rfactor, leaf = [(I0*I1)*I2]
+  // T1: root = [I0, I1, I2], rfactor = [I0*I1, I2], leaf = [I0*I1, I2]
+  // Then T1->pushRFactorBackward() will get
+  // T0: root = [I0, I1, I2], rfactor = [I0*I1, I2], leaf = [(I0*I1)*I2]
+  // T1: root = [I0*I1, I2], no rfactor, leaf = [I0*I1, I2]
+  //
+  // TODO: rewrite below
+  //
+  // Note that the push of rfactor requires that there is no confliction with
+  // existing transformations as well as many other things. Below are some
+  // examples of valid and invalid push:
+  //
+  // Example 1: T0 --reduction--> T1 --reduction--> T2
+  // T0: root = [I0, I1], no rfactor
+  // T1: root = [I0, I1], rfactor = [I1*I0/4, r{4}]
+  // T2: root = [r{I1*I0/4}], no rfactor
+  // Then T1's rfactor can not be forward pushed because there is no r{4} in T2.
+  // T1's rfactor can not be backward pushed either because pushing it to T0
+  // will create a view-like rfactor, but I1*I0/4 is a non-divisible split
+  void pushRFactorForward(
+      std::optional<std::vector<IterDomain*>> intermediate_state);
+  void pushRFactorBackward(
+      std::optional<std::vector<IterDomain*>> intermediate_state);
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
