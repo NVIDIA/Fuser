@@ -618,8 +618,6 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
 }
 
 // MMA unit test on Ampere
-
-// MMA unit test on Ampere
 TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
