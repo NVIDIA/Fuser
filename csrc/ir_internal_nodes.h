@@ -1369,6 +1369,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   LoadStoreOpType opType() const {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
   }
+
+  bool hasTranspose() const;
+
+  void setOpType(LoadStoreOpType op) {
+    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
+  }
 };
 
 // Convenience utility to initialize IterDomain's without having to sort through

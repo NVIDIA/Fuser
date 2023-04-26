@@ -1436,6 +1436,7 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
+  DEBUG_PRINT_SCOPE(out->toString(), in_a->toString(), in_b->toString());
   const auto in_a_details = getDetailsFor(in_a);
   const auto in_b_details = getDetailsFor(in_b);
   const auto out_details = getDetailsFor(out);
@@ -1555,6 +1556,8 @@ MmaOpDetails getMmaOpDetails(
   details.k_axes = getKaxes(
       in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
   details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
+
+  out->fusion()->print();
 
   TORCH_INTERNAL_ASSERT(
       !details.m_axes.empty(),
@@ -1949,6 +1952,13 @@ std::string LoadStoreOp::toString(int indent_size) const {
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool LoadStoreOp::hasTranspose() const {
+  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
+    return out_tv->hasRFactor();
+  }
+  return false;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)

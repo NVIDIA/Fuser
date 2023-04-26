@@ -314,7 +314,7 @@ TensorView* matmulTuringOrLater(
   }
   tv0b = broadcast(tv0t, {false, true, false});
   tv1b = broadcast(tv1t, {true, false, false});
-  tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   return tv2;
 }
 

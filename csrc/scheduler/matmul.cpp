@@ -586,10 +586,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
     acw_smem = ar->cacheAfter(load_op);
     bcw_smem = br->cacheAfter(load_op);
-    acr = acw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
-    bcr = bcw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+    TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
+    TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      acr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      bcr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
   }
 
   // Make a CTA tile
