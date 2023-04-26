@@ -109,7 +109,6 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)),
-      kernel_runtimes_(1),
       has_dynamic_reshape_(fusion_->hasDynamicTransform()) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
