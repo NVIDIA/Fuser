@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ir_builder.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <transform_view.h>
@@ -88,8 +89,16 @@ LstmResult lstm(
 // inputs were presented to Pytorch's matmul where input1 = weights and
 // input2 = activations.
 TensorView* _matmul_nn(TensorView* input1, TensorView* input2) {
-  TORCH_INTERNAL_ASSERT(false, "Matmul with Layout NN is not implemented!");
-  return nullptr;
+  // [K, M] (non-transposed / col-major)
+  auto tv1b = broadcast(input1, {true, false, false});
+  // [N, K] (non-transposed / col-major)
+  auto tv2b = broadcast(input2, {false, false, true});
+
+  // [N, K, M] -> [N, M] (non-transposed / col-major)
+  auto tv3 = fusedMultiplySum(tv2b, tv1b, {1});
+  // [N, M] -> [M, N]
+  auto output = transpose(tv3, 0, 1);
+  return output;
 }
 TensorView* _matmul_nt(TensorView* input1, TensorView* input2) {
   // [K, M] (non-transposed / col-major)

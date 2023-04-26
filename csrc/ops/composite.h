@@ -52,10 +52,18 @@ TORCH_CUDA_CU_API LstmResult lstm(
 // In order to plumb ops for measurement and scheduling experimentation,
 // all the way up to the python API, these 4 functions are explicitly being
 // writen separately.
-TORCH_CUDA_CU_API TensorView* _matmul_nn(TensorView* input1, TensorView* input2);
-TORCH_CUDA_CU_API TensorView* _matmul_nt(TensorView* input1, TensorView* input2);
-TORCH_CUDA_CU_API TensorView* _matmul_tn(TensorView* input1, TensorView* input2);
-TORCH_CUDA_CU_API TensorView* _matmul_tt(TensorView* input1, TensorView* input2);
+TORCH_CUDA_CU_API TensorView* _matmul_nn(
+    TensorView* input1,
+    TensorView* input2);
+TORCH_CUDA_CU_API TensorView* _matmul_nt(
+    TensorView* input1,
+    TensorView* input2);
+TORCH_CUDA_CU_API TensorView* _matmul_tn(
+    TensorView* input1,
+    TensorView* input2);
+TORCH_CUDA_CU_API TensorView* _matmul_tt(
+    TensorView* input1,
+    TensorView* input2);
 
 TORCH_CUDA_CU_API TensorView* sign(TensorView* x);
 TORCH_CUDA_CU_API Val* sign(Val* x);
