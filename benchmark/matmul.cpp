@@ -43,17 +43,12 @@ using MatmulLayout = MmaOptions::MmaInputLayout;
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(
-    Fusion* fusion,
-    MatmulLayout layout,
-    MatmulParams params,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-) {
+void setupMatmul(Fusion* fusion, MatmulLayout layout, MatmulParams params) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
 
-  auto c = matmul(a, b, layout, turing_or_later);
+  auto c = matmul(a, b, layout);
 
   fusion->addInput(a);
   fusion->addInput(b);
@@ -123,26 +118,21 @@ static void SingleMatmulBase(
       benchmark_state.range(1),
       benchmark_state.range(2)};
 
-  // Tensor inputs
-  auto inputs = fp16MatmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
-  auto expected_output = atMatmul(
-      inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
-
-  // Architecture
-  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
-  bool turing_or_later = properties->major >= 8 ||
-      (properties->major == 7 && properties->minor >= 5);
-
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
   // Define fusion graph
-  setupMatmul(fusion, layout, params, turing_or_later);
+  setupMatmul(fusion, layout, params);
 
   // inputs
   at::manual_seed(0);
+
+  // Tensor inputs
+  auto inputs = fp16MatmulAtInput(
+      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto expected_output = atMatmul(
+      inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
@@ -157,7 +147,9 @@ static void SingleMatmulBase(
   auto launch_constraints = LaunchParams();
   FusionExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
-  if (turing_or_later) {
+  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
+  if (properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5)) {
     TORCH_CHECK(
         getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
         "Shared memory bank conflict not removed.");
