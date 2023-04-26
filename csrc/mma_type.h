@@ -89,8 +89,7 @@ struct MmaOptions {
   MacroType macro = MacroType::NoMMA;
 
   //! Utility to annotate transposition of operands
-  MmaLayout input_layout = MmaLayout::TT;
-  MmaLayout operand_layout = MmaLayout::TT;
+  MmaLayout layout = MmaLayout::TT;
 
   //! Utility to annotate which input of mma this option struct describes
   Operand operand = Operand::A;
@@ -100,7 +99,7 @@ struct MmaOptions {
   int accumulator_stride = 0;
 
   bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && input_layout == other.input_layout && operand_layout == other.operand_layout &&
+    return macro == other.macro && layout == other.layout &&
         operand == other.operand &&
         accumulator_stride == other.accumulator_stride;
   }
@@ -135,7 +134,6 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! User configuration function:
   //!  Specifies the input matrix layout for the mma instruction.
   //!    see [Operand Layout Convention].
-  MmaBuilder& input_layout(MmaOptions::MmaLayout layout);
   MmaBuilder& layout(MmaOptions::MmaLayout layout);
 
   //! User configuration function:

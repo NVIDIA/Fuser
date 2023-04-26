@@ -1104,7 +1104,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
 
   void configureOptions(MmaOptions options);
 
-  auto inputLayout() const {
+  auto layout() const {
     return attribute(ATTR_POS_INPUT_LAYOUT)
         ->as<Attribute<MmaLayoutOpt>>()
         ->value;

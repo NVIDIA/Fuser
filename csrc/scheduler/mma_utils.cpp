@@ -743,8 +743,8 @@ bool checkLdMatrixTv(TensorView* tv) {
   }
   TORCH_CHECK(ir_utils::isLdMatrixOp(tv_def), "ldmatrix : invalid op type");
   TORCH_CHECK(
-      tv->nDims() > 2,
-      "ldmatrix: scheduled tv needs to be more than 2 dimensional");
+      tv->nDims() >= 2,
+      "ldmatrix: scheduled tv needs to be at least 2 dimensional");
   TORCH_CHECK(
       !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
   TORCH_CHECK(
@@ -846,8 +846,8 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
     bool transposed =
-        (options.input_layout == MmaOptions::MmaLayout::NN ||
-         options.input_layout == MmaOptions::MmaLayout::NT);
+        (options.layout == MmaOptions::MmaLayout::NN ||
+         options.layout == MmaOptions::MmaLayout::NT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
@@ -882,8 +882,8 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
     bool transposed =
-        (options.input_layout == MmaOptions::MmaLayout::NT ||
-         options.input_layout == MmaOptions::MmaLayout::TT);
+        (options.layout == MmaOptions::MmaLayout::NT ||
+         options.layout == MmaOptions::MmaLayout::TT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),

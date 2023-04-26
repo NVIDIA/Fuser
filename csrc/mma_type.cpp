@@ -48,12 +48,7 @@ MmaBuilder::MmaBuilder(
 }
 
 MmaBuilder& MmaBuilder::layout(MmaOptions::MmaLayout layout) {
-  option_.operand_layout = layout;
-  return *this;
-}
-
-MmaBuilder& MmaBuilder::input_layout(MmaOptions::MmaLayout layout) {
-  option_.input_layout = layout;
+  option_.layout = layout;
   return *this;
 }
 
@@ -187,11 +182,11 @@ int getInputBRegisterSize(MmaOptions::MacroType macro) {
 bool isOperandTransposed(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::A:
-      return options.operand_layout == MmaOptions::MmaLayout::TT ||
-          options.operand_layout == MmaOptions::MmaLayout::TN;
+      return options.layout == MmaOptions::MmaLayout::TT ||
+          options.layout == MmaOptions::MmaLayout::TN;
     case MmaOptions::Operand::B:
-      return options.operand_layout == MmaOptions::MmaLayout::TT ||
-          options.operand_layout == MmaOptions::MmaLayout::NT;
+      return options.layout == MmaOptions::MmaLayout::TT ||
+          options.layout == MmaOptions::MmaLayout::NT;
     default:
       TORCH_CHECK(false, "isOperandTransposed: please specify operand");
   }

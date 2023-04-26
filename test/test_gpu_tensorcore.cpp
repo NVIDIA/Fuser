@@ -482,11 +482,14 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
+  // [M,N,K]
+  auto tv0b = broadcast(tv0, {false, true, false});
   // [M,K,N]
-  auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {true, false, false});
+  // [M,N,K]
+  auto tv1t = transpose(tv1b, 1, 2);
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -502,25 +505,19 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
 
   mma_builder.accumulatorTv(tv2c);
-  // [M,K,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -2}, {-2, -1}, {-1, -3}});
+  // [M,N,K] -> [N,M,K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv1cr->reorder({{-2, -1}, {-1, -2}});
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv2c->reorder({{-2, -1}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -3203,11 +3200,11 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
   TORCH_CHECK(
-      ir_utils::getMmaOps(fusion.get()).front()->inputLayout().has_value(),
+      ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   TORCH_CHECK(
       layout ==
-          ir_utils::getMmaOps(fusion.get()).front()->inputLayout().value(),
+          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "input layout from test and MmaOp do not match");
 
   at::manual_seed(0);
@@ -3255,11 +3252,11 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
     TORCH_CHECK(
-        ir_utils::getMmaOps(fusion.get()).front()->inputLayout().has_value(),
+        ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
     TORCH_CHECK(
         layout ==
-            ir_utils::getMmaOps(fusion.get()).front()->inputLayout().value(),
+            ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "input layout from test and MmaOp do not match");
 
     at::manual_seed(0);

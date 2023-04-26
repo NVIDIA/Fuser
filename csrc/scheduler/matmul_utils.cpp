@@ -474,7 +474,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #2
   {
     for (const auto* mma_expr : mma_exprs) {
-      const auto input_layout = mma_expr->inputLayout();
+      const auto input_layout = mma_expr->layout();
       if (!input_layout) {
         return "Failed to acquire inputs layout.";
       }
@@ -508,7 +508,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(
       mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
-  const auto layout = mma_exprs.front()->inputLayout();
+  const auto layout = mma_exprs.front()->layout();
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape = getProblemShape(
