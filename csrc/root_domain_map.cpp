@@ -81,9 +81,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   TORCH_INTERNAL_ASSERT(producer_tv_->domain() == producer);
   TORCH_INTERNAL_ASSERT(consumer_tv_->domain() == consumer);
 
+  // In torch.gather, even non-indexed dimensions may have different
+  // extents, whereas in numpy.take_along_axis, they are guaranteed to
+  // be the same
   if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
       consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() ==
           producerTv() &&
+      !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
       require_same_extent_) {
     // Nothing to map when having same extent is required
     return {};
@@ -1274,6 +1278,11 @@ std::unordered_map<IterDomain*, IterDomain*> ExactRootDomainMap::map(
 
 std::string ExactRootDomainMap::toString() const {
   return eq_sets_.toString();
+}
+
+const DisjointSets<const IterDomain*>& ExactRootDomainMap::getMappedSets()
+    const {
+  return eq_sets_;
 }
 
 } // namespace nvfuser

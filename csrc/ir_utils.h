@@ -387,5 +387,8 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 // Check if a tensor is resized as part of  its root to rfactor transformations
 bool hasResizedRfactor(const TensorView* tv);
 
+// Returns tvs that have symbolic axes
+std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
+
 } // namespace ir_utils
 } // namespace nvfuser
