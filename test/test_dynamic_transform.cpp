@@ -628,12 +628,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   auto tv1 = makeSymbolicTensor(2);
   fusion->addInput(tv1);
 
-  auto reshape_shape0 = IrBuilder::create<Int>();
-  fusion->addInput(reshape_shape0);
-  auto reshape_shape1 = IrBuilder::create<Int>();
-  fusion->addInput(reshape_shape1);
-
-  auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
+  auto tv2 = reshape(tv0, {tv1->axis(0)->extent(), tv1->axis(1)->extent()});
   auto tv3 = add(tv1, tv2);
 
   fusion->addOutput(tv3);
@@ -674,9 +669,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // trivial reshape
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({3, 4}, options);
-    int64_t size0 = 3;
-    int64_t size1 = 4;
-    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
     auto ref = t0 + t1;
     testValidate(
@@ -687,11 +680,9 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // non-trivial reshape: merge and split
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({4, 3}, options);
-    int64_t size0 = 4;
-    int64_t size1 = 3;
-    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({size0, size1}) + t1;
+    auto ref = t0.view({4, 3}) + t1;
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
     auto num_rts = countRuntimes();
@@ -704,11 +695,9 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // different non-trivial reshape
     auto t0 = at::randn({2, 6}, options);
     auto t1 = at::randn({4, 3}, options);
-    int64_t size0 = 4;
-    int64_t size1 = 3;
-    std::vector<c10::IValue> inputs = {t0, t1, size0, size1};
+    std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({size0, size1}) + t1;
+    auto ref = t0.view({4, 3}) + t1;
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
     auto num_rts = countRuntimes();
