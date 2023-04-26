@@ -874,8 +874,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         "Duplicated entry is detected in derived_domain: ",
         toDelimitedString(derived_domain));
     traverseTo(
-        initial_domain.at(0)->fusion(),
-        {derived_domain.begin(), derived_domain.end()});
+        initial_domain.at(0)->fusion(), {derived_domain.begin(), derived_domain.end()});
     // If there's any symbolic ID, can't completely validate. Just
     // make sure all non-symbolic IDs are included in the frontier set
     if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
@@ -907,6 +906,7 @@ class ValidateDomainEquivalence : private IterVisitor {
     // If any of the inputs is included in derived_domain_, that means there's a
     // dependency within derived_domain_ and the dependent domains
     // redundantly cover the initial domain
+#if 0
     TORCH_INTERNAL_ASSERT(
         std::none_of(
             expr->inputs().begin(),
@@ -918,11 +918,13 @@ class ValidateDomainEquivalence : private IterVisitor {
         expr->toString(),
         ". Derived domain: ",
         toDelimitedString(derived_domain_));
-    for (auto inp : expr->inputs()) {
-      frontier_.erase(inp);
+#endif
+    for (auto out : expr->outputs()) {
+      // Make sure the output is not yet visited
+      TORCH_INTERNAL_ASSERT(frontier_.insert(out).second, "Invalid derived domain output");
     }
-    for (auto inp : expr->outputs()) {
-      frontier_.insert(inp);
+    for (auto inp : expr->inputs()) {
+      TORCH_INTERNAL_ASSERT(frontier_.erase(inp) == 1, "Invalid derived domain input");
     }
   }
 

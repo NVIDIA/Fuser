@@ -400,9 +400,9 @@ std::string toDelimitedString(
 
 template <typename Printable>
 std::string toDelimitedString(
-    const std::unordered_set<Printable>& vec,
+    const std::unordered_set<Printable>& set,
     std::string delim = ", ") {
-  return toDelimitedString(vec.begin(), vec.end(), delim);
+  return toDelimitedString(set.begin(), set.end(), delim);
 }
 
 template <int64_t index, int64_t stop, int64_t step, typename func_t>

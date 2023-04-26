@@ -8141,6 +8141,11 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
+  ir_utils::validateDomainEquivalence(
+      tv1->getRootDomain(),
+      {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
+
+
   // Initial domain: root domain
   // Derived domain: leaf + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two leaves are redundant
