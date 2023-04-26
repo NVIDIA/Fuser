@@ -46,7 +46,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   size_t hash() const;
 
-  DynamicTransformConcretizationInfo clone(IrCloner* ir_cloner) const;
+  DynamicTransformConcretizationInfo clone(IrCloner& ir_cloner) const;
 
  private:
   DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}

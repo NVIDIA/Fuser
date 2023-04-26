@@ -372,10 +372,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // cloning fusion_.
     // See note [Fusion managed data] in fusion.h for more information.
     conc_info_index = fusion_->manage(
-        &conc_info.value(), [](IrCloner& ir_cloner, std::any data) -> std::any {
-          auto conc_info_ptr =
-              std::any_cast<DynamicTransformConcretizationInfo*>(data);
-          return conc_info_ptr->clone(&ir_cloner);
+        conc_info.value(), [](IrCloner& ir_cloner, std::any data) -> std::any {
+          auto orig_conc_info =
+              std::any_cast<DynamicTransformConcretizationInfo>(data);
+          return orig_conc_info.clone(ir_cloner);
         });
   }
 

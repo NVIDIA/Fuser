@@ -81,18 +81,17 @@ bool DynamicTransformConcretizationInfo::operator==(
 }
 
 DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
-    IrCloner* ir_cloner) const {
+    IrCloner& ir_cloner) const {
   DynamicTransformConcretizationInfo cloned_info(
-      (Fusion*)ir_cloner->container());
+      (Fusion*)ir_cloner.container());
   for (auto& pair : reshape_transforms_) {
     cloned_info.reshape_transforms_.emplace_back(std::make_pair(
-        ir_cloner->clone(pair.first),
+        ir_cloner.clone(pair.first),
         // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
         // AnalyzeViewResult can be copied directly as it holds no references to
         // Statements that would need cloning, only integer indices of axes.
         pair.second));
   }
-  cloned_info.reshape_transforms_ = reshape_transforms_;
   return cloned_info;
 }
 
