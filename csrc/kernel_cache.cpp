@@ -358,56 +358,12 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  auto getConcretizationInfoFromArgs = [args](Fusion* fusion) {
-    ExpressionEvaluator expr_eval;
-
-    // Bind input scalars and tensor metadata to symbolic scalars
-    // Here we bind only the inputs that are needed to concretize dynamic
-    // transforms.
-    TORCH_CHECK(
-        args.size() == fusion->inputs().size(),
-        "Received ",
-        args.size(),
-        " inputs but expected ",
-        fusion->inputs().size());
-    for (auto i : c10::irange(args.size())) {
-      auto inpi = fusion->inputs()[i];
-      if (inpi->isIntegralScalar()) {
-        TORCH_CHECK(
-            args[i]->isType(ArgType::Long),
-            "Expected integer input at position ",
-            i,
-            " but found ",
-            argTypeToString(args[i]->type()));
-
-        const int64_t arg_val =
-            *reinterpret_cast<const int64_t*>(args[i]->arg());
-        expr_eval.bind(inpi, arg_val);
-      } else if (inpi->isA<TensorView>()) {
-        auto tv = inpi->as<TensorView>();
-        auto root = tv->domain()->getRootDomain();
-        TORCH_CHECK(
-            args[i]->isType(ArgType::Tensor),
-            "Expected CUDA tensor at position ",
-            i,
-            " but found ",
-            argTypeToString(args[i]->type()));
-        const TensorArgAbstract* targ =
-            reinterpret_cast<const TensorArgAbstract*>(args[i]);
-        for (auto j : c10::irange(root.size())) {
-          expr_eval.bind(root[j]->extent(), targ->getSize((int64_t)j));
-        }
-      }
-    }
-    return DynamicTransform::getConcretizationInfo(fusion, &expr_eval);
-  };
-
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   if (has_dynamic_reshape_) {
-    conc_info = getConcretizationInfoFromArgs(fusion_.get());
+    conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
@@ -450,7 +406,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       // it points to Statements in the original Fusion object, but we need it
       // to point to Statements in our copy (fusion).
       // TODO: reuse concretization info and expr_evaluator here if possible
-      auto conc_info = getConcretizationInfoFromArgs(fusion.get());
+      auto conc_info =
+          DynamicTransform::getConcretizationInfo(fusion.get(), &args);
       DynamicTransform::concretizeFusion(fusion.get(), conc_info);
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(

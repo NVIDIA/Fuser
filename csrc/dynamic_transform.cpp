@@ -464,6 +464,52 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
   return builder.getInfo();
 }
 
+DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
+    Fusion* fusion,
+    const KernelArgumentHolder* args) {
+  ExpressionEvaluator expr_eval;
+
+  // Bind input scalars and tensor metadata to symbolic scalars
+  // Here we bind only the inputs that are needed to concretize dynamic
+  // transforms.
+  TORCH_CHECK(
+      args->size() == fusion->inputs().size(),
+      "Received ",
+      args->size(),
+      " inputs but expected ",
+      fusion->inputs().size());
+  for (auto i : c10::irange(args->size())) {
+    const auto& inpi = fusion->inputs()[i];
+    const auto argi = (*args)[i];
+    if (inpi->isIntegralScalar()) {
+      TORCH_CHECK(
+          argi->isType(ArgType::Long),
+          "Expected integer input at position ",
+          i,
+          " but found ",
+          argTypeToString(argi->type()));
+
+      const int64_t arg_val = *reinterpret_cast<const int64_t*>(argi->arg());
+      expr_eval.bind(inpi, arg_val);
+    } else if (inpi->isA<TensorView>()) {
+      const auto& tv = inpi->as<TensorView>();
+      const auto& root = tv->domain()->getRootDomain();
+      TORCH_CHECK(
+          argi->isType(ArgType::Tensor),
+          "Expected CUDA tensor at position ",
+          i,
+          " but found ",
+          argTypeToString(argi->type()));
+      const TensorArgAbstract* targ =
+          reinterpret_cast<const TensorArgAbstract*>(argi);
+      for (auto j : c10::irange(root.size())) {
+        expr_eval.bind(root[j]->extent(), targ->getSize((int64_t)j));
+      }
+    }
+  }
+  return DynamicTransform::getConcretizationInfo(fusion, &expr_eval);
+}
+
 void DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const DynamicTransformConcretizationInfo& info) {
