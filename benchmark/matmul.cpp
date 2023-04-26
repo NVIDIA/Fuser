@@ -124,8 +124,8 @@ static void SingleMatmulBase(
       benchmark_state.range(2)};
 
   // Tensor inputs
-  auto inputs = matmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -192,8 +192,8 @@ static void EagerModeMatmul(
 
   at::manual_seed(0);
 
-  auto inputs = matmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
