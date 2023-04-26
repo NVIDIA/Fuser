@@ -699,6 +699,32 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+  nvf_ops.def(                                                                 \
+      op_str,                                                                  \
+      [](FusionDefinition::Operators& self,                                    \
+         Tensor arg1,                                                          \
+         Tensor arg2) -> Tensor {                                              \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        TORCH_CHECK(                                                           \
+            self.validUse(), "Attempting to add to a completed definition!");  \
+        FusionDefinition* fd = self.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Binary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
+
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
