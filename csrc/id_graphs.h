@@ -163,7 +163,13 @@ class TORCH_CUDA_CU_API IdGraph {
   // new mapping through id0/id1 definitions/uses.
   void mapIds(IterDomain* id0, IterDomain* id1);
 
+  // Checks if expr0 and expr1 should map together, maps them together, and if
+  // expression propagation is on, propagates mapping through them. This should
+  // be the only call in IdGraph to mapThroughExpr
+  void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
+
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
+  // TODO: Make this variant hidden?
   void mapExprs(Expr* expr0, Expr* expr1);
 
   // Checks if expr's are considered "the same" where sameness inputs and
@@ -175,6 +181,8 @@ class TORCH_CUDA_CU_API IdGraph {
   //   will map inputs
   // in the provided mode.
   // Returns if expressions were mapped through.
+  //
+  // TODO: Make this private
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
   // Map through loop swizzles, as input/output IterDomains are exact, only the
@@ -190,10 +198,12 @@ class TORCH_CUDA_CU_API IdGraph {
   void removeTrivialExprs();
 
   // See comment on propagate_expr_ member bool for description
-  void enableExprPropagation() {
-    propagate_exprs_ = true;
-  }
-  // See comment on propagate_expr_ member bool for description
+  // Once disabled this can't be reenabled on a graph. If it's reenabled it's
+  // hard to predict how mappings will propagate, which will be triggered on the
+  // next mapping. To support changing this flag, we should likely run through
+  // all expressions currently registered and propagate through all of them on
+  // switch. Then once enabled it couldn't be redisabled because we don't record
+  // the history of mapId calls.
   void disableExprPropagation() {
     propagate_exprs_ = false;
   }
