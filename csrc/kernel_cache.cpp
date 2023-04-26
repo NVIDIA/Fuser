@@ -362,8 +362,21 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
+  size_t conc_info_index = 0;
   if (has_dynamic_reshape_) {
     conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
+    TORCH_CHECK(
+        conc_info.has_value(),
+        "Unable to get concretization info for dynamic Fusion");
+    // We use the Fusion-managed data facility to allow conc_info to survive
+    // cloning fusion_.
+    // See note [Fusion managed data] in fusion.h for more information.
+    conc_info_index = fusion_->manage(
+        &conc_info.value(), [](IrCloner& ir_cloner, std::any data) -> std::any {
+          auto conc_info_ptr =
+              std::any_cast<DynamicTransformConcretizationInfo*>(data);
+          return conc_info_ptr->clone(&ir_cloner);
+        });
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
@@ -402,13 +415,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
     if (has_dynamic_reshape_) {
-      // Here we rebuild the concretization info instead of copying it, since
-      // it points to Statements in the original Fusion object, but we need it
-      // to point to Statements in our copy (fusion).
-      // TODO: reuse concretization info and expr_evaluator here if possible
-      auto conc_info =
-          DynamicTransform::getConcretizationInfo(fusion.get(), &args);
-      DynamicTransform::concretizeFusion(fusion.get(), conc_info);
+      auto cloned_conc_info =
+          fusion->getManaged<DynamicTransformConcretizationInfo>(
+              conc_info_index);
+      DynamicTransform::concretizeFusion(fusion.get(), cloned_conc_info);
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));

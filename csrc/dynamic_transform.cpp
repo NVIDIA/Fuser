@@ -7,6 +7,7 @@
 // clang-format on
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
+#include <ir_cloner.h>
 #include <ir_utils.h>
 #include <lower_utils.h>
 #include <ops/utils.h>
@@ -77,6 +78,22 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   return true;
+}
+
+DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
+    IrCloner* ir_cloner) const {
+  DynamicTransformConcretizationInfo cloned_info(
+      (Fusion*)ir_cloner->container());
+  for (auto& pair : reshape_transforms_) {
+    cloned_info.reshape_transforms_.emplace_back(std::make_pair(
+        ir_cloner->clone(pair.first),
+        // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
+        // AnalyzeViewResult can be copied directly as it holds no references to
+        // Statements that would need cloning, only integer indices of axes.
+        pair.second));
+  }
+  cloned_info.reshape_transforms_ = reshape_transforms_;
+  return cloned_info;
 }
 
 std::string DynamicTransformConcretizationInfo::toString() const {
