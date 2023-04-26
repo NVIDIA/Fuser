@@ -2361,9 +2361,7 @@ TensorView* fusedMultiplySum(
   TORCH_CHECK(
       tv_a->getDataType().value() == DataType::Half ||
       tv_a->getDataType().value() == DataType::BFloat16);
-  TORCH_CHECK(
-      tv_b->getDataType().value() == DataType::Half ||
-      tv_b->getDataType().value() == DataType::BFloat16);
+  TORCH_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
   TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
