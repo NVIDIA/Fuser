@@ -12,6 +12,7 @@ nvfuser/version.py
 nvfuser/include
 nvfuser/lib
 nvfuser/share
+nvfuser/cmake
 
 .hypothesis
 *.egg-info/
