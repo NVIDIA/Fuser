@@ -8152,6 +8152,35 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
       },
       testing::ThrowsMessage<c10::Error>(
           testing::HasSubstr("Invalid derived domain")));
+
+  // Testing symbolic domains
+  auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
+
+  ir_utils::validateDomainEquivalence(
+      tv2->getRootDomain(), tv2->domain()->domain());
+
+  // create a 2D tensor with one symbolid and another non-symbolic
+  auto tv4 = broadcast(sum(tv2, {1}), {false, true});
+  fusion.addOutput(tv4);
+
+  // [S0, B0]
+  tv4->split(1, 4);
+  // [S0, B0/4, 4]
+
+  ir_utils::validateDomainEquivalence(
+      tv4->getRootDomain(), tv4->domain()->domain());
+
+  // Initial domain: root domain
+  // Derived domain: [S0, B0/4]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

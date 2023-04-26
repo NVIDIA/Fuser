@@ -879,16 +879,43 @@ class ValidateDomainEquivalence : private IterVisitor {
         {initial_domain.begin(), initial_domain.end()},
         {derived_domain.begin(), derived_domain.end()});
 
-    // If there's any symbolic ID, can't completely validate. Just
-    // make sure all non-symbolic IDs are included in the frontier set
+    // At this point, the frontier set and the derived set should be
+    // equal, except when there's a symbolic ID in the derived set,
+    // where the traversal may be incomplete.
     if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
           return id->getIterType() == IterType::Symbolic;
         })) {
-      TORCH_INTERNAL_ASSERT(std::all_of(
-          derived_domain.begin(), derived_domain.end(), [&](auto id) {
-            return id->getIterType() == IterType::Symbolic ||
-                frontier_.count(id);
-          }));
+      // Make sure all non-symbolic IDs of the derived set are included
+      // in the frontier set
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              derived_domain.begin(),
+              derived_domain.end(),
+              [&](auto id) {
+                return id->getIterType() == IterType::Symbolic ||
+                    frontier_.count(id);
+              }),
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
+      // Similarly, all frontier vals should be included in the
+      // derived set. It is also possible that an ID in the initial
+      // domain set still remains in the frontier set as there may be
+      // no expr connecting to the derived set, e.g., dynamic reshape
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              frontier_.begin(),
+              frontier_.end(),
+              [&](Val* val) {
+                TORCH_INTERNAL_ASSERT(val->isA<IterDomain>());
+                return derived_domain_.count(val->as<IterDomain>()) ||
+                    initial_domain_.count(val);
+              }),
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
     } else {
       TORCH_INTERNAL_ASSERT(
           derived_domain_ == frontier_,
@@ -900,6 +927,14 @@ class ValidateDomainEquivalence : private IterVisitor {
   };
 
   void handle(Expr* expr) override {
+    TORCH_INTERNAL_ASSERT(
+        std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return v->isA<IterDomain>();
+        }));
+    TORCH_INTERNAL_ASSERT(
+        std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
+          return v->isA<IterDomain>();
+        }));
     // If any of the inputs is included in derived_domain_, that means there's a
     // dependency within derived_domain_ and the dependent domains
     // redundantly cover the initial domain
