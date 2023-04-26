@@ -71,7 +71,7 @@ sass::Container getSASSFor(
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);
