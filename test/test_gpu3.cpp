@@ -8099,6 +8099,61 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
+// Test for ir_utils::validateDomainEquivalence. We could consider
+// it well tested as it's always used when TensorDomain is created, but
+// here's some corner cases.
+TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1]
+  tv1->split(0, 4);
+  // [I0/4, 4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: [4, I1]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  tv1->merge(0);
+  // [I0/4*4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf domain
+  // Should succeed.
+  ir_utils::validateDomainEquivalence(
+      tv1->getRootDomain(), tv1->domain()->domain());
+
+  auto tv1_intermediate_id = tv1->axis(0);
+
+  tv1->split(0, 3);
+  // [I0/4*4/3, 3, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two leaves are redundant
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(),
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

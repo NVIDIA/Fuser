@@ -905,7 +905,8 @@ class ValidateDomainEquivalence : private IterVisitor {
 
   void handle(Expr* expr) override {
     // If any of the inputs is included in derived_domain_, that means there's a
-    // dependency within derived_domain_, which is invalid
+    // dependency within derived_domain_ and the dependent domains
+    // redundantly cover the initial domain
     TORCH_INTERNAL_ASSERT(
         std::none_of(
             expr->inputs().begin(),
@@ -913,7 +914,7 @@ class ValidateDomainEquivalence : private IterVisitor {
             [&](Val* input_val) {
               return derived_domain_.find(input_val) != derived_domain_.end();
             }),
-        "Invalid derived domain due to expr: ",
+        "Invalid derived domain due to dependent expr: ",
         expr->toString(),
         ". Derived domain: ",
         toDelimitedString(derived_domain_));
