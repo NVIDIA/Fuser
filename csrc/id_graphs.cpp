@@ -1753,14 +1753,36 @@ void IterDomainGraphs::buildIterDomainDefinitionsAndUses(
   }
 }
 
-// TODO: Extend to include other information.
 std::string IterDomainGraphs::toString() const {
+  // Figure out which graphs are already initialized to make sure we add the new
+  // expression to them.
+  std::vector<IdMappingMode> initialized_modes;
+  for (auto mode : kIdMappingModes) {
+    auto graph_it = id_graphs_.find(mode);
+    if (graph_it == id_graphs_.end()) {
+      continue;
+    }
+
+    auto& graph = graph_it->second;
+    if (graph.disjointIdSets().disjointSetMap().empty()) {
+      continue;
+    }
+
+    initialized_modes.push_back(mode);
+  }
+
   std::stringstream ss;
   ss << "IterDomainGraphs { \n";
-  // for (auto set : disjoint_ids_) {
-  //   ss << "Set " << set.first << ": " << std::endl;
-  //   ss << set.second.toString() << std::endl;
-  // }
+  for (auto mode : initialized_modes) {
+    std::stringstream ss;
+    ss << "  IdGraph " << mode << "{ \n";
+    ss << "  Disjoint Ids:\n"
+       << debug::idGroupsString(idGraph(mode), 2)
+       << "\n  Disjoint Expression groups:\n"
+       << debug::exprGroupsString(idGraph(mode), 2) << std::endl;
+    ss << "   } IdGraph\n" << std::endl;
+    return ss.str();
+  }
   ss << " } IterDomainGraphs\n" << std::endl;
   return ss.str();
 }
@@ -1869,9 +1891,8 @@ Expr* IterDomainGraphs::addReplayAs(
   return replay;
 }
 
-// Generate a new expr with the IterDomain outputs provided and IterDomain
-// inputs that exactly match expr->inputs
-
+// Generate a new expr with the IterDomain inputs/outputs replaced based on map.
+// Replaced inputs/outputs should almost exact match with provided expr.
 Expr* IterDomainGraphs::addExprWithReplacement(
     const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
     Expr* old_expr) {
@@ -1952,38 +1973,38 @@ Expr* IterDomainGraphs::addExprWithReplacement(
   // Create the new expression with provided outputs
   auto replay = ReplacementTransformCloner::clone(replacement_map, old_expr);
 
+  // Add new output iter domains to id_definitions_/id_uses_ of IdGraphs
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);
     id_uses_[out_id];
   }
 
-  // Add the expression to the uses of the inputs
+  // Add new input iter domains to id_definitions_/id_uses_ of IdGraphs
   for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
     id_definitions_[inp_id];
     id_uses_[inp_id].pushBack(replay);
   }
 
-  // TODO: Update comments
-  // Initialize output iter domains in the graphs
+  // Update all the initialized graph mappings
   for (auto mode : initialized_modes) {
     auto& graph = idGraph(mode);
 
     graph.disjointExprSets().initializeSet(replay);
     auto replay_group = graph.disjointExprSet(replay).first;
 
+    // Initialize any non-existant input ids, update existing ones
     for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
       if (!graph.disjointIdSets().mappingExists(inp_id)) {
         // inp_id is not initialized in the map, initialize it
         graph.initializeId(inp_id, {}, {replay});
       } else {
-        // inp_id is already initialized add the replay as a unique use of its
-        // group.
+        // Update unique uses of existing input ids
         auto inp_group = graph.disjointIdSet(inp_id).first;
         graph.uniqueUses()[inp_group].pushBack(replay_group);
       }
     }
 
-    // Update definitions in the graph of the outputs
+    // Initialize any non-existant output ids, update existing ones
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
       if (!graph.disjointIdSets().mappingExists(out_id)) {
         // out_id is not initialized in the map, initialize it
@@ -1996,11 +2017,11 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       }
     }
 
-    // We expect that inputs or outputs were replaced by iter domains that
-    // already exist in the graphs. If the inputs were replaced we want to
-    // replay forward through the newly added expression. If the outputs were
-    // replaced we want to replay backwards (towards inputs) instead.
+    // If the inputs were replaced we want to map through forward the newly
+    // added expression. If the outputs were replaced we want to map through
+    // backwards the newly added expression.
 
+    // Forward
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
       auto uses_pair = graph.iterDomainGroupUses(graph.disjointIdSet(in).first);
@@ -2018,6 +2039,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       graph.maybeMapThroughExprs(rep_use, replay, true);
     }
 
+    // Backwards
     VectorOfUniqueEntries<Expr*> representative_defs;
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
       auto defs_pair =
@@ -2211,26 +2233,32 @@ void IterDomainGraphs::buildAlmostExactMap() {
 }
 
 void IterDomainGraphs::validateAndPropagatePType() const {
-  for (const auto& loop_disjoint_set :
-       idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
-    ParallelType common_ptype = ParallelType::Serial;
-    for (auto id : loop_disjoint_set->vector()) {
-      auto id_ptype = id->getParallelType();
-      TORCH_INTERNAL_ASSERT(
-          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
-              common_ptype == ParallelType::Serial,
-          "Issue validating parallel type disjoint ptype is, ",
-          common_ptype,
-          " but found in the set the id: ",
-          id->toString());
-      common_ptype =
-          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
-    }
+  // TODO: This needs to be done when the loop map is correctly defined to do
+  // this. The loop map gets built, but then later pulls in iter domains that
+  // are not inlined. Parallel propagate should be done on inlined iter domains,
+  // and the loop map shouldn't group together indices of iter domains that are
+  // not inlined and parallelized differently.
+  //
+  // for (const auto& loop_disjoint_set :
+  //      idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+  //   ParallelType common_ptype = ParallelType::Serial;
+  //   for (auto id : loop_disjoint_set->vector()) {
+  //     auto id_ptype = id->getParallelType();
+  //     TORCH_INTERNAL_ASSERT(
+  //         id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+  //             common_ptype == ParallelType::Serial,
+  //         "Issue validating parallel type disjoint ptype is, ",
+  //         common_ptype,
+  //         " but found in the set the id: ",
+  //         id->toString());
+  //     common_ptype =
+  //         common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+  //   }
 
-    for (auto id : loop_disjoint_set->vector()) {
-      id->parallelize(common_ptype);
-    }
-  }
+  //   for (auto id : loop_disjoint_set->vector()) {
+  //     id->parallelize(common_ptype);
+  //   }
+  // }
 }
 
 void IterDomainGraphs::build(
@@ -2291,8 +2319,7 @@ void IterDomainGraphs::build(
     // necessary.
     buildLoopPromotionMap(tv_exprs);
 
-    TORCH_INTERNAL_ASSERT(false);
-
+    // Doesn't do anything right now
     validateAndPropagatePType();
   }
 
@@ -2332,146 +2359,6 @@ std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
 }
 
 } // namespace
-
-std::unordered_map<IdGroup, IdGroups> IterDomainGraphs::
-    buildCoveredAlmostExact() {
-  // Helper functions.
-  auto producerIdGroups = [&](IdGroup id_group) {
-    IdGroups producer_groups;
-    auto definition_pair_it = idGraph(IdMappingMode::ALMOSTEXACT)
-                                  .iterDomainGroupDefinitions(id_group);
-    if (!definition_pair_it.second) {
-      return producer_groups;
-    }
-    for (auto def_group : definition_pair_it.first) {
-      auto inp_groups =
-          idGraph(IdMappingMode::ALMOSTEXACT).inputGroups(def_group);
-      producer_groups.pushBack(inp_groups.begin(), inp_groups.end());
-    }
-    return producer_groups;
-  };
-
-  auto consumerIdGroups = [&](IdGroup id_group) {
-    IdGroups consumer_groups;
-    auto uses_pair_it =
-        idGraph(IdMappingMode::ALMOSTEXACT).iterDomainGroupUses(id_group);
-    if (!uses_pair_it.second) {
-      return consumer_groups;
-    }
-    for (auto use_group : uses_pair_it.first) {
-      auto out_groups =
-          idGraph(IdMappingMode::ALMOSTEXACT).outputGroups(use_group);
-      consumer_groups.pushBack(out_groups);
-    }
-    return consumer_groups;
-  };
-
-  // Start at terminating inputs of the almost exact graph and almost exact
-  // entries that are rfactor nodes. Propagate and accumulate these nodes
-  // through consumers.
-  //
-  // The almost exact entries covered by an iteration domain is effectively
-  // all the iteration domains this domain relies on. Initialize broadcast
-  // entries to not cover any domains.
-  std::unordered_map<IdGroup, IdGroups> covered_almost_exact_entries;
-
-  // We will traverse over the almost exact set expressions. Save where we
-  // want to start traversal:
-  IdGroups to_visit;
-  // Initialize covered groups
-  for (auto almost_exact_set :
-       idGraph(IdMappingMode::ALMOSTEXACT).disjointIdSets().disjointSets()) {
-    // what broadcast domains cover doesn't matter
-    if (std::all_of(
-            almost_exact_set->begin(),
-            almost_exact_set->end(),
-            [&](IterDomain* id) { return id->isBroadcast(); })) {
-      covered_almost_exact_entries[almost_exact_set] = {};
-      continue;
-    }
-
-    // Initialize rfactor domains to cover themselves only
-    if (std::any_of(
-            almost_exact_set->begin(),
-            almost_exact_set->end(),
-            [&](IterDomain* id) {
-              return viewRfactorIds().find(id) != viewRfactorIds().end();
-            })) {
-      covered_almost_exact_entries[almost_exact_set] = {almost_exact_set};
-      to_visit.pushBack(consumerIdGroups(almost_exact_set));
-      continue;
-    }
-
-    // Initialize any groups that don't have a definition except (potentialy)
-    // ones that traverse back to this set.
-    auto def_pair = idGraph(IdMappingMode::ALMOSTEXACT)
-                        .iterDomainGroupDefinitions(almost_exact_set);
-    if (!def_pair.second) {
-      covered_almost_exact_entries[almost_exact_set] = {almost_exact_set};
-      to_visit.pushBack(consumerIdGroups(almost_exact_set));
-      continue;
-    }
-
-    for (auto def : def_pair.first) {
-      // If all definitions are self mapping (can happen with
-      // merging our splitting with a broadcast/ dim of size 1)
-      // then this group is an input.
-      auto inp_groups = idGraph(IdMappingMode::ALMOSTEXACT).inputGroups(def);
-      if (std::find(inp_groups.begin(), inp_groups.end(), almost_exact_set) ==
-          inp_groups.end()) {
-        goto loop_continue;
-      }
-    }
-
-    covered_almost_exact_entries[almost_exact_set] = {almost_exact_set};
-    to_visit.pushBack(consumerIdGroups(almost_exact_set));
-
-  loop_continue:;
-  }
-
-  // Starting from the initialized inputs propagate forward from those inputs to
-  // mark what every iter domain in the graph covers. This will be used in later
-  // analysis.
-  while (to_visit.size() > 0) {
-    IdGroups still_to_visit;
-    bool something_processed = false;
-    while (to_visit.size() > 0) {
-      auto currently_visiting = to_visit.popFront();
-      if (covered_almost_exact_entries.find(currently_visiting) !=
-          covered_almost_exact_entries.end()) {
-        continue;
-      }
-      auto producer_ids = producerIdGroups(currently_visiting);
-      producer_ids.erase(currently_visiting);
-      IdGroups currently_visiting_covered;
-      for (auto producer_id : producer_ids) {
-        auto producer_covered_it =
-            covered_almost_exact_entries.find(producer_id);
-        if (producer_covered_it == covered_almost_exact_entries.end()) {
-          still_to_visit.pushBack(currently_visiting);
-          goto inner_while_continue;
-        }
-        for (auto entry : producer_covered_it->second) {
-          if (currently_visiting_covered.has(entry)) {
-            continue;
-          }
-        }
-        currently_visiting_covered.pushBack(producer_covered_it->second);
-      }
-      covered_almost_exact_entries[currently_visiting] =
-          currently_visiting_covered;
-      to_visit.pushBack(consumerIdGroups(currently_visiting));
-      something_processed = true;
-
-    inner_while_continue:;
-    }
-    TORCH_INTERNAL_ASSERT(
-        still_to_visit.empty() || something_processed,
-        "Entered infinite loop.");
-    std::swap(still_to_visit, to_visit);
-  }
-  return covered_almost_exact_entries;
-}
 
 void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   idGraph(IdMappingMode::LOOP) = initializeIdGraph();
@@ -3983,12 +3870,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     }
   }
 
-  // std::cout << "All indexing expressions that need to be processed: "
-  //           << std::endl;
-  // for (auto expr : all_index_exprs) {
-  //   std::cout << expr->toString();
-  // }
-
   std::cout << "All indexing expressions (on the index graph): " << std::endl;
   auto index_expr_groups =
       idGraph(IdMappingMode::INDEX).toGroups(all_index_exprs);
@@ -3998,11 +3879,6 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   std::cout << "All iter domains (on the index graph): " << std::endl;
   auto index_id_groups = idGraph(IdMappingMode::INDEX).toGroups(all_index_ids);
   std::cout << debug::toString(index_id_groups) << std::endl;
-
-  // std::cout << "All iter domains that would be indexed: "
-  //           << all_index_ids.toString() << std::endl;
-
-  TORCH_INTERNAL_ASSERT(false);
 }
 
 } // namespace nvfuser
