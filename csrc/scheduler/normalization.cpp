@@ -88,20 +88,17 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost. Tuned for layer_norm backward on A100.
-  auto getMinimumBatch = [&]() {
-    int batch_min;
+  auto getMinimumBatch = [&]() -> int64_t {
     if (inner_dim_numel >= 3072) {
       if (outer_dim_numel <= 2048 && inner_dim_numel == 3072) {
-        batch_min = 3;
+        return 3;
       } else {
-        batch_min = 4;
+        return 4;
       }
     } else if (inner_dim_numel >= 2048) {
-      batch_min = 2;
-    } else {
-      batch_min = 1;
+      return 2;
     }
-    return batch_min;
+    return 1;
   };
 
   // Estimate register per thread based on buffer size, since inner reduction
@@ -140,7 +137,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   int64_t threads_per_block = dev_prop->warpSize / 4;
-  iop.inner_vect = vectorize_factor;
+  iop.inner_vect = (int64_t)vectorize_factor;
   iop.inner_batch = inner_dim_numel / iop.inner_vect / threads_per_block;
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block == inner_dim_numel,
@@ -191,7 +188,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // tmp_gmem is float
   constexpr int64_t max_gmem_vect_access_bytes = 16;
   const int64_t max_tmp_gmem_vect_factor =
-      max_gmem_vect_access_bytes / tmp_gmem_dtype_size;
+      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size;
   iop.tmp_gmem_write_vect = std::min(max_tmp_gmem_vect_factor, iop.inner_vect);
 
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
@@ -257,8 +254,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // so the maximum vectorization factor is 4.
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount =
-      getRegPerThreadGivenThreadsPerSM(iop.bdimx * iop.bdimy * blocks_per_sm);
+  rparams->cparams.maxrregcount = (int)getRegPerThreadGivenThreadsPerSM(
+      iop.bdimx * iop.bdimy * blocks_per_sm);
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -1354,8 +1351,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       // inputs, two outer reduction results)*sizeof(float) /
       // register_file_size_full
       constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size =
-          scheduler_utils::register_file_size_full * more_register_factor;
+      const int64_t avilable_register_file_size = static_cast<int64_t>(
+          scheduler_utils::register_file_size_full * more_register_factor);
       if (avilable_register_file_size >= total_projected_buffer_size) {
         project_persistent_buffers = true;
       }
@@ -1486,7 +1483,7 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams& rparams,
     std::vector<TensorView*>& reduction_tvs) {
-  TORCH_INTERNAL_ASSERT(reduction_tvs.size());
+  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];

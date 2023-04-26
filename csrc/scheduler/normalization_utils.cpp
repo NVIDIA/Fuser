@@ -652,10 +652,10 @@ int64_t partialReductionBufferSize(
         buffer_size *= id_size->as<int64_t>();
       }
     }
-    buffer_size = buffer_size == -1 ? 0
-                                    : buffer_size *
-            dataTypeSize(buffer->getDataType().value(),
-                         runtime_info.getIndexType());
+    buffer_size = (buffer_size == -1) ? 0
+                                      : buffer_size *
+            (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                  runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;

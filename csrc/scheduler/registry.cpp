@@ -2078,7 +2078,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     for (auto tv : reduction_tvs) {
       int64_t n_elements = 1;
       const int64_t vectorization_factor = 16 /
-          dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType());
+          (int64_t)dataTypeSize(tv->getDataType().value(),
+                                runtime_info.getIndexType());
       const int64_t n_elements_factor = quarter_warp * vectorization_factor;
       const bool is_inner_reduction =
           scheduler_utils::isFastestDimReduction(tv);
