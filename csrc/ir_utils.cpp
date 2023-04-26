@@ -237,7 +237,7 @@ std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
 } // namespace
 
 // Return immediate producers of val
-std::vector<Val*> producerValsOf(Val* val) {
+std::vector<Val*> producerValsOf(const Val* val) {
   if (val->definition() == nullptr) {
     return {};
   }
@@ -246,7 +246,7 @@ std::vector<Val*> producerValsOf(Val* val) {
 }
 
 // Return immediate consumers of val
-std::vector<Val*> consumerValsOf(Val* val) {
+std::vector<Val*> consumerValsOf(const Val* val) {
   std::vector<Val*> consumer_vals;
   for (auto use_expr : val->uses()) {
     auto outputs = use_expr->outputs();
@@ -256,7 +256,7 @@ std::vector<Val*> consumerValsOf(Val* val) {
 }
 
 // Return immediate siblings of val
-std::vector<Val*> siblingValsOf(Val* val) {
+std::vector<Val*> siblingValsOf(const Val* val) {
   std::vector<Val*> sibling_vals;
   auto def = val->definition();
   if (def != nullptr) {
@@ -295,19 +295,19 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals) {
   return uniqueEntries<Val>(all_consumer_vals);
 }
 
-std::vector<TensorView*> producerTvsOf(TensorView* tv) {
+std::vector<TensorView*> producerTvsOf(const TensorView* tv) {
   auto producer_vals = producerValsOf(tv);
   auto producer_tvs = ir_utils::filterByType<TensorView>(producer_vals);
   return {producer_tvs.begin(), producer_tvs.end()};
 }
 
-std::vector<TensorView*> consumerTvsOf(TensorView* tv) {
+std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
   auto consumer_vals = consumerValsOf(tv);
   auto consumer_tvs = ir_utils::filterByType<TensorView>(consumer_vals);
   return {consumer_tvs.begin(), consumer_tvs.end()};
 }
 
-std::vector<TensorView*> siblingTvsOf(TensorView* tv) {
+std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
   auto sibling_vals = siblingValsOf(tv);
   auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
@@ -742,6 +742,26 @@ bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
     }
   }
   return false;
+}
+
+bool isIndexedID(const TensorView* tv, const IterDomain* id) {
+  return isIndexedProducerID(tv, id) || isIndexedConsumerID(tv, id);
+}
+
+bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
+  return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
+    return (expr->isA<TorchGatherOp>() &&
+            expr->as<TorchGatherOp>()->getSelectAxis() == id) ||
+        (expr->isA<SelectOp>() &&
+         expr->as<SelectOp>()->getSelectAxis() == id) ||
+        (expr->isA<IndexSelectOp>() &&
+         expr->as<IndexSelectOp>()->getSelectAxis() == id);
+  });
+}
+
+bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
+  return tv->definition()->isA<ScatterOp>() &&
+      tv->definition()->as<ScatterOp>()->getOutputSelectAxis() == id;
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
