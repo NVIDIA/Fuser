@@ -196,9 +196,10 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void handle(Expr* expr) final {
+    const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
-        predicateSharedMemAccess(expr) || predicateProducerConsumerPair(expr) ||
+        needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
 
@@ -213,7 +214,7 @@ class PredicateChcker : public IterVisitor {
     //  should be cleaned up all together when we extend predicate/masking
     //  logic to cover this usage.
     TORCH_INTERNAL_ASSERT(
-        !(ir_utils::isCpAsyncOp(expr) && predicateSharedMemAccess(expr)),
+        !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access),
         "predicate removal: unsupported use case of cp.async");
 
     if (needs_predicate_) {
