@@ -32,7 +32,7 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 using LayoutData =
     std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
 using TensorShape = std::vector<int64_t>;

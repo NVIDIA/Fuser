@@ -1055,7 +1055,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   };
 
   using AxesData = std::vector<int>;
-  using MmaInputLayoutOpt = std::optional<MmaOptions::MmaInputLayout>;
+  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1067,7 +1067,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_b,
       Val* init,
       const OptionsInMma& options,
-      const MmaInputLayoutOpt& input_layout);
+      const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1106,7 +1106,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
 
   auto inputLayout() const {
     return attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->as<Attribute<MmaLayoutOpt>>()
         ->value;
   }
 

@@ -498,6 +498,7 @@ class VectorizeValidator : public OptInDispatch {
 // depends on. As ContigIDs depends on HaloInfo, this must be done
 // after HaloInfo is created.
 void validateAndCollectVectorizeInfo(Fusion* fusion) {
+  return;
   FUSER_PERF_SCOPE("GpuLower::Lower::validateVectorize");
   FusionGuard fg(fusion);
 

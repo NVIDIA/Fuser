@@ -39,7 +39,7 @@ bool hasRequiredSmemSize(size_t required_size) {
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.

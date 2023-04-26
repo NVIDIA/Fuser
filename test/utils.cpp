@@ -339,6 +339,8 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       return a.matmul(b.t());
     case MatmulLayout::NT:
       return a.t().matmul(b);
+    case MatmulLayout::NN:
+      return a.t().matmul(b.t());
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
@@ -362,6 +364,9 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     case MatmulLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
+    case MatmulLayout::NN:
+      return std::make_pair(
+          at::randn({K, M}, options), at::randn({N, K}, options));
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }

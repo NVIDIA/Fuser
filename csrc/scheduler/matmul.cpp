@@ -602,6 +602,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     } else {
       bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
     }
+    if (!acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.input_layout(MmaOptions::MmaLayout::TN);
+    } else if (!acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.input_layout(MmaOptions::MmaLayout::TT);
+    } else if (acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.input_layout(MmaOptions::MmaLayout::NN);
+    } else if (acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.input_layout(MmaOptions::MmaLayout::NT);
+    }
   }
 
   // Make a CTA tile

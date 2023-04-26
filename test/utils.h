@@ -485,7 +485,7 @@ inline bool cudaArchGuardShouldSkip(
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 
 static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
     MatmulLayout::TT,

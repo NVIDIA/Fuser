@@ -831,10 +831,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   //   if tv is immediate output of ldmatrix
   bool is_immediate_output = checkLdMatrixTv(tv);
 
-  // Decode transposition requirement for turing mma
-  bool transposed = options.operand == MmaOptions::Operand::A
-      ? !isOperandTransposed(options)
-      : isOperandTransposed(options);
   // Check mma option is supported
   TORCH_CHECK(
       options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
@@ -849,6 +845,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.input_layout == MmaOptions::MmaLayout::NN ||
+         options.input_layout == MmaOptions::MmaLayout::NT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
@@ -882,6 +881,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.input_layout == MmaOptions::MmaLayout::NT ||
+         options.input_layout == MmaOptions::MmaLayout::TT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
@@ -918,9 +920,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 
       // [Warp, K8]
       tv->axis(-2)->parallelize(ParallelType::TIDx);
-      if (is_immediate_output) {
-        tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
     } else {
       // validation:
       TORCH_INTERNAL_ASSERT(
