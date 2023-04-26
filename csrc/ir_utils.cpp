@@ -873,8 +873,12 @@ class ValidateDomainEquivalence : private IterVisitor {
         derived_domain.size() == derived_domain_.size(),
         "Duplicated entry is detected in derived_domain: ",
         toDelimitedString(derived_domain));
-    traverseTo(
-        initial_domain.at(0)->fusion(), {derived_domain.begin(), derived_domain.end()});
+
+    traverseBetween(
+        initial_domain.at(0)->fusion(),
+        {initial_domain.begin(), initial_domain.end()},
+        {derived_domain.begin(), derived_domain.end()});
+
     // If there's any symbolic ID, can't completely validate. Just
     // make sure all non-symbolic IDs are included in the frontier set
     if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
@@ -895,18 +899,10 @@ class ValidateDomainEquivalence : private IterVisitor {
     }
   };
 
-  std::vector<Statement*> next(Val* v) override {
-    if (initial_domain_.find(v) != initial_domain_.end()) {
-      return std::vector<Statement*>();
-    }
-    return IterVisitor::next(v);
-  }
-
   void handle(Expr* expr) override {
     // If any of the inputs is included in derived_domain_, that means there's a
     // dependency within derived_domain_ and the dependent domains
     // redundantly cover the initial domain
-#if 0
     TORCH_INTERNAL_ASSERT(
         std::none_of(
             expr->inputs().begin(),
@@ -918,13 +914,22 @@ class ValidateDomainEquivalence : private IterVisitor {
         expr->toString(),
         ". Derived domain: ",
         toDelimitedString(derived_domain_));
-#endif
     for (auto out : expr->outputs()) {
       // Make sure the output is not yet visited
-      TORCH_INTERNAL_ASSERT(frontier_.insert(out).second, "Invalid derived domain output");
+      TORCH_INTERNAL_ASSERT(
+          frontier_.insert(out).second,
+          "Invalid derived domain due to dependent expr: ",
+          expr->toString(),
+          ". Output should just show up once: ",
+          out->toString());
     }
     for (auto inp : expr->inputs()) {
-      TORCH_INTERNAL_ASSERT(frontier_.erase(inp) == 1, "Invalid derived domain input");
+      TORCH_INTERNAL_ASSERT(
+          frontier_.erase(inp) == 1,
+          "Invalid derived domain due to dependent expr: ",
+          expr->toString(),
+          ". Input not seen before: ",
+          inp->toString());
     }
   }
 
