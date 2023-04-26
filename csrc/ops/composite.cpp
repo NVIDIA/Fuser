@@ -89,6 +89,12 @@ LstmResult lstm(
 // inputs were presented to Pytorch's matmul where input1 = weights and
 // input2 = activations.
 TensorView* _matmul_nn(TensorView* input1, TensorView* input2) {
+  TORCH_CHECK(
+      input1->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
+  TORCH_CHECK(
+      input2->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
   // [K, M] (non-transposed / col-major)
   auto tv1b = broadcast(input1, {true, false, false});
   // [N, K] (non-transposed / col-major)
@@ -101,6 +107,12 @@ TensorView* _matmul_nn(TensorView* input1, TensorView* input2) {
   return output;
 }
 TensorView* _matmul_nt(TensorView* input1, TensorView* input2) {
+  TORCH_CHECK(
+      input1->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
+  TORCH_CHECK(
+      input2->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
   // [K, M] (non-transposed / col-major)
   auto tv1b = broadcast(input1, {false, false, true});
   // [K, N] (transposed / row-major)
@@ -111,6 +123,12 @@ TensorView* _matmul_nt(TensorView* input1, TensorView* input2) {
   return output;
 }
 TensorView* _matmul_tn(TensorView* input1, TensorView* input2) {
+  TORCH_CHECK(
+      input1->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
+  TORCH_CHECK(
+      input2->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
   // [M, K] (transposed / row-major)
   auto tv1b = broadcast(input1, {false, true, false});
   // [N, K] (non-transposed / col-major)
@@ -121,6 +139,12 @@ TensorView* _matmul_tn(TensorView* input1, TensorView* input2) {
   return output;
 }
 TensorView* _matmul_tt(TensorView* input1, TensorView* input2) {
+  TORCH_CHECK(
+      input1->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
+  TORCH_CHECK(
+      input2->getMaybeRFactorDomain().size() == 2,
+      "Only 2-D Tensors are currently supported.");
   // [M, K] (transposed / row-major)
   auto tv1b = broadcast(input1, {false, false, true});
   // [K, N] (transposed / row-major)

@@ -51,7 +51,7 @@ TORCH_CUDA_CU_API LstmResult lstm(
 // top-to-bottom, stride ordering in order to determine the matmul layout.
 // In order to plumb ops for measurement and scheduling experimentation,
 // all the way up to the python API, these 4 functions are explicitly being
-// writen separately.
+// written separately.
 TORCH_CUDA_CU_API TensorView* _matmul_nn(
     TensorView* input1,
     TensorView* input2);
