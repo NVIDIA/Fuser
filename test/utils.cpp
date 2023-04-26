@@ -297,12 +297,13 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    MatmulLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
     case MatmulLayout::TT:
@@ -326,10 +327,10 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType,
+    const c10::ScalarType dtype,
     const int device) {
   const auto options =
-      at::TensorOptions().dtype(dType).device(at::kCUDA, device);
+      at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
 
   // handle C and D tensors, layout does not impact shape
   switch (tensor) {

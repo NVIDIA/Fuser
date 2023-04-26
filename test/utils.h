@@ -499,11 +499,12 @@ TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout);
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
 // Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout);
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
 // A, B - input
@@ -519,7 +520,7 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType = at::kHalf,
+    const c10::ScalarType dtype = at::kHalf,
     const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \

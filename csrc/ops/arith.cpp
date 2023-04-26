@@ -2358,8 +2358,12 @@ TensorView* fusedMultiplySum(
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
-  TORCH_CHECK(tv_a->getDataType().value() == DataType::Half);
-  TORCH_CHECK(tv_b->getDataType().value() == DataType::Half);
+  TORCH_CHECK(
+      tv_a->getDataType().value() == DataType::Half ||
+      tv_a->getDataType().value() == DataType::BFloat16);
+  TORCH_CHECK(
+      tv_b->getDataType().value() == DataType::Half ||
+      tv_b->getDataType().value() == DataType::BFloat16);
 
   TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 
