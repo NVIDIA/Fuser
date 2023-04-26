@@ -493,7 +493,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       expr_eval.bind(inpi, arg_val);
     } else if (inpi->isA<TensorView>()) {
       const auto& tv = inpi->as<TensorView>();
-      const auto& root = tv->domain()->getRootDomain();
+      const auto& dom = tv->domain()->getMaybeRFactorDomain();
       TORCH_CHECK(
           argi->isType(ArgType::Tensor),
           "Expected CUDA tensor at position ",
@@ -502,8 +502,8 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
           argTypeToString(argi->type()));
       const TensorArgAbstract* targ =
           reinterpret_cast<const TensorArgAbstract*>(argi);
-      for (auto j : c10::irange(root.size())) {
-        expr_eval.bind(root[j]->extent(), targ->getSize((int64_t)j));
+      for (auto j : c10::irange(dom.size())) {
+        expr_eval.bind(dom[j]->extent(), targ->getSize((int64_t)j));
       }
     }
   }
