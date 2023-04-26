@@ -437,7 +437,6 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
       tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
 
   auto tv2c = tv2->cacheBefore();
-
   mma_builder.accumulatorTv(tv2c);
 
   // [M,N,K] -> [N,M,K]
@@ -512,8 +511,8 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
       LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
-
   mma_builder.accumulatorTv(tv2c);
+
   // [M,N,K] -> [N,M,K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
@@ -561,7 +560,11 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   // [K,M,N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {false, true, false});
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv1t = permute(tv1b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -577,29 +580,21 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -1}, {-1, -3}});
+  // [M,N,K] -> [N,M,K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv1cr->reorder({
-      {-3, -1},
-      {-2, -3},
-      {-1, -2},
-  });
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv2c->reorder({{-3, -1}, {-2, -3}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -3203,8 +3198,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   TORCH_CHECK(
-      layout ==
-          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+      layout == ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "input layout from test and MmaOp do not match");
 
   at::manual_seed(0);
@@ -3255,8 +3249,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
     TORCH_CHECK(
-        layout ==
-            ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+        layout == ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "input layout from test and MmaOp do not match");
 
     at::manual_seed(0);
