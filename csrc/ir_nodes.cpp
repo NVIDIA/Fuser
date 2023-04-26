@@ -2602,6 +2602,7 @@ TensorDomain::TensorDomain(
   }
 
   if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, domain_);
   }
 
@@ -2638,10 +2639,12 @@ TensorDomain::TensorDomain(
   }
 
   if (!root_domain_.empty()) {
-    if (!rfactor_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-    }
+    TORCH_CHECK(
+        !rfactor_domain_.empty(), "Root domain is not empty but rfactor is");
+    ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    ir_utils::validateDomainEquivalence(rfactor_domain_, domain_);
   }
 
   // Just due to clang-tidy, correct value set in resetDomains

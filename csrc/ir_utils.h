@@ -396,10 +396,14 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! transformations. This validation makes sure both sets
 //! of domains represent the same logical space.
 //!
-//! For example, it's an error if a root ID is split and
+//! It is intended to be used to validate rfactor and leaf domains
+//! of a tensor root domain.
+//!
+//! For example, it's an error if a initial ID is split and
 //! only one of the outputs is included in the ids vector. It is
 //! also an error if both a producer and consumer ID are included in
-//! ids as they partially have the same dependency with root_ids.
+//! ids as they partially have the same dependency with the initial
+//! domain.
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
