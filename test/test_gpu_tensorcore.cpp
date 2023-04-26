@@ -725,7 +725,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
   }
 }
 
-
 // Matmul test for Ampere MMA: with pipelined gmem load
 TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
