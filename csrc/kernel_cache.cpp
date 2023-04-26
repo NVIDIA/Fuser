@@ -428,6 +428,10 @@ FusionKernelRuntime::FusionKernelRuntime(
     std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
+  TORCH_INTERNAL_ASSERT(
+      !fusion->hasDynamicTransform(),
+      "Fusion must be concretized before constructing FusionKernelRuntime");
+
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
   // Run segmentation on the copied fusion
