@@ -492,8 +492,19 @@ static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
     MatmulLayout::NT,
     MatmulLayout::TN};
 
+static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayoutAndNN = {
+    MatmulLayout::TT,
+    MatmulLayout::NT,
+    MatmulLayout::TN,
+    MatmulLayout::NN};
+
 // Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout);
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);

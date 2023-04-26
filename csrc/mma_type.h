@@ -74,14 +74,13 @@ struct MmaOptions {
 
   //! [Operand Layout Convention]
   //! Operand layout, T=transposed/row_major, N=normal/col_major
-  //!   We don't support calling NN mma directly since it implies
-  //!    a fused transpose. User needs to swap the operands and use
-  //!    TT mma to make the transpose explicit.
   //! Ordered by position of K
-  //! NT : K,M x K,N -> K,M,N
-  //! TT : M,K X K,N -> M,K,N
-  //! TN : M,K X N,K -> M,N,K
-  enum class MmaInputLayout { NT = 0, TT, TN };
+  //! NT : K,M x K,N -> M,N
+  //! TT : M,K X K,N -> M,N
+  //! TN : M,K X N,K -> M,N
+  //! NN : K,M X N,K -> M,N
+  //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
+  enum class MmaInputLayout { NT = 0, TT, TN, NN };
 
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };

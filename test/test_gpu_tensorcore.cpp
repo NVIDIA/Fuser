@@ -290,6 +290,11 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+#if 0
+TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
+}
+#endif
+
 // Matmul test for Volta MMA: across supported layouts
 TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
@@ -304,7 +309,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, false);
 
     fusion.addOutput(tv2);
 
@@ -353,7 +358,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, false);
 
     fusion.addOutput(tv2);
 
@@ -622,6 +627,12 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// MMA unit test on Ampere
+TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  ASSERT_TRUE(false);
+}
+
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
@@ -636,7 +647,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -691,7 +702,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -753,7 +764,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -864,7 +875,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -1791,7 +1802,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -2803,7 +2814,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -2855,7 +2866,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -2908,7 +2919,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         fusion.addInput(tv0);
         fusion.addInput(tv1);
 
-        auto tv2 = matmul(tv0, tv1, layout);
+        auto tv2 = matmul(tv0, tv1, layout, true);
 
         fusion.addOutput(tv2);
 
@@ -2970,7 +2981,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           fusion.addInput(tv0);
           fusion.addInput(tv1);
 
-          auto tv2 = matmul(tv0, tv1, layout);
+          auto tv2 = matmul(tv0, tv1, layout, true);
 
           fusion.addOutput(tv2);
 
@@ -3028,7 +3039,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -3082,7 +3093,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -3131,7 +3142,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
-  auto tv2 = matmul(tv0, tv1, layout);
+  auto tv2 = matmul(tv0, tv1, layout, true);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -3183,7 +3194,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion->addInput(tv0);
     fusion->addInput(tv1);
