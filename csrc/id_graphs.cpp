@@ -13,22 +13,39 @@
 
 namespace nvfuser {
 
-namespace debug_string {
-// A few compressed printing utilities to show critical uniqueness information.
-// i.e. being able to tell slight differences between groups we're working with.
+// Printing utilities to show critical uniqueness information. i.e. being able
+// to tell slight differences between groups we're working with.
+namespace debug {
 
+namespace {
 // Sometimes it can be helpful to directly check the pointer addresses of the
 // groups. As one group might look exactly like another group but are in
 // different disjoint sets. Leaving commented out by default.
+template <typename T>
+std::string toString(const T* ptr, bool enable) {
+  if (!enable) {
+    return "";
+  }
+  std::stringstream ss;
+  ss << ptr;
+  return "[0x." + ss.str().substr(9) + "]";
+}
 
-// template <typename T>
-// std::string ptrStringShort(const T* ptr) {
-//   std::stringstream ss;
-//   ss << ptr;
-//   return "0x." + ss.str().substr(9);
-// }
+std::string indent(int size = 0) {
+  std::stringstream ss;
+  for (auto i : c10::irange(size)) {
+    // Unused variable error
+    if (i >= 0) {
+      ss << "  ";
+    }
+  }
+  return ss.str();
+}
+} // namespace
 
-std::string idsStringShort(const VectorOfUniqueEntries<IterDomain*>& id_group) {
+std::string toString(
+    const std::vector<IterDomain*>& id_group,
+    int indent_size) {
   std::vector<unsigned int> names;
   for (auto id : id_group) {
     names.push_back(id->name());
@@ -36,18 +53,89 @@ std::string idsStringShort(const VectorOfUniqueEntries<IterDomain*>& id_group) {
   std::sort(names.begin(), names.end());
 
   std::stringstream ss;
-  ss << "{" << names << "}";
+  ss << indent(indent_size) << "{" << names << "}";
   return ss.str();
 }
 
-std::string idGroupStringShort(const IdGroup& id_group) {
+std::string toString(const IdGroup& id_group, int indent_size, bool with_ptr) {
   std::stringstream ss;
-  ss << /* ptrStringShort(id_group.get()) << */ "(idg)"
-     << idsStringShort(*id_group);
+  ss << indent(indent_size) << "idg" << (with_ptr ? "(" : "")
+     << toString(id_group.get(), with_ptr) << (with_ptr ? ")" : "")
+     << toString(id_group->vector());
   return ss.str();
 }
 
-std::string idGroupsStringShortInline(const std::vector<IdGroup>& id_groups) {
+std::string toString(
+    const std::vector<IdGroup>& id_groups,
+    int indent_size,
+    bool with_ptr) {
+  std::stringstream ss;
+
+  // Track position in id_groups and its min iter domain name in the set
+  std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
+
+  unsigned int pos = 0;
+
+  for (auto id_group : id_groups) {
+    unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
+    for (auto id : *id_group) {
+      if (id->name() < min_id_name) {
+        min_id_name = id->name();
+      }
+    }
+    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+  }
+
+  ss << indent(indent_size) << "(idgs){\n";
+
+  // Sort based on minimum id in the group
+  std::sort(group_name_info.begin(), group_name_info.end());
+
+  for (auto i : c10::irange(group_name_info.size())) {
+    auto pos = group_name_info[i].second;
+    ss << toString(id_groups[pos], indent_size + 1, with_ptr) << "\n";
+  }
+
+  ss << "}";
+  return ss.str();
+}
+
+std::string toString(
+    const IdGroups& id_groups,
+    int indent_size,
+    bool with_ptr) {
+  std::stringstream ss;
+
+  // Track position in id_groups and its min iter domain name in the set
+  std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
+
+  unsigned int pos = 0;
+
+  for (auto id_group : id_groups) {
+    unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
+    for (auto id : *id_group) {
+      if (id->name() < min_id_name) {
+        min_id_name = id->name();
+      }
+    }
+    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+  }
+
+  ss << indent(indent_size) << "(idgs){\n";
+
+  // Sort based on minimum id in the group
+  std::sort(group_name_info.begin(), group_name_info.end());
+
+  for (auto i : c10::irange(group_name_info.size())) {
+    auto pos = group_name_info[i].second;
+    ss << toString(id_groups.vector()[pos], indent_size + 1, with_ptr) << "\n";
+  }
+
+  ss << "}";
+  return ss.str();
+}
+
+std::string toInlineString(const std::vector<IdGroup>& id_groups) {
   // Track position in id_groups and its min iter domain name in the set
   std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
 
@@ -67,7 +155,8 @@ std::string idGroupsStringShortInline(const std::vector<IdGroup>& id_groups) {
   std::sort(group_name_info.begin(), group_name_info.end());
 
   std::stringstream ss;
-  ss << /* ptrStringShort(&id_groups) <<*/ "(idgs){";
+
+  ss << "(idgs){";
   bool first = true;
   for (auto i : c10::irange(group_name_info.size())) {
     if (first) {
@@ -76,87 +165,42 @@ std::string idGroupsStringShortInline(const std::vector<IdGroup>& id_groups) {
       ss << ", ";
     }
     auto pos = group_name_info[i].second;
-    ss << idGroupStringShort(id_groups[pos]);
+    ss << toString(id_groups[pos]);
   }
 
-  ss << "}";
   return ss.str();
 }
 
-std::string idGroupsStringShortInline(const IdGroups& id_groups) {
-  return idGroupsStringShortInline(id_groups.vector());
-}
-
-std::string idGroupsStringShort(const std::vector<IdGroup>& id_groups) {
-  std::stringstream ss;
-
-  // Track position in id_groups and its min iter domain name in the set
-  std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
-
-  unsigned int pos = 0;
-
-  for (auto id_group : id_groups) {
-    unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
-    for (auto id : *id_group) {
-      if (id->name() < min_id_name) {
-        min_id_name = id->name();
-      }
-    }
-    group_name_info.push_back(std::make_pair(min_id_name, pos++));
-  }
-
-  ss << /* ptrStringShort(&id_groups) <<*/ "(idgs){\n";
-
-  // Sort based on minimum id in the group
-  std::sort(group_name_info.begin(), group_name_info.end());
-
-  for (auto i : c10::irange(group_name_info.size())) {
-    auto pos = group_name_info[i].second;
-    ss << "  " << idGroupStringShort(id_groups[pos]) << "\n";
-  }
-
-  ss << "}";
-  return ss.str();
-}
-
-std::string idGroupsStringShort(const IdGroups& id_groups) {
-  return idGroupsStringShort(id_groups.vector());
-}
-
-std::string idGroups(const IdGraph& id_graph) {
-  IdGroups id_groups(
-      id_graph.disjointIdSets().disjointSets().begin(),
-      id_graph.disjointIdSets().disjointSets().end());
-  return idGroupsStringShort(id_groups);
-}
-
-std::string exprGroupStringShort(ExprGroup expr_group) {
+std::string toString(const std::vector<Expr*>& expr_group, int indent_size) {
   std::vector<unsigned int> names;
-  for (auto expr : *expr_group) {
+  for (auto expr : expr_group) {
     names.push_back(expr->name());
   }
   std::sort(names.begin(), names.end());
 
   std::stringstream ss;
-  ss << /* ptrStringShort(&expr_group) <<*/ "(exprg){" << names << "}";
+  ss << indent(indent_size) << "{" << names << "}";
   return ss.str();
 }
 
-std::string exprGroupStringShort(
-    const IdGraph& id_graph,
-    ExprGroup expr_group) {
+std::string toString(
+    const ExprGroup& expr_group,
+    int indent_size,
+    bool with_ptr) {
   std::stringstream ss;
-  auto inputs = IdGroups(id_graph.inputGroups(expr_group));
-  auto outputs = IdGroups(id_graph.outputGroups(expr_group));
-  ss << idGroupsStringShortInline(inputs) << " -"
-     << exprGroupStringShort(expr_group) << "-> "
-     << idGroupsStringShortInline(outputs);
+  ss << indent(indent_size) << "exprg" << (with_ptr ? "(" : "")
+     << toString(expr_group.get(), with_ptr) << (with_ptr ? ")" : "")
+     << toString(expr_group->vector());
   return ss.str();
 }
 
-std::string exprGroupsStringShort(
+std::string toString(
     const IdGraph& id_graph,
-    ExprGroups expr_groups) {
+    const std::vector<ExprGroup>& expr_groups,
+    int indent_size,
+    bool with_ptr) {
+  std::stringstream ss;
+
   // Track position in expr_groups and its min iter domain name in the set
   std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
 
@@ -172,30 +216,93 @@ std::string exprGroupsStringShort(
     group_name_info.push_back(std::make_pair(min_expr_name, pos++));
   }
 
+  ss << indent(indent_size) << "(exprgs){\n";
+
   // Sort based on minimum id in the group
   std::sort(group_name_info.begin(), group_name_info.end());
 
-  std::stringstream ss;
-  ss << /* ptrStringShort(&expr_groups) <<*/ "(exprs) {";
   for (auto i : c10::irange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
-    ss << "  " << exprGroupStringShort(id_graph, expr_groups.vector()[pos])
-       << "\n";
+    auto expr_group = expr_groups[pos];
+
+    auto inputs = IdGroups(id_graph.inputGroups(expr_group));
+    auto outputs = IdGroups(id_graph.outputGroups(expr_group));
+
+    ss << indent(indent_size + 1) << toInlineString(inputs.vector()) << " --"
+       << toString(expr_group, 0, with_ptr) << "--> "
+       << toInlineString(outputs.vector()) << "\n";
   }
 
-  ss << "}";
+  ss << indent(indent_size) << "}";
   return ss.str();
 }
 
-std::string exprGroups(const IdGraph& id_graph) {
+std::string toString(
+    const IdGraph& id_graph,
+    const ExprGroups& expr_groups,
+    int indent_size,
+    bool with_ptr) {
+  std::stringstream ss;
+
+  // Track position in expr_groups and its min iter domain name in the set
+  std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
+
+  unsigned int pos = 0;
+
+  for (auto expr_group : expr_groups) {
+    unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
+    for (auto id : *expr_group) {
+      if (id->name() < min_id_name) {
+        min_id_name = id->name();
+      }
+    }
+    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+  }
+
+  ss << indent(indent_size) << "(exprgs){\n";
+
+  // Sort based on minimum id in the group
+  std::sort(group_name_info.begin(), group_name_info.end());
+
+  for (auto i : c10::irange(group_name_info.size())) {
+    auto pos = group_name_info[i].second;
+    auto expr_group = expr_groups.vector()[pos];
+
+    auto inputs = IdGroups(id_graph.inputGroups(expr_group));
+    auto outputs = IdGroups(id_graph.outputGroups(expr_group));
+
+    ss << indent(indent_size + 1) << toInlineString(inputs.vector()) << " --"
+       << toString(expr_group, 0, with_ptr) << "--> "
+       << toInlineString(outputs.vector()) << "\n";
+  }
+
+  ss << indent(indent_size) << "}";
+  return ss.str();
+}
+
+std::string idGroupsString(
+    const IdGraph& id_graph,
+    int indent_size,
+    bool with_ptr) {
+  IdGroups id_groups(
+      id_graph.disjointIdSets().disjointSets().begin(),
+      id_graph.disjointIdSets().disjointSets().end());
+  return toString(id_groups, indent_size, with_ptr);
+}
+std::string exprGroupsString(
+    const IdGraph& id_graph,
+    int indent_size,
+    bool with_ptr) {
   ExprGroups expr_groups(
       id_graph.disjointExprSets().disjointSets().begin(),
       id_graph.disjointExprSets().disjointSets().end());
-  return exprGroupsStringShort(id_graph, expr_groups);
+  return toString(id_graph, expr_groups, indent_size, with_ptr);
 }
 
-std::string definitionsToString(const IdGraph& id_graph) {
-  std::stringstream ss;
+std::string definitionsString(
+    const IdGraph& id_graph,
+    int indent_size,
+    bool with_ptr) {
   ExprGroups defs;
   for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
     auto definition_pair = id_graph.iterDomainGroupDefinitions(id_group);
@@ -205,28 +312,26 @@ std::string definitionsToString(const IdGraph& id_graph) {
       }
     }
   }
-  for (auto expr : defs) {
-    ss << exprGroupStringShort(id_graph, expr) << std::endl;
-  }
-  return ss.str();
+  return toString(id_graph, defs, indent_size, with_ptr);
 }
 
-std::string usesToString(const IdGraph& id_graph) {
-  std::stringstream ss;
-
+std::string usesString(
+    const IdGraph& id_graph,
+    int indent_size,
+    bool with_ptr) {
+  ExprGroups uses;
   for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
-    auto uses_pair = id_graph.iterDomainGroupUses(id_group);
-    ss << idGroupStringShort(id_group) << std::endl;
-    if (uses_pair.second) {
-      for (auto expr_group : uses_pair.first) {
-        ss << "  " << exprGroupStringShort(id_graph, expr_group) << std::endl;
+    auto definition_pair = id_graph.iterDomainGroupUses(id_group);
+    if (definition_pair.second) {
+      for (auto expr_group : definition_pair.first) {
+        uses.pushBack(expr_group);
       }
     }
   }
-  return ss.str();
+  return toString(id_graph, uses, indent_size, with_ptr);
 }
 
-} // namespace debug_string
+} // namespace debug
 
 namespace {
 
@@ -1010,11 +1115,12 @@ std::pair<ExprGroups, bool> IdGraph::iterDomainGroupUses(
   return std::make_pair(uses_it->second, true);
 }
 
-// TODO: Improve and extend to include other information.
 std::string IdGraph::toString() const {
   std::stringstream ss;
   ss << "IdGraph { \n";
-  ss << "Disjoint Id Set " << disjoint_ids_.toString() << std::endl;
+  ss << "Disjoint Ids:\n"
+     << debug::idGroupsString(*this, 1) << "\n\nDisjoint Expression groups:\n"
+     << debug::exprGroupsString(*this, 1) << std::endl;
   ss << " } IdGraph\n" << std::endl;
   return ss.str();
 }
@@ -1047,7 +1153,6 @@ std::vector<std::vector<IterDomain*>> IdGraph::isTrivialExpr(Expr* expr) {
   return mapped_ids;
 }
 
-// TODO: Add explicit id_definitions_ and id_uses_
 void IdGraph::initializeId(
     IterDomain* id,
     const VectorOfUniqueEntries<Expr*>& definitions,
@@ -1409,11 +1514,11 @@ void IdGraph::eraseExprGroup(ExprGroup expr_group) {
     TORCH_INTERNAL_ASSERT(
         unique_definitions_.find(id_group) != unique_definitions_.end(),
         "Broken definitions, couldn't find entry for id group, ",
-        debug_string::idGroupStringShort(id_group));
+        debug::toString(id_group, 0, true));
     TORCH_INTERNAL_ASSERT(
         unique_uses_.find(id_group) != unique_uses_.end(),
         "Broken uses, couldn't find entry for id group, ",
-        debug_string::idGroupStringShort(id_group));
+        debug::toString(id_group, 0, true));
 
     unique_definitions_[id_group].erase(expr_group);
     unique_uses_[id_group].erase(expr_group);
@@ -2473,8 +2578,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   }
 
   std::cout << "Loop groups: "
-            << debug_string::idGroups(idGraph(IdMappingMode::LOOP))
-            << std::endl;
+            << debug::idGroupsString(idGraph(IdMappingMode::LOOP)) << std::endl;
 
   // Terminal loop ids are iteration domains in each loop group that:
   // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
@@ -2847,8 +2951,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   }
 
   std::cout << "New loop groups:" << std::endl;
-  std::cout << debug_string::idGroups(idGraph(IdMappingMode::LOOP))
-            << std::endl;
+  std::cout << debug::idGroupsString(idGraph(IdMappingMode::LOOP)) << std::endl;
 
   {
     // Update iel_promotion_map since we changed the loop map the IdGroup key is
@@ -2981,19 +3084,18 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
       std::stringstream err_msg;
       err_msg
           << "\n ERROR Loop promotion map build. Could not find promotion for loop group:\n  ";
-      err_msg << debug_string::idGroupStringShort(loop_group);
+      err_msg << debug::toString(loop_group, 0, true);
       err_msg << "\nnone of the terminal iter domains of this group:\n  ";
       for (auto entry : exact_promoted_terminal_ids) {
         auto terminal_id_group = entry.first;
         auto covered_id_groups = exact_covered_ids.at(terminal_id_group);
-        err_msg << "  " << debug_string::idGroupStringShort(terminal_id_group)
-                << " -(covers)-> "
-                << debug_string::idGroupsStringShortInline(covered_id_groups)
+        err_msg << "  " << debug::toString(terminal_id_group, 0, true)
+                << " -(covers)-> " << debug::toString(covered_id_groups)
                 << std::endl;
       }
       err_msg << "iter domains in this group cover all id groups:\n";
       for (auto covered_group : loop_group_covered_ids) {
-        err_msg << "  " << debug_string::idGroupStringShort(covered_group);
+        err_msg << "  " << debug::toString(covered_group, 0, true);
       }
       // TORCH_INTERNAL_ASSERT(false, err_msg.str());
     } else {
@@ -3005,7 +3107,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   for (auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()) {
     if (loop_graph_copy_promotion_map.find(loop_group) !=
         loop_graph_copy_promotion_map.end()) {
-      std::cout << debug_string::idGroupStringShort(loop_group) << " -> "
+      std::cout << debug::toString(loop_group, 0, true) << " -> "
                 << loop_graph_copy_promotion_map[loop_group]->toString()
                 << std::endl;
     }
@@ -3150,7 +3252,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     if (iel_promotion_map.find(group) == iel_promotion_map.end()) {
       continue;
     }
-    std::cout << debug_string::idGroupStringShort(group) << " -> "
+    std::cout << debug::toString(group, 0, true) << " -> "
               << iel_promotion_map.at(group)->toString() << std::endl;
   }
 
@@ -3253,7 +3355,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     TORCH_INTERNAL_ASSERT(
         covered_it != exact_covered_ids.end(),
         "Missing map entry in analysis for: ",
-        debug_string::idGroupStringShort(exact_group));
+        debug::toString(exact_group, 0, true));
     return covered_it->second;
   };
 
@@ -3327,14 +3429,12 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
     if (loop_promotion_id == nullptr) {
       std::stringstream err_msg;
       err_msg << "\nCould not find promotion for loop group:\n  ";
-      err_msg << debug_string::idGroupStringShort(loop_group);
+      err_msg << debug::toString(loop_group, 0, true);
       err_msg << "\nnone of the candidate iter domains of this group:\n  ";
       err_msg << "  "
               << VectorOfUniqueEntries<IterDomain*>(candidate_ids).toString();
       err_msg << "\n cover all id groups that the loop group covers:\n";
-      err_msg << " "
-              << debug_string::idGroupsStringShort(all_covered_exact_groups)
-              << std::endl;
+      err_msg << " " << debug::toString(all_covered_exact_groups) << std::endl;
       TORCH_INTERNAL_ASSERT(false, err_msg.str());
     }
 
@@ -3347,7 +3447,7 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
         loop_graph_copy_promotion_map.end()) {
       continue;
     }
-    std::cout << debug_string::idGroupStringShort(group) << " -> "
+    std::cout << debug::toString(group, 0, true) << " -> "
               << loop_graph_copy_promotion_map.at(group)->toString()
               << std::endl;
   }
@@ -3892,13 +3992,12 @@ void IterDomainGraphs::buildLoopPromotionMap(const std::vector<Expr*>& exprs) {
   std::cout << "All indexing expressions (on the index graph): " << std::endl;
   auto index_expr_groups =
       idGraph(IdMappingMode::INDEX).toGroups(all_index_exprs);
-  std::cout << debug_string::exprGroupsStringShort(
-                   idGraph(IdMappingMode::INDEX), index_expr_groups)
+  std::cout << debug::toString(idGraph(IdMappingMode::INDEX), index_expr_groups)
             << std::endl;
 
   std::cout << "All iter domains (on the index graph): " << std::endl;
   auto index_id_groups = idGraph(IdMappingMode::INDEX).toGroups(all_index_ids);
-  std::cout << debug_string::idGroupsStringShort(index_id_groups) << std::endl;
+  std::cout << debug::toString(index_id_groups) << std::endl;
 
   // std::cout << "All iter domains that would be indexed: "
   //           << all_index_ids.toString() << std::endl;
