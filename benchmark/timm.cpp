@@ -15,6 +15,9 @@
 #include <benchmark/benchmark.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   FusionGuard fg(fusion);
