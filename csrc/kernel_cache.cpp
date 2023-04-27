@@ -439,6 +439,13 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
+  if (has_dynamic_reshape_) {
+    // In the case of cache hits, we tend to accumulate managed data in
+    // fusion_. Here we release the concretization info we created to avoid
+    // cloning more and more entries.
+    fusion_->stopManaging(conc_info_index);
+  }
+
   id_to_kernel_runtime_[unique_id] = kernel_runtime;
   return kernel_runtime;
 }
