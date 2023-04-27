@@ -425,6 +425,16 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
+    case MatmulLayout::NN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
+        default:
+          break;
+      }
+      break;
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }

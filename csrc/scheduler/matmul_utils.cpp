@@ -233,7 +233,10 @@ c10::optional<ProblemShape> getProblemShape(
       if (path.empty()) {
         continue;
       }
-      if (path.front()->isA<TensorView>()) {
+      if (path.size() >= 2 && path.at(1)->isA<TensorView>() &&
+          path.at(1)->as<TensorView>()->hasRFactor()) {
+        tvs.push_back(path.at(1));
+      } else if (path.front()->isA<TensorView>()) {
         tvs.push_back(path.front());
       }
     }
@@ -424,7 +427,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (val->definition()->isA<BroadcastOp>()) {
         const auto& bcast_inputs = val->definition()->inputs();
         // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput();
+        return bcast_inputs.front()->isFusionInput() ||
+            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
+             nullptr);
       }
       return false;
     };
