@@ -6,9 +6,6 @@ project(nvfuser)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# This debug property lists the cmake target dependency graph.
-# set_property(GLOBAL PROPERTY GLOBAL_DEPENDS_DEBUG_MODE 1)
-
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if (CMAKE_VERSION VERSION_LESS 3.21)
     if ("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
@@ -220,6 +217,18 @@ if (PROJECT_IS_TOP_LEVEL)
   # this is to find pip installed nvrtc .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
+
+  # installing nvfuser headers
+  install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+      FILES_MATCHING PATTERN "*.h" )
+
+  add_custom_target(build_flatbuffer_config
+      COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
+      DEPENDS flatc
+      COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs")
+
+  add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
@@ -232,18 +241,6 @@ else()
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 endif()
-
-# installing nvfuser headers
-install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-      FILES_MATCHING PATTERN "*.h" )
-
-add_custom_target(build_flatbuffer_config
-    COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
-    DEPENDS flatc
-    COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs")
-
-add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 
 #-----------------------------
 # build nvfuser python library
