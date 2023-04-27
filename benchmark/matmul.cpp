@@ -20,18 +20,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
 
-bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
-  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
-  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
-
-  if (capability_major < required_major ||
-      (capability_major == required_major &&
-       capability_minor < required_minor)) {
-    return true;
-  }
-  return false;
-}
+using namespace nvfuser;
 
 bool hasRequiredSmemSize(size_t required_size) {
   // Only checking device 0
@@ -49,84 +40,6 @@ bool hasRequiredSmemSize(size_t required_size) {
 
 // util to track support matmul operand layout.
 using MatmulLayout = MmaOptions::MmaInputLayout;
-
-C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-variable")
-static constexpr std::array<MatmulLayout, 3> kAllSupportedLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN};
-C10_DIAGNOSTIC_POP()
-
-// Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
-  TORCH_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
-  TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
-  switch (layout) {
-    case MatmulLayout::TT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      break;
-    case MatmulLayout::TN:
-      tv0b = broadcast(a, {false, true, false});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-      break;
-    case MatmulLayout::NT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {false, true, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
-      break;
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return tv2;
-}
-
-// Utility to generate matmul input tensors based on given layout
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
-  switch (layout) {
-    case MatmulLayout::TT:
-      return a.matmul(b);
-    case MatmulLayout::TN:
-      return a.matmul(b.t());
-    case MatmulLayout::NT:
-      return a.t().matmul(b);
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return at::Tensor();
-}
-
-// Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
-    int M,
-    int N,
-    int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-
-  // Use randint to reduce numerical error so we can easily validate the
-  // correctness of results.
-  switch (layout) {
-    case MatmulLayout::TT:
-      return std::make_pair(
-          at::randint(-3, 3, {M, K}, options).div_(8),
-          at::randint(-3, 3, {K, N}, options).div_(8));
-    case MatmulLayout::TN:
-      return std::make_pair(
-          at::randint(-3, 3, {M, K}, options).div_(8),
-          at::randint(-3, 3, {N, K}, options).div_(8));
-    case MatmulLayout::NT:
-      return std::make_pair(
-          at::randint(-3, 3, {K, M}, options).div_(8),
-          at::randint(-3, 3, {K, N}, options).div_(8));
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return std::make_pair(at::Tensor(), at::Tensor());
-}
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
@@ -216,8 +129,8 @@ static void SingleMatmulBase(
   at::manual_seed(0);
 
   // Tensor inputs
-  auto inputs = fp16MatmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -271,8 +184,8 @@ static void EagerModeMatmul(
 
   at::manual_seed(0);
 
-  auto inputs = fp16MatmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);

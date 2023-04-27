@@ -527,7 +527,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     most_recent_executor_log_.params = scheduler_entry->params()->clone();
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
+      measure_kernel_time_) {
     executor.setMeasureKernelTimeFlag(true);
   }
 

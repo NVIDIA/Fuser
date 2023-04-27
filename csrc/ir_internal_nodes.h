@@ -115,17 +115,24 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
+
+  //! Parameter exact_sizes indicates whether the non-indexed domains
+  //! of the index tensor have the same extents of those of the input
+  //! tensor. It's true in the case of torch.take_along_dim and
+  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
+  //! they are the same.
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
       int dim,
       IterDomain* select_id,
-      Val* index);
+      Val* index,
+      bool exact_sizes);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TorchGatherOp";
   }
 
@@ -146,6 +153,10 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   IterDomain* getSelectAxis() const {
     return attribute(0)->as<IterDomain>();
+  }
+
+  bool exactSizes() const {
+    return attribute(2)->as<Attribute<bool>>()->value;
   }
 };
 
@@ -1496,6 +1507,10 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
+  }
+
+  bool isIteration() const {
+    return getIterType() == IterType::Iteration;
   }
 
   bool isRFactorProduct() const {

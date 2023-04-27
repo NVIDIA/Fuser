@@ -148,8 +148,6 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     // import IrBuilder just for this one interface.
     Int* init_N = nullptr);
 
-TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
-
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
     const std::vector<Val*>& shape,
@@ -581,28 +579,6 @@ TORCH_CUDA_CU_API TensorView* lerp(
     TensorView* start,
     TensorView* end,
     TensorView* weight);
-// index_select
-TORCH_CUDA_CU_API TensorView* index_select(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.gather
-TORCH_CUDA_CU_API TensorView* torch_gather(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.scatter
-TORCH_CUDA_CU_API TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
-TORCH_CUDA_CU_API TensorView* scatter(
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
 
 // addcmul
 TORCH_CUDA_CU_API Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);

@@ -16,6 +16,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // TODO: add LSTM function to composite operations
 // Function Signature: cy, hy = lstm(x, cx)

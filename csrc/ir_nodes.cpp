@@ -208,26 +208,35 @@ TorchGatherOp::TorchGatherOp(
     Val* in,
     int dim,
     IterDomain* select_id,
-    Val* indices)
+    Val* indices,
+    bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
   addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = torch_gather( ";
+  indent(ss, indent_size) << " = "
+                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << "( ";
   if (lookupTv()->isA<kir::TensorIndex>()) {
     ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
   } else {
     ss << lookupTv()->toString();
   }
-  ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+  if (exactSizes()) {
+    ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
+  } else {
+    ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+  }
   return ss.str();
 }
 
@@ -2567,33 +2576,6 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
-namespace {
-
-// Validate that the root domain consists of all inputs to domain
-// Uncertain if this will hold for RFactor
-void validateInputDependency(
-    const std::vector<IterDomain*>& root_domain,
-    const std::vector<IterDomain*>& domain) {
-  std::vector<Val*> non_symbolic_domain;
-  std::copy_if(
-      domain.begin(),
-      domain.end(),
-      std::back_inserter(non_symbolic_domain),
-      [](auto dom) { return dom->getIterType() != IterType::Symbolic; });
-  auto inps = IterVisitor::getInputsTo(non_symbolic_domain);
-
-  std::unordered_set<Val*> root_vals(root_domain.begin(), root_domain.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
-}
-
-} // namespace
-
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
@@ -2619,7 +2601,10 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  validateInputDependency(root_domain_, domain_);
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2653,8 +2638,14 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  validateInputDependency(root_domain_, rfactor_domain_);
-  validateInputDependency(root_domain_, domain_);
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, domain_);
+    }
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
