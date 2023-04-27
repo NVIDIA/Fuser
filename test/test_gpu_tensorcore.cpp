@@ -1675,14 +1675,14 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [N,K]
+  // [N, K]
   auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,N,K]
+  // [M, N, K]
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -1704,16 +1704,14 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,N,K] -> [N,M,K]
+  // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
@@ -1747,18 +1745,21 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,K,N]
-  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  // [M, K, N]
   auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, N, K]
+  auto tv1t = transpose(tv1b, 1, 2);
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -1774,25 +1775,19 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,K,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -2}, {-2, -1}, {-1, -3}});
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv1cr->reorder({{-2, -1}, {-1, -2}});
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv2c->reorder({{-2, -1}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -1823,17 +1818,21 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [K,M]
+  // [K, M]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [K,M,N]
+  // [K, M, N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {false, true, false});
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv1t = permute(tv1b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -1849,29 +1848,21 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -1}, {-1, -3}});
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv1cr->reorder({
-      {-3, -1},
-      {-2, -3},
-      {-1, -2},
-  });
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv2c->reorder({{-3, -1}, {-2, -3}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -1893,6 +1884,78 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.to(at::kFloat));
+
+  testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
+// MMA unit test on Ampere
+TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [K, M]
+  auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
+  // [N, K]
+  auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [K, M, N]
+  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv1b = broadcast(tv1, {true, false, false});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1b, {2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 8, 16);
+  gemm_tile.warp_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  auto mma_builder =
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
+          .layout(MmaOptions::MmaLayout::NN);
+
+  mma_builder.configureMma(tv2);
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
+
+  auto tv2c = tv2->cacheBefore();
+  mma_builder.accumulatorTv(tv2c);
+
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv2c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 16}, options);
+  auto t1 = at::randn({8, 16}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      7,
+      5,
+      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1});
+
+  auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
