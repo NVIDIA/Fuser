@@ -52,7 +52,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->domain()->domain()) {
+  for (auto id : consumer_tv->domain()->leaf()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -520,9 +520,9 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
         // Make sure consumer_leaf_id is indeed a consumer leaf ID
         TORCH_INTERNAL_ASSERT(
             std::find(
-                consumer_tv->domain()->domain().begin(),
-                consumer_tv->domain()->domain().end(),
-                consumer_leaf_id) != consumer_tv->domain()->domain().end(),
+                consumer_tv->domain()->leaf().begin(),
+                consumer_tv->domain()->leaf().end(),
+                consumer_leaf_id) != consumer_tv->domain()->leaf().end(),
             "Not a consumer leaf ID: ",
             consumer_leaf_id->toString(),
             ", consumer: ",
@@ -539,8 +539,8 @@ void LoopIndexingAnalysis::run() {
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
       {consumer_tv_->getRootDomain().begin(),
        consumer_tv_->getRootDomain().end()},
-      {consumer_tv_->domain()->domain().begin(),
-       consumer_tv_->domain()->domain().end()});
+      {consumer_tv_->domain()->leaf().begin(),
+       consumer_tv_->domain()->leaf().end()});
 
   // Resolve definition of each exact concrete id's involved in the whole loop
   // nest transform history
@@ -838,8 +838,8 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->domain()->domain().begin(),
-       consumer_tv->domain()->domain().end()});
+      {consumer_tv->domain()->leaf().begin(),
+       consumer_tv->domain()->leaf().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -910,7 +910,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->domain()->domain(),
+      target_tv->domain()->leaf(),
       target_tv->getMaybeRFactorDomain(),
       target_tv->domain()->contiguity(),
       {},
@@ -975,8 +975,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_tv->getMaybeRFactorDomain().begin(),
        consumer_tv->getMaybeRFactorDomain().end()},
-      {consumer_tv->domain()->domain().begin(),
-       consumer_tv->domain()->domain().end()});
+      {consumer_tv->domain()->leaf().begin(),
+       consumer_tv->domain()->leaf().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -1207,9 +1207,9 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
 
   // Start the set with all the leaf ids.
   std::transform(
-      consumer_tv_->domain()->domain().begin() +
+      consumer_tv_->domain()->leaf().begin() +
           consumer_tv_->getComputeAtPosition(),
-      consumer_tv_->domain()->domain().end(),
+      consumer_tv_->domain()->leaf().end(),
       std::inserter(out_of_line_ids, out_of_line_ids.end()),
       exactConcreteId);
 
@@ -1320,8 +1320,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     auto all_original_ids = DependencyCheck::getAllValsBetween(
         {original_tv->getMaybeRFactorDomain().begin(),
          original_tv->getMaybeRFactorDomain().end()},
-        {original_tv->domain()->domain().begin(),
-         original_tv->domain()->domain().end()});
+        {original_tv->domain()->leaf().begin(),
+         original_tv->domain()->leaf().end()});
 
     for (auto original_id :
          ir_utils::filterByType<IterDomain>(all_original_ids)) {
