@@ -1359,7 +1359,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaInputLayout> input_layout = std::nullopt;
+  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1392,7 +1392,7 @@ TensorViewDetails getDetailsFor(const TensorView* tv) {
   return details;
 }
 
-MmaOptions::MmaInputLayout getInputLayout(
+MmaOptions::MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1406,7 +1406,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::TT;
+    return MmaOptions::MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
@@ -1416,7 +1416,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaInputLayout::TN;
+    return MmaOptions::MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
@@ -1426,7 +1426,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::NT;
+    return MmaOptions::MmaLayout::NT;
   }
 
   TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
@@ -1620,7 +1620,7 @@ MmaOp::MmaOp(
   addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
   // ATTR_POS_INPUT_LAYOUT
   addAttribute(
-      IrBuilder::create<Attribute<MmaInputLayoutOpt>>(passkey.ir_container_));
+      IrBuilder::create<Attribute<MmaLayoutOpt>>(passkey.ir_container_));
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -1639,7 +1639,7 @@ MmaOp::MmaOp(
       std::move(mma_details.k_axes);
   attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
       std::move(mma_details.batch_axes);
-  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaInputLayoutOpt>>()->value =
+  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
       mma_details.input_layout;
 }
 
@@ -1650,13 +1650,12 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init,
     const OptionsInMma& options,
-    const MmaInputLayoutOpt& input_layout)
+    const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
 
-  const auto input_layout_ = attribute(ATTR_POS_INPUT_LAYOUT)
-                                 ->as<Attribute<MmaInputLayoutOpt>>()
-                                 ->value;
+  const auto input_layout_ =
+      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
   if (input_layout_.has_value()) {
     TORCH_INTERNAL_ASSERT(
         input_layout_.value() == input_layout.value(),
@@ -1666,9 +1665,8 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
-        ->value = input_layout;
+    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
+        input_layout;
   }
 }
 
@@ -1949,6 +1947,13 @@ std::string LoadStoreOp::toString(int indent_size) const {
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool LoadStoreOp::hasTranspose() const {
+  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
+    return out_tv->hasRFactor();
+  }
+  return false;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)

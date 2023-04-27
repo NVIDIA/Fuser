@@ -32,7 +32,7 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 using LayoutData =
     std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
 using TensorShape = std::vector<int64_t>;
@@ -233,7 +233,10 @@ c10::optional<ProblemShape> getProblemShape(
       if (path.empty()) {
         continue;
       }
-      if (path.front()->isA<TensorView>()) {
+      if (path.size() >= 2 && path.at(1)->isA<TensorView>() &&
+          path.at(1)->as<TensorView>()->hasRFactor()) {
+        tvs.push_back(path.at(1));
+      } else if (path.front()->isA<TensorView>()) {
         tvs.push_back(path.front());
       }
     }
@@ -424,7 +427,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (val->definition()->isA<BroadcastOp>()) {
         const auto& bcast_inputs = val->definition()->inputs();
         // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput();
+        return bcast_inputs.front()->isFusionInput() ||
+            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
+             nullptr);
       }
       return false;
     };
@@ -474,7 +479,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #2
   {
     for (const auto* mma_expr : mma_exprs) {
-      const auto input_layout = mma_expr->inputLayout();
+      const auto input_layout = mma_expr->layout();
       if (!input_layout) {
         return "Failed to acquire inputs layout.";
       }
@@ -508,7 +513,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(
       mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
-  const auto layout = mma_exprs.front()->inputLayout();
+  const auto layout = mma_exprs.front()->layout();
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape = getProblemShape(
