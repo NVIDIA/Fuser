@@ -788,8 +788,7 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 }
 
 void IndexCompute::run() {
-  const std::vector<Val*> domain_vals(
-      td_->leaf().begin(), td_->leaf().end());
+  const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
 
   traverseTo(td_->fusion(), domain_vals, false);
 }
@@ -889,8 +888,7 @@ class UpdateLeafIndices : public IterVisitor {
       : td_(td),
         index_map_(std::move(initial_index_map)),
         extent_map_(std::move(extent_map)) {
-    const std::vector<Val*> domain_vals(
-        td_->leaf().begin(), td_->leaf().end());
+    const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
 
     traverseTo(td_->fusion(), domain_vals, false);
   }

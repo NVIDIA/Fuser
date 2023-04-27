@@ -494,8 +494,7 @@ class PredicateChcker : public IterVisitor {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
            output->getMaybeRFactorDomain().end()},
-          {output->domain()->leaf().begin(),
-           output->domain()->leaf().end()});
+          {output->domain()->leaf().begin(), output->domain()->leaf().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
           output->getMaybeRFactorDomain().begin(),

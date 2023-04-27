@@ -324,8 +324,8 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
     }
 
     // Leaf domains
-    auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->leaf(), id_graph, IdMappingMode::LOOP);
+    auto self_mappped_leaf_pair =
+        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::LOOP);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -468,9 +468,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->domain()->leaf(),
-            c_tv->domain()->leaf(),
-            exact_c2p_root_map);
+            p_tv->domain()->leaf(), c_tv->domain()->leaf(), exact_c2p_root_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 

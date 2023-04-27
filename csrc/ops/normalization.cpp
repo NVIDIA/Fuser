@@ -909,8 +909,8 @@ BackwardNormResult instance_norm_backward(
         reduction_axes.push_back((int)axis);
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
-          num_features = castOp(
-              DataType::Double, input->domain()->leaf()[axis]->extent());
+          num_features =
+              castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
         } else {
           num_features =
               mul(num_features, input->domain()->leaf()[axis]->extent());

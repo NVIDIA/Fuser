@@ -76,11 +76,10 @@ class ValidateSiblings : public IterVisitor {
         id_map[ref_root[i]] = sibling->getRootDomain().at(i);
       }
 
-      auto replay = BestEffortReplay(
-                        sibling->domain()->leaf(),
-                        ref_output->domain()->leaf(),
-                        id_map)
-                        .getIterDomainEquivalence();
+      auto replay =
+          BestEffortReplay(
+              sibling->domain()->leaf(), ref_output->domain()->leaf(), id_map)
+              .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
         TORCH_INTERNAL_ASSERT(

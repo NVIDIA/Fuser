@@ -1850,8 +1850,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprs(
-      tv->fusion(),
-      {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
+      tv->fusion(), {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
