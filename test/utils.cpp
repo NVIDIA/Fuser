@@ -262,23 +262,20 @@ TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
   switch (layout) {
-    //! NT : K,M x K,N -> K,M,N
-    case MatmulLayout::NT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {false, true, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
-      break;
-    //! TT : M,K X K,N -> M,K,N
     case MatmulLayout::TT:
       tv0b = broadcast(a, {false, false, true});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {1});
       break;
-    //! TN : M,K X N,K -> M,N,K
     case MatmulLayout::TN:
       tv0b = broadcast(a, {false, true, false});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+      break;
+    case MatmulLayout::NT:
+      tv0b = broadcast(a, {false, false, true});
+      tv1b = broadcast(b, {false, true, false});
+      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
       break;
     default:
       TORCH_CHECK(false, "unsupported data layout.");

@@ -3430,51 +3430,56 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   // kernel7 run in 0.095232 ms, achieved: 150.71 GB/s
   // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
   // kernel9 run in 0.076800 ms, achieved: 186.88 GB/s
-  int M = 128 * 3, N = 128 * 9, K = 4096;
-  for (auto layout : kAllSupportedMatmulLayout) {
-    for (int k_factor : {1, 2, 4}) {
-      Fusion fusion;
-      FusionGuard fg(&fusion);
-      auto tv0 = makeContigTensor(2, DataType::Half);
-      auto tv1 = makeContigTensor(2, DataType::Half);
-      auto tv2 = matmul(tv0, tv1, layout, true);
-      fusion.addInput(tv0);
-      fusion.addInput(tv1);
-      fusion.addOutput(tv2);
+  auto testSplitK = [](const int M, const int N, const int K, const std::vector<int>& split_k_factors){
+    for (auto layout : kAllSupportedMatmulLayout) {
+        for (auto split_k_factor : split_k_factors) {
+            Fusion fusion;
+            FusionGuard fg(&fusion);
+            auto tv0 = makeContigTensor(2, DataType::Half);
+            auto tv1 = makeContigTensor(2, DataType::Half);
+            auto tv2 = matmul(tv0, tv1, layout, true);
+            fusion.addInput(tv0);
+            fusion.addInput(tv1);
+            fusion.addOutput(tv2);
 
-      MatMulTileOptions gemm_tile;
-      MatmulParams params;
-      params.split_k_factor = k_factor;
+            MatMulTileOptions gemm_tile;
+            MatmulParams params;
+            params.split_k_factor = split_k_factor;
 
-      gemm_tile.cta_tile = GemmTile(128, 128, 32);
-      gemm_tile.warp_tile = GemmTile(64, 64, 32);
-      gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
-      params.async_gmem_load_operands = true;
-      params.double_buffer_options.double_buffer_smem_write = true;
-      params.double_buffer_options.smem_double_buffer_stage = 4;
-      params.tile_sizes = gemm_tile;
-      scheduleMatmul(&fusion, params);
+            gemm_tile.cta_tile = GemmTile(128, 128, 32);
+            gemm_tile.warp_tile = GemmTile(64, 64, 32);
+            gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+            params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+            params.async_gmem_load_operands = true;
+            params.double_buffer_options.double_buffer_smem_write = true;
+            params.double_buffer_options.smem_double_buffer_stage = 4;
+            params.tile_sizes = gemm_tile;
+            scheduleMatmul(&fusion, params);
 
-      at::manual_seed(0);
-      auto inputs = matmulAtInput(M, N, K, layout);
+            at::manual_seed(0);
+            auto inputs = matmulAtInput(M, N, K, layout);
 
-      FusionExecutor fe;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-          8,
-          0,
-          fe.compileFusion(
-              &fusion,
-              {inputs.first, inputs.second},
-              LaunchParams(),
-              matmul_cparams));
-      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-      auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-      auto tref = atMatmul(
-          inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+            FusionExecutor fe;
+            NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+                8,
+                0,
+                fe.compileFusion(
+                    &fusion,
+                    {inputs.first, inputs.second},
+                    LaunchParams(),
+                    matmul_cparams));
+            ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+            auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+            auto tref = atMatmul(
+                inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+            TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+        }
     }
-  }
+  };
+
+//    testSplitK(128 * 3, 128 * 9, 4096, {1, 2, 4});
+    testSplitK(128 * 3, 128 * 9, 4096, {1, 2, 4});
+
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
