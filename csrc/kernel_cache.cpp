@@ -45,7 +45,8 @@ void encodeBuffer(size_t value, std::string& buffer) {
 } // namespace
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool hash_scalars) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
@@ -75,6 +76,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
+      if (hash_scalars && input.isInt()) {
+        // add value of integer scalars here
+        encoding_ += std::to_string(input.toInt());
+      }
     }
     encoding_.push_back(';');
   }
@@ -119,7 +124,8 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
       KernelArgumentHolder::createKernelArgumentHolder(inputs);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
-  auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
+  auto id_lookup_ret =
+      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ has_dynamic_reshape_);
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }

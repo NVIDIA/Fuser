@@ -710,18 +710,22 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   }
 }
 
+using shape = std::vector<int64_t>;
+using dynamic_view_invocation = std::tuple<
+    shape, // input_shape
+    shape, // output_shape
+    bool // expect miss
+    >;
+
 //! Given a collection of input/output shapes test that FusionExecutorCache
 //! properly caches concretized Fusions. The first argument is a vector of
 //! input/output shape pairs. Each of these shape pairs will be run using the
 //! same FusionExecutorCache. The argument expect_miss indicates whether we
 //! expect a cache hit or miss at the concretization level.
-//! reshape_before_reduction has the same meaning as in reductionViewAddFusion.
+//! reshape_before_reduction has the same meaning as in reductionViewAddFusion
+//! in test_gpu_view.cpp.
 void reductionDynamicViewAddFusion(
-    std::vector<std::tuple<
-        std::vector<int64_t>, // input_shape
-        std::vector<int64_t>, // output_shape
-        bool // expect_miss
-        >>& invocations,
+    std::vector<dynamic_view_invocation>& invocations,
     bool reshape_before_reduction) {
   constexpr int kReductionAxis = -1;
 
@@ -808,22 +812,17 @@ void reductionDynamicViewAddFusion(
 TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
   std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       all_dynamic_reshape_examples = {};
-  for (auto invocations : std::vector<std::vector<std::tuple<
-           std::vector<int64_t>, // input_shape
-           std::vector<int64_t>, // output_shape
-           bool // expect_miss
-           >>>{{
+  for (auto invocations : std::vector<std::vector<dynamic_view_invocation>>{{
            {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
            {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
+           {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, true}, // merge(2) osplit(1, 3)
            {{8, 3 * 4, 7, 9},
-            {8, 3, 4, 7 * 9},
-            true}, // merge(1) merge(1) osplit(1, 3), osplit(2, 4)
-           //{{8, 3 * 4, 7, 9}, {8, 3, 4 * 7, 9}, true}, // merge(1) osplit(1,
-           //3)
-           //{{8, 3 * 4, 7, 5}, {8, 3, 4 * 7, 5}, false}, // merge(1) osplit(1,
-           //3)
-           //{{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1,
-           //3)
+            {8, 3, 4 * 7, 9},
+            true}, // merge(1) merge(2) osplit(1, 3)
+           {{8, 3 * 4, 7, 5},
+            {8, 3, 4 * 7, 5},
+            false}, // merge(1) merge(2) osplit(1, 3)
+           {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
            // test passing -1 dynamically for dimension size
            //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
        }}) {
@@ -833,4 +832,3 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
 }
 
 } // namespace nvfuser
- 
