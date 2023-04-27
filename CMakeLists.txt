@@ -218,11 +218,6 @@ if (PROJECT_IS_TOP_LEVEL)
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
-  # installing nvfuser headers
-  install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-      FILES_MATCHING PATTERN "*.h" )
-
   add_custom_target(build_flatbuffer_config
       COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
       DEPENDS flatc
@@ -241,6 +236,11 @@ else()
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 endif()
+
+# installing nvfuser headers
+install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+    FILES_MATCHING PATTERN "*.h" )
 
 #-----------------------------
 # build nvfuser python library
