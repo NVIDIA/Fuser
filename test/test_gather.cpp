@@ -509,10 +509,11 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         // [I, B] when idx_index_dim == 1, otherwise [I, I]
         // In torch_gather, an index dimension must be smaller or
         // equal to the corresponding input dimension
-        std::vector<int64_t> index_dims{is_take_along ? 5 : input_dims.at(0), idx_index_dim};
+        std::vector<int64_t> index_dims{
+            is_take_along ? 5 : input_dims.at(0), idx_index_dim};
         // This needs to match with the take_along_axis output
         std::vector<int64_t> out_dims{
-          index_dims.at(0), index_dims.at(1), input_dims.at(2)};
+            index_dims.at(0), index_dims.at(1), input_dims.at(2)};
 
         auto fusion_ptr = std::make_unique<Fusion>();
         Fusion& fusion = *fusion_ptr.get();
@@ -531,7 +532,8 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         fusion.addOutput(tv5);
 
         at::manual_seed(0);
-        auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
         auto options_i =
             at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
         at::Tensor t0 = at::randn(input_dims, options);
@@ -542,12 +544,12 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-        auto t4 =
-            is_take_along ? at::take_along_dim(t0, t1.unsqueeze(-1), 1) :
-             at::gather(t0, 1, t1.unsqueeze(-1));
+        auto t4 = is_take_along ? at::take_along_dim(t0, t1.unsqueeze(-1), 1)
+                                : at::gather(t0, 1, t1.unsqueeze(-1));
         auto ref = t4 + t2;
 
-        testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
       }
     }
   }
