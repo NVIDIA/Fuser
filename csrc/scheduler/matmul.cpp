@@ -465,7 +465,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
   TORCH_INTERNAL_ASSERT(
-      mma_ops.front()->inputLayout().has_value(),
+      mma_ops.front()->layout().has_value(),
       "fusion mma op has undefined input layout");
 
   TensorView* a = inputs[0]->as<TensorView>();
@@ -473,7 +473,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* c = outputs[0]->as<TensorView>();
 
   // Collect mma swizzle info
-  const auto layout = mma_ops.front()->inputLayout().value();
+  const auto layout = mma_ops.front()->layout().value();
   auto mma_builder =
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(layout);
   const auto& gemm_tile = params.tile_sizes;
@@ -586,10 +586,37 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
     acw_smem = ar->cacheAfter(load_op);
     bcw_smem = br->cacheAfter(load_op);
-    acr = acw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
-    bcr = bcw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+    TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
+    TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      acr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      bcr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
+
+    // For Turing and Ampere, the layout of the MmaOp is always TN
+    TORCH_INTERNAL_ASSERT(
+        layout == MmaOptions::MmaLayout::TN,
+        "MMAs in Turing and Ampere are TN only, transpose is handled either "
+        "via ldmatrix.trans for fp16 or explicitly for other types.");
+    if (!acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::TN);
+    } else if (!acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::TT);
+    } else if (acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::NN);
+    } else if (acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::NT);
+    }
   }
 
   // Make a CTA tile

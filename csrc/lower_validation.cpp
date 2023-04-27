@@ -443,12 +443,19 @@ class VectorizeValidator : public OptInDispatch {
       return;
     }
 
-    TORCH_CHECK(
-        last_root_dim == validator.vectorized_id_ &&
-            *tv->domain()->contiguity().at(last_root_dim_pos),
-        "Vectorized dim has to be from a contiguous inner most position: ",
-        tv,
-        "\n");
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    bool is_ldmatrix_trans =
+        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    if (!is_ldmatrix_trans) {
+      // ldmatrix.trans is a hardware transpose instruction that can do
+      // "vectorized" read from discontiguous memory
+      TORCH_CHECK(
+          last_root_dim == validator.vectorized_id_ &&
+              *tv->domain()->contiguity().at(last_root_dim_pos),
+          "Vectorized dim has to be from a contiguous inner most position: ",
+          tv,
+          "\n");
+    }
 
     // Save info required to lowering and runtime validation
     auto consumer_word_size_it =
