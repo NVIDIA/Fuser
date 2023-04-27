@@ -316,8 +316,8 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   return getDebugDumpOptions().count(option);
 }
 
-ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag) {
-  old_flag_ = overwrite_disable_fma;
+ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
+    : old_flag_{overwrite_disable_fma} {
   overwrite_disable_fma = flag;
 }
 
@@ -375,10 +375,10 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm) {
   cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
   cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
   int warp_size = prop->warpSize;
-  int num_warps = ceilDiv(threads_per_sm, warp_size);
+  int num_warps = (int)ceilDiv(threads_per_sm, warp_size);
 
   // warps could be distributed unevenly across partition
-  int max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
+  int max_warps_per_sm_partition = (int)ceilDiv(num_warps, num_partition);
   // registers are evenly distributed across partitions, partition with most
   // wraps determins the maximum register available per warp
   int max_reg_per_warp =
@@ -399,11 +399,11 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   int warp_size = prop->warpSize;
 
   int reg_per_warp =
-      ceilDiv(reg_per_thread * warp_size, reg_allocation_granularity) *
+      (int)ceilDiv(reg_per_thread * warp_size, reg_allocation_granularity) *
       reg_allocation_granularity;
   int warps_per_sm_partition =
       prop->regsPerBlock / reg_per_warp / num_partition;
   int num_warps = warps_per_sm_partition * num_partition;
-  return num_warps * warp_size;
+  return num_warps * static_cast<int64_t>(warp_size);
 }
 } // namespace nvfuser

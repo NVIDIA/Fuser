@@ -338,8 +338,12 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
+  // clang-tidy: bugprone-unchecked-optional-access
+  // clang-tidy assumes that function result is unstable, so we need a copy.
+  auto unique_id_optional = args.getCacheId();
+  TORCH_INTERNAL_ASSERT(unique_id_optional.has_value());
   // Check for id hit case
-  auto unique_id = *args.getCacheId();
+  auto unique_id = unique_id_optional.value();
   auto id_it = id_to_kernel_runtime_.find(unique_id);
   if (id_it != id_to_kernel_runtime_.end()) {
     // If the forced index type is given, don't use the cached runtime

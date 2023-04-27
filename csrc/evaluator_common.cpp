@@ -167,10 +167,10 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
         bindTensorMetaData(tensor_input, tensor_arg_abstract);
       } else {
         TORCH_CHECK(
-            arg->isType(ArgType::CpuScalarTensor),
+            arg != nullptr && arg->isType(ArgType::CpuScalarTensor),
             "binding input to TensorView expects input arg to be of tensor type");
       }
-    } else if (input->isScalar()) {
+    } else if (input != nullptr && input->isScalar()) {
       if (input->getDataType() == DataType::Int) {
         TORCH_CHECK(
             arg->isType(ArgType::Long),

@@ -1027,7 +1027,6 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      return;
     default:
       return;
   }
@@ -1049,11 +1048,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
           // Check that operands come from ldmatrix, can be

@@ -825,7 +825,6 @@ IterDomain* getSwizzleFinalOutput(
     // This means id is a leaf that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
-      is_swizzle_input = false;
       break;
     }
 

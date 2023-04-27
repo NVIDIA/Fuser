@@ -441,7 +441,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     }
 
     TORCH_INTERNAL_ASSERT(
-        id_type != IterType::Symbolic,
+        id_type.has_value() && id_type != IterType::Symbolic,
         "Failed to concretize ",
         root_id->toString(),
         " of ",

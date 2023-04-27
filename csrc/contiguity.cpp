@@ -545,7 +545,8 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
         resize_deps_.insert(resize->out());
       } else {
-        if (std::any_of(
+        if (expr != nullptr &&
+            std::any_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
                   return inp->isA<IterDomain>() &&
                       resize_deps_.count(inp->as<IterDomain>());

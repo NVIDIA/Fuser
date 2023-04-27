@@ -265,10 +265,9 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
 
 void IndexLowering::handle(const TorchGatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
-  auto lowered_index_cast = lowered_index;
   if (GpuLower::current()->kernel()->indexType() !=
       top->indexTv()->getDataType().value()) {
-    lowered_index_cast =
+    auto lowered_index_cast =
         IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
     IrBuilder::create<UnaryOp>(
         UnaryOpType::Cast, lowered_index_cast, lowered_index);

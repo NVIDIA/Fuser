@@ -934,16 +934,18 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
     ss << toString(options.macro);
 
-    if (isVolta(options.macro)) {
+    // clang-tidy: bugprone-unchecked-optional-access
+    // clang-tidy assumes that function result is unstable.
+    auto mma_layout_optional = mma->layout();
+    TORCH_INTERNAL_ASSERT(
+        mma_layout_optional.has_value(), "mma unknown input layout");
+    if (isTuring(options.macro) || isAmpere(options.macro)) {
       TORCH_INTERNAL_ASSERT(
-          mma->layout().has_value(), "mma unknown input layout");
-    } else if (isTuring(options.macro) || isAmpere(options.macro)) {
-      TORCH_INTERNAL_ASSERT(
-          mma->layout() == MmaOptions::MmaLayout::TN,
+          mma_layout_optional == MmaOptions::MmaLayout::TN,
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    ss << toString(mma->layout().value());
+    ss << toString(mma_layout_optional.value());
     // TODO: additional parameter could be removed by swizzling iterdomain
     auto acc_stride = mma->accStride();
     TORCH_INTERNAL_ASSERT(acc_stride > 0);
