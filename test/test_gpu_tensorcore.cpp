@@ -3327,7 +3327,8 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   TORCH_CHECK(
-      MatmulLayout::TN == ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+      MatmulLayout::TN ==
+          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "input layout from test and MmaOp do not match");
 
   at::manual_seed(0);
@@ -3378,7 +3379,8 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
     TORCH_CHECK(
-        MatmulLayout::TN == ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+        MatmulLayout::TN ==
+            ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "input layout from test and MmaOp do not match");
 
     at::manual_seed(0);
