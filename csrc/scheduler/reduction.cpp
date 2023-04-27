@@ -94,7 +94,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32l * 1024l;
+  constexpr int64_t l1_cache = 32 * 1024;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;

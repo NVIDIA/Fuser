@@ -36,10 +36,10 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   TensorView* findReferenceFor(const std::vector<TensorView*>& group) const {
     TensorView* result = nullptr;
-    size_t max_dims = 0;
+    int64_t max_dims = -1;
     for (auto tv : group) {
       if (isValidReference(tv)) {
-        size_t dims = pointwise_utils::nRootDims(tv);
+        int64_t dims = (int64_t)pointwise_utils::nRootDims(tv);
         if (dims > max_dims) {
           result = tv;
           max_dims = dims;
