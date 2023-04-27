@@ -390,5 +390,23 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
+//! Validate derived_domain completely covers initial_domain with no
+//! redundancy. Consider derived_domains as a different view of the
+//! same logical domain as initial_domain with affine
+//! transformations. This validation makes sure both sets
+//! of domains represent the same logical space.
+//!
+//! It is intended to be used to validate rfactor and leaf domains
+//! of a tensor root domain.
+//!
+//! For example, it's an error if a initial ID is split and
+//! only one of the outputs is included in the ids vector. It is
+//! also an error if both a producer and consumer ID are included in
+//! ids as they partially have the same dependency with the initial
+//! domain.
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain);
+
 } // namespace ir_utils
 } // namespace nvfuser

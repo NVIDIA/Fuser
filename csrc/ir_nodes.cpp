@@ -2576,33 +2576,6 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
-namespace {
-
-// Validate that the root domain consists of all inputs to domain
-// Uncertain if this will hold for RFactor
-void validateInputDependency(
-    const std::vector<IterDomain*>& root_domain,
-    const std::vector<IterDomain*>& domain) {
-  std::vector<Val*> non_symbolic_domain;
-  std::copy_if(
-      domain.begin(),
-      domain.end(),
-      std::back_inserter(non_symbolic_domain),
-      [](auto dom) { return dom->getIterType() != IterType::Symbolic; });
-  auto inps = IterVisitor::getInputsTo(non_symbolic_domain);
-
-  std::unordered_set<Val*> root_vals(root_domain.begin(), root_domain.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
-}
-
-} // namespace
-
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
@@ -2628,7 +2601,10 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  validateInputDependency(root_domain_, domain_);
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2662,8 +2638,14 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  validateInputDependency(root_domain_, rfactor_domain_);
-  validateInputDependency(root_domain_, domain_);
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, domain_);
+    }
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
