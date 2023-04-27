@@ -124,6 +124,13 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
       KernelArgumentHolder::createKernelArgumentHolder(inputs);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
+  // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
+  // may contain transformations that depend on input scalars, not just on the
+  // extents of tensor inputs, so we must at times include those scalars in the
+  // unique id. Currently, we include all integer scalar inputs for dynamic
+  // fusions. This may not be ideal in all cases, since it will prevent
+  // short-circuiting here, resulting in avoidable rebuilds of concretization
+  // info.
   auto id_lookup_ret =
       inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ has_dynamic_reshape_);
   if (id_lookup_ret.eviction) {
