@@ -786,8 +786,25 @@ void reductionDynamicViewAddFusion(
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
     at::Tensor at_x = at::randn(input_shape, options);
+    auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
+    if (!reshape_before_reduction) {
+      // When bias_shape = output_shape, it may contain -1s
+      // concretize bias_shape so that we can properly initialize at_bias
+      size_t other_numel = 1;
+      ssize_t negone_dim = -1; // negative if no -1 shape is provided
+      for (auto i : c10::irange(bias_shape.size())) {
+        if (bias_shape[i] == -1) {
+          ASSERT_EQ(negone_dim, -1); // test cases should not have multiple -1s
+          negone_dim = -1;
+        } else {
+          other_numel *= bias_shape[i];
+        }
+      }
+      if (negone_dim >= 0) {
+        bias_shape[negone_dim] = at_x.numel() / other_numel;
+      }
+    }
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
