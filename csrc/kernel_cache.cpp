@@ -415,10 +415,21 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
     if (has_dynamic_reshape_) {
-      auto cloned_conc_info =
-          fusion->getManaged<DynamicTransformConcretizationInfo>(
+      const auto& cloned_conc_info =
+          fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
-      DynamicTransform::concretizeFusion(fusion.get(), cloned_conc_info);
+      TORCH_INTERNAL_ASSERT(
+          cloned_conc_info.has_value(),
+          "Copied Fusion is missing managed concretization info");
+      DynamicTransform::concretizeFusion(
+          fusion.get(), cloned_conc_info.value());
+      // The information in cloned_conc_info refers to variables in the copied
+      // symbolic fusion which get replaced during concretization. Keeping
+      // these around during a subsequent fusion copy would lead to an attempt
+      // to clone them, ending in a segfault. Instead, we reset the object
+      // here, effectively as if it now describes a non-dynamic Fusion.
+      // cloned_conc_info.clear();
+      fusion->stopManaging(conc_info_index);
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));
