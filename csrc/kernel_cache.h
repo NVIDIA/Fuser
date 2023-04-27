@@ -517,7 +517,13 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
-  //! Graphs after input dependent transfoms
+  //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
+  //! map is a (device, concretization info) pair. In case fusion_ contains
+  //! no dynamic transforms, the second part of the key is null. When a new set
+  //! of inputs is received, we extract the corresponding value from this map,
+  //! which is a vector of FusionKernelRuntime objects representing scheduled
+  //! Fusions. We then check each of these to see if we can re-use any of those
+  //! kernels and if not, we create a new one.
   std::unordered_map<
       std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
