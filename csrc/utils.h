@@ -398,6 +398,13 @@ std::string toDelimitedString(
   return toDelimitedString(dq.begin(), dq.end(), delim);
 }
 
+template <typename Printable>
+std::string toDelimitedString(
+    const std::unordered_set<Printable>& set,
+    std::string delim = ", ") {
+  return toDelimitedString(set.begin(), set.end(), delim);
+}
+
 template <int64_t index, int64_t stop, int64_t step, typename func_t>
 void unrolled_for(func_t fun) {
   if constexpr (index < stop) {
