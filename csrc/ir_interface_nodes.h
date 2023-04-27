@@ -544,9 +544,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
-  // commit the current changes in leaf domain into rFactor domain
-  void commitLeafToRFactor();
-
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
