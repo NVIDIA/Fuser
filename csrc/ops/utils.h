@@ -31,6 +31,10 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    DataType dtype);
+
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);
 
 std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals);

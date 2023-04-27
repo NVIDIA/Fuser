@@ -177,7 +177,7 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
 
 //! Replace Vals in an index Val as specified by replacement_map while
 //! cloning the given index Val. The index val is assumed to represent
-//! a tensor index consisting of Ints  and arithmetic expressions.
+//! a tensor index consisting of Ints and arithmetic expressions.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
@@ -325,6 +325,8 @@ TORCH_CUDA_CU_API std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
 
 TORCH_CUDA_CU_API std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
 
+TORCH_CUDA_CU_API std::vector<MmaOp*> getMmaOps(Fusion* fusion);
+
 TORCH_CUDA_CU_API std::vector<SelectOp*> getSelectOps(Fusion* fusion);
 
 // Returns the initialization value of tv or nullptr if not initialized.
@@ -335,6 +337,9 @@ TORCH_CUDA_CU_API bool isReductionOp(const Expr*);
 
 // Returns if Expr is a reduction op with TensorView or TensorIndex
 TORCH_CUDA_CU_API bool isReductionTvOp(const Expr*);
+
+// Returns if Expr is a pointwise op op with TensorView or TensorIndex
+TORCH_CUDA_CU_API bool isPointwiseTvOp(const Expr* expr);
 
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
@@ -381,6 +386,27 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 
 // Check if a tensor is resized as part of  its root to rfactor transformations
 bool hasResizedRfactor(const TensorView* tv);
+
+// Returns tvs that have symbolic axes
+std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
+
+//! Validate derived_domain completely covers initial_domain with no
+//! redundancy. Consider derived_domains as a different view of the
+//! same logical domain as initial_domain with affine
+//! transformations. This validation makes sure both sets
+//! of domains represent the same logical space.
+//!
+//! It is intended to be used to validate rfactor and leaf domains
+//! of a tensor root domain.
+//!
+//! For example, it's an error if a initial ID is split and
+//! only one of the outputs is included in the ids vector. It is
+//! also an error if both a producer and consumer ID are included in
+//! ids as they partially have the same dependency with the initial
+//! domain.
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain);
 
 } // namespace ir_utils
 } // namespace nvfuser

@@ -855,8 +855,8 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
     const bool fastest_dim_reduction,
-    const size_t n_tensor_inputs,
-    const size_t max_input_dtype_size,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   if (fastest_dim_reduction) {
     return innerReductionHeuristic(
@@ -883,7 +883,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getReductionHeuristics");
 
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
 }
@@ -945,26 +945,25 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  size_t max_dtype_size = 1;
+  int64_t max_dtype_size = 1;
 
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
-  size_t n_tensor_inputs = 0;
+  int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
     }
     max_dtype_size = std::max(
         max_dtype_size,
-        dataTypeSize(
-            tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode())));
+        static_cast<int64_t>(dataTypeSize(
+            tv->getDataType().value(), runtime_info.getIndexType())));
     n_tensor_inputs++;
   }
 
   // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
+  n_tensor_inputs = std::max(n_tensor_inputs, 1l);
 
   auto heuristic = reductionHeuristic(
       properties.total_reduction_numel,
@@ -974,7 +973,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       n_tensor_inputs,
       max_dtype_size,
       vectorize_factor);
-  heuristic->cparams.index_type = indexModeToDtype(runtime_info.getIndexMode());
+  heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
 
@@ -1040,11 +1039,20 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   TORCH_INTERNAL_ASSERT(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  TORCH_INTERNAL_ASSERT(
+      !is_outer_grid_persistence,
+      "is_outer_grid_persistence should be false in scheduleReduction.");
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
-      rparams,
       reduction_tv,
       reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
       reduction_tvs,
       cached_inputs,
       cached_outputs);

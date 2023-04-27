@@ -119,10 +119,7 @@ bool isFullyUnswitched(
 
 } // namespace
 
-std::unordered_map<
-    ParallelType,
-    ParallelizedDomainPredicate::PredicateInfo,
-    TypeHash>
+std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
@@ -135,7 +132,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   }
 
   // Initialize a map with empty predicate info
-  std::unordered_map<ParallelType, PredicateInfo, TypeHash> map;
+  std::unordered_map<ParallelType, PredicateInfo> map;
   for (auto pt : kParallelTypeThreads) {
     map.insert({pt, PredicateInfo(pt)});
   }

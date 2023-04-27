@@ -185,6 +185,12 @@ void validateIr(Fusion* fusion) {
   ValidateSiblings::validate(fusion);
 
   validateIterDomainUsage(fusion);
+
+  auto dynamic_tvs = ir_utils::getTVsWithDynamicTransform(fusion);
+  TORCH_INTERNAL_ASSERT(
+      dynamic_tvs.empty(),
+      "Tensor with dynamic transform must be concretized before lowering: ",
+      toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 }
 
 namespace {
@@ -408,10 +414,7 @@ class VectorizeValidator : public OptInDispatch {
     if (misaligned_vectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
         checkContiguity(validator.domains_, tv);
-      } else if (
-          tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set) {
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
@@ -440,12 +443,19 @@ class VectorizeValidator : public OptInDispatch {
       return;
     }
 
-    TORCH_CHECK(
-        last_root_dim == validator.vectorized_id_ &&
-            *tv->domain()->contiguity().at(last_root_dim_pos),
-        "Vectorized dim has to be from a contiguous inner most position: ",
-        tv,
-        "\n");
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    bool is_ldmatrix_trans =
+        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    if (!is_ldmatrix_trans) {
+      // ldmatrix.trans is a hardware transpose instruction that can do
+      // "vectorized" read from discontiguous memory
+      TORCH_CHECK(
+          last_root_dim == validator.vectorized_id_ &&
+              *tv->domain()->contiguity().at(last_root_dim_pos),
+          "Vectorized dim has to be from a contiguous inner most position: ",
+          tv,
+          "\n");
+    }
 
     // Save info required to lowering and runtime validation
     auto consumer_word_size_it =
@@ -549,11 +559,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr ||
-              (tv->definition()->isA<UnaryOp>() &&
-               tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                   UnaryOpType::Set) ||
-              tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
@@ -851,21 +857,6 @@ void validatePartialSplit(Fusion* fusion) {
 
 namespace {
 
-//! Utility to make sure targeted gpu capability is
-//!  higher than provided major.minor.
-void validateMinimumArch(int major, int minor) {
-  // Skip checking arch if disabled.
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    return;
-  }
-
-  auto prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_INTERNAL_ASSERT(prop->major >= major);
-  if (prop->major == major) {
-    TORCH_INTERNAL_ASSERT(prop->minor >= minor);
-  }
-}
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -920,7 +911,8 @@ void validateMmaTensors(MmaOp* mma) {
                   //  CA axis are constant sized to ensure early detection of
                   //  invalid mma schedules.
                   ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial);
+                   id->getParallelType() == ParallelType::Serial) ||
+                  id->isThread();
             }),
         "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
         tv);
@@ -1031,12 +1023,10 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
   switch (ldst->opType()) {
     case LoadStoreOpType::LdMatrix:
     case LoadStoreOpType::LdMatrixTranspose:
-      validateMinimumArch(7, 5);
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      validateMinimumArch(8, 0);
       return;
     default:
       return;
@@ -1056,12 +1046,9 @@ void validateMma(Fusion* fusion) {
 
       switch (mma->options().macro) {
         case MmaOptions::MacroType::Volta_16_16_4:
-          validateMinimumArch(7, 0);
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          validateMinimumArch(7, 5);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1069,8 +1056,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
-          validateMinimumArch(8, 0);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());

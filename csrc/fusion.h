@@ -62,6 +62,8 @@ class SegmentCandidateFinder;
 class SegmentedFusion;
 class KernelArgumentHolder;
 
+class DynamicTransformConcretizationInfo;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_CU_API FusionGuard {
@@ -130,8 +132,10 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Assert that all leaves found from outputs are registered as an input
   void validateInputs();
 
-  //! Print this fusion to the console
-  void print();
+  //! Print this fusion to an output stream
+  std::ostream& print(
+      std::ostream& os = std::cout,
+      bool include_tensor_transforms = true);
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs
@@ -209,9 +213,15 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
   void aliasOutputToInput(Val* output, Val* input);
+
+  //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
-  std::unordered_set<int> getOutputAliasIndices() const;
-  std::vector<std::pair<int, int>> getInputAliasIndices() const;
+
+  //! Get indices of aliased outputs
+  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
+
+  //! Get alias mappings from fusion outputs to inputs
+  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -346,6 +356,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return managed_named_data_.find(key) != managed_named_data_.end();
   }
 
+  //! True if any of tensors has a symblic axis
+  bool hasDynamicTransform();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -372,6 +385,12 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! inputs. Only other place this is used (other than Fusion) is in
   //! Val::uses()
   void resetTvUses();
+
+  //! Declare that TensorView uses need to be updated (but don't actually do
+  //! the update).
+  void invalidateTvUses() {
+    all_tv_uses_valid_ = false;
+  }
 
  private:
   // Determine if the two values are compatible for aliasing

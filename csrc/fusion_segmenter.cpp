@@ -1425,7 +1425,7 @@ void SegmentedFusion::print() const {
   std::cout << this << "\n";
 }
 
-std::string toString(SegmentedFusion* segmented_fusion) {
+std::string toString(const SegmentedFusion* segmented_fusion) {
   std::stringstream ss;
   ss << segmented_fusion;
   return ss.str();
@@ -2285,7 +2285,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
     translateSingleWelford(welford_to_translate);
   }
 
-  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_, true);
+  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_);
   // If we are looking at a segment of fusion,
   //  we maintain the segmented group boundary,
   //  one set for in_progress copy and one set
@@ -2414,7 +2414,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
       IrBuilder::create<Double>(0.0),
       out_var,
       x_mean_sub_pow);
-  IrBuilder::create<UnaryOp>(UnaryOpType::Set, out_N, num_features);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
 
   // out_avg, out_N are now outputs of a pointwise ops and we
   //  need to clear out its reduction domains.
@@ -3000,7 +3000,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs, true),
+      runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
@@ -3501,9 +3501,9 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
 }
 
 std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs) {
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
   auto ret = std::make_unique<FusionHeuristics>();
-  SchedulerRuntimeInfo runtime_info(completeFusion(), inputs, true);
   for (auto g : groups()) {
     ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
   }

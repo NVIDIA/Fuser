@@ -16,15 +16,15 @@ struct GemmTile {
   int m, n, k;
   GemmTile(int m_, int n_, int k_) : m(m_), n(n_), k(k_) {}
 
-  bool operator==(const GemmTile& other) {
+  bool operator==(const GemmTile& other) const {
     return m == other.m && n == other.n && k == other.k;
   }
 
-  GemmTile operator/(const GemmTile& other) {
+  GemmTile operator/(const GemmTile& other) const {
     return GemmTile(m / other.m, n / other.n, k / other.k);
   }
 
-  std::vector<int> toVector() {
+  std::vector<int> toVector() const {
     return {m, n, k};
   }
 };
@@ -74,14 +74,13 @@ struct MmaOptions {
 
   //! [Operand Layout Convention]
   //! Operand layout, T=transposed/row_major, N=normal/col_major
-  //!   We don't support calling NN mma directly since it implies
-  //!    a fused transpose. User needs to swap the operands and use
-  //!    TT mma to make the transpose explicit.
   //! Ordered by position of K
-  //! NT : K,M x K,N -> K,M,N
-  //! TT : M,K X K,N -> M,K,N
-  //! TN : M,K X N,K -> M,N,K
-  enum class MmaInputLayout { NT = 0, TT, TN };
+  //! NT : K,M x K,N -> M,N
+  //! TT : M,K X K,N -> M,N
+  //! TN : M,K X N,K -> M,N
+  //! NN : K,M X N,K -> M,N
+  //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
+  enum class MmaLayout { NT = 0, TT, TN, NN };
 
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };
@@ -90,7 +89,7 @@ struct MmaOptions {
   MacroType macro = MacroType::NoMMA;
 
   //! Utility to annotate transposition of operands
-  MmaInputLayout operand_layout = MmaInputLayout::TT;
+  MmaLayout layout = MmaLayout::TT;
 
   //! Utility to annotate which input of mma this option struct describes
   Operand operand = Operand::A;
@@ -100,7 +99,7 @@ struct MmaOptions {
   int accumulator_stride = 0;
 
   bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && operand_layout == other.operand_layout &&
+    return macro == other.macro && layout == other.layout &&
         operand == other.operand &&
         accumulator_stride == other.accumulator_stride;
   }
@@ -135,7 +134,7 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! User configuration function:
   //!  Specifies the input matrix layout for the mma instruction.
   //!    see [Operand Layout Convention].
-  MmaBuilder& layout(MmaOptions::MmaInputLayout layout);
+  MmaBuilder& layout(MmaOptions::MmaLayout layout);
 
   //! User configuration function:
   //!  Specifies which element in the mma op this builder is generating
@@ -186,9 +185,19 @@ int getOutputRegisterSize(MmaOptions::MacroType macro);
 int getInputARegisterSize(MmaOptions::MacroType macro);
 int getInputBRegisterSize(MmaOptions::MacroType macro);
 
+// Unpack MMA op shape
+GemmTile getMmaOpShape(MmaOptions::MacroType macro);
+
 // MMA stringify utils
 std::string toString(MmaOptions::MacroType macro);
-std::string toString(MmaOptions::MmaInputLayout input_layout);
-std::string toString(MmaOptions::MacroType mt);
+std::string toString(MmaOptions::MmaLayout input_layout);
+std::string toString(const GemmTile& tile);
+std::string toString(const MatMulTileOptions& opts);
+std::string toString(MmaOptions::MacroType macro, bool);
 
+// MMA hash utils
+size_t hash(MmaOptions::MacroType macro);
+size_t hash(MmaOptions::MmaLayout input_layout);
+size_t hash(const GemmTile& tile);
+size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser

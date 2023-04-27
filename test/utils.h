@@ -11,6 +11,7 @@
 #include <executor.h>
 #include <expr_evaluator.h>
 #include <ir_all_nodes.h>
+#include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
 #include <lower2device.h>
 #include <lower_magic_zero.h>
@@ -438,10 +439,39 @@ inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
   return false;
 }
 
+inline bool cudaArchGuardShouldSkip(
+    int lower_major, // inclusive
+    int lower_minor, // inclusive
+    int upper_major, // exclusive
+    int upper_minor // exclusive
+) {
+  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
+  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  if (capability_major < lower_major ||
+      (capability_major == lower_major && capability_minor < lower_minor)) {
+    return true;
+  }
+  if (capability_major > upper_major ||
+      (capability_major == upper_major && capability_minor >= upper_minor)) {
+    return true;
+  }
+  return false;
+}
+
 #define NVFUSER_TEST_CUDA_ARCH_GUARD(REQUIRED_MAJOR, REQUIRED_MINOR)          \
   if (cudaArchGuardShouldSkip(REQUIRED_MAJOR, REQUIRED_MINOR)) {              \
     GTEST_SKIP() << "Requires GPU capability above " << REQUIRED_MAJOR << "." \
                  << REQUIRED_MINOR << " to run.\n";                           \
+  }
+
+#define NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(                             \
+    LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)                 \
+  if (cudaArchGuardShouldSkip(                                          \
+          LOWER_MAJOR, LOWER_MINOR, UPPER_MAJOR, UPPER_MINOR)) {        \
+    GTEST_SKIP() << "Requires GPU capability >= " << LOWER_MAJOR << "." \
+                 << LOWER_MINOR << " and < " << UPPER_MAJOR << "."      \
+                 << UPPER_MINOR << " to run.\n";                        \
   }
 
 #define NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(                                \
@@ -455,31 +485,66 @@ inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 
 static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
     MatmulLayout::TT,
     MatmulLayout::NT,
     MatmulLayout::TN};
 
+static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayoutAndNN = {
+    MatmulLayout::TT,
+    MatmulLayout::NT,
+    MatmulLayout::TN,
+    MatmulLayout::NN};
+
 // Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout);
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
 // Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout);
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
+
+// Labels to describe tensor position in matmul:
+// A, B - input
+// C - input if beta is provided, shape must be the same as output (D)
+// D - output
+enum class TensorMatmulPos { A, B, C, D };
+
+// Utility to generate buffers based on given problem, layout and tensor
+// position in matmul
+at::Tensor matmulAtInput(
+    const int M,
+    const int N,
+    const int K,
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dtype = at::kHalf,
+    const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
   if (at::cuda::getDeviceProperties(device_idx)->sharedMemPerBlockOptin <   \
       required_size) {                                                      \
     GTEST_SKIP() << "not enough shared memory space on device to run test"; \
   }
+
+// Utility to check if for given kernel the expected scheduler has
+// been used
+bool isSchedulerInUse(
+    nvfuser::FusionKernelRuntime* kernel_rt,
+    const ScheduleHeuristic& scheduler);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

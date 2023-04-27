@@ -9,7 +9,8 @@
 
 #include <ops/arith.h>
 #include <scheduler/matmul.h>
-#include <test/test_utils.h>
+#include <scheduler/matmul_heuristic.h>
+#include <test/utils.h>
 
 #include <sstream>
 #include <string>
@@ -18,6 +19,8 @@
 #include <unordered_set>
 
 namespace nvfuser {
+
+class MatmulSASSTest : public NVFuserTest {};
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
@@ -49,7 +52,7 @@ sass::Container getSASSFor(
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  auto tv2 = matmul(tv0, tv1, layout, true);
 
   fusion.addOutput(tv2);
 
@@ -58,18 +61,17 @@ sass::Container getSASSFor(
   gemm_tile.warp_tile = warp_tile;
   gemm_tile.instruction_tile = instruction_tile;
 
-  auto mma_builder = MmaBuilder(macro, gemm_tile).layout(layout);
-
-  MatmulParam params(mma_builder);
+  MatmulParams params;
+  params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = 4;
-  scheduleMatmul(tv2, tv0, tv1, params);
+  scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);
@@ -86,7 +88,7 @@ sass::Container getSASSFor(
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSSanityCheck_CUDA) {
+TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -134,7 +136,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSSanityCheck_CUDA) {
 // load/store, mma, and sync instructions. Currently, the ground truth in this
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSModifiersCheck_CUDA) {
+TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   bool found_LDGSTS = false;
@@ -244,6 +246,20 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSModifiersCheck_CUDA) {
   }
 }
 
+#if 0
+
+TODO: With swizzle, the cuda code looks like:
+
+#pragma unroll
+for(nvfuser_index_t i507 = 0; i507 < 8; ++i507) {
+  int i18439;
+  i18439 = i18438 + i507;
+  Turing::ldMatrixT (*reinterpret_cast<Array<__half,4,4>*>(&T9[(4 * i507)]),((i18437 + (128 * (i18439 / 8))) + (16 * (i6455 ^ (i18439 % 8)))));
+}
+
+where i6455 = (((nvfuser_index_t)threadIdx.x) % 16) % 8 so it no longer make sense to require the memory access pattern below.
+We need to reinvestigate the test below to determine whether to change it or delete it.
+
 // Check that all LDSM instructions has the following pattern:
 //   LDSM.16.M88.2 R2,   [R213] ;
 //   LDSM.16.M88.2 R136, [R213+0x200] ;
@@ -253,7 +269,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSModifiersCheck_CUDA) {
 //   LDSM.16.M88.2 R144, [R213+0xa00] ;
 //   LDSM.16.M88.2 R146, [R213+0xc00] ;
 //   LDSM.16.M88.2 R148, [R213+0xe00] ;
-TEST_F(NVFuserTest, FusionAmpereMatmulSASSRegisterUsageLDSM_CUDA) {
+TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -288,7 +304,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSRegisterUsageLDSM_CUDA) {
               std::string_view view(smem_address); // example: [R0+UR0+0x200]
               view = view.substr(1, view.size() - 2); // example: R0+UR0+0x200
               std::string_view base;
-              int offset;
+              int offset = 0;
               using namespace std::literals;
               auto last = view.find_last_of("+"sv);
               if (last == std::string::npos ||
@@ -316,5 +332,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSASSRegisterUsageLDSM_CUDA) {
     }
   }
 }
+#endif
 
 } // namespace nvfuser

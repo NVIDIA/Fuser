@@ -6,11 +6,13 @@
  */
 // clang-format on
 #pragma once
+#include <evaluator_common.h>
 #include <executor_kernel_arg.h>
 #include <fusion.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/utils.h>
@@ -39,20 +41,24 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   static constexpr size_t max_alignment_size_in_byte = 16;
 
   //! Create runtime info for given fusion and input. Creating and binding
-  //!  evaluator is optional. The evaluator is used to manage intermediate
-  //!  integers in the fusion. We need them for segmenter and schedulers,
-  //!  but we don't need them when we are just using this class to provide
-  //!  additional encoding for kernel cache lookup.
+  //! evaluator is optional. The evaluator is used to manage intermediate
+  //! integers in the fusion. We need them for segmenter and schedulers,
+  //! but we don't need them when we are just using this class to provide
+  //! additional encoding for kernel cache lookup.
+  //!
+  //! The index type of forced_index_type is used if given, no matter
+  //! how large the actual arguments and fusion tensors
+  //! are. CORRECTNESS IS NOT GUARANTEED.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const KernelArgumentHolder& inputs,
-      bool create_expr_evaluator = false);
+      const KernelArgumentHolder& args,
+      PrecomputedValues* precomputed_values = nullptr,
+      const std::vector<TensorView*>& all_tvs = {},
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
-  // TODO: Remove this guy below. Everything needs to go into the other ctor
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs,
-      bool create_expr_evaluator = false);
+      const at::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
@@ -73,10 +79,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   static size_t computeAlignmentSize(size_t ptr_address);
 
   // Return the runtime pointer value for provided tensor view
-  size_t ptrOf(TensorView* tv);
+  size_t ptrOf(TensorView* tv) const;
 
-  KernelIndexMode getIndexMode() {
-    return index_mode_;
+  PrimDataType getIndexType() const {
+    return index_type_;
   }
 
   Fusion* fusion() {
@@ -89,11 +95,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
  private:
-  // Bind full fusion inputs to the internal expression evaluator
-  void initializeExpressionEvaluator(const KernelArgumentHolder& inputs);
-
-  // Initialize SchedulerRuntimeInfo
-  void initialize(const KernelArgumentHolder& args, bool create_expr_evaluator);
+  // Build and bind full fusion inputs to an expression evaluator
+  std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
+      const KernelArgumentHolder& inputs,
+      PrecomputedValues* precomputed_values);
 
   bool isInputTv(TensorView* tv) {
     return std::find(
@@ -128,7 +133,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> inner_vectorword_map_;
 
   // Found index mode kernel needs to be run in
-  KernelIndexMode index_mode_ = KernelIndexMode::INT64;
+  PrimDataType index_type_ = PrimDataType::Int;
 
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
@@ -203,6 +208,13 @@ class TORCH_CUDA_CU_API SchedulerEntry {
     TORCH_INTERNAL_ASSERT(
         tparams != nullptr, "Heuristic parameter is not a transpose parameter");
     return *tparams;
+  }
+
+  const MatmulParams& matmulParams() const {
+    auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
+    TORCH_INTERNAL_ASSERT(
+        mparams != nullptr, "Heuristic parameter is not a matmul parameter");
+    return *mparams;
   }
 
   void updateLaunchConstraint(const LaunchParams& launch_params) {

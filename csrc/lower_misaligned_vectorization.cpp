@@ -360,7 +360,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     return new_parent_for_loop;
   }
 
-  // Determine that the expression is UnaryOpType::Set AND
+  // Determine that the expression is LoadStoreOp AND
   // the output TensorView domain is vectorized
   bool isVectorizeSetOp(kir::ForLoop* fl, Expr* expr) {
     if (fl->iter_domain()->getParallelType() !=
@@ -368,12 +368,11 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       return false;
     }
 
-    if (expr->isA<UnaryOp>()) {
-      auto unaryOp = expr->as<UnaryOp>();
-      if (unaryOp->out()->isA<TensorView>()) {
-        auto out_tv = unaryOp->out()->as<TensorView>();
-        return unaryOp->getUnaryOpType() == UnaryOpType::Set &&
-            out_tv->domain()->hasVectorize();
+    if (expr->isA<LoadStoreOp>()) {
+      auto ldst = expr->as<LoadStoreOp>();
+      if (ldst->out()->isA<TensorView>()) {
+        auto out_tv = ldst->out()->as<TensorView>();
+        return out_tv->domain()->hasVectorize();
       }
     }
     return false;
@@ -419,7 +418,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       if (pred_stop != nullptr) {
         // TODO: this doesn't work with loop rotation
         auto body_pred = IrBuilder::create<kir::Predicate>(
-            IrBuilder::ltExpr(new_loop->index(), pred_stop)->as<Bool>());
+            IrBuilder::ltExpr(new_loop->indexOrStartIfTrivial(), pred_stop)
+                ->as<Bool>());
         auto body_ite = IrBuilder::create<kir::IfThenElse>(body_pred);
         body->push_back(body_ite);
         body = &body_ite->thenBody();
@@ -511,7 +511,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       }
 
       // There must be a matching consumer root ID as the producer ID is
-      // not reduction and the expression between them is UnaryOpType::Set.
+      // not reduction and the expression between them is LoadStoreOp.
       auto it = p2c.find(producer_root_id);
       TORCH_INTERNAL_ASSERT(
           it != p2c.end(), "No matching consumer root ID found");

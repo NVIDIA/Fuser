@@ -132,6 +132,9 @@ TensorView* scheduleReductionTV(
     if (rparams.vectorize_inner_reduction) {
       vectorize(inner_reduce_axis, rparams.unroll_factor_inner_reduction);
     }
+    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+      inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
+    }
     auto outer_i = inner_reduce_axis;
     if (rparams.cross_grid_inner_reduction) {
       outer_parallel(outer_i++, rparams.grid_dim_inner_reduction);
@@ -147,7 +150,13 @@ TensorView* scheduleReductionTV(
       outer_unroll(outer_i++, (int)rparams.unroll_factor_inner_reduction);
     }
 
-    reduction_tv->axis(outer_i)->parallelize(rparams.block_dim_inner_reduction);
+    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+      reduction_tv->axis(outer_i)->parallelize(
+          rparams.block_dim_inner_reduction_extra);
+    } else {
+      reduction_tv->axis(outer_i)->parallelize(
+          rparams.block_dim_inner_reduction);
+    }
 
     if (rparams.pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
@@ -282,8 +291,6 @@ TensorView* scheduleReductionTV(
   return reduction_rf_tv;
 }
 
-namespace {
-
 // Input: a vector of axes in the given tensor ignoring broadcasts. For example,
 //        if you have a tensor T1[b, rS1, rS2, rS3], and you want to specify
 //        axis rS2 and rS3, then your `non_broadcast_axes` should be {1, 2}.
@@ -345,67 +352,106 @@ bool isGridAllreduce(TensorView* reduction_tv) {
   return false;
 }
 
-} // namespace
-
 void multiReductionInliner(
     Fusion* fusion,
-    const ReductionParams& rparams,
     TensorView* reduction_tv,
     TensorView* reference_tv,
+    const bool unroll,
+    const bool vectorize,
+    const bool is_outer_grid_persistence,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
     std::vector<TensorView*> dummy_outputs) {
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-
   // Propagate transformations before we rfactor the other reductions
-  TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
-
+  propagateTransformation(reference_tv);
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
-    // Apply rfactor to all reductions if applicable
-    // We use axes ignoring broadcasts because in checkPatternEquivalence,
-    // broadcast is ignored, we might end up having multiple reductions with
-    // pattern equivalence but have different number of broadcasts, so the
-    // position in the reference tensor is not necessary the same as the
-    // position in other reduction TVs.
-    std::unordered_set<int> non_broadcast_rfactor_axes;
-    int non_broadcast_pos = 0;
-    for (const auto i : c10::irange(reference_tv->nDims())) {
-      if (reference_tv->axis((int)i)->isBroadcast()) {
-        continue;
-      }
-      if (reference_tv->axis((int)i)->isReduction() &&
-          reference_tv->axis((int)i)->isRFactorProduct()) {
-        non_broadcast_rfactor_axes.insert(non_broadcast_pos);
-      }
-      non_broadcast_pos++;
-    }
-
-    for (auto reduction_tv_ : reduction_tvs) {
-      if (reduction_tv_ == reduction_tv ||
-          reduction_tv_->definition()->isA<GroupedReductionOp>()) {
-        // This should come in already rfactored
-        continue;
-      } else {
-        ir_utils::rfactorHelper(
-            reduction_tv_,
-            addBackBroadcasts(reduction_tv_, non_broadcast_rfactor_axes));
-      }
-    }
+    propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
   }
 
-  bool unroll = rparams.isUnrolled();
+  reduction_scheduler_utils::propagateParallelization(
+      fusion,
+      reduction_tv,
+      reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      reduction_tvs,
+      cached_inputs,
+      cached_outputs);
 
-  bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
 
+  // Inline the schedule
+  inlineMost();
+}
+
+void propagateTransformation(
+    TensorView* reference_tv,
+    const std::unordered_set<TensorView*>& boundaryNodesSet) {
+  InternalBoundarySelector ibSelector(boundaryNodesSet);
+  TransformPropagator propagator(reference_tv);
+  MaxRootDomainInfoSpanningTree(reference_tv, &ibSelector)
+      .traverse(&propagator);
+}
+
+void propagateRFactor(
+    TensorView* reference_tv,
+    TensorView* reduction_tv,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // We use axes ignoring broadcasts because in checkPatternEquivalence,
+  // broadcast is ignored, we might end up having multiple reductions with
+  // pattern equivalence but have different number of broadcasts, so the
+  // position in the reference tensor is not necessary the same as the
+  // position in other reduction TVs.
+  std::unordered_set<int> non_broadcast_rfactor_axes_ir;
+  int non_broadcast_pos_ir = 0;
+  for (const auto i : c10::irange(reference_tv->nDims())) {
+    if (reference_tv->axis((int)i)->isBroadcast()) {
+      continue;
+    }
+    if (reference_tv->axis((int)i)->isReduction() &&
+        reference_tv->axis((int)i)->isRFactorProduct()) {
+      non_broadcast_rfactor_axes_ir.insert(non_broadcast_pos_ir);
+    }
+    non_broadcast_pos_ir++;
+  }
+
+  for (auto reduction_tv_ : reduction_tvs) {
+    if (reduction_tv_ == reduction_tv ||
+        reduction_tv_->definition()->isA<GroupedReductionOp>()) {
+      // This should come in already rfactored
+      continue;
+    } else {
+      ir_utils::rfactorHelper(
+          reduction_tv_,
+          reduction_scheduler_utils::addBackBroadcasts(
+              reduction_tv_, non_broadcast_rfactor_axes_ir));
+    }
+  }
+}
+
+void propagateParallelization(
+    Fusion* fusion,
+    TensorView* reduction_tv,
+    TensorView* reference_tv,
+    const bool unroll,
+    const bool vectorize,
+    const bool is_outer_grid_persistence,
+    const std::vector<TensorView*>& reduction_tvs,
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::unordered_set<TensorView*>& unselected_tvs) {
   // Propagate parallelization except vectorization and unrolling
+  auto selected_tvs =
+      ir_utils::allTvsExcept(reference_tv->fusion(), unselected_tvs);
   scheduler_utils::parallelizeAllLike(
       reference_tv,
-      {},
+      selected_tvs,
       allParallelTypesExcept(
           {ParallelType::Unroll,
            ParallelType::Vectorize,
@@ -419,10 +465,7 @@ void multiReductionInliner(
     auto vectorizable_inputs_outputs =
         scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);
 
-    auto vectorizable_expr = [](Expr* e) {
-      return e->isA<UnaryOp>() &&
-          e->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set;
-    };
+    auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
     for (auto cached_input : cached_inputs) {
       if (vectorize) {
@@ -470,6 +513,7 @@ void multiReductionInliner(
         reference_tv, reduction_tv};
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group
+
     for (auto tv : rfactor_and_reduction_tvs) {
       if (are_unrolled.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
@@ -502,20 +546,15 @@ void multiReductionInliner(
         reduction_tvs.begin(),
         reduction_tvs.end(),
         std::back_inserter(allreduce_tvs),
-        [&](auto tv) { return reduction_tv != tv && isGridAllreduce(tv); });
+        [&](auto tv) {
+          return reduction_tv != tv &&
+              reduction_scheduler_utils::isGridAllreduce(tv);
+        });
     if (!allreduce_tvs.empty()) {
       scheduler_utils::parallelizeAllLike(
           reduction_tv, -1, allreduce_tvs, {ParallelType::Group});
     }
   }
-
-  // Remove dummy outputs as they can inadvertently affect CA positions
-  for (auto output : dummy_outputs) {
-    fusion->removeOutput(output);
-  }
-
-  // Inline the schedule
-  inlineMost();
 }
 
 namespace {

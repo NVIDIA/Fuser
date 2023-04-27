@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <test/test_utils.h>
+#include <test/utils.h>
 
 #include <c10/util/Exception.h>
 
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 
 #include <sstream>
 #include <string_view>
@@ -107,7 +107,7 @@ bool starts_with(std::string_view self, std::string_view __s) noexcept {
 std::string Instruction::predicate() {
   if (str[0] == '@') {
     std::stringstream ss(str);
-    char ignore_at;
+    char ignore_at = '\0';
     std::string result;
     ss >> ignore_at >> result;
     return result;
@@ -157,7 +157,7 @@ std::vector<std::string> Instruction::args() {
     auto comma_pos = args_view.find_first_of(',');
     auto token = args_view.substr(0, comma_pos);
     token = trim(token);
-    result.push_back(std::string(token));
+    result.emplace_back(token);
 
     args_view = (comma_pos != std::string_view::npos)
         ? args_view.substr(comma_pos + 1)
@@ -221,21 +221,21 @@ Container parse(const std::string& nvdisasm_output) {
       if (line[0] == '.') {
         std::stringstream ss(line);
         Label l;
-        char ignore_dot;
+        char ignore_dot = '\0';
         ss >> ignore_dot >> l.name;
         l.name.resize(l.name.size() - 1); // remove trailing :
-        result.code.push_back(l);
+        result.code.emplace_back(l);
       } else {
         Instruction i;
         std::stringstream ss(line);
-        char ignore;
+        char ignore = '\0';
         // parse /*address*/
         ss >> ignore >> ignore >> std::hex >> i.address >> ignore >> ignore;
         std::getline(ss, i.str);
         i.str = trim(i.str);
         i.str.resize(i.str.size() - 1); // remove trailing ;
         i.str = trim(i.str);
-        result.code.push_back(i);
+        result.code.emplace_back(i);
       }
     } else {
       if (line == header) {
@@ -243,7 +243,7 @@ Container parse(const std::string& nvdisasm_output) {
       } else if (line[0] == '.') {
         std::stringstream ss(line);
         std::string key, value;
-        char ignore;
+        char ignore = '\0';
         ss >> ignore >> key >> value;
         result.attributes[key] = value;
         if (key == "global") {
@@ -257,7 +257,7 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
+TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
@@ -283,6 +283,54 @@ TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
   return tv2;
 }
 
+TensorView* matmulTuringOrLater(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
+             *tv1b = nullptr;
+  switch (layout) {
+      // Canonicalize all inputs to [M, K] and [N, K]
+    case MatmulLayout::TT:
+      tv0t = a;
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::TN:
+      tv0t = a;
+      tv1t = b;
+      break;
+    case MatmulLayout::NT:
+      tv0t = transpose(a, 0, 1);
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::NN:
+      tv0t = transpose(a, 0, 1);
+      tv1t = b;
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  tv0b = broadcast(tv0t, {false, true, false});
+  tv1b = broadcast(tv1t, {true, false, false});
+  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+) {
+  if (turing_or_later) {
+    return matmulTuringOrLater(a, b, layout);
+  } else {
+    return matmulVolta(a, b, layout);
+  }
+}
+
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   switch (layout) {
     case MatmulLayout::TT:
@@ -291,18 +339,21 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       return a.matmul(b.t());
     case MatmulLayout::NT:
       return a.t().matmul(b);
+    case MatmulLayout::NN:
+      return a.t().matmul(b.t());
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    MatmulLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
     case MatmulLayout::TT:
@@ -314,10 +365,101 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     case MatmulLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
+    case MatmulLayout::NN:
+      return std::make_pair(
+          at::randn({K, M}, options), at::randn({N, K}, options));
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return std::make_pair(at::Tensor(), at::Tensor());
+}
+
+at::Tensor matmulAtInput(
+    const int M,
+    const int N,
+    const int K,
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dtype,
+    const int device) {
+  const auto options =
+      at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
+
+  // handle C and D tensors, layout does not impact shape
+  switch (tensor) {
+    case TensorMatmulPos::C:
+    case TensorMatmulPos::D:
+      return at::randn({M, N}, options);
+    default:
+      break;
+  }
+
+  switch (layout) {
+    case MatmulLayout::TT:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({M, K}, options);
+        case TensorMatmulPos::B:
+          return at::randn({K, N}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::TN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({M, K}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::NT:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({K, N}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::NN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
+        default:
+          break;
+      }
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  TORCH_CHECK(false, "unsupported tensor position.");
+}
+
+bool isSchedulerInUse(
+    nvfuser::FusionKernelRuntime* kernel_rt,
+    const ScheduleHeuristic& scheduler) {
+  if (nullptr == kernel_rt) {
+    return false;
+  }
+  const auto scheduler_heurs = kernel_rt->schedulerHeuristics();
+  if (nullptr == scheduler_heurs) {
+    return false;
+  }
+  const auto& heurs = scheduler_heurs->heuristicsList();
+
+  for (const auto& heur_entry : heurs) {
+    if (heur_entry && (scheduler == heur_entry->heuristic())) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 } // namespace nvfuser

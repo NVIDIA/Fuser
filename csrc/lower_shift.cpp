@@ -87,8 +87,8 @@ Expr* ShiftPredicateInserter::insert(
       PredicateType::Padding, expr, thread_pred);
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
   const int pad_value = 0;
-  auto pad_expr = IrBuilder::create<UnaryOp>(
-      UnaryOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
+  auto pad_expr = IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -159,9 +159,7 @@ void HaloInfo::setRootAxisInfo(
   return;
 }
 
-HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map)
-    // Make a copy of the permissive map for extent comparators
-    : permissive_map_(ca_map->idGraph().permissiveNodes()) {
+HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   const auto vals = fusion->usedMathVals();
   auto tvs = ir_utils::filterByType<TensorView>(vals);
 
@@ -386,6 +384,8 @@ void HaloInfo::build(TensorDomain* td) {
   // outputs of halo-extended axes.
 
   for (auto expr : exprs) {
+    // clang-tidy complains without this about expr being nullptr
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
       TORCH_INTERNAL_ASSERT(
@@ -678,11 +678,23 @@ bool extentCompare(
 } // namespace
 
 bool HaloInfo::extentLessEqual(IterDomain* id1, IterDomain* id2) const {
-  return extentCompare(*this, id1, id2, std::less_equal<>(), permissive_map_);
+  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  return extentCompare(
+      *this,
+      id1,
+      id2,
+      std::less_equal<>(),
+      GpuLower::current()->caMap()->idGraph().permissiveNodes());
 }
 
 bool HaloInfo::extentEqual(IterDomain* id1, IterDomain* id2) const {
-  return extentCompare(*this, id1, id2, std::equal_to<>(), permissive_map_);
+  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  return extentCompare(
+      *this,
+      id1,
+      id2,
+      std::equal_to<>(),
+      GpuLower::current()->caMap()->idGraph().permissiveNodes());
 }
 
 std::string HaloInfo::toString() const {
@@ -734,10 +746,20 @@ bool HaloInfo::needsShiftPredicate(Expr* expr) const {
 
 std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
     const LoopIndexing& loop_indexing) const {
+  const auto& global_halo_info = GpuLower::current()->haloInfo();
+
+  // If no root ID has halo, no need to analyze descendants
+  if (std::none_of(
+          loop_indexing.loopRootDomains().begin(),
+          loop_indexing.loopRootDomains().end(),
+          [&](IterDomain* root_id) {
+            return global_halo_info->hasHaloWidth(root_id);
+          })) {
+    return {};
+  }
+
   // Use a local workspace to avoid re-defining halo info.
   HaloInfo local_halo_info = *GpuLower::current()->haloInfo();
-
-  auto global_halo_info = GpuLower::current()->haloInfo();
 
   // Setup root:
   for (auto consumer_root_id : loop_indexing.consumerTv()->getRootDomain()) {
@@ -753,6 +775,8 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
   std::unordered_set<IterDomain*> merged_shifted_ids;
 
   for (auto expr : loop_indexing.getForwardExprList()) {
+    // clang-tidy complains without this about expr being nullptr
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
       TORCH_INTERNAL_ASSERT(

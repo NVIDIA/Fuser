@@ -260,8 +260,8 @@ class WelfordVectorizer : public kir::ExprMutator {
     // Allocate a boolean scalar for cond
     auto pred_var = defineScalar(DataType::Bool)->as<Bool>();
 
-    registerInsertBeforeInnerMostLoop(
-        IrBuilder::create<UnaryOp>(UnaryOpType::Set, pred_var, conditional));
+    registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, pred_var, conditional));
 
     auto vectorized_wop = applyVectorizeTransformation(wop, pred_var);
 
@@ -362,8 +362,8 @@ class WelfordVectorizer : public kir::ExprMutator {
       registerInsertBeforeInnerMostLoop(reciprocal_expr);
     } else {
       // Initialize reciprocal as 0;
-      registerInsertBeforeInnerMostLoop(IrBuilder::create<UnaryOp>(
-          UnaryOpType::Set,
+      registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set,
           reciprocal,
           GpuLower::current()->kernel()->zeroVal()));
 
@@ -408,7 +408,8 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& original_index = out_N->index();
     std::unordered_map<Val*, Val*> index_replacement_map;
     index_replacement_map.emplace(
-        innermost_loop->index(), GpuLower::current()->kernel()->zeroVal());
+        innermost_loop->indexOrStartIfTrivial(),
+        GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
         ir_utils::replaceValInIndexVal(original_index, index_replacement_map);

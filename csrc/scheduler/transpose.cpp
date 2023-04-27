@@ -571,7 +571,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -584,7 +584,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
-  const auto index_type = indexModeToDtype(runtime_info.getIndexMode());
+  const auto index_type = runtime_info.getIndexType();
 
   auto domain_map_entry = getDomainMap(data_cache, fusion);
   auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());

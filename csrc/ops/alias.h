@@ -20,12 +20,23 @@
 
 namespace nvfuser {
 
+TORCH_CUDA_CU_API Val* set(Val*);
+TORCH_CUDA_CU_API TensorView* set(TensorView*);
+
 TORCH_CUDA_CU_API TensorView* view(TensorView* x, DataType dtype);
 
 TORCH_CUDA_CU_API TensorView* reshape(
     TensorView* x,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
+
+//! Dynamic version of reshape. The number of dimensions is statically
+//! fixed as the length of the new_sizes vector, but the size Vals can be
+//! symbolic, which are then concretized at run time with actual
+//! fusion inputs.
+TORCH_CUDA_CU_API TensorView* reshape(
+    TensorView* x,
+    const std::vector<Val*>& new_sizes);
 
 TORCH_CUDA_CU_API TensorView* flatten(
     TensorView* x,

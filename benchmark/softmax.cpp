@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -92,7 +95,7 @@ static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
   std::vector<c10::IValue> aten_inputs({aten_input});
 
   // Schedule through magic scheduler:
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   TORCH_INTERNAL_ASSERT(SchedulerEntry::canSchedule(
       ScheduleHeuristic::Persistent, fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
@@ -137,7 +140,7 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
   std::vector<c10::IValue> aten_inputs({aten_input});
 
   // Schedule through magic scheduler:
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   TORCH_INTERNAL_ASSERT(SchedulerEntry::canSchedule(
       ScheduleHeuristic::Persistent, fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(

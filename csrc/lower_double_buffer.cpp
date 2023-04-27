@@ -71,20 +71,17 @@ IterDomain* getDoubleBufferAxis(const TensorView* tv) {
 void validateDoubleBufferedTensor(const TensorView* tv) {
   auto double_buffer_pos = getDoubleBufferAxisPosition(tv);
 
-  // Like vectorization, only UnaryOp::Set with another TensorView is
+  // Like vectorization, only LoadStoreOp with another TensorView is
   // considered.
   auto def = tv->definition();
   TORCH_INTERNAL_ASSERT(
-      (def->isA<UnaryOp>() &&
-       def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set) ||
-          // Load store op should generally support double buffering.
-          def->isA<LoadStoreOp>(),
-      "Invalid tensor to double-buffer. Only tensor defined by UnaryOp::Set is supported: ",
+      def->isA<LoadStoreOp>(),
+      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp is supported: ",
       def->toString());
 
   TORCH_INTERNAL_ASSERT(
       def->input(0)->isA<TensorView>(),
-      "Invalid tensor to double-buffer. Only tensor defined by UnaryOp::Set with TensorView is supported: ",
+      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp with TensorView is supported: ",
       def->toString());
 
   TORCH_INTERNAL_ASSERT(
@@ -172,9 +169,10 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   static kir::ForLoop* clone(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type) {
+      DoubleBufferLoopStage loop_type,
+      const std::unordered_set<Expr*>& exclude = {}) {
     DoubleBufferLoopCloner cloner(
-        double_buffer_loop, double_buffer_load_exprs, loop_type);
+        double_buffer_loop, double_buffer_load_exprs, loop_type, exclude);
     cloner.clone();
     return cloner.cloned_top_level_loop_;
   }
@@ -183,10 +181,12 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   DoubleBufferLoopCloner(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type)
+      DoubleBufferLoopStage loop_type,
+      const std::unordered_set<Expr*>& exclude)
       : double_buffer_loop_(double_buffer_loop),
         double_buffer_load_exprs_(double_buffer_load_exprs),
-        loop_type_(loop_type) {}
+        loop_type_(loop_type),
+        exclude_(exclude) {}
 
   using kir::IrVisitor::handle;
 
@@ -258,6 +258,10 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(Expr* expr) final {
+    if (exclude_.count(expr) > 0) {
+      return;
+    }
+
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::handle(expr);
       return;
@@ -298,6 +302,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
   kir::ForLoop* cloned_top_level_loop_ = nullptr;
   std::deque<kir::Scope*> cloned_scopes_;
+  const std::unordered_set<Expr*>& exclude_;
 };
 
 using InsertionInfo = std::unordered_map<kir::ForLoop*, std::vector<Expr*>>;
@@ -412,6 +417,25 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
 
   InsertionInfo insertion_info_;
 };
+
+namespace {
+
+void getAllocInTrivialLoop(
+    kir::ForLoop* fl,
+    std::unordered_set<Expr*>& output) {
+  if (!fl->isTrivial()) {
+    return;
+  }
+  for (auto expr : fl->body().exprs()) {
+    if (expr->isA<kir::Allocate>()) {
+      output.emplace(expr);
+    } else if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      getAllocInTrivialLoop(loop, output);
+    }
+  }
+}
+
+} // namespace
 
 // Apply double buffering transformations
 class DoubleBufferInserter : private kir::ExprMutator {
@@ -551,8 +575,26 @@ class DoubleBufferInserter : private kir::ExprMutator {
     }
 
     if (requireEpilogue(loads)) {
+      // In the case where the main loop is trivial (for example, ldmatrix in
+      // matmul kernel), we need to be careful when copying epilog loop. For
+      // example, if the main loop is:
+      //   for (int i = 0; i < 1; ++i) {
+      //     ...
+      //     float T1[2];
+      //     T1 = ...
+      //     ...
+      //   }
+      // Because trivial loop is not generated, the allocation of T1 will be one
+      // level above in the generated scope. So when we copy epilog, we need to
+      // make sure we don't copy these allocation so that there is no duplicate
+      // allocation.
+      std::unordered_set<Expr*> alloc_in_main;
+      getAllocInTrivialLoop(main_loop, alloc_in_main);
       auto epilogue_loop = DoubleBufferLoopCloner::clone(
-          double_buffer_loop, loads, DoubleBufferLoopStage::Epilog);
+          double_buffer_loop,
+          loads,
+          DoubleBufferLoopStage::Epilog,
+          alloc_in_main);
       registerInsertAfter(double_buffer_loop, epilogue_loop);
     }
   }
