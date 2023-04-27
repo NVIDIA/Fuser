@@ -710,4 +710,127 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   }
 }
 
+//! Given a collection of input/output shapes test that FusionExecutorCache
+//! properly caches concretized Fusions. The first argument is a vector of
+//! input/output shape pairs. Each of these shape pairs will be run using the
+//! same FusionExecutorCache. The argument expect_miss indicates whether we
+//! expect a cache hit or miss at the concretization level.
+//! reshape_before_reduction has the same meaning as in reductionViewAddFusion.
+void reductionDynamicViewAddFusion(
+    std::vector<std::tuple<
+        std::vector<int64_t>, // input_shape
+        std::vector<int64_t>, // output_shape
+        bool // expect_miss
+        >>& invocations,
+    bool reshape_before_reduction) {
+  constexpr int kReductionAxis = -1;
+
+  auto input_dims = std::get<0>(invocations[0]).size();
+  auto output_dims = std::get<1>(invocations[0]).size();
+
+  auto bias_dims = (reshape_before_reduction) ? input_dims : output_dims;
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(input_dims);
+  TensorView* bias = makeSymbolicTensor(bias_dims);
+  fusion.addInput(x);
+  fusion.addInput(bias);
+
+  auto tv1 =
+      (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
+  // create vectors of input scalars describing this reshape
+  std::vector<Val*> output_shape(output_dims);
+  for (int i : c10::irange(output_dims)) {
+    output_shape[i] = IrBuilder::create<Int>();
+    fusion.addInput(output_shape[i]);
+  }
+  auto x_reshape = reshape(tv1, output_shape);
+  auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
+                                      : add(x_reshape, bias);
+  fusion.addOutput(y);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  // Return pair of: number of concretizations & total number of kernel runtimes
+  auto countConcretizations = [&fusion_executor_cache]() {
+    std::unordered_set<const std::pair<
+        size_t,
+        std::optional<DynamicTransformConcretizationInfo>>*>
+        concs;
+    for (auto& it : fusion_executor_cache.getKernelRuntimes()) {
+      concs.insert(&it.first);
+    }
+    return concs.size();
+  };
+  size_t num_concretizations = countConcretizations();
+  // Check that concretizations and runtimes are cache misses only when they
+  // should be
+  auto checkCache = [&countConcretizations,
+                     &num_concretizations](bool expect_miss) {
+    auto current = countConcretizations();
+    ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
+    num_concretizations = current;
+  };
+
+  for (auto& inv : invocations) {
+    auto input_shape = std::get<0>(inv);
+    auto output_shape = std::get<1>(inv);
+    auto expect_miss = std::get<2>(inv);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
+    at::Tensor at_x = at::randn(input_shape, options);
+    at::Tensor at_bias = at::randn(bias_shape, options);
+    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+    // Add input scalars describing the reshape size for concretization
+    for (int i : c10::irange(output_dims)) {
+      aten_inputs.push_back(output_shape[i]);
+    }
+
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+    checkCache(expect_miss);
+
+    auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
+                                             : at::sum(at_x, kReductionAxis);
+    auto at_x_reshape = at::native::view(at_tv1, output_shape);
+    auto at_y = (reshape_before_reduction)
+        ? at::sum(at_x_reshape, kReductionAxis)
+        : at::add(at_x_reshape, at_bias);
+
+    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
+  std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
+      all_dynamic_reshape_examples = {};
+  for (auto invocations : std::vector<std::vector<std::tuple<
+           std::vector<int64_t>, // input_shape
+           std::vector<int64_t>, // output_shape
+           bool // expect_miss
+           >>>{{
+           {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
+           {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
+           {{8, 3 * 4, 7, 9},
+            {8, 3, 4, 7 * 9},
+            true}, // merge(1) merge(1) osplit(1, 3), osplit(2, 4)
+           //{{8, 3 * 4, 7, 9}, {8, 3, 4 * 7, 9}, true}, // merge(1) osplit(1,
+           //3)
+           //{{8, 3 * 4, 7, 5}, {8, 3, 4 * 7, 5}, false}, // merge(1) osplit(1,
+           //3)
+           //{{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1,
+           //3)
+           // test passing -1 dynamically for dimension size
+           //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
+       }}) {
+    reductionDynamicViewAddFusion(
+        invocations, true /* reshape_before_reduction */);
+  }
+}
+
 } // namespace nvfuser
+ 
