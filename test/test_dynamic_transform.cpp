@@ -810,25 +810,22 @@ void reductionDynamicViewAddFusion(
 }
 
 TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
-  std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
-      all_dynamic_reshape_examples = {};
-  for (auto invocations : std::vector<std::vector<dynamic_view_invocation>>{{
-           {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
-           {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
-           {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, true}, // merge(2) osplit(1, 3)
-           {{8, 3 * 4, 7, 9},
-            {8, 3, 4 * 7, 9},
-            true}, // merge(1) merge(2) osplit(1, 3)
-           {{8, 3 * 4, 7, 5},
-            {8, 3, 4 * 7, 5},
-            false}, // merge(1) merge(2) osplit(1, 3)
-           {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
-           // test passing -1 dynamically for dimension size
-           //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
-       }}) {
-    reductionDynamicViewAddFusion(
-        invocations, true /* reshape_before_reduction */);
-  }
+  auto invocations = std::vector<dynamic_view_invocation>{
+      {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
+      {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
+      {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, true}, // merge(2) osplit(1, 3)
+      {{8, 3 * 4, 7, 9},
+       {8, 3, 4 * 7, 9},
+       true}, // merge(1) merge(2) osplit(1, 3)
+      {{8, 3 * 4, 7, 5},
+       {8, 3, 4 * 7, 5},
+       false}, // merge(1) merge(2) osplit(1, 3)
+      {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
+      // test passing -1 dynamically for dimension size
+      //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
+  };
+  reductionDynamicViewAddFusion(
+      invocations, true /* reshape_before_reduction */);
 }
 
 } // namespace nvfuser
