@@ -289,6 +289,9 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! within the lookup cache. This is needed because lookup shortcut is also
   //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- 2 level cache implementation ]
+  //! If hash_scalars is true, this unique id also contains the values of input
+  //! integer scalars. This is used for dynamic reshapes, since they might
+  //! depend on those inputs and omitting them would lead to a collision.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
       bool hash_scalars = false);
