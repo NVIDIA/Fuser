@@ -25,6 +25,16 @@ TensorView* set(TensorView* tv) {
   return set(tv->as<Val>())->as<TensorView>();
 }
 
+Val* segment_alias(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Load, out, v);
+  return out;
+}
+
+TensorView* segment_alias(TensorView* tv) {
+  return segment_alias(tv->as<Val>())->as<TensorView>();
+}
+
 TensorView* view(TensorView* x, DataType dtype) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   if (x->getDataType() == dtype) {
