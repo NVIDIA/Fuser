@@ -2478,10 +2478,12 @@ IterDomain* IterDomain::resize(
         right_expansion);
   }
 
+  auto is_symbolic = !resized_id_size->isConstInt();
+
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
           .is_rfactor_domain(mark_as_rfactor)
-          .iter_type(in->getIterType())
+          .iter_type(is_symbolic ? IterType::Symbolic : in->getIterType())
           .build();
 
   IrBuilder::create<Resize>(
