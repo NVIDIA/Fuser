@@ -32,6 +32,11 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return reshape_transforms_;
   }
 
+  const std::vector<std::pair<IterDomain*, IterType>> getResizeTransforms()
+      const {
+    return resize_transforms_;
+  }
+
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
@@ -60,7 +65,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   // Holds the resized IterDomain along with the concretized left and right
   // expansion sizes
-  std::vector<std::tuple<IterDomain*, IterType>> resize_transforms_;
+  std::vector<std::pair<IterDomain*, IterType>> resize_transforms_;
 
   friend class DynamicTransformInfoBuilder;
 };

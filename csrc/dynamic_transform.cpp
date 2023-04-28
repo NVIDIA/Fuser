@@ -95,6 +95,13 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
         // Statements that would need cloning, only integer indices of axes.
         pair.second);
   }
+  for (auto& pair : resize_transforms_) {
+    cloned_info.resize_transforms_.emplace_back(
+        ir_cloner.clone(pair.first),
+        // Similar to reshape_transforms_, we only clone the IterDomains in
+        // resize_transforms_
+        pair.second);
+  }
   return cloned_info;
 }
 
@@ -216,14 +223,14 @@ void DynamicTransformInfoBuilder::handle(Resize* op) {
   TORCH_INTERNAL_ASSERT(
       left_val.has_value(),
       "Cannot evaluate the left expansion of an IterDomain resize: ",
-      left_val->toString());
+      left->toString());
 
   auto right = op->rightExpand()->as<Int>();
   auto right_val = expr_eval_->evaluate(right);
   TORCH_INTERNAL_ASSERT(
       right_val.has_value(),
       "Cannot evaluate the right expansion of an IterDomain resize: ",
-      right_val->toString());
+      right->toString());
 
   auto out_itertype = out_extent_val->as<int64_t>() == 1 ? IterType::Broadcast
                                                          : IterType::Iteration;
@@ -249,6 +256,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeReshape();
 
+  void concretizeResize();
+
   using OptOutMutator::mutate;
 
   void mutate(TensorView* tv) final;
@@ -268,7 +277,10 @@ void DynamicTransformConcretizer::concretize() {
   // First, concretize all dynamic reshape ops
   concretizeReshape();
 
-  // Second, propagate concretized domains
+  // Set output IterTypes for dynamic resize ops
+  concretizeResize();
+
+  // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(info_.fusion(), false);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
@@ -299,6 +311,20 @@ void DynamicTransformConcretizer::concretizeReshape() {
     }
 
     incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeResize() {
+  // Concretize each resize op.
+  for (const auto& kv : info_.getResizeTransforms()) {
+    auto id = kv.first;
+    auto iter_type = kv.second;
+
+    // swap in new IterDomain as output of the resize Expr
+    ir_utils::replaceValInExpr(
+        id->definition(),
+        id,
+        IterDomainBuilder(id).iter_type(iter_type).build());
   }
 }
 
@@ -500,6 +526,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+
+    TORCH_INTERNAL_ASSERT(
+        id_type.has_value(),
+        "Did not find id_type. Perhaps TensorView def has no inputs.");
 
     TORCH_INTERNAL_ASSERT(
         id_type != IterType::Symbolic,
