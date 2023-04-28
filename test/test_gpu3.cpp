@@ -8134,7 +8134,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRootDomain(), tv1->domain()->domain());
+      tv1->getRootDomain(), tv1->domain()->leaf());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
@@ -8157,7 +8157,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
 
   ir_utils::validateDomainEquivalence(
-      tv2->getRootDomain(), tv2->domain()->domain());
+      tv2->getRootDomain(), tv2->domain()->leaf());
 
   // create a 2D tensor with one symbolid and another non-symbolic
   auto tv4 = broadcast(sum(tv2, {1}), {false, true});
@@ -8168,7 +8168,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRootDomain(), tv4->domain()->domain());
+      tv4->getRootDomain(), tv4->domain()->leaf());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -8181,6 +8181,48 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
       },
       testing::ThrowsMessage<c10::Error>(
           testing::HasSubstr("Invalid derived domain")));
+}
+
+// Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
+TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dt = DataType::Float;
+
+  auto tv0 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = mul(tv4, tv0);
+  fusion->addOutput(tv5);
+
+  // The persistent scheduler with this problem size resulted in an
+  // error as reported in #236
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dt)).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({11}, options);
+  at::Tensor t1 = at::randn({11}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  t1 = t1.to(at::kDouble);
+  auto ref = (t1 - t1.sum().unsqueeze(0)) * t0;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

@@ -215,12 +215,12 @@ TensorDomain* TransformReplay::fullSelfReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->domain(), axis_map);
+  ReplaySelf replay(self->leaf(), axis_map);
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {
     size_t i = 0;
-    for (auto id : self->domain()) {
+    for (auto id : self->leaf()) {
       auto it = replay.getReplay().find(id);
       TORCH_INTERNAL_ASSERT(
           it != replay.getReplay().end(),
@@ -278,7 +278,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 
   auto all_unmapped_vals = DependencyCheck::getAllValsBetween(
       unmapped_root_ids,
-      {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+      {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
 
   std::unordered_set<IterDomain*> all_unmapped_ids;
   std::transform(
@@ -317,8 +317,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> target_consumer_ids(
-      consumer->domain()->domain().begin(),
-      consumer->domain()->domain().begin() + consumer_pos);
+      consumer->domain()->leaf().begin(),
+      consumer->domain()->leaf().begin() + consumer_pos);
 
   // Instead of replaying from the root, lets try to play forward the history of
   // producer if they match ops on consumer. Enforce if we modify an rfactor
@@ -440,8 +440,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
 
   // Play forward transformations all producer IDs we can
   auto producer_replayed_leaves = BestEffortReplay(
-      producer->domain()->domain(),
-      producer->domain()->domain(),
+      producer->domain()->leaf(),
+      producer->domain()->leaf(),
       producer_self_replay_map);
 
   /*
@@ -486,7 +486,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   size_t producer_pos = new_IDs.size();
 
   // Add axes in (2)
-  for (auto c_id : consumer->domain()->domain()) {
+  for (auto c_id : consumer->domain()->leaf()) {
     auto it = replay_PasC.getReplay().find(c_id);
     if (it != replay_PasC.getReplay().end()) {
       auto id = it->second;
@@ -504,7 +504,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   }
 
   // Add axes in (3)
-  for (auto id : producer->domain()->domain()) {
+  for (auto id : producer->domain()->leaf()) {
     if (producer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
         producer_replayed_leaves.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -556,8 +556,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> target_producer_ids(
-      producer->domain()->domain().begin(),
-      producer->domain()->domain().begin() + producer_pos);
+      producer->domain()->leaf().begin(),
+      producer->domain()->leaf().begin() + producer_pos);
   target_producer_ids = TensorDomain::noReductions(target_producer_ids);
 
   // Instead of replaying from the root, lets try to forward the history of
@@ -675,8 +675,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 
   // Play forward transformations all consumer IDs we can
   auto consumer_replayed_leaves = BestEffortReplay(
-      consumer->domain()->domain(),
-      consumer->domain()->domain(),
+      consumer->domain()->leaf(),
+      consumer->domain()->leaf(),
       consumer_self_replay_map);
 
   /*
@@ -720,7 +720,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   }
 
   // Add axes in (2)
-  for (auto p_id : producer->domain()->domain()) {
+  for (auto p_id : producer->domain()->leaf()) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it != replay_CasP.getReplay().end()) {
       auto id = it->second;
@@ -740,7 +740,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   size_t consumer_pos = new_IDs.size();
 
   // Add axes in (3)
-  for (auto id : consumer->domain()->domain()) {
+  for (auto id : consumer->domain()->leaf()) {
     if (consumer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
         consumer_replayed_leaves.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -812,7 +812,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       consumer->domain(), producer->domain());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->domain()->domain();
+  const auto consumer_domain = consumer->domain()->leaf();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : c2p_root_map) {
@@ -826,7 +826,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   // IterDomains in `producer` root also in `consumer` root
-  const auto producer_domain = producer->domain()->domain();
+  const auto producer_domain = producer->domain()->leaf();
 
   auto it_consumer = consumer_domain.begin();
   auto it_producer = producer_domain.begin();
@@ -883,14 +883,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
       producer->domain(), consumer->domain());
 
   // IterDomains in `producer` root that are not reduction
-  const auto producer_domain = producer->domain()->domain();
+  const auto producer_domain = producer->domain()->leaf();
   auto unskippable_producer_ids_vec =
       TensorDomain::noReductions(producer_domain);
   std::unordered_set<IterDomain*> unskippable_producer_ids(
       unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->domain()->domain();
+  const auto consumer_domain = consumer->domain()->leaf();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_root_map) {
@@ -955,9 +955,9 @@ bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
   auto replay_root = replay->getRootDomain();
-  auto replay_dom = replay->domain()->domain();
+  auto replay_dom = replay->domain()->leaf();
   auto target_root = target->getRootDomain();
-  auto target_dom = target->domain()->domain();
+  auto target_dom = target->domain()->leaf();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
