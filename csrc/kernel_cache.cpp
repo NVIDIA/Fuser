@@ -789,6 +789,10 @@ class ArgumentManager {
 
   void setLastUsedSegmentID(
       const std::vector<SegmentedGroup*>& group_run_order) {
+    // never delete global fusion inputs and outputs
+    auto isFusionInputOrOutput = [](Val* val) {
+      return val->isFusionInput() || val->isFusionOutput();
+    };
     // map val to segment_id where arg is lastly used
     std::unordered_map<Val*, int> last_used_segment_map;
     const int n_groups = group_run_order.size();
@@ -803,7 +807,7 @@ class ArgumentManager {
         for (auto val : group_to_run->inputs()) {
           // skip fusion inputs since if a Val is a fusion input, it means it's
           // a user input.
-          if (!val->isFusionInput()) {
+          if (!isFusionInputOrOutput(val)) {
             last_used_segment_map[val] = group_id;
           }
         }
@@ -812,7 +816,7 @@ class ArgumentManager {
         if (group_id < n_groups - 1) {
           for (auto val : group_to_run->outputs()) {
             // skip fusion outputs, outputs may be used by other fusions or code
-            if (!val->isFusionOutput()) {
+            if (!isFusionInputOrOutput(val)) {
               last_used_segment_map[val] = group_id;
             }
           }
