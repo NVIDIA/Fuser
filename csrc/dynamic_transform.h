@@ -53,7 +53,14 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
  private:
   Fusion* fusion_ = nullptr;
+
+  // Holds, for each dynamic reshape, the output TensorView, and the result of
+  // analyzeView
   std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
+
+  // Holds the resized IterDomain along with the concretized left and right
+  // expansion sizes
+  std::vector<std::tuple<IterDomain*, IterType>> resize_transforms_;
 
   friend class DynamicTransformInfoBuilder;
 };

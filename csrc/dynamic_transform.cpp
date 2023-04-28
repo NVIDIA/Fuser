@@ -30,6 +30,9 @@ class DynamicTransformInfoBuilder : public IterVisitor {
   // Analyze a dynamic reshape and generate AnalyzeViewResult
   void handle(ViewOp* op) override;
 
+  // Analyze a dynamic resize
+  void handle(Resize* op) override;
+
   const auto& getInfo() const {
     return info_;
   }
@@ -184,6 +187,48 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
 
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
+}
+
+void DynamicTransformInfoBuilder::handle(Resize* op) {
+  auto out_id = op->out()->as<IterDomain>();
+
+  // If the input is not symbolic, and the expansion sizes are static, this is
+  // a static resize
+  if (out_id->getIterType() != IterType::Symbolic) {
+    return;
+  }
+
+  auto out_extent_val = expr_eval_->evaluate(out_id->extent());
+  TORCH_INTERNAL_ASSERT(
+      out_extent_val.has_value(),
+      "Cannot evaluate the extent of a resized IterDomain: ",
+      out_id->toString());
+
+  auto in_id = op->in()->as<IterDomain>();
+  auto in_extent_val = expr_eval_->evaluate(in_id->extent());
+  TORCH_INTERNAL_ASSERT(
+      in_extent_val.has_value(),
+      "Cannot evaluate the extent of input to an IterDomain resize: ",
+      in_id->toString());
+
+  auto left = op->leftExpand()->as<Int>();
+  auto left_val = expr_eval_->evaluate(left);
+  TORCH_INTERNAL_ASSERT(
+      left_val.has_value(),
+      "Cannot evaluate the left expansion of an IterDomain resize: ",
+      left_val->toString());
+
+  auto right = op->rightExpand()->as<Int>();
+  auto right_val = expr_eval_->evaluate(right);
+  TORCH_INTERNAL_ASSERT(
+      right_val.has_value(),
+      "Cannot evaluate the right expansion of an IterDomain resize: ",
+      right_val->toString());
+
+  auto out_itertype = out_extent_val->as<int64_t>() == 1 ? IterType::Broadcast
+                                                         : IterType::Iteration;
+
+  info_.resize_transforms_.emplace_back(out_id, out_itertype);
 }
 
 //! Concretize a symbolic fusion with concrete transformation info
