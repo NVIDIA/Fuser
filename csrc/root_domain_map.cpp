@@ -77,18 +77,18 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
   IterDomain* indexed_id = nullptr;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedProducerDomain();
+    indexed_id = sop->getIndexedID();
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedProducerDomain();
+      indexed_id = sop->getIndexedID();
       has_consumer_id = true;
     }
   } else if (
       auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv->definition())) {
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedProducerDomain();
+      indexed_id = gop->getIndexedID();
       has_consumer_id = true;
     }
   }
@@ -156,7 +156,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // Condition 2: Different extents
     if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
-        !consumer_tv_->definition()->as<TorchGatherOp>()->isTakeAlongAxis() &&
+        !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
         producer_tv_ ==
             consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() &&
         producer_id != indexed_producer_id && !map_different_extents_) {
@@ -1109,7 +1109,7 @@ void ComputeAtRootDomainMapBuilder::handle(TorchGatherOp* op) {
   const auto idx_root =
       TensorDomain::noReductions(idx_td->getMaybeRFactorDomain());
   const auto& out_root = out_td->getRootDomain();
-  
+
   TORCH_INTERNAL_ASSERT(
       idx_root.size() == out_root.size(),
       "\nExpression: ",

@@ -253,7 +253,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
   }
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {sop->getIndexedProducerDomain(), lowered_index_cast}};
+      {sop->getIndexedID(), lowered_index_cast}};
   const auto lookup =
       lowerSrcIndex(sop->input(0), sop->output(0), override_index);
 
@@ -275,7 +275,7 @@ void IndexLowering::handle(const TorchGatherOp* top) {
   }
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {top->getIndexedProducerDomain(), lowered_index}};
+      {top->getIndexedID(), lowered_index}};
 
   auto input = lowerSrcIndex(top->lookupTv(), top->output(0), override_index);
 
@@ -298,8 +298,7 @@ void IndexLowering::handle(const ScatterOp* sop) {
       sop->selfTv(),
       sop->dim(),
       lowered_index,
-      lowered_src,
-      sop->getOutputSelectAxis()));
+      lowered_src));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -318,7 +317,7 @@ void IndexLowering::handle(const SelectOp* sop) {
   }
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {sop->getIndexedProducerDomain(), lowered_index_cast}};
+      {sop->getIndexedID(), lowered_index_cast}};
   const auto input =
       lowerSrcIndex(sop->input(0), sop->output(0), override_index);
 
@@ -379,7 +378,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -444,7 +443,7 @@ Val* getGridSyncBufferSize(
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
-    if (std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+    if (std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -573,8 +572,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -723,8 +722,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -814,8 +813,8 @@ void IndexLowering::handle(const WelfordOp* wop) {
   if (has_grid_reduce) {
     TORCH_INTERNAL_ASSERT(
         std::none_of(
-            out_domain->domain().begin(),
-            out_domain->domain().end(),
+            out_domain->leaf().begin(),
+            out_domain->leaf().end(),
             [](IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -1047,7 +1046,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   // TIDx and BIDx must be used for non-reduction domains. TIDy and
   // BIDy must be used for reduction domains.
   ParallelTypeBitmap used_pts;
-  for (auto leaf_id : out_domain->domain()) {
+  for (auto leaf_id : out_domain->leaf()) {
     auto pt = leaf_id->getParallelType();
     if (isParallelTypeThread(pt)) {
       used_pts.set(pt);
@@ -1104,7 +1103,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   int num_grouped_iterations = 1;
-  for (auto axis : out_domain->domain()) {
+  for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       TORCH_INTERNAL_ASSERT(
           axis->extent()->isConstInt(),
@@ -1160,8 +1159,8 @@ void IndexLowering::handleGroupedGridWelford(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();

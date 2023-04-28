@@ -42,7 +42,7 @@ class TORCH_CUDA_CU_API FullOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "FullOp";
   }
 
@@ -73,10 +73,10 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
     return attribute(0)->as<Attribute<int>>()->value;
   }
 
-  IterDomain* getIndexedProducerDomain() const;
+  IterDomain* getIndexedID() const;
 
   std::unordered_map<IterDomain*, Val*> getIndexOverridingMap() const {
-    return {{getIndexedProducerDomain(), input(1)}};
+    return {{getIndexedID(), input(1)}};
   }
 };
 
@@ -103,9 +103,9 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
     return input(1)->as<TensorView>();
   }
 
-  IterDomain* getIndexedProducerDomain() const;
+  IterDomain* getIndexedID() const;
 
-  IterDomain* getIndexedConsumerDomain() const;
+  IterDomain* getConsumerOfIndexedID() const;
 
   int dim() const {
     return attribute(0)->as<Attribute<int>>()->value;
@@ -150,16 +150,12 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
     return attribute(0)->as<Attribute<int>>()->value;
   }
 
-  IterDomain* getIndexedConsumerDomain() const;
+  IterDomain* getIndexedID() const;
 
-  IterDomain* getIndexedProducerDomain() const;
-
-  bool isTakeAlongAxis() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
-  }
+  IterDomain* getConsumerOfIndexedID() const;
 
   bool exactSizes() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute(1)->as<Attribute<bool>>()->value;
   }
 };
 
@@ -173,12 +169,11 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
       Val* self,
       int dim,
       Val* index,
-      Val* src,
-      IterDomain* select_out_id);
+      Val* src);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ScatterOp";
   }
 
@@ -198,15 +193,13 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
   }
 
   int dim() const {
-    return attribute(1)->as<Attribute<int>>()->value;
+    return attribute(0)->as<Attribute<int>>()->value;
   }
 
-  IterDomain* getOutputSelectAxis() const {
-    return attribute(0)->as<IterDomain>();
-  }
+  IterDomain* getIndexedID() const;
 
   ScatterOpType getScatterOpType() const {
-    return attribute(2)->as<Attribute<ScatterOpType>>()->value;
+    return attribute(1)->as<Attribute<ScatterOpType>>()->value;
   }
 };
 
@@ -218,7 +211,7 @@ class TORCH_CUDA_CU_API IotaOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "IotaOp";
   }
 
@@ -268,7 +261,7 @@ class TORCH_CUDA_CU_API EyeOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "EyeOp";
   }
 
@@ -294,7 +287,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "UnaryOp";
   }
 
@@ -331,7 +324,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "BinaryOp";
   }
 
@@ -377,7 +370,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TernaryOp";
   }
 
@@ -446,7 +439,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "RNGOp";
   }
 
@@ -503,7 +496,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "BroadcastOp";
   }
 
@@ -550,7 +543,7 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "SqueezeOp";
   }
 
@@ -598,7 +591,7 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ReductionOp";
   }
 
@@ -644,7 +637,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedReductionOp";
   }
 
@@ -836,7 +829,7 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "WelfordOp";
   }
 
@@ -931,7 +924,7 @@ class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedWelfordOp";
   }
 
@@ -1074,7 +1067,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "MmaOp";
   }
 
@@ -1154,7 +1147,7 @@ class TORCH_CUDA_CU_API ExpandOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ExpandOp";
   }
 
@@ -1191,7 +1184,7 @@ class TORCH_CUDA_CU_API ShiftOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ShiftOp";
   }
 
@@ -1240,7 +1233,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GatherOp";
   }
 
@@ -1287,7 +1280,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ViewAsScalar";
   }
 
@@ -1321,7 +1314,7 @@ class TORCH_CUDA_CU_API ViewOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ViewOp";
   }
 
@@ -1351,7 +1344,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "LoadStoreOp";
   }
 
@@ -1774,14 +1767,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -1794,7 +1787,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   std::vector<IterDomain*>::size_type nDims() const {
-    return domain_.size();
+    return leaf_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -1807,8 +1800,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  const std::vector<IterDomain*>& domain() const {
-    return domain_;
+  const std::vector<IterDomain*>& leaf() const {
+    return leaf_domain_;
   }
 
   // Note: [Contiguity]
@@ -1879,9 +1872,9 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(domain_);
-    no_bcast_domain_ = noBroadcasts(domain_);
-    has_reduction_ = hasReduction(domain_);
+    no_reduction_domain_ = noReductions(leaf_domain_);
+    no_bcast_domain_ = noBroadcasts(leaf_domain_);
+    has_reduction_ = hasReduction(leaf_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -1949,7 +1942,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  std::vector<IterDomain*> domain_;
+  std::vector<IterDomain*> leaf_domain_;
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   const std::vector<IterDomain*> rfactor_domain_;
@@ -1981,7 +1974,7 @@ class TORCH_CUDA_CU_API Split : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Split";
   }
 
@@ -2039,7 +2032,7 @@ class TORCH_CUDA_CU_API Merge : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Merge";
   }
 
@@ -2073,7 +2066,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Swizzle2D";
   }
 
@@ -2167,7 +2160,7 @@ class TORCH_CUDA_CU_API Resize : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Resize";
   }
 
@@ -2297,7 +2290,7 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "PadOp";
   }
 
@@ -2363,7 +2356,7 @@ class TORCH_CUDA_CU_API SliceOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "SliceOp";
   }
 
@@ -2419,7 +2412,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "CatOp";
   }
 

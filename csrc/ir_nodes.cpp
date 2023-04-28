@@ -155,7 +155,7 @@ std::string SelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
-                          << ", axis = " << getIndexedProducerDomain()
+                          << ", axis = " << getIndexedID()
                           << ", index = " << input(1)->toString() << " )\n";
   return ss.str();
 }
@@ -164,7 +164,7 @@ std::string SelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* SelectOp::getIndexedProducerDomain() const {
+IterDomain* SelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
              ir_utils::getTvInput(this)->getMaybeRFactorDomain())
       .at(dim());
@@ -199,13 +199,13 @@ std::string IndexSelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* IndexSelectOp::getIndexedProducerDomain() const {
+IterDomain* IndexSelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
              ir_utils::getTvInput(this)->getMaybeRFactorDomain())
       .at(dim());
 }
 
-IterDomain* IndexSelectOp::getIndexedConsumerDomain() const {
+IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
@@ -247,12 +247,12 @@ std::string TorchGatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* TorchGatherOp::getIndexedProducerDomain() const {
+IterDomain* TorchGatherOp::getIndexedID() const {
   return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
       .at(dim());
 }
 
-IterDomain* TorchGatherOp::getIndexedConsumerDomain() const {
+IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
@@ -265,8 +265,7 @@ ScatterOp::ScatterOp(
     Val* self,
     int dim,
     Val* index,
-    Val* src,
-    IterDomain* select_out_id)
+    Val* src)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
@@ -274,7 +273,6 @@ ScatterOp::ScatterOp(
   addOutput(out);
   // we need to generate code like T_out[T_index[...]] = T_src[...], so we need
   // select_out_id as an attribute.
-  addAttribute(select_out_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
@@ -293,6 +291,10 @@ std::string ScatterOp::toString(int indent_size) const {
 
 std::string ScatterOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Scatter op can not be printed inline");
+}
+
+IterDomain* ScatterOp::getIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -2589,18 +2591,18 @@ TensorDomain::TensorDomain(
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
-  domain_ = root_domain_;
+  leaf_domain_ = root_domain_;
   resetDomains();
 }
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<IterDomain*> domain,
+    std::vector<IterDomain*> leaf_domain,
     std::vector<c10::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      domain_(std::move(domain)),
+      leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
@@ -2619,8 +2621,8 @@ TensorDomain::TensorDomain(
   }
 
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
 
   // Just due to clang-tidy, correct value set in resetDomains
@@ -2632,11 +2634,11 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
-    std::vector<IterDomain*> domain,
+    std::vector<IterDomain*> leaf_domain,
     std::vector<c10::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      domain_(std::move(domain)),
+      leaf_domain_(std::move(leaf_domain)),
       rfactor_domain_(std::move(rfactor_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
@@ -2656,11 +2658,11 @@ TensorDomain::TensorDomain(
   }
 
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
     if (!rfactor_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-      ir_utils::validateDomainEquivalence(rfactor_domain_, domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
     }
   }
 
@@ -2672,7 +2674,7 @@ TensorDomain::TensorDomain(
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),
-      domain_(ir_cloner->clone(src->domain_)),
+      leaf_domain_(ir_cloner->clone(src->leaf_domain_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
@@ -2682,22 +2684,25 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
 bool TensorDomain::hasBlockBroadcast() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isBroadcast() && id->isThreadDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast() && id->isThreadDim();
+      });
 }
 
 bool TensorDomain::hasGridBroadcast() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isBroadcast() && id->isBlockDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast() && id->isBlockDim();
+      });
 }
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
   // check no_bcast_domain_ and no_reduction_domain_ as they are just
   // derived from domain_.
-  return root_domain_ == other.root_domain_ && domain_ == other.domain_ &&
+  return root_domain_ == other.root_domain_ &&
+      leaf_domain_ == other.leaf_domain_ &&
       rfactor_domain_ == other.rfactor_domain_ &&
       contiguity_ == other.contiguity_;
 }
@@ -2763,7 +2768,7 @@ std::string TensorDomain::toString(int indent_size) const {
     ss << "[ 0 ]";
     return ss.str();
   }
-  ss << "[ " << toDelimitedString(domain()) << " ]";
+  ss << "[ " << toDelimitedString(leaf()) << " ]";
   return ss.str();
 }
 
@@ -2792,19 +2797,21 @@ bool TensorDomain::hasReduction() const {
 }
 
 bool TensorDomain::hasBlockReduction() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isReduction() && id->isThreadDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isThreadDim();
+      });
 }
 
 bool TensorDomain::hasGridReduction() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isReduction() && id->isBlockDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlockDim();
+      });
 }
 
 bool TensorDomain::hasBroadcast() const {
-  return no_bcast_domain_.size() != domain_.size();
+  return no_bcast_domain_.size() != leaf_domain_.size();
 }
 
 bool TensorDomain::hasRFactor() const {
@@ -2842,20 +2849,22 @@ bool TensorDomain::hasViewLikeRFactor() const {
 }
 
 bool TensorDomain::hasVectorize() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->getParallelType() == ParallelType::Vectorize ||
-        id->getParallelType() == ParallelType::MisalignedVectorize;
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->getParallelType() == ParallelType::Vectorize ||
+            id->getParallelType() == ParallelType::MisalignedVectorize;
+      });
 }
 
 c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
-  auto it = std::find_if(domain_.begin(), domain_.end(), [](const auto& id) {
-    return id->isReduction();
-  });
-  if (it == domain_.end()) {
+  auto it = std::find_if(
+      leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
+        return id->isReduction();
+      });
+  if (it == leaf_domain_.end()) {
     return c10::optional<unsigned int>();
   } else {
-    return c10::optional<unsigned int>(std::distance(domain_.begin(), it));
+    return c10::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
   }
 }
 
@@ -2873,14 +2882,14 @@ IterDomain* TensorDomain::axis(int i) const {
       i,
       " in domain ",
       this);
-  return domain_[i];
+  return leaf_domain_[i];
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
-  while (i < (int64_t)domain_.size()) {
-    if (domain_[i] == id)
+  while (i < (int64_t)leaf_domain_.size()) {
+    if (leaf_domain_[i] == id)
       return i;
     i++;
   }
@@ -2925,9 +2934,9 @@ void TensorDomain::split(
 
   auto split_ids =
       IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
-  domain_.erase(domain_.begin() + axis_);
-  domain_.insert(domain_.begin() + axis_, split_ids.second);
-  domain_.insert(domain_.begin() + axis_, split_ids.first);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.second);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.first);
   resetDomains();
 }
 
@@ -2964,9 +2973,9 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  domain_.erase(domain_.begin() + axis_i);
-  domain_.erase(domain_.begin() + axis_o);
-  domain_.insert(domain_.begin() + axis_o, merged_id);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
   resetDomains();
 }
 
@@ -2974,7 +2983,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
-  domain_ = orderedAs(domain_, old2new_);
+  leaf_domain_ = orderedAs(leaf_domain_, old2new_);
   resetDomains();
 }
 
@@ -3023,11 +3032,11 @@ void TensorDomain::swizzle(
   std::tie(axis_out_x, axis_out_y) =
       IterDomain::swizzle(swizzle_type, axis_x, axis_y, swizzle_mode);
 
-  domain_.erase(domain_.begin() + x);
-  domain_.insert(domain_.begin() + x, axis_out_x);
+  leaf_domain_.erase(leaf_domain_.begin() + x);
+  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
 
-  domain_.erase(domain_.begin() + y);
-  domain_.insert(domain_.begin() + y, axis_out_y);
+  leaf_domain_.erase(leaf_domain_.begin() + y);
+  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
 
   resetDomains();
 }

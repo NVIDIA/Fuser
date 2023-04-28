@@ -28,22 +28,22 @@ getIndexedProducerConsumerPairs(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   for (auto expr : fusion->exprs()) {
     if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
-      auto producer_indexe_id = gather->getIndexedProducerDomain();
+      auto producer_indexe_id = gather->getIndexedID();
       auto out_tv = ir_utils::getTvOutput(expr);
       PairwiseRootDomainMap p2c(gather->lookupTv(), out_tv);
       p2c.mapDifferentExtents(true).mapIndexedDomains(true);
       for (const auto& [p_id, c_id] : p2c.mapProducerToConsumer(
                gather->lookupTv()->domain(), out_tv->domain())) {
-        if ((gather->isTakeAlongAxis() && p_id == producer_indexe_id) ||
-            !gather->isTakeAlongAxis()) {
+        if ((gather->exactSizes() && p_id == producer_indexe_id) ||
+            !gather->exactSizes()) {
           indexed_ids.emplace_back(
               ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
               ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
         }
       }
     } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
-      auto p_id = index_select->getIndexedProducerDomain();
-      auto c_id = index_select->getIndexedConsumerDomain();
+      auto p_id = index_select->getIndexedID();
+      auto c_id = index_select->getConsumerOfIndexedID();
       indexed_ids.emplace_back(
           ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
           ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
@@ -79,15 +79,15 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     bool skip = true;
     for (auto use : input_tv->uses()) {
       if (auto select = dynamic_cast<SelectOp*>(use)) {
-        if (in_id == select->getIndexedProducerDomain()) {
+        if (in_id == select->getIndexedID()) {
           // effectively same as squeeze
           continue;
         }
       } else if (auto index_select = dynamic_cast<IndexSelectOp*>(use)) {
         // The consumer ID may be a broadcast. In that case, nothing
         // needs to be mapped with it
-        if (in_id == index_select->getIndexedProducerDomain() &&
-            index_select->getIndexedConsumerDomain()->isBroadcast()) {
+        if (in_id == index_select->getIndexedID() &&
+            index_select->getConsumerOfIndexedID()->isBroadcast()) {
           continue;
         } else {
           skip = false;
@@ -96,8 +96,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
       } else if (auto gather = dynamic_cast<TorchGatherOp*>(use)) {
         // The consumer ID may be a broadcast. In that case, nothing
         // needs to be mapped with it
-        if (in_id == gather->getIndexedProducerDomain() &&
-            gather->getIndexedConsumerDomain()->isBroadcast()) {
+        if (in_id == gather->getIndexedID() &&
+            gather->getConsumerOfIndexedID()->isBroadcast()) {
           continue;
         } else {
           skip = false;

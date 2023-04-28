@@ -751,22 +751,21 @@ bool isIndexedID(const TensorView* tv, const IterDomain* id) {
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
   return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
     return (expr->isA<TorchGatherOp>() &&
-            expr->as<TorchGatherOp>()->getIndexedProducerDomain() == id) ||
-        (expr->isA<SelectOp>() &&
-         expr->as<SelectOp>()->getIndexedProducerDomain() == id) ||
+            expr->as<TorchGatherOp>()->getIndexedID() == id) ||
+        (expr->isA<SelectOp>() && expr->as<SelectOp>()->getIndexedID() == id) ||
         (expr->isA<IndexSelectOp>() &&
-         expr->as<IndexSelectOp>()->getIndexedProducerDomain() == id);
+         expr->as<IndexSelectOp>()->getIndexedID() == id);
   });
 }
 
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
   return tv->definition()->isA<ScatterOp>() &&
-      tv->definition()->as<ScatterOp>()->getOutputSelectAxis() == id;
+      tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->domain()->domain();
+  const auto& domain = tv->domain()->leaf();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
