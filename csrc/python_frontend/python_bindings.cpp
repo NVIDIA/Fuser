@@ -1839,6 +1839,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("value") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "take_along_axis",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.take_along_axis");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+        fd->defineRecord(new TakeAlongAxisOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "permute",
       [](FusionDefinition::Operators& self,
          Tensor arg,
