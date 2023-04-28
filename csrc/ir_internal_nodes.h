@@ -1771,14 +1771,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -1791,7 +1791,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   std::vector<IterDomain*>::size_type nDims() const {
-    return domain_.size();
+    return leaf_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -1804,8 +1804,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  const std::vector<IterDomain*>& domain() const {
-    return domain_;
+  const std::vector<IterDomain*>& leaf() const {
+    return leaf_domain_;
   }
 
   // Note: [Contiguity]
@@ -1876,9 +1876,9 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(domain_);
-    no_bcast_domain_ = noBroadcasts(domain_);
-    has_reduction_ = hasReduction(domain_);
+    no_reduction_domain_ = noReductions(leaf_domain_);
+    no_bcast_domain_ = noBroadcasts(leaf_domain_);
+    has_reduction_ = hasReduction(leaf_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -1946,7 +1946,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  std::vector<IterDomain*> domain_;
+  std::vector<IterDomain*> leaf_domain_;
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   const std::vector<IterDomain*> rfactor_domain_;

@@ -324,8 +324,8 @@ bool isGridAllreduce(TensorView* reduction_tv) {
   // Collect all reduction parallel types
   ParallelTypeBitmap reduction_parallel_types;
   std::for_each(
-      reduction_tv->domain()->domain().begin(),
-      reduction_tv->domain()->domain().end(),
+      reduction_tv->domain()->leaf().begin(),
+      reduction_tv->domain()->leaf().end(),
       [&](auto id) {
         if (id->isReduction() &&
             isParallelTypeBlockDim(id->getParallelType())) {
@@ -339,8 +339,8 @@ bool isGridAllreduce(TensorView* reduction_tv) {
        ir_utils::filterByType<BroadcastOp>(reduction_tv->uses())) {
     auto bcast_tv = bcast_expr->out()->as<TensorView>();
     if (std::any_of(
-            bcast_tv->domain()->domain().begin(),
-            bcast_tv->domain()->domain().end(),
+            bcast_tv->domain()->leaf().begin(),
+            bcast_tv->domain()->leaf().end(),
             [&](auto bcast_id) {
               auto pt = bcast_id->getParallelType();
               return isParallelTypeBlockDim(pt) &&
@@ -654,7 +654,7 @@ struct id_lt {
 } // namespace
 
 TensorView* sortAndRFactor(TensorView* reference_tv) {
-  auto domain = reference_tv->domain()->domain();
+  auto domain = reference_tv->domain()->leaf();
   std::sort(domain.begin(), domain.end(), id_lt());
   std::unordered_map<int, int> reorder_map;
   std::unordered_map<IterDomain*, int> domain_pos;

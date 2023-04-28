@@ -96,12 +96,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
   for (const auto& i : from->managed_data_) {
-    to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    if (i.first.has_value()) {
+      to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    } else {
+      // Don't clone managed data if it has been reset
+      to->managed_data_.emplace_back(i.first, i.second);
+    }
   }
 
   for (auto [k, v] : from->managed_named_data_) {
-    to->managed_named_data_.insert(std::make_pair(
-        k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    if (v.first.has_value()) {
+      to->managed_named_data_.insert(std::make_pair(
+          k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    }
   }
 
   return ir_cloner;

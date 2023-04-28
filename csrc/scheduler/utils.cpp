@@ -252,7 +252,7 @@ void parallelizeAllLike(
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->domain()->domain();
+  const auto& reference_dom = reference_tv->domain()->leaf();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
@@ -267,7 +267,7 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i : c10::irange(tv->domain()->domain().size())) {
+    for (const auto i : c10::irange(tv->domain()->leaf().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -915,8 +915,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
         std::any_of(
-            tv->domain()->domain().begin(),
-            tv->domain()->domain().end(),
+            tv->domain()->leaf().begin(),
+            tv->domain()->leaf().end(),
             [](IterDomain* id) { return id->isReduction(); })) {
       reduction_tvs.emplace_back(tv);
     }
@@ -1848,8 +1848,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprs(
-      tv->fusion(),
-      {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+      tv->fusion(), {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
@@ -1908,8 +1907,8 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   }
 
   std::unordered_map<int, int> old2new;
-  for (auto id_i : c10::irange(tv->domain()->domain().size())) {
-    auto leaf_id = tv->axis((int)id_i);
+  for (auto id_i : c10::irange((int)tv->domain()->leaf().size())) {
+    auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
     TORCH_INTERNAL_ASSERT(
@@ -1917,7 +1916,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         "Reordering map creation failed, uninitialized iterdomain,",
         " likely something is wrong with the transformations between the rfactor domain and the leaves.");
     int new_pos = (int)std::distance(reordered_ids.begin(), find_it);
-    int old_pos = (int)id_i;
+    int old_pos = id_i;
     old2new[old_pos] = new_pos;
   }
   return old2new;
@@ -1978,17 +1977,17 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       if (terminating_rfactor_dims.find(rfactor_id) !=
           terminating_rfactor_dims.end()) {
         auto find_it = std::find(
-            tv->domain()->domain().begin(),
-            tv->domain()->domain().end(),
+            tv->domain()->leaf().begin(),
+            tv->domain()->leaf().end(),
             rfactor_id);
         TORCH_INTERNAL_ASSERT(
-            find_it != tv->domain()->domain().end(),
+            find_it != tv->domain()->leaf().end(),
             "Require ",
             rfactor_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        auto old_pos = std::distance(tv->domain()->domain().begin(), find_it);
+        auto old_pos = std::distance(tv->domain()->leaf().begin(), find_it);
 
         old2new[(int)old_pos] = (int)old2new.size();
       }
@@ -2195,8 +2194,8 @@ void promoteProducerMemoryTypesOfResizedTensors(
   for (auto resized_tensor : resized_tensors) {
     for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
       auto c2p_map = BestEffortReplay(
-                         producer->domain()->domain(),
-                         resized_tensor->domain()->domain(),
+                         producer->domain()->leaf(),
+                         resized_tensor->domain()->leaf(),
                          PairwiseRootDomainMap(producer, resized_tensor, true)
                              .mapConsumerToProducer(
                                  resized_tensor->domain(), producer->domain()))
@@ -2212,14 +2211,14 @@ void promoteProducerMemoryTypesOfResizedTensors(
         }
 
         auto resized_tensor_exact_map_id_it = std::find_if(
-            resized_tensor->domain()->domain().begin(),
-            resized_tensor->domain()->domain().end(),
+            resized_tensor->domain()->leaf().begin(),
+            resized_tensor->domain()->leaf().end(),
             [&](IterDomain* resized_tensor_leaf_id) {
               auto it = c2p_map.find(resized_tensor_leaf_id);
               return it != c2p_map.end() && it->second == producer_non_ca_id;
             });
         if (resized_tensor_exact_map_id_it !=
-                resized_tensor->domain()->domain().end() &&
+                resized_tensor->domain()->leaf().end() &&
             (*resized_tensor_exact_map_id_it)->getParallelType() ==
                 producer_non_ca_id_ptype) {
           continue;
