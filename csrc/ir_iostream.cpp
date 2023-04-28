@@ -109,7 +109,7 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
   const auto& from = tv->getMaybeRFactorDomain();
-  const auto& leaf = tv->domain()->domain();
+  const auto& leaf = tv->domain()->leaf();
   auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 

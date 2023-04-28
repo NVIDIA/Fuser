@@ -245,13 +245,13 @@ class ReplayRFactor : public ReplayTransformations {
       // The root mapping from the original root domain, to the roots of the
       // domain to be replayed.
       std::unordered_map<IterDomain*, IterDomain*> id_map,
-      // The rfactor axes in original_domain->domain() to be factored into the
+      // The rfactor axes in original_domain->leaf() to be factored into the
       // two stage reduction.
       std::unordered_set<IterDomain*> rfactor_axes,
       // All the iter domains in original_domain that the rfactor axes are
       // dependant on.
       std::unordered_set<IterDomain*> static_rfactor_ids)
-      : ReplayTransformations(original_domain->domain(), std::move(id_map)),
+      : ReplayTransformations(original_domain->leaf(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
         static_rfactor_ids_(std::move(static_rfactor_ids)),
         rfactor_domain_(original_domain->getMaybeRFactorDomain()) {
@@ -300,7 +300,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_set<IterDomain*> rfactor_axes(axes_set.size());
   {
     int i = 0;
-    for (auto id : original_td->domain()) {
+    for (auto id : original_td->leaf()) {
       if (axes_set.find(i++) != axes_set.end()) {
         rfactor_axes.emplace(id);
       } else if (id->isReduction()) {
@@ -454,7 +454,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   }
 
   ReplayTransformations consumer_replay(
-      original_td->domain(), original_to_consumer_root_map);
+      original_td->leaf(), original_to_consumer_root_map);
   consumer_replay.setErrorOnFailure(false).setReplayResize(true);
 
   auto original_to_consumer_map = consumer_replay.getReplay();

@@ -1253,7 +1253,7 @@ TEST_F(NVFuserTest, FusionReshapeVectorize_CUDA) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->domain()->domain()) {
+    for (auto i : tv->domain()->leaf()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }
