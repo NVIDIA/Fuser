@@ -347,7 +347,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! is not desirable. However, for dynamic Fusions, the concretization of
   //! dynamic reshapes may depend on input scalars, so we must take this into
   //! account in order to avoid short-circuiting cache lookups in those cases.
-  bool hash_scalars_ = false;
+  [[maybe_unused]] bool hash_scalars_ = false;
 };
 
 //! [ Note -- 2 level cache implementation ]
