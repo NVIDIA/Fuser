@@ -460,20 +460,29 @@ void scheduleSplitKReduction(
     const MatMulTileOptions& gemm_tile,
     const int split_k_factor) {
   // This function is to schedule the reduction part in split-k
-  // The input tv has a domain of
-  // 0_{m/cta_tile_m}, 1_{n/cta_tile_n}, 2R_{split_k_factor},
-  // 3_{cta_tile_m / warp_tile_m}, 4_{cta_tile_n/warp_tile_n },
-  // 5_{warp_tile_m / instruction_tile_m}, 6_{warp_tile_n / instruction_tile_n},
-  // 7_{instruction_tile_m}, 8_{instruction_tile_n}]
-
   // step-1, call merge 3 times to merge last 4 domains {5,6,7,8}
+  // id=  0   1  2   3   4   5  6  7    8
+  // tv= [Mo  No SKo Mwo Nwo Mw Nw Mist Nist]
+  // Mo = m / cta_tile_m
+  // No = n / cta_tile_n
+  // SKo = split_k_factor
+  // Mwo = cta_tile_m / warp_tile_m
+  // Nwo = cta_tile_n / warp_tile_n
+  // Mw = warp_tile_m / instruction_tile_m
+  // Nw = warp_tile_n / instruction_tile_n
+  // Mist = instruction_tile_m
+  // Nist = instruction_tile_n  
   for (int i = 0; i < 3; i++) {
     tv->merge(5);
   }
   // step-2, move reduction domain to last
+  // id=  0   1  2   3   4   5
+  // tv= [Mo  No SKo Mwo Nwo MNMN]  
   tv->reorder({{2, -1}});
 
   // step-3, parallelize first 4 domains same as the first part
+  // id=  0   1  2   3   4    5
+  // tv= [Mo  No Mwo Nwo MNMN SKo]    
   int axis = 0;
   tv->axis(axis++)->parallelize(ParallelType::BIDx);
   tv->axis(axis++)->parallelize(ParallelType::BIDy);
@@ -482,13 +491,18 @@ void scheduleSplitKReduction(
 
   // step-4, schedule last two domains {warp_tile_m*warp_tile_n} and
   // {split_k_factor} with {TIDx(32), BIDz(split_k_factor), Vectorize}
+  // id=  0   1  2   3   4    5
+  // tv= [Mo  No Mwo Nwo MNMN SKo]  
   constexpr int warp_size = 32;
-  tv->split(-2, warp_size);
-  tv->axis(-2)->parallelize(ParallelType::TIDx);
-  //{..., {warp_tile_m*warp_tile_n/warp_size}, {warp_size}, {split_k_factor}}
-
-  tv->split(-3, split_k_factor);
-  tv->axis(-3)->parallelize(ParallelType::BIDz);
+  tv->split(4, warp_size);
+  // id=  0   1  2   3   4        5   6
+  // tv= [Mo  No Mwo Nwo MNMN/Ws, Ws, SKo]   
+  tv->axis(5)->parallelize(ParallelType::TIDx);
+ 
+  tv->split(4, split_k_factor);
+  // id=  0   1  2   3   4           5   6   7
+  // tv= [Mo  No Mwo Nwo MNMN/Ws/Kf, Kf, Ws, SKo]   
+  tv->axis(5)->parallelize(ParallelType::BIDz);
   //{..., {warp_tile_m*warp_tile_n/warp_size/split_k_factor}, {split_k_factor},
   //{warp_size}, {split_k_factor}}
 
@@ -718,6 +732,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // differently
     const std::vector<TensorView*>& selected_tvs =
         ir_utils::allTvsExcept(fusion, {c});
+    // [Mo, No, SKo, SKi, Mi, Ni, Ki]
     scheduler_utils::transformPropagateToSelectedFrom(
         cc, {selected_tvs.begin(), selected_tvs.end()});
   } else {
@@ -735,10 +750,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* tmp_gmem_reload = nullptr;
   if (params.split_k_factor > 1) {
     // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c[output]
-    // id=  0   1  2  3   4   5   6  7  8  9  10
-    // cc= [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-    std::cout << "cc= " << cc->toString() << std::endl;
-    tmp_gmem = cc->rFactor({3, 4, -1});
+    // id=  0   1  2   3   4   5   6   7  8  9    10   11
+    // cc= [Mo  No SKo SKi Kw  Mwo Nwo Mw Nw Mist Nist Kist]
+    // 0 Mo = M / cta_tile_m
+    // 1 No = N / cta_tile_n
+    // 2 SKo = split_k_factor
+    // 3 SKi = K / split_k_factor
+    // 4 Kw = warp_tile_k / instruction_tile_k
+    // 5 Mwo = cta_tile_m / warp_tile_m
+    // 6 Nwo = cta_tile_n / warp_tile_n
+    // 7 Mw = warp_tile_m / instruction_tile_m
+    // 8 Nw = warp_tile_n / instruction_tile_n
+    // 9 Mist = instruction_tile_m
+    // 10 Nist = instruction_tile_n     
+    // 11 Kist = instruction_tile_k     
+    tmp_gmem = cc->rFactor({3, 4, 11});
     mma_result = tmp_gmem->cacheBefore();
     tmp_gmem->setMemoryType(MemoryType::Global);
     tmp_gmem_reload = tmp_gmem->cacheAfter();

@@ -3431,7 +3431,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
   // kernel9 run in 0.076800 ms, achieved: 186.88 GB/s
   int M = 128 * 3, N = 128 * 9, K = 4096;
-  for (auto layout : {MatmulLayout::TN}) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     for (int k_factor : {4}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
