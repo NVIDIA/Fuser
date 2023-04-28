@@ -294,7 +294,7 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
-  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());  
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)

@@ -189,8 +189,7 @@ TensorView* scatterOp(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       self->getDataType().value());
 
-  IrBuilder::create<ScatterOp>(
-      type, out_tensor, self, dim, index, src);
+  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
   return out_tensor->as<TensorView>();
 }
 
