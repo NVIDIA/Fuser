@@ -1813,6 +1813,20 @@ void initNvFuserPythonBindings(PyObject* module) {
         The dimension of arg1 and index must match. For all axes other than dim
         the extent of index in that axis need not be equal to its counterpart
         in arg1 but must not be greater than it.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Mi...,J,Mk...)` where all the extents other than `J` are less
+                than or equal to their counterparts in `arg1`; for example `Mk
+                <= Nk`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Mi...,J,Mk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
       )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
@@ -1870,6 +1884,18 @@ void initNvFuserPythonBindings(PyObject* module) {
 
         This operation is very similar to :meth:'gather' but enforces that all
         dimensions other than dim must be equal between arg1 and index.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Ni...,J,Nk...)`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Ni...,J,Nk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
       )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
