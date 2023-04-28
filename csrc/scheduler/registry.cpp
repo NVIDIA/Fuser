@@ -67,17 +67,13 @@ bool rejectScheduleForSelectLikeOps(
     Fusion* fusion,
     ScheduleHeuristic schedule_strategy) {
   for (auto expr : fusion->exprs()) {
+    // For now, only relax the input requirement with take_along_axis.
+    // TODO: remove this requirement entirely
     if ((expr->isOneOf<SelectOp, IndexSelectOp>() ||
          (expr->isA<TorchGatherOp>() &&
           !expr->as<TorchGatherOp>()->exactSizes())) &&
         rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
       return true;
-    }
-    if (schedule_strategy == ScheduleHeuristic::Reduction) {
-      if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>() &&
-          rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
-        return true;
-      }
     }
   }
   return false;
@@ -368,7 +364,7 @@ class SchedulerTopologyChecker {
     // reductions) that requires an input that is not an input to the
     // reductions.
     //
-    // Why?
+    // TODO: Why?
     if (fastest_dim_reduction) {
       auto post_reduction_vals = DependencyCheck::getAllValsBetween(
           reduction_tv_set,

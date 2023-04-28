@@ -575,8 +575,10 @@ TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
 //! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
-//! the dependency. A proper RAW sync will be automatically inserted
-//! when the fusion is lowered.
+//! the dependency. For example, if the domain is parallelized
+//! with blockIdx, the producer memory type will be changed to
+//! Global. A proper RAW sync will be automatically inserted when the
+//! fusion is lowered.
 TORCH_CUDA_CU_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);

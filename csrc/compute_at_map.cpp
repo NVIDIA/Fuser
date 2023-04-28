@@ -450,7 +450,11 @@ void IterDomainGraph::build(Fusion* fusion) {
                 .getIterDomainEquivalence();
 
         // Permissive-Resize map allows mappings of resize inputs and
-        // outputs
+        // outputs as well as those indirectly accessed domains by
+        // gather-scatter like ops
+        //
+        // TODO: clean this up. Maybe this can be just the PERMISSIVE
+        // map? Revisit after the ID map refactor.
         //
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map

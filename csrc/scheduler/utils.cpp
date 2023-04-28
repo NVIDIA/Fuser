@@ -2025,20 +2025,6 @@ bool isFastestDimReduction(TensorView* tv) {
 
 namespace {
 
-std::vector<TensorView*> getTensorsToPromote(Fusion* fusion) {
-  std::vector<TensorView*> tvs;
-
-  for (auto tv : ir_utils::allTvs(fusion)) {
-    if (ir_utils::hasResizedRfactor(tv) ||
-        (tv->definition() != nullptr &&
-         tv->definition()->isA<TorchGatherOp>())) {
-      tvs.push_back(tv);
-    }
-  }
-
-  return tvs;
-}
-
 // Grab producer and consumer pairs that have non-pointwise
 // access patterns. Those pairs would have inter-thread data
 // dependencies if parallelized.
@@ -2050,11 +2036,15 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
     if (consumer->isFusionInput()) {
       continue;
     }
-    // torch_gather
-    if (consumer->definition() != nullptr &&
-        consumer->definition()->isA<TorchGatherOp>()) {
+    if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
       tvs.emplace_back(
-          consumer->definition()->as<TorchGatherOp>()->lookupTv(), consumer);
+          gather->lookupTv(), consumer);
+    } else if (auto index_select = dynamic_cast<IndexSelectOp*>(consumer->definition())) {
+      tvs.emplace_back(
+          index_select->lookupTv(), consumer);
+    } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
+      tvs.emplace_back(
+          select->lookupTv(), consumer);
     } else if (ir_utils::hasResizedRfactor(consumer)) {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
@@ -2069,15 +2059,15 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
   return tvs;
 }
 
-// If the producer of a resized tensor is an input cache and we need to promote
-// it to global memory, just do not cache the input but directly read from the
-// global memory input. It doesn't make any sense to cache a global memory input
-// in global memory. Note that a copy of an input cache is inserted by
+// If an input cache is promoted to global memory, just do not cache
+// the input but directly read from the global memory input. It
+// doesn't make any sense to cache a global memory input in global
+// memory. Note that a copy of an input cache is inserted by
 // prepareForMemoryTypePromotion, so grab the producer of the
 // producer and see if it's included in input_caches.
-bool revertUseOfInputCacheInResize(
+bool revertUseOfInputCache(
     TensorView* consumer,
-    TensorView* producer,
+    TensorView* promoted_producer,
     MemoryType promoted_memory_type,
     const std::vector<TensorView*>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
@@ -2094,7 +2084,7 @@ bool revertUseOfInputCacheInResize(
 
   // To see if the producer is a cache of an input, need to look at
   // its producer as a copy is inserted
-  auto producer_of_producer = get_copy_src(producer);
+  auto producer_of_producer = get_copy_src(promoted_producer);
   if (producer_of_producer == nullptr) {
     // No copy is detected. This must mean the producer is not a copy
     // of any input cache
@@ -2123,7 +2113,7 @@ bool revertUseOfInputCacheInResize(
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
 
-  ir_utils::replaceValInExpr(consumer->definition(), producer, fusion_input);
+  ir_utils::replaceValInExpr(consumer->definition(), promoted_producer, fusion_input);
 
   return true;
 }
@@ -2184,7 +2174,7 @@ void promoteProducerMemoryTypes(
       case MemoryType::Global:
         return 3;
       default:
-        TORCH_INTERNAL_ASSERT(false);
+        TORCH_INTERNAL_ASSERT(false, "Unexpected memory type: ", m_type);
     }
   };
 
@@ -2199,7 +2189,9 @@ void promoteProducerMemoryTypes(
     }
   };
 
-  // Analyze each produce and consumer if there's inter-thread data dependencies
+  // Analyze each produce and consumer if there's inter-thread data
+  // dependencies
+  // TODO: Clean up once the index map refactor is done
   for (auto& [producer, consumer] : non_pwise_pairs) {
     std::cerr << "Producer: " << producer->toString()
               << ", consumer: " << consumer->toString() << std::endl;
@@ -2241,6 +2233,8 @@ void promoteProducerMemoryTypes(
         setPromotion(producer, MemoryType::Shared);
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
+      } else {
+        TORCH_INTERNAL_ASSERT(false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }
@@ -2256,7 +2250,7 @@ void promoteProducerMemoryTypes(
     // Required memory type of the producer
     const auto new_mem_type = it->second;
 
-    if (revertUseOfInputCacheInResize(
+    if (revertUseOfInputCache(
             consumer, producer, new_mem_type, input_caches)) {
       continue;
     }
