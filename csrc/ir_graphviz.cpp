@@ -77,6 +77,7 @@ class IrNodeLabel final : private OptInConstDispatch {
   void handle(const IterDomain* id) override {
     label_ << id->getIterType();
     label_ << id->getParallelType();
+    label_ << id->name();
 
     label_ << "(";
     if (!id->start()->isZeroInt()) {
@@ -270,7 +271,12 @@ std::string IrGraphGenerator::generate() {
 
   // Make sure that all referenced nodes have been visited
   for (const auto& kv : id_map_) {
-    TORCH_CHECK(visited(kv.first));
+    TORCH_CHECK(
+        visited(kv.first),
+        kv.first->toString(),
+        " = ",
+        kv.second,
+        " was referenced but is not yet visited");
   }
 
   return graph_def_.str();
@@ -343,12 +349,36 @@ void IrGraphGenerator::handle(const Expr* e) {
     // node
     printExpr(e, e->getGraphvizLabel());
 
+    // Determine whether this is an IterDomain expression
+    // If so, we may want to skip some inputs
+    bool is_id_expr = false;
+    for (auto v : e->inputs()) {
+      if (v->isA<IterDomain>()) {
+        is_id_expr = true;
+        break;
+      }
+    }
+
+    std::string arc_style(is_id_expr ? "[color=lightgray]" : "");
+
     // inputs & outputs
     for (auto v : e->inputs()) {
-      addArc(v, e);
+      if (detail_level_ == DetailLevel::ComputeOnly && is_id_expr &&
+          !v->isA<IterDomain>()) {
+        continue;
+      }
+      addArc(v, e, arc_style);
     }
     for (auto v : e->outputs()) {
-      addArc(e, v);
+      if (v->isA<TensorView>() && v->as<TensorView>()->domain()->hasRFactor()) {
+        handle(v); // handle(v) will also create getid(v) + "_root"
+
+        std::stringstream arc_def;
+        arc_def << getid(e) << " -> " << getid(v) << "_root";
+        arcs_.push_back(arc_def.str());
+      } else {
+        addArc(e, v, arc_style);
+      }
     }
   }
 }
@@ -366,11 +396,15 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   graph_def_ << "    " << getid(id) << " [label=\"" << IrNodeLabel::gen(id)
              << "\", shape=cds, color=gray, fontsize=10];\n";
 
-  if (!id->start()->isZeroInt()) {
-    addArc(id->start(), id, "[color=gray]");
+  // Don't show starts or extents as nodes in high-level modes
+  if (detail_level_ != DetailLevel::ComputeOnly) {
+    if (!id->start()->isZeroInt()) {
+      addArc(id->start(), id, "[color=gray]");
+    }
+    addArc(id->extent(), id, "[color=green]");
+  } else {
+    visited_.insert(id);
   }
-
-  addArc(id->extent(), id, "[color=gray]");
 }
 
 void IrGraphGenerator::handle(const Bool* b) {
@@ -394,31 +428,89 @@ void IrGraphGenerator::handle(const NamedScalar* i) {
 }
 
 void IrGraphGenerator::handle(const TensorView* tv) {
+  auto has_rfactor = tv->domain()->hasRFactor();
   std::stringstream label;
-  label << "{T" << tv->name() << "|";
-  label << "{";
-  bool first_axis = true;
-  for (auto iter_domain : tv->domain()->leaf()) {
-    if (first_axis) {
-      first_axis = false;
-    } else {
+  label << "{T" << tv->name() << (has_rfactor ? " (r-factor)" : "") << ")|{";
+  int axis = 0;
+  for (auto iter_domain : tv->domain()->getMaybeRFactorDomain()) {
+    if (axis != 0) {
       label << "|";
     }
-    label << IrNodeLabel::gen(iter_domain);
+    label << "<" << axis++ << "> " << IrNodeLabel::gen(iter_domain);
   }
   label << "}}";
 
   const bool is_input = inputs_.find(tv) != inputs_.end();
   const bool is_output = outputs_.find(tv) != outputs_.end();
 
-  const char* style = is_input ? "style=filled, fillcolor=palegreen"
-      : is_output              ? "style=filled, fillcolor=lightblue"
-                               : "style=filled, fillcolor=beige";
+  std::string root_color("beige");
+  std::string rfactor_color("pink");
+  std::string input_color("palegreen");
+  std::string output_color("lightblue");
+  std::string this_color = is_input ? input_color
+      : is_output                   ? output_color
+      : has_rfactor                 ? rfactor_color
+                                    : root_color;
+  std::string style = "style=filled, fillcolor=" + this_color;
 
   graph_def_ << "    " << getid(tv) << " [label=\"" << label.str()
              << "\", shape=Mrecord, color=brown, " << style << "];\n";
 
   tensor_views_.push_back(tv);
+
+  // If the rfactor domain differs from root domain, then we show the root
+  // domain nearby and link it
+  if (tv->domain()->hasRFactor()) {
+    // TensorDomain contains multiple std::vector<IterDomain*> objects, and we
+    // don't currently have an IR for those vectors. If they were Statements,
+    // then we could handle them like other objects here. Instead, we'll just
+    // place the handling code for printing here.
+
+    // NOTE: since these are not statements, we also can't use getid, so we
+    // derive an object id from that of tv.
+    auto rootd_id = getid(tv) + "_root";
+
+    std::stringstream rootd_label;
+    std::string root_link_style("[color=lightgray]");
+    rootd_label << "{T" << tv->name() << " (root)|";
+    rootd_label << "{";
+    axis = 0;
+    for (auto iter_domain : tv->domain()->getRootDomain()) {
+      handle(iter_domain);
+      if (axis != 0) {
+        rootd_label << "|";
+      }
+      rootd_label << "<" << axis << "> " << IrNodeLabel::gen(iter_domain);
+
+      std::stringstream arc_def;
+      arc_def << rootd_id << ":" << axis << " -> " << getid(iter_domain) << " "
+              << root_link_style;
+      arcs_.push_back(arc_def.str());
+
+      axis++;
+    }
+    rootd_label << "}}";
+
+    // Add arcs from root domain to its IterDomains
+    axis = 0;
+    for (auto iter_domain : tv->domain()->getRFactorDomain()) {
+      handle(iter_domain);
+
+      if (const auto* def = iter_domain->definition()) {
+        handle(def);
+      }
+
+      std::stringstream arc_def;
+      arc_def << getid(iter_domain) << " -> " << getid(tv) << ":" << axis << " "
+              << root_link_style;
+      arcs_.push_back(arc_def.str());
+      axis++;
+    }
+
+    graph_def_ << "    " << rootd_id << " [label=\"" << rootd_label.str()
+               << "\", shape=Mrecord, color=black, style=filled, fillcolor="
+               << root_color << "];\n";
+  }
 }
 
 } // namespace nvfuser
