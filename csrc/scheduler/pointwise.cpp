@@ -135,7 +135,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noReductions(
           TensorDomain::noBroadcasts(largest_out->domain()->leaf()))
-              .empty() ||
+          .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {
