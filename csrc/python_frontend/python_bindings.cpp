@@ -1807,6 +1807,13 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim));
         return output;
       },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        The dimension of arg1 and index must match. For all axes other than dim
+        the extent of index in that axis need not be equal to its counterpart
+        in arg1 but must not be greater than it.
+      )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
       py::arg("dim"),
@@ -1858,6 +1865,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim));
         return output;
       },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        This operation is very similar to :meth:'gather' but enforces that all
+        dimensions other than dim must be equal between arg1 and index.
+      )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
       py::arg("dim"),
