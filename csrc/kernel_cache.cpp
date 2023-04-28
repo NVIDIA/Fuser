@@ -805,8 +805,8 @@ class ArgumentManager {
         auto group_to_run = group_run_order.at(group_id);
         // set/update life of vals in inputs of this group
         for (auto val : group_to_run->inputs()) {
-          // skip fusion inputs since if a Val is a fusion input, it means it's
-          // a user input.
+          // skip fusion inputs and outputs, they may be used by other fusions
+          // or code
           if (!isFusionInputOrOutput(val)) {
             last_used_segment_map[val] = group_id;
           }
@@ -815,7 +815,8 @@ class ArgumentManager {
         // skip the last group since its outputs are always the global outputs
         if (group_id < n_groups - 1) {
           for (auto val : group_to_run->outputs()) {
-            // skip fusion outputs, outputs may be used by other fusions or code
+            // skip fusion inputs and outputs, they may be used by other fusions
+            // or code
             if (!isFusionInputOrOutput(val)) {
               last_used_segment_map[val] = group_id;
             }
