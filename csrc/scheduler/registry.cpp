@@ -1866,7 +1866,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
         if (reduction_root_size(red) != axis_count) {
           scheduler_debug_utils::canScheduleRejectReason(
               ScheduleHeuristic::Persistent,
-              "inconsistent reduction root size");
+              "inconsistent reduction root size: ", red->toString(), ", expected: ", axis_count);
           return false;
         }
       }

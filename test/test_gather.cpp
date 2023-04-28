@@ -556,11 +556,12 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, TMP1) {
+// Test take_along_axis with non fusion inputs
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({99, 101});
+  const std::vector<int64_t> shape({99, 101});
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
@@ -574,22 +575,61 @@ TEST_F(NVFuserTest, TMP1) {
 
   scheduler_utils::prepareForMemoryTypePromotion(&fusion);
 
-  tv4->split(1, 2);
+  // Test if this split is propagated through the indexed domain
+  tv4->split(1, 10);
 
   TransformPropagator propagator(tv4);
   MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
 
-  fusion.printMath();
+  // All of the tensors should have the split by 2, except for tv1.
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv == tv1) {
+      continue;
+    }
+    TORCH_CHECK(tv->nDims() == 3, "Unexpected tensor: ", tv->toString());
+    TORCH_CHECK(
+        tv->axis(-1)->definition() &&
+            tv->axis(-1)->definition()->isA<Split>() &&
+            tv->axis(-1)->definition()->as<Split>()->in() ==
+                tv->getMaybeRFactorDomain().at(1),
+        "Unexpected tensor: ",
+        tv->toString());
+  }
 
+  // This should not inline the indexed producer domain. Note that the
+  // producer tensor of the take_along_axis expr is not tv2 as a coyp
+  // is inserted
   inlineMost();
+  auto take_along_axis_input =
+      tv4->definition()->as<TorchGatherOp>()->lookupTv();
+  TORCH_CHECK(
+      take_along_axis_input->getComputeAtPosition() == 1,
+      "Unexpected computeAt position: ",
+      take_along_axis_input->toString());
 
+  // Test if parallelization is propagated through indexed domains
+  tv4->axis(-2)->parallelize(ParallelType::TIDy);
   tv4->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    TORCH_CHECK(
+        tv->axis(-2)->getParallelType() == tv4->axis(-2)->getParallelType() &&
+            tv->axis(-1)->getParallelType() == tv4->axis(-1)->getParallelType(),
+        "Unexpected parallelization of tensor: ",
+        tv->toString());
+  }
+
+  // This should make the producer of take_along_axis saved in shared memory
   scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
-  fusion.printMath();
-  fusion.printKernel();
+  TORCH_CHECK(
+      take_along_axis_input->getMemoryType() == MemoryType::Shared,
+      "Failed to promote memory type: ",
+      take_along_axis_input->toString());
 
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -598,24 +638,18 @@ TEST_F(NVFuserTest, TMP1) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // std::cerr << "Input:\n" << t0 << std::endl;
-  // std::cerr << "Index:\n" << t1 << std::endl;
-
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
 
   auto outputs = fe.runFusion(aten_inputs);
 
-  // std::cerr << "Output:\n" << outputs[0] << std::endl;
-
-  auto ref =
-      at::gather(t0 + 1, 1, t1.unsqueeze(-1).expand({shape[0], shape[1]}));
+  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-// Same as TMP1 but with the pointwise scheduler
-TEST_F(NVFuserTest, TMP2) {
+// Same as the above but with the pointwise scheduler
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -639,27 +673,28 @@ TEST_F(NVFuserTest, TMP2) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // std::cerr << "Input:\n" << t0 << std::endl;
-  // std::cerr << "Index:\n" << t1 << std::endl;
-
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   auto runtime = fec.getMostRecentKernelRuntime();
 
-  TORCH_CHECK(!runtime->isSegmented());
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   TORCH_CHECK(
       runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-      ScheduleHeuristic::PointWise);
+          ScheduleHeuristic::PointWise,
+      "Expected to use the pointwise scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
 
-  auto ref =
-      at::gather(t0 + 1, 1, t1.unsqueeze(-1).expand({shape[0], shape[1]}));
+  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-// reduction + take_along_axis
-TEST_F(NVFuserTest, TMP3) {
+// Reduction then take_along_axis. This is currently segmented due to
+// the post-reduction rule as documented in
+// https://github.com/NVIDIA/Fuser/issues/260
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -675,8 +710,6 @@ TEST_F(NVFuserTest, TMP3) {
   auto tv4 = take_along_axis(tv2, tv1, 0);
   fusion.addOutput(tv4);
 
-  fusion.printMath();
-
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -684,21 +717,28 @@ TEST_F(NVFuserTest, TMP3) {
   auto t1 = at::randint(0, shape[0], {2}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // std::cerr << "Input:\n" << t0 << std::endl;
-  // std::cerr << "Index:\n" << t1 << std::endl;
-
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  // std::cerr << "Output:\n" << outputs[0] << std::endl;
+  // TODO: Enable the assertions
+#if 0
+  auto runtime = fec.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+          ScheduleHeuristic::Reduction,
+      "Expected to use the reduction scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
+#endif
 
-  auto ref = at::gather(t0.to(at::kDouble).sum({1}), 0, t1);
+  auto ref = at::take_along_dim(t0.to(at::kDouble).sum({1}), t1, 0);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-// normalization + take_along_axis
-TEST_F(NVFuserTest, TMP4) {
+// Normalization then take_along_axis
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -725,22 +765,30 @@ TEST_F(NVFuserTest, TMP4) {
   auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // std::cerr << "Input:\n" << t0 << std::endl;
-  // std::cerr << "Index:\n" << t1 << std::endl;
-
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  // std::cerr << "Output:\n" << outputs[0] << std::endl;
+  auto runtime = fec.getMostRecentKernelRuntime();
+
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+          ScheduleHeuristic::Persistent,
+      "Expected to use the persistent scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
 
   auto t0_d = t0.to(at::kDouble);
-  auto ref = at::gather(t0_d / t0_d.sum({1}).unsqueeze(-1), 1, t1);
+  auto ref = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-// normalization + take_along_axis + reduction
-TEST_F(NVFuserTest, TMP5) {
+// Normalization, then take_along_axis, then reduction. Similar
+// pattern as cross entropy.
+TEST_F(
+    IndexingOpTest,
+    TakeAlongAxisIntermediateTensorNormalizationAndReduction_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -759,8 +807,6 @@ TEST_F(NVFuserTest, TMP5) {
   auto tv6 = sum(tv5, {0, 1});
   fusion.addOutput(tv6);
 
-  fusion.printMath();
-
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -768,85 +814,93 @@ TEST_F(NVFuserTest, TMP5) {
   auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // std::cerr << "Input:\n" << t0 << std::endl;
-  // std::cerr << "Index:\n" << t1 << std::endl;
-
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
+  auto runtime = fec.getMostRecentKernelRuntime();
+
+  // This is actually fused to just a single kernel, even though
+  // there's an additional reduction. This is probably fine since the
+  // last reduciton is not persistent.
+  TORCH_CHECK(
+      runtime->fusionSegments()->groups().size() == 1,
+      "Segmentation not expected. ",
+      runtime->fusionSegments()->groups().size());
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+          ScheduleHeuristic::Persistent,
+      "Expected to use the persistent scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
+
   auto t0_d = t0.to(at::kDouble);
-  auto t5 = at::gather(t0_d / t0_d.sum({1}).unsqueeze(-1), 1, t1);
+  auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
   auto ref = t5.sum();
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGeneratedTestCrossEntropyLoss_CUDA) {
+TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  {
-    auto tv0 = TensorViewBuilder()
-                   .ndims(2)
-                   .contiguity({true, true})
-                   .dtype(DataType::Float)
-                   .build();
-    fusion->addInput(tv0);
-    auto tv1 = TensorViewBuilder()
-                   .ndims(1)
-                   .contiguity(true)
-                   .dtype(DataType::Int)
-                   .build();
-    fusion->addInput(tv1);
-    auto tv2 = max(tv0, {1});
-    auto tv3 = broadcast(tv2, {false, true});
-    auto tv4 =
-        expand(tv3, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
-    auto tv5 = sub(tv0, tv4);
-    auto tv6 = exp(tv5);
-    auto tv7 = sum(tv6, {1});
-    auto tv8 = broadcast(tv7, {false, true});
-    auto tv9 =
-        expand(tv8, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
-    auto tv10 = div(tv6, tv9);
-    auto tv11 = log(tv10);
-    auto tv12 = neg(tv11);
-    auto tv13 = reshape(tv1, {128}, {128, 1});
-    // auto tv14 = torch_gather(tv12, 1, tv13);
-    auto tv14 = take_along_axis(tv12, tv13, 1);
-    auto s15 = IrBuilder::create<Int>(5);
-    auto tv16 = eq(tv13, s15);
-    auto s17 = IrBuilder::create<Double>(0.0);
-    auto tv18 = where(tv16, s17, tv14);
-    auto tv19 = sum(tv18, {0, 1});
-    auto tv20 = castOp(DataType::Float, tv16);
-    auto tv21 = sum(tv20, {0, 1});
-    auto s22 = IrBuilder::create<Double>(128.0);
-    auto tv23 = sub(s22, tv21);
-    auto tv24 = div(tv19, tv23);
-    fusion->addOutput(tv24);
-  }
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion->addInput(tv1);
+  auto tv2 = max(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 =
+      expand(tv3, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+  auto tv5 = sub(tv0, tv4);
+  auto tv6 = exp(tv5);
+  auto tv7 = sum(tv6, {1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 =
+      expand(tv8, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+  auto tv10 = div(tv6, tv9);
+  auto tv11 = log(tv10);
+  auto tv12 = neg(tv11);
+  auto tv13 = reshape(tv1, {128}, {128, 1});
+  auto tv14 = take_along_axis(tv12, tv13, 1);
+  auto s15 = IrBuilder::create<Int>(5);
+  auto tv16 = eq(tv13, s15);
+  auto s17 = IrBuilder::create<Double>(0.0);
+  auto tv18 = where(tv16, s17, tv14);
+  auto tv19 = sum(tv18, {0, 1});
+  auto tv20 = castOp(DataType::Float, tv16);
+  auto tv21 = sum(tv20, {0, 1});
+  auto s22 = IrBuilder::create<Double>(128.0);
+  auto tv23 = sub(s22, tv21);
+  auto tv24 = div(tv19, tv23);
+  fusion->addOutput(tv24);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  std::vector<c10::IValue> inputs;
-  std::vector<at::Tensor> outputs;
-
   auto t0 = at::randn({128, 371}, options);
-  inputs.push_back(t0);
   auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
-  inputs.push_back(t1);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  // This fusion is similar to
+  // TakeAlongAxisIntermediateTensorNormalizationAndReduction, but the
+  // post-nomalization reductions only has one dimension (the second
+  // axes of the root domains are broadcast, which are squeezed before
+  // the reductions). Because of that, those reductions are not fused
+  // with the normalization.
+
+  // Still failing because take_along_axis is fused with the
+  // post-nomalization reductions and then the reduction scheduler
+  // fails to schedule the take_along_axis input.
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
 
   // note: reduction arg
   //   none -> 0
   //   mean -> 1
   //   sum  -> 2
-  auto t24 = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
-  outputs.push_back(t24);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
-  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+  auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
+  testValidate(fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
