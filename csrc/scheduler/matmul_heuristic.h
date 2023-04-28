@@ -105,15 +105,17 @@ class MatmulParams : public HeuristicParams {
        << "Async global mem load: "
        << (async_gmem_load_operands ? "true" : "false") << "\n"
        << "Indexing mode: "
-       << "Tile rastrization order: "
-       << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
-                                                           : "column-major")
-       << "Grid swizzle factor: " << grid_swizzle_factor
        << (cparams.index_type.has_value()
                ? (cparams.index_type.value() == PrimDataType::Int ? "int64_t"
                                                                   : "int32_t")
                : "unavailable")
        << "\n"
+       << "Tile rastrization order: "
+       << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
+                                                           : "column-major")
+       << "\n"
+       << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "split k factor: " << split_k_factor << "\n"
        << "====================================\n";
     return ss.str();
   }

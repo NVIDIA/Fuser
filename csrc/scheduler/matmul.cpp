@@ -481,14 +481,14 @@ void scheduleSplitKReduction(
   tv->axis(axis++)->parallelize(ParallelType::TIDy);
 
   // step-4, schedule last two domains {warp_tile_m*warp_tile_n} and
-  // {split_k_factor}
+  // {split_k_factor} with {TIDx(32), BIDz(split_k_factor), Vectorize}
   constexpr int warp_size = 32;
   tv->split(-2, warp_size);
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   //{..., {warp_tile_m*warp_tile_n/warp_size}, {warp_size}, {split_k_factor}}
 
   tv->split(-3, split_k_factor);
-  tv->axis(-2)->parallelize(ParallelType::TIDx);
+  tv->axis(-3)->parallelize(ParallelType::BIDz);
   //{..., {warp_tile_m*warp_tile_n/warp_size/split_k_factor}, {split_k_factor},
   //{warp_size}, {split_k_factor}}
 
@@ -595,9 +595,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto mma = cc->definition()->as<MmaOp>();
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
-
-  // Set accumulation tv for mma op.
-  mma_builder.accumulatorTv(cc);
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -738,15 +735,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* tmp_gmem_reload = nullptr;
   if (params.split_k_factor > 1) {
     // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c[output]
+    // id=  0   1  2  3   4   5   6  7  8  9  10
+    // cc= [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+    std::cout << "cc= " << cc->toString() << std::endl;
     tmp_gmem = cc->rFactor({3, 4, -1});
     mma_result = tmp_gmem->cacheBefore();
     tmp_gmem->setMemoryType(MemoryType::Global);
     tmp_gmem_reload = tmp_gmem->cacheAfter();
+
     mma_builder.accumulatorTv(mma_result);
     // Propagate warp tile to main loop
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         mma_result, -1, {acw_smem, bcw_smem});
   } else {
+    // Set accumulation tv for mma op.
+    mma_builder.accumulatorTv(cc);    
     // Propagate warp tile to main loop and epilog/output tvs
     scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
         cc, -1, {acw_smem, bcw_smem}, {c});

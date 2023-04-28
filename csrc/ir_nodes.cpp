@@ -1377,7 +1377,11 @@ struct TensorViewDetails {
 TensorViewDetails getDetailsFor(const TensorView* tv) {
   TensorViewDetails details;
   int pos = 0;
-  for (auto id : tv->getRootDomain()) {
+    std::cout << "tv: " << tv->toString() << "\n";
+      for (auto id : tv->getRootDomain()) {
+    std::cout << "root id: " << id->toString() << "\n";}
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    std::cout << "id: " << id->toString() << "\n";
     if (id->isReduction()) {
       details.rdomains.push_back(pos++);
       continue;

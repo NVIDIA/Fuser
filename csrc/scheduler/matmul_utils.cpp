@@ -506,12 +506,18 @@ int setSplitKFactor(
   int split_k_factor = 1;
   const int sm_count = device_prop->multiProcessorCount;
   const auto& cta_tile = params->tile_sizes.cta_tile;
-  const int num_blocks =
-      ceilDiv(MNK[0], cta_tile.m) * ceilDiv(MNK[1], cta_tile.n);
+  const int m_blocks = ceilDiv(MNK[0], cta_tile.m);
+  const int n_blocks = ceilDiv(MNK[1], cta_tile.n);
+  const int num_blocks = m_blocks * n_blocks;
   const int iter_k = ceilDiv(MNK[2], cta_tile.k);
   if (num_blocks < sm_count && iter_k > 32) {
     split_k_factor = std::min(iter_k, sm_count / num_blocks);
+    std::cout << "m_blocks= " << m_blocks << ", n_blocks= " << n_blocks << ", sm_count / num_blocks= " << sm_count / num_blocks << ", iter_k= " << iter_k << std::endl;  
   }
+  //   while(num_blocks*split_k_factor*2 <= sm_count && iter_k > 32) {
+  //   split_k_factor *= 2;
+  //   iter_k = ceilDiv(MNK[2], cta_tile.k / split_k_factor);
+  // }
   return split_k_factor;
 }
 
