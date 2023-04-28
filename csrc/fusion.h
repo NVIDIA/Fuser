@@ -62,6 +62,8 @@ class SegmentCandidateFinder;
 class SegmentedFusion;
 class KernelArgumentHolder;
 
+class DynamicTransformConcretizationInfo;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_CU_API FusionGuard {
@@ -133,7 +135,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Print this fusion to an output stream
   std::ostream& print(
       std::ostream& os = std::cout,
-      bool include_tensor_transforms = false);
+      bool include_tensor_transforms = true);
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs
@@ -353,6 +355,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   inline bool hasManaged(std::string key) const {
     return managed_named_data_.find(key) != managed_named_data_.end();
   }
+
+  //! True if any of tensors has a symblic axis
+  bool hasDynamicTransform();
 
  protected:
   friend SegmentCandidateFinder;

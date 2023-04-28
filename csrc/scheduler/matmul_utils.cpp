@@ -32,9 +32,9 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 using LayoutData =
-    std::pair<c10::optional<MatmulLayout>, c10::optional<std::string>>;
+    std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
 using TensorShape = std::vector<int64_t>;
 using ProblemShape = TensorShape;
 
@@ -95,7 +95,7 @@ PrimDataType getIndexType(const ProblemShape& problem_shape) {
 }
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
-inline c10::optional<MmaOptions::MacroType> getMmaOp(
+inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
   using MacroType = MmaOptions::MacroType;
@@ -122,14 +122,13 @@ inline c10::optional<MmaOptions::MacroType> getMmaOp(
     default:
       break;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 //! A wrapper for core heuristics initialization
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
     const MmaOptions::MacroType& mma_op,
-    const MatmulLayout& layout,
     const ProblemShape& problem_shape) {
   const GemmTile instruction_tile = getMmaOpShape(mma_op);
   GemmTile warp_tile = {-1, -1, -1};
@@ -182,8 +181,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  params->mma_op = mma_op;
-  params->layout = layout;
+  params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
   return true;
@@ -235,7 +233,10 @@ c10::optional<ProblemShape> getProblemShape(
       if (path.empty()) {
         continue;
       }
-      if (path.front()->isA<TensorView>()) {
+      if (path.size() >= 2 && path.at(1)->isA<TensorView>() &&
+          path.at(1)->as<TensorView>()->hasRFactor()) {
+        tvs.push_back(path.at(1));
+      } else if (path.front()->isA<TensorView>()) {
         tvs.push_back(path.front());
       }
     }
@@ -264,7 +265,7 @@ c10::optional<ProblemShape> getProblemShape(
   const auto getShape = [&runtime_info](const TensorView* tv) {
     TensorShape tv_shape;
     const auto concrete_domains = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(tv->domain()->domain()));
+        TensorDomain::noBroadcasts(tv->domain()->leaf()));
     for (const auto* domain : concrete_domains) {
       const auto domain_extend =
           runtime_info.expressionEvaluator().evaluate(domain->extent());
@@ -389,10 +390,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (tv->hasBroadcast()) {
         return "Fusion input TV has broadcast domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion input TV has unsupported number of domains";
       }
@@ -409,10 +409,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (!tv->hasReduction()) {
         return "Fusion output TV has no reduction domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion output TV has unsupported number of domains";
       }
@@ -426,7 +425,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (val->definition()->isA<BroadcastOp>()) {
         const auto& bcast_inputs = val->definition()->inputs();
         // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput();
+        return bcast_inputs.front()->isFusionInput() ||
+            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
+             nullptr);
       }
       return false;
     };
@@ -476,7 +477,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #2
   {
     for (const auto* mma_expr : mma_exprs) {
-      const auto input_layout = mma_expr->inputLayout();
+      const auto input_layout = mma_expr->layout();
       if (!input_layout) {
         return "Failed to acquire inputs layout.";
       }
@@ -510,11 +511,11 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(
       mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
-  const auto layout = mma_exprs.front()->inputLayout();
+  const auto layout = mma_exprs.front()->layout();
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape = getProblemShape(
-      fusion, mma_exprs[0]->as<MmaOp>(), runtime_info, layout.value());
+      fusion, mma_exprs.front()->as<MmaOp>(), runtime_info, layout.value());
   TORCH_INTERNAL_ASSERT(
       problem_shape.has_value(), "Failed to acquire problem shape.");
 
@@ -525,8 +526,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_op.has_value(), "Can not determine MMA op for problem.");
 
   // Populate heuristic details
-  auto status = initCoreHeuristics(
-      params, mma_op.value(), layout.value(), problem_shape.value());
+  auto status =
+      initCoreHeuristics(params, mma_op.value(), problem_shape.value());
   TORCH_INTERNAL_ASSERT(
       status, "Core part of heuristics failed to initialize.");
 

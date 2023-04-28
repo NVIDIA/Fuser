@@ -838,6 +838,7 @@ void bindInputForExprEvaluation(
           "Something went wrong configuring launch. Inputs do not match.");
 
       auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract &&
               tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
@@ -997,26 +998,11 @@ c10::optional<int> getMaxRegCount(
   // If the block size is known, set the maximum that at least allows
   // one block to be resident on an SM
   if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-    int num_partition = 0;
-    int reg_allocation_granularity = 0;
-    const auto prop = at::cuda::getCurrentDeviceProperties();
-    cudaOccDeviceProp occ_prop(*prop);
-    cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
-    cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
-    int warp_size = prop->warpSize;
-    int64_t num_warps = ceilDiv(opt_block_size.value(), warp_size);
-
-    // warps could be distributed unevenly across partition
-    int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
-    // registers are evenly distributed across partitions, partition with most
-    // wraps determins the maximum register available per warp
-    int max_reg_per_warp =
-        prop->regsPerBlock / num_partition / (int)max_warps_per_sm_partition;
-    // clamp down to register allocation granularity at warp level
-    int effective_max_reg_per_warp = max_reg_per_warp /
-        reg_allocation_granularity * reg_allocation_granularity;
-    max_register =
-        std::min(max_register_limit, effective_max_reg_per_warp / warp_size);
+    constexpr int block_per_sm = 1;
+    max_register = std::min(
+        max_register_limit,
+        (int)getRegPerThreadGivenThreadsPerSM(
+            opt_block_size.value() * block_per_sm));
   }
 
   // If a heuristic value is given, i.e., max_register_heuristic is
@@ -1198,7 +1184,7 @@ void fillCompileOptions(
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
-  // (since older driver doesn't necessrily recognize PTX emitted by new
+  // (since older driver doesn't necessarily recognize PTX emitted by new
   // toolkit);
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
@@ -1399,11 +1385,11 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     compile_to_sass = false;
   }
 
-  NvrtcCompileDriver nvrtc_comiple_driver;
+  NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
   fillCompileOptions(
-      nvrtc_comiple_driver,
+      nvrtc_compile_driver,
       module_load_driver,
       compile_to_sass,
       major,
@@ -1415,7 +1401,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
 
   if (compile_to_sass) {
     log << "\nCompile options: ";
-    for (const auto& opt : nvrtc_comiple_driver.options()) {
+    for (const auto& opt : nvrtc_compile_driver.options()) {
       log << opt << " ";
     }
     if (opt_block_size.has_value()) {
@@ -1427,7 +1413,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   std::vector<char> object_code;
   std::string lowered_kernel_name_str;
   const auto compile_args =
-      toDelimitedString(nvrtc_comiple_driver.options(), " ");
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
@@ -1440,7 +1426,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             lowered_kernel_name_str,
             object_code))) {
     std::tie(object_code, lowered_kernel_name_str) = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_comiple_driver);
+        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
 
     if (use_kernel_db) {
       auto result = kernel_db.write(
@@ -1536,7 +1522,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved

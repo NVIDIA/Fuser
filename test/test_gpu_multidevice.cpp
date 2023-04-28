@@ -34,8 +34,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>

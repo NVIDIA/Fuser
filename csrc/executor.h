@@ -74,6 +74,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints);
 
+  //! To compile a fusion with the 32-bit index type, CompileParams
+  //! must be passed in. There used to be an index type associated
+  //! with KernelArgumentHolder, but it is no longer the case.
   void compileFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args,
@@ -106,8 +109,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const c10::optional<size_t>& opt_code = c10::nullopt) {
     KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(
-            inputs, indexTypeToMode(kernel()->indexType()));
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }

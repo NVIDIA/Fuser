@@ -10,8 +10,8 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <swizzle.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_iter.h>
 
 namespace nvfuser {
@@ -601,7 +601,7 @@ TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
   auto id_ops = DependencyCheck::getAllExprsBetween(
       {replayed_domain->getRootDomain().begin(),
        replayed_domain->getRootDomain().end()},
-      {replayed_domain->domain().begin(), replayed_domain->domain().end()});
+      {replayed_domain->leaf().begin(), replayed_domain->leaf().end()});
 
   TORCH_INTERNAL_ASSERT(
       std::none_of(

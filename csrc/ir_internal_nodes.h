@@ -115,17 +115,24 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
+
+  //! Parameter exact_sizes indicates whether the non-indexed domains
+  //! of the index tensor have the same extents of those of the input
+  //! tensor. It's true in the case of torch.take_along_dim and
+  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
+  //! they are the same.
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
       int dim,
       IterDomain* select_id,
-      Val* index);
+      Val* index,
+      bool exact_sizes);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TorchGatherOp";
   }
 
@@ -146,6 +153,10 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   IterDomain* getSelectAxis() const {
     return attribute(0)->as<IterDomain>();
+  }
+
+  bool exactSizes() const {
+    return attribute(2)->as<Attribute<bool>>()->value;
   }
 };
 
@@ -1035,17 +1046,16 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   //  after additional cleaning ups.
   struct OptionsInMma {
     MmaOptions::MacroType macro = MmaOptions::MacroType::NoMMA;
-    MmaOptions::MmaInputLayout operand_layout = MmaOptions::MmaInputLayout::TT;
     int accumulator_stride = 0;
 
     bool operator==(const OptionsInMma& other) const {
-      return macro == other.macro && operand_layout == other.operand_layout &&
+      return macro == other.macro &&
           accumulator_stride == other.accumulator_stride;
     }
   };
 
   using AxesData = std::vector<int>;
-  using MmaInputLayoutOpt = c10::optional<MmaOptions::MmaInputLayout>;
+  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1056,7 +1066,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      OptionsInMma options);
+      const OptionsInMma& options,
+      const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1093,9 +1104,9 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
 
   void configureOptions(MmaOptions options);
 
-  auto inputLayout() const {
+  auto layout() const {
     return attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->as<Attribute<MmaLayoutOpt>>()
         ->value;
   }
 
@@ -1358,6 +1369,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   LoadStoreOpType opType() const {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
   }
+
+  bool hasTranspose() const;
+
+  void setOpType(LoadStoreOpType op) {
+    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
+  }
 };
 
 // Convenience utility to initialize IterDomain's without having to sort through
@@ -1496,6 +1513,10 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
+  }
+
+  bool isIteration() const {
+    return getIterType() == IterType::Iteration;
   }
 
   bool isRFactorProduct() const {
@@ -1750,14 +1771,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -1770,7 +1791,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   std::vector<IterDomain*>::size_type nDims() const {
-    return domain_.size();
+    return leaf_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -1783,8 +1804,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  const std::vector<IterDomain*>& domain() const {
-    return domain_;
+  const std::vector<IterDomain*>& leaf() const {
+    return leaf_domain_;
   }
 
   // Note: [Contiguity]
@@ -1828,6 +1849,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   bool hasVectorize() const;
 
+  bool hasSymbolicAxis() const;
+
   c10::optional<unsigned int> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {
@@ -1853,9 +1876,9 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(domain_);
-    no_bcast_domain_ = noBroadcasts(domain_);
-    has_reduction_ = hasReduction(domain_);
+    no_reduction_domain_ = noReductions(leaf_domain_);
+    no_bcast_domain_ = noBroadcasts(leaf_domain_);
+    has_reduction_ = hasReduction(leaf_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -1923,7 +1946,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  std::vector<IterDomain*> domain_;
+  std::vector<IterDomain*> leaf_domain_;
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   const std::vector<IterDomain*> rfactor_domain_;

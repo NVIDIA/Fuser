@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <inlining.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
@@ -87,7 +88,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
   const auto tile_size_x = shared_mem_tv->axis(-2)->extent()->evaluateInt();
   const auto tile_size_y = shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
-  if (isTuring(params.mma_op) || isAmpere(params.mma_op)) {
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     // TODO: right now, we are assuming ldmatrix access, which only supports
     // sizeof(T) == 16bit (i.e. half/bfloat16) load according to offical doc:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
@@ -392,7 +393,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     shared_mem_tv->merge(-5);
     shared_mem_tv->merge(-3);
     shared_mem_tv->merge(-2);
-  } else if (isVolta(params.mma_op)) {
+  } else if (isVolta(params.mma_macro)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma
     //  macro layout themselves as we already have them registered in
@@ -440,6 +441,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto& inputs = fusion->inputs();
   const auto& outputs = fusion->outputs();
+  const auto mma_ops = ir_utils::getMmaOps(fusion);
 
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 2,
@@ -458,13 +460,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       outputs[0]->isA<TensorView>(),
       "fusion's output is not an instance of TensorView class");
 
+  TORCH_INTERNAL_ASSERT(
+      mma_ops.size() == 1,
+      "scheduleMatmul supports fusion with single mma op in definition, got ",
+      mma_ops.size());
+  TORCH_INTERNAL_ASSERT(
+      mma_ops.front()->layout().has_value(),
+      "fusion mma op has undefined input layout");
+
   TensorView* a = inputs[0]->as<TensorView>();
   TensorView* b = inputs[1]->as<TensorView>();
   TensorView* c = outputs[0]->as<TensorView>();
 
   // Collect mma swizzle info
+  const auto layout = mma_ops.front()->layout().value();
   auto mma_builder =
-      MmaBuilder(params.mma_op, params.tile_sizes).layout(params.layout);
+      MmaBuilder(params.mma_macro, params.tile_sizes).layout(layout);
   const auto& gemm_tile = params.tile_sizes;
 
   // Including current tensor naming convention for reference,
@@ -518,9 +529,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto ab = mma->inA()->as<TensorView>();
   auto bb = mma->inB()->as<TensorView>();
 
-  // Get exact configurations from mma builder.
+  // Set accumulation tv for mma op.
   mma_builder.accumulatorTv(cc);
-  auto mma_options = mma_builder.build();
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -547,7 +557,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // TODO:
   // Also a few additional parameters should be introduced
   // to control this stage of scheduling.
-  if (isVolta(mma_options.macro)) {
+  if (isVolta(params.mma_macro)) {
     acw_smem = ab->cacheAfter();
     bcw_smem = bb->cacheAfter();
     // Cache again to be able to vectorize.
@@ -576,10 +586,37 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
     acw_smem = ar->cacheAfter(load_op);
     bcw_smem = br->cacheAfter(load_op);
-    acr = acw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
-    bcr = bcw_smem->cacheAfter(
-        mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+    TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
+    TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      acr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0));
+        ldst != nullptr && ldst->hasTranspose()) {
+      bcr = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+    } else {
+      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+    }
+
+    // For Turing and Ampere, the layout of the MmaOp is always TN
+    TORCH_INTERNAL_ASSERT(
+        layout == MmaOptions::MmaLayout::TN,
+        "MMAs in Turing and Ampere are TN only, transpose is handled either "
+        "via ldmatrix.trans for fp16 or explicitly for other types.");
+    if (!acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::TN);
+    } else if (!acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::TT);
+    } else if (acr->hasRFactor() && !bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::NN);
+    } else if (acr->hasRFactor() && bcr->hasRFactor()) {
+      mma_builder.layout(MmaOptions::MmaLayout::NT);
+    }
   }
 
   // Make a CTA tile
@@ -626,28 +663,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
 
-  // Set computeAt, setup the loop nesting structure on the kernel.
-  //   TODO: this section goes to a separate matmul util,
-  //   and needs more configurability.
-  // ------------------------------------------------------------------
-  // CTA tile:
-
-  a->computeAt(c, 2);
-  b->computeAt(c, 2);
-
-  // Prolog:
-  a->computeAt(cc, 3);
-  b->computeAt(cc, 3);
-
-  // Main Loop:
-  acr->computeAt(cc, -6);
-  bcr->computeAt(cc, -6);
-
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
-  if (isTuring(mma_options.macro) || isAmpere(mma_options.macro)) {
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     moveInnerBroadcastLeft(ab);
     moveInnerBroadcastLeft(bb);
   }
@@ -701,6 +721,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   cc->axis(4)->parallelize(ParallelType::TIDz);
   cc->axis(5)->parallelize(ParallelType::TIDy);
 
+  scheduler_utils::parallelizeAllLike(
+      cc,
+      -1,
+      {acr, bcr, ab, bb, a, b},
+      {ParallelType::TIDy, ParallelType::TIDz});
+
+  // auto inline for all tensors except register tensors and output tensor
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
+
+  // if auto inline, will inline to position-7, leads to performance regression
+  inlineSelectedAt({acr, bcr, ab, bb}, cc, 6);
+
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
     TORCH_INTERNAL_ASSERT(
@@ -730,6 +762,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       scheduler_utils::BoundedDirectionalTransformPropagator::Options()
           .propagateParallelType()
           .propagateToBoundary());
+
+  c->axis(-1)->parallelize(ParallelType::Vectorize);
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {

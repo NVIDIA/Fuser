@@ -883,7 +883,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getReductionHeuristics");
 
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
 }
@@ -958,8 +958,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     max_dtype_size = std::max(
         max_dtype_size,
         static_cast<int64_t>(dataTypeSize(
-            tv->getDataType().value(),
-            indexModeToDtype(runtime_info.getIndexMode()))));
+            tv->getDataType().value(), runtime_info.getIndexType())));
     n_tensor_inputs++;
   }
 
@@ -974,7 +973,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       n_tensor_inputs,
       max_dtype_size,
       vectorize_factor);
-  heuristic->cparams.index_type = indexModeToDtype(runtime_info.getIndexMode());
+  heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
 
@@ -1040,11 +1039,20 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   TORCH_INTERNAL_ASSERT(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  TORCH_INTERNAL_ASSERT(
+      !is_outer_grid_persistence,
+      "is_outer_grid_persistence should be false in scheduleReduction.");
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
-      rparams,
       reduction_tv,
       reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
       reduction_tvs,
       cached_inputs,
       cached_outputs);

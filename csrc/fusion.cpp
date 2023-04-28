@@ -821,4 +821,8 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   return alias_indices;
 }
 
+bool Fusion::hasDynamicTransform() {
+  return !ir_utils::getTVsWithDynamicTransform(this).empty();
+}
+
 } // namespace nvfuser

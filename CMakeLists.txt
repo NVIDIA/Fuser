@@ -75,6 +75,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/codegen.cpp
     ${NVFUSER_SRCS_DIR}/contiguity.cpp
     ${NVFUSER_SRCS_DIR}/dispatch.cpp
+    ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
     ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
     ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
     ${NVFUSER_SRCS_DIR}/executor.cpp
@@ -143,6 +144,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/ops/alias.cpp
     ${NVFUSER_SRCS_DIR}/ops/arith.cpp
     ${NVFUSER_SRCS_DIR}/ops/composite.cpp
+    ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
     ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
     ${NVFUSER_SRCS_DIR}/ops/utils.cpp
     ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
@@ -331,13 +333,15 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
-    ${NVFUSER_ROOT}/test/test_utils.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
+    ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_external_src.cpp
+    ${NVFUSER_ROOT}/test/test_external_src.cpp
     ${NVFUSER_ROOT}/test/test_swizzle.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensor_factories.cpp
     ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
@@ -346,15 +350,15 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
+    ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
   )
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
@@ -416,6 +420,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/indexselect.cpp
     ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/benchmark/main.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
   )
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")

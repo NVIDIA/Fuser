@@ -46,7 +46,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       Fusion* fusion,
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -75,6 +76,18 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
+  //! Note that all heuristics use the same index type.
+  PrimDataType getIndexType() const {
+    // No scheduler means nothing to run. It may still be unsafe to
+    // save tensor sizes and strides in Int32
+    if (schedulers().empty()) {
+      return PrimDataType::Int;
+    }
+    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
+    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    return index_type.value();
+  }
+
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
@@ -84,6 +97,10 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
     profiling_ = to_profile;
+  }
+
+  void setMeasureKernelTime(bool val = true) {
+    measure_kernel_time_ = val;
   }
 
   //! Internal knob for profiling shape inference
@@ -128,9 +145,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   // Try to compute heuristics based on the SegmentedFusion managed
   //  in this kernel runtime, and will return a nullopt if either
   //  any segment cannot be scheduled or the parameters don't match
+  //
+  // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
-      const KernelArgumentHolder& args);
+      const KernelArgumentHolder& args,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
@@ -178,7 +198,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  const std::vector<SchedulerEntryPtr>& schedulers();
+  const std::vector<SchedulerEntryPtr>& schedulers() const;
 
   void prepareRuntimeOrder();
 
@@ -209,8 +229,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Utility to speed up value evaluation at runtime
   std::unique_ptr<PrecomputedValues> precomputed_values_;
 
+  //! Cache of all tensors in the complete fusion
+  std::vector<TensorView*> all_tvs_;
+
   // States for profiling support
   bool profiling_ = false;
+  bool measure_kernel_time_ = false;
 
   std::mutex mutex_;
 
@@ -352,8 +376,15 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
+  //!
+  //! If given, the index type of forced_index_type is used no matter
+  //! what inputs and the fusion look like. This may be useful in some
+  //! cases as our analysis of index type may be overly conservative
+  //! for intermediate tensors.
+  //! WARING: Correctness is not guaranteed.
   std::vector<at::Tensor> runFusionWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! async, there's some restriction on the user side. e.g. Do not overlap
@@ -445,7 +476,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! entry in `FusionExecutor`
   void evictCache(size_t cache_id);
 
-  FusionKernelRuntime* getKernelRuntimeFor(const KernelArgumentHolder& inputs);
+  //! The index type of forced_index_type is used to get a kernel
+  //! runtime no matter what sizes inputs have
+  FusionKernelRuntime* getKernelRuntimeFor(
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
  private:
   //! original un-scheduled `Fusion`;

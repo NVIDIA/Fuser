@@ -27,7 +27,7 @@ bool isSmemTensorIndex(Val* value) {
 }
 
 int64_t getVectorizeSize(kir::TensorIndex* ti) {
-  for (auto id : ti->view()->domain()->domain()) {
+  for (auto id : ti->view()->domain()->leaf()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
     }

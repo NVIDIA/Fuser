@@ -280,4 +280,24 @@ class TORCH_CUDA_CU_API SetSelector : public MaxInfoSpanningTree::Selector {
   }
 };
 
+// Simple selector to allow different parallel patterns in the fusion.
+// The propagation is blocked at boundaryNodesSet.
+// For P2C forward propagate, disable propagation to tensorViews in
+// boundaryNodesSet. For C2P backward propagate, disable propagation from
+// tensorViews in boundaryNodesSet
+struct InternalBoundarySelector : public MaxInfoSpanningTree::Selector {
+  std::unordered_set<TensorView*> tvs_;
+  virtual bool allowC2P(TensorView* from, TensorView* to) override {
+    return tvs_.count(from) == 0;
+  };
+  virtual bool allowP2C(TensorView* from, TensorView* to) override {
+    return tvs_.count(to) == 0;
+  };
+  virtual bool allowSibling(TensorView* from, TensorView* to) override {
+    return true;
+  }
+  InternalBoundarySelector(const std::unordered_set<TensorView*>& tvs)
+      : tvs_(tvs) {}
+};
+
 } // namespace nvfuser

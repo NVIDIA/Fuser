@@ -16,8 +16,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
@@ -533,10 +533,10 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Clear unswitch
   IterDomain* unswitch_id = nullptr;
   auto unswitch_id_it = std::find_if(
-      reduction_tv_rf->domain()->domain().begin(),
-      reduction_tv_rf->domain()->domain().end(),
+      reduction_tv_rf->domain()->leaf().begin(),
+      reduction_tv_rf->domain()->leaf().end(),
       [](auto id) { return id->getParallelType() == ParallelType::Unswitch; });
-  if (unswitch_id_it != reduction_tv_rf->domain()->domain().end()) {
+  if (unswitch_id_it != reduction_tv_rf->domain()->leaf().end()) {
     unswitch_id = *unswitch_id_it;
   }
 

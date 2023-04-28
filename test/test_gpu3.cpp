@@ -34,8 +34,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -7806,10 +7806,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getIndexMode() == KernelIndexMode::INT64);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getIndexMode() == KernelIndexMode::INT32);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
     {
       FusionExecutor fe;
@@ -7847,7 +7847,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, small_inputs);
+      LaunchParams launch_params;
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
+
       TORCH_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
@@ -7859,31 +7862,13 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
       // This should fail as the Kernel is already compiled for Int32, but
       // the arguments are too large
+      CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
       EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
+          [&]() {
+            fe.runFusion(large_inputs, launch_params, compile_opts_large);
+          },
           testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
-    }
-
-    {
-      FusionExecutor fe;
-      // Lower the kernel with int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-      TORCH_CHECK(
-          fe.kernel()->indexType() == PrimDataType::Int32,
-          "Unexpected kernel index type: ",
-          fe.kernel()->indexType());
-
-      fe.runFusion(small_inputs);
-
-      // This should fail as the Kernel is already compiled for Int32, but
-      // the arguments are too large
-      EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
+              "Kernel index type and compilation index type don't match")));
     }
 
     {
@@ -7902,6 +7887,87 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   }
 
   c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is determined both fusion inputs and outputs
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = castOp(DataType::Float, tv1);
+  auto tv4 = broadcast(tv2, {false, true, false});
+  auto tv5 = broadcast(tv3, {true, false, false});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = castOp(DataType::Half, tv6);
+
+  fusion.addOutput(tv7);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+
+  // Inputs are small enough to use 32-bit indexing, but the output is
+  // not
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is also determined by intermediate
+// tensors. This is not ideal but just tests if the logic produces
+// what is expected at this moment
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = sum(tv4, {-1});
+
+  fusion.addOutput(tv5);
+
+  // Inputs and outputs are small enough to use 32-bit indexing,
+  // however the intermediate, tv4, should cause the kernel to use
+  // 64-bit indexing. This is not ideal as tv4 should be inlined, and
+  // its allocation size should be small enough to use 32-bit
+  // indexing. However, the current logic should result in forcing
+  // 64-bit indexing. This would need to be fixed for matmul for
+  // example.
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  executor_cache.runFusionWithInputs(aten_inputs);
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  // Running again with forced type of Int32
+  executor_cache.runFusionWithInputs(aten_inputs, PrimDataType::Int32);
+  kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
 
 //! Test whether we can create and use float16 scalars
@@ -8031,6 +8097,132 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").input, kernel->inputs().at(0));
   ASSERT_EQ(kernel->getManaged<T2>("data2").output, kernel->outputs().at(0));
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
+}
+
+// Test for ir_utils::validateDomainEquivalence. We could consider
+// it well tested as it's always used when TensorDomain is created, but
+// here's some corner cases.
+TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1]
+  tv1->split(0, 4);
+  // [I0/4, 4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: [4, I1]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  tv1->merge(0);
+  // [I0/4*4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf domain
+  // Should succeed.
+  ir_utils::validateDomainEquivalence(
+      tv1->getRootDomain(), tv1->domain()->leaf());
+
+  auto tv1_intermediate_id = tv1->axis(0);
+
+  tv1->split(0, 3);
+  // [I0/4*4/3, 3, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two leaves are redundant
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(),
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  // Testing symbolic domains
+  auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
+
+  ir_utils::validateDomainEquivalence(
+      tv2->getRootDomain(), tv2->domain()->leaf());
+
+  // create a 2D tensor with one symbolid and another non-symbolic
+  auto tv4 = broadcast(sum(tv2, {1}), {false, true});
+  fusion.addOutput(tv4);
+
+  // [S0, B0]
+  tv4->split(1, 4);
+  // [S0, B0/4, 4]
+
+  ir_utils::validateDomainEquivalence(
+      tv4->getRootDomain(), tv4->domain()->leaf());
+
+  // Initial domain: root domain
+  // Derived domain: [S0, B0/4]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+}
+
+// Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
+TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dt = DataType::Float;
+
+  auto tv0 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = mul(tv4, tv0);
+  fusion->addOutput(tv5);
+
+  // The persistent scheduler with this problem size resulted in an
+  // error as reported in #236
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dt)).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({11}, options);
+  at::Tensor t1 = at::randn({11}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  t1 = t1.to(at::kDouble);
+  auto ref = (t1 - t1.sum().unsqueeze(0)) * t0;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

@@ -81,19 +81,19 @@ struct ProducerConsumerIndexingInfoCache {
       const auto& ca_map = *(GpuLower::current()->caMap());
       std::vector<IterDomain*> consumer_leaf_ids_shared_with_producer;
       std::copy_if(
-          consumer_tv_->domain()->domain().begin(),
-          consumer_tv_->domain()->domain().end(),
+          consumer_tv_->domain()->leaf().begin(),
+          consumer_tv_->domain()->leaf().end(),
           std::back_inserter(consumer_leaf_ids_shared_with_producer),
           [&](auto consumer_leaf_id) {
             return std::find_if(
-                       producer_tv_->domain()->domain().begin(),
-                       producer_tv_->domain()->domain().end(),
+                       producer_tv_->domain()->leaf().begin(),
+                       producer_tv_->domain()->leaf().end(),
                        [&](auto producer_leaf_id) {
                          return ca_map.areMapped(
                              producer_leaf_id,
                              consumer_leaf_id,
                              IdMappingMode::LOOP);
-                       }) != producer_tv_->domain()->domain().end();
+                       }) != producer_tv_->domain()->leaf().end();
           });
       consumer_leaf_ids_shared_with_producer_ =
           std::move(consumer_leaf_ids_shared_with_producer);
@@ -134,8 +134,8 @@ struct ProducerConsumerIndexingInfoCache {
       std::vector<IterDomain*> consumer_only_permissive_leaf_ids;
       const auto& ca_map = *(GpuLower::current()->caMap());
       std::copy_if(
-          consumer_tv_->domain()->domain().begin(),
-          consumer_tv_->domain()->domain().end(),
+          consumer_tv_->domain()->leaf().begin(),
+          consumer_tv_->domain()->leaf().end(),
           std::back_inserter(consumer_only_permissive_leaf_ids),
           [&](IterDomain* consumer_leaf_id) {
             const auto& consumer_leaf_ids_shared_with_producer =
@@ -248,8 +248,8 @@ bool useSameIndex(
   // If the producer ID is mapped with any of the consumer IDs, the
   // indexing is done with the corresponding consumer ID
   if (std::any_of(
-          consumer_tv->domain()->domain().begin(),
-          consumer_tv->domain()->domain().end(),
+          consumer_tv->domain()->leaf().begin(),
+          consumer_tv->domain()->leaf().end(),
           [&](IterDomain* consumer_leaf_id) {
             return ca_map.areMapped(
                 consumer_leaf_id, producer_id, IdMappingMode::LOOP);
@@ -596,8 +596,8 @@ SyncMap::SyncMap(Fusion* fusion) {
           } else {
             if (p_id != nullptr) {
               auto it = std::find_if(
-                  consumer->domain()->domain().begin(),
-                  consumer->domain()->domain().end(),
+                  consumer->domain()->leaf().begin(),
+                  consumer->domain()->leaf().end(),
                   [&](IterDomain* c_id) {
                     return GpuLower::current()->caMap()->areMapped(
                         p_id, c_id, IdMappingMode::PERMISSIVE);
@@ -606,20 +606,20 @@ SyncMap::SyncMap(Fusion* fusion) {
               // If there isn't a mapping from producer to a consumer domain,
               // need to assume there's communication across this parallel
               // dimension.
-              c_id = it == consumer->domain()->domain().end() ? nullptr : *it;
+              c_id = it == consumer->domain()->leaf().end() ? nullptr : *it;
               // i.e. if producer is parallelized across threadIdx.x in a
               // certain split, if the consumer doesn't map to this split,
               // then we need to assume it has to be in smem with proper
               // syncs.
             } else {
               auto it = std::find_if(
-                  producer->domain()->domain().begin(),
-                  producer->domain()->domain().end(),
+                  producer->domain()->leaf().begin(),
+                  producer->domain()->leaf().end(),
                   [&](IterDomain* p_id) {
                     return GpuLower::current()->caMap()->areMapped(
                         p_id, c_id, IdMappingMode::PERMISSIVE);
                   });
-              if (it == producer->domain()->domain().end()) {
+              if (it == producer->domain()->leaf().end()) {
                 // Can't infer anything if producer doesn't have a matching axis
                 // to parallel consumer dim.
                 continue;

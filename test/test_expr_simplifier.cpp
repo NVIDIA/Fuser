@@ -10,8 +10,8 @@
 #include <assume.h>
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <cctype>
 #include <deque>
