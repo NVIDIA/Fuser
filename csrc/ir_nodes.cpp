@@ -2495,16 +2495,13 @@ IterDomain* IterDomain::resize(
 // vectorize to the left of the computeAt domain, and could allow us to do some
 // simple validation of vectorize as it's inputs are right most and contiguous.
 void IterDomain::parallelize(ParallelType t) {
-  // assert check that we only parallelize a leaf domain.
-  // Ideally, leaf domains are domains that are not used by any other domains.
-  // However, this is not true if reduandant split/merge operations are added
-  // by the user manually. e.g. case FusionAdvancedComputeAt8_CUDA.
-  // so the check is relaxed to include intermediate domains between root and
-  // leaf.
-  auto isLeafOrIntermediateDomain = [&]() {
-    if (definition()) {
-      return true;
-    }
+  if (parallel_type_ == t) {
+    // No op, don't do any more checks, it was already set to this value.
+    return;
+  }
+
+  // Leaf domains are domains that are not used by any other domains.
+  auto isLeafDomain = [&]() {
     for (auto expr : uses()) {
       if (expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>()) {
         return false;
@@ -2513,17 +2510,21 @@ void IterDomain::parallelize(ParallelType t) {
     return true;
   };
 
-  TORCH_CHECK(
-      isLeafOrIntermediateDomain(),
-      "Only allowed to parallelize a leaf domain.",
-      " Domain: ",
-      toString(),
-      definition() != nullptr ? ", Definition: " + definition()->toString()
-                              : "");
-
-  if (parallel_type_ == t) {
-    // No op, don't do any more checks, it was already set to this value.
-    return;
+  // assert check that we only parallelize a leaf domain.
+  // this check is only applied to isParallelTypeThread
+  // getNonGlobalProducerStridedIndices in NVFuserTest.FusionIndexHoist2_CUDA
+  // is trying to parallelize a non-leaf domain using vectorize
+  // should be albe to apply to all parallel types after computeAt is retired.
+  if (isParallelTypeThread(t)) {
+    TORCH_CHECK(
+        isLeafDomain(),
+        "Only allowed to parallelize a leaf domain.",
+        " Domain: ",
+        toString(),
+        ", Parallel type: ",
+        t,
+        definition() != nullptr ? ", Definition: " + definition()->toString()
+                                : "");
   }
 
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
