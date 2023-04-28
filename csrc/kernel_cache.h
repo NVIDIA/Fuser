@@ -34,7 +34,6 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
-<<<<<<< HEAD
 struct RuntimeWorkSpace {
   //! Pre-determined order to run the segmented groups
   std::vector<SegmentedGroup*> group_run_order;
@@ -42,7 +41,6 @@ struct RuntimeWorkSpace {
   //! Pre-determined order to bind tensor input meta data
   std::vector<Val*> group_extent_binding_order;
 };
-=======
 //! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
 //! there are a lot of options how to combine hashes. In a case where one
 //! element of the pair is unlikely to change much, the following hash is fast
@@ -56,7 +54,6 @@ struct SimplePairHash {
   }
 };
 
->>>>>>> main
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
