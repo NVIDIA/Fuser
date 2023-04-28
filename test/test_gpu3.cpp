@@ -8276,4 +8276,45 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
+// delete intermediate tensors between segments to reduce memory usage of large
+// segmented graphs
+TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> input_shape{32, 64, 8, 128};
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  // auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
+  // auto tv2 = sum(tv1, {0}); // Group 0
+  // auto tv3 = sum(tv2, {-1}); // Group 1
+  // auto output = sum(tv3, {0}); // Group 2
+  // fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto ref_out = at_x.clone();
+
+  // auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  // auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
+
+  // TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  // TORCH_CHECK(
+  //     optimized_fusion->fusionSegments()->groups().size() == 3,
+  //     "segmentation didn't happen as expected");
+  // TORCH_CHECK(
+  //     args_num[1] == args_num[0] && args_num[2] == args_num[0],
+  //     "unused intermediate args should be deleted");
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+}
+// Test file size should be up to 10K LoC. Create a new file for more tests.
+
 } // namespace nvfuser
