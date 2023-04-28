@@ -232,24 +232,40 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 
-    // Both inp_id and idx_id can be a broadcast domain, however,
-    // since the extent of inp_id cannot be smaller than the extent of
-    // idx_id, it doesn't make sense to have a broadcast input id and
-    // a non-broadcast index id. Specifically, when the extent of the
-    // input ID is one, the index extent must also be one.
-    if (inp_id->getMaybeExpandedExtent()->isOneInt()) {
-      TORCH_CHECK(
-          idx_id->getMaybeExpandedExtent()->isOneInt(),
-          "Invalid combination of input (",
-          inp_id->toString(),
-          ") and index domains (",
-          idx_id->toString(),
-          "). Input extent is one, but the index extent may be larger than one.");
-    }
+    TORCH_CHECK(
+        !inp_id->maybePartial(),
+        "Partial domain not supported: ",
+        inp_id->toString());
+    TORCH_CHECK(
+        !idx_id->maybePartial(),
+        "Partial domain not supported: ",
+        idx_id->toString());
 
-    out_domain.at(i) =
-        IterDomainBuilder(static_cast<int64_t>(i) == dim ? idx_id : inp_id)
-            .build();
+    TORCH_CHECK(
+        inp_id->getIterType() != IterType::Iteration ||
+            inp_id->getIterType() != IterType::Broadcast,
+        "Unsupported IterType of an input domian: ",
+        inp_id->toString());
+    TORCH_CHECK(
+        idx_id->getIterType() != IterType::Iteration ||
+            idx_id->getIterType() != IterType::Broadcast,
+        "Unsupported IterType of an index domian: ",
+        idx_id->toString());
+
+    // Even for the non-indexed domains, the output ID should be
+    // determined by the index ID when:
+    // 1. The input is a broadcast but the index is not
+    // 2. Both the input and index are broadcast, but the index is
+    // expanded. The input may also be expanded, but that shouldn't
+    // matter.
+    if (static_cast<int>(i) == dim ||
+        (inp_id->isBroadcast() && !idx_id->isBroadcast()) ||
+        (inp_id->isBroadcast() && idx_id->isBroadcast() &&
+         idx_id->hasExpandedExtent())) {
+      out_domain.at(i) = IterDomainBuilder(idx_id).build();
+    } else {
+      out_domain.at(i) = IterDomainBuilder(inp_id).build();
+    }
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(

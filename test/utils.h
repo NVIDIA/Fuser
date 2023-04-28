@@ -54,6 +54,20 @@ inline TensorView* makeSymbolicTensor(
   return TensorViewBuilder().ndims(ndims).dtype(dtype).build();
 }
 
+// Similar to the other overload but uses shape only to create
+// broadcast IterDomains for size-1 axes. The extents of other axes
+// remain symbolic.
+inline TensorView* makeSymbolicTensor(
+    std::vector<int64_t> shape,
+    DataType dtype = DataType::Float) {
+  for (auto& s : shape) {
+    if (s != 1) {
+      s = -1;
+    }
+  }
+  return TensorViewBuilder().shape(shape).dtype(dtype).build();
+}
+
 // Make a non-contiguous tensor of compile-time known sizes
 inline TensorView* makeConcreteTensor(
     std::vector<int64_t> shape,
@@ -485,25 +499,37 @@ inline bool cudaArchGuardShouldSkip(
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 
 static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
     MatmulLayout::TT,
     MatmulLayout::NT,
     MatmulLayout::TN};
 
+static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayoutAndNN = {
+    MatmulLayout::TT,
+    MatmulLayout::NT,
+    MatmulLayout::TN,
+    MatmulLayout::NN};
+
 // Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout);
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
 // Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout);
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
 // A, B - input
@@ -519,7 +545,7 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType = at::kHalf,
+    const c10::ScalarType dtype = at::kHalf,
     const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \

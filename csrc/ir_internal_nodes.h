@@ -116,17 +116,18 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
 
-  //! torch.gather and numpy.take_along_axis mostly have the same
-  //! semantics, except for that in torch.gather the extents of the
-  //!  non-indexed dimensions of the index tensor may have smaller
-  //! extents than those of the input tensor
+  //! Parameter exact_sizes indicates whether the non-indexed domains
+  //! of the index tensor have the same extents of those of the input
+  //! tensor. It's true in the case of torch.take_along_dim and
+  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
+  //! they are the same.
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
       int dim,
       Val* index,
-      bool is_take_along_axis);
+      bool exact_sizes);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -155,6 +156,10 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   bool isTakeAlongAxis() const {
     return attribute(1)->as<Attribute<bool>>()->value;
+  }
+
+  bool exactSizes() const {
+    return attribute(2)->as<Attribute<bool>>()->value;
   }
 };
 
@@ -1053,7 +1058,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   };
 
   using AxesData = std::vector<int>;
-  using MmaInputLayoutOpt = std::optional<MmaOptions::MmaInputLayout>;
+  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1065,7 +1070,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_b,
       Val* init,
       const OptionsInMma& options,
-      const MmaInputLayoutOpt& input_layout);
+      const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1102,9 +1107,9 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
 
   void configureOptions(MmaOptions options);
 
-  auto inputLayout() const {
+  auto layout() const {
     return attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
+        ->as<Attribute<MmaLayoutOpt>>()
         ->value;
   }
 
@@ -1367,6 +1372,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   LoadStoreOpType opType() const {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
   }
+
+  bool hasTranspose() const;
+
+  void setOpType(LoadStoreOpType op) {
+    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
+  }
 };
 
 // Convenience utility to initialize IterDomain's without having to sort through
@@ -1505,6 +1516,10 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
+  }
+
+  bool isIteration() const {
+    return getIterType() == IterType::Iteration;
   }
 
   bool isRFactorProduct() const {
@@ -1836,6 +1851,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   bool hasViewLikeRFactor() const;
 
   bool hasVectorize() const;
+
+  bool hasSymbolicAxis() const;
 
   c10::optional<unsigned int> getReductionAxis() const;
 

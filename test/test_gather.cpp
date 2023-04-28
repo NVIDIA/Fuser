@@ -23,6 +23,8 @@
 
 namespace nvfuser {
 
+class IndexingOpTest : public NVFuserTest {};
+
 namespace {
 auto randomVector(int64_t low, int64_t high, int rank) {
   std::vector<int64_t> out(rank, 0);
@@ -75,7 +77,7 @@ at::Tensor generateScatter2DIndex(
 
 } // namespace
 
-TEST_F(NVFuserTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
+TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
   const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
 
   const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
@@ -129,7 +131,7 @@ TEST_F(NVFuserTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 
 // Test the correctness of gather operator in different dimensions and selcted
 // dim.
-TEST_F(NVFuserTest, TorchGatherAllRankAllSelectedDim_CUDA) {
+TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
   at::manual_seed(0);
@@ -170,7 +172,7 @@ TEST_F(NVFuserTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   }
 }
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
-TEST_F(NVFuserTest, TorchGatherAddMul_CUDA) {
+TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
   at::manual_seed(0);
@@ -217,7 +219,7 @@ TEST_F(NVFuserTest, TorchGatherAddMul_CUDA) {
   }
 }
 // Test the fusion support of index tensor as fusion input in gather operator
-TEST_F(NVFuserTest, AddGatherSumAdd_CUDA) {
+TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
   std::srand(0);
   at::manual_seed(0);
@@ -267,8 +269,8 @@ TEST_F(NVFuserTest, AddGatherSumAdd_CUDA) {
   }
 }
 // Test the fusion support of gather operator and reduce
-TEST_F(NVFuserTest, TorchGatherSumAdd_CUDA) {
-  const int max_dim_size = 64;
+TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
+  const int max_dim_size = 32;
   std::srand(0);
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -311,7 +313,7 @@ TEST_F(NVFuserTest, TorchGatherSumAdd_CUDA) {
 
         auto t_gather = at::gather(input, dim, input_idx);
         auto t_sum = at::sum(t_gather.to(at::kDouble), {0}, true);
-        auto tv_out_ref = at::add(input2, t_sum);
+        auto tv_out_ref = at::add(input2.to(at::kDouble), t_sum);
 
         std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
 
@@ -324,7 +326,7 @@ TEST_F(NVFuserTest, TorchGatherSumAdd_CUDA) {
   }
 }
 // Test the correctness when input/index tensor is very large
-TEST_F(NVFuserTest, TorchGatherAddMulHugeSize_CUDA) {
+TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
   std::srand(0);
   at::manual_seed(0);
@@ -372,7 +374,7 @@ TEST_F(NVFuserTest, TorchGatherAddMulHugeSize_CUDA) {
   }
 }
 // Test the fusion support of input tensor as fusion input
-TEST_F(NVFuserTest, TorchGatherInput_CUDA) {
+TEST_F(IndexingOpTest, TorchGatherInput_CUDA) {
   const int rank = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -397,9 +399,9 @@ TEST_F(NVFuserTest, TorchGatherInput_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t1, t_idx});
 }
 
-// Test when then extent of iteration domain is equal to one, and the iteration
+// Test when then extent of iteration domain is euqal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
-TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
+TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   std::vector<int64_t> input_dims{16384, 60};
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
@@ -426,8 +428,6 @@ TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
 
-  fusion.printMath();
-
   at::Tensor input_1 = at::randn(input_dims, options);
   at::Tensor input_2 = at::randn(index_dims, options);
   at::Tensor input_idx =
@@ -447,7 +447,7 @@ TEST_F(NVFuserTest, TorchGatherIndexTvExtentIsOne_CUDA) {
 }
 
 // Test take_along_axis with a broadcast index tensor
-TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
+TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
   for (const auto index_dim : {1, 3}) {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -482,12 +482,80 @@ TEST_F(NVFuserTest, TakeAlongBroadcastIndex_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    auto t4 = at::gather(t0, 1, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims));
+    auto t4 = at::take_along_dim(
+        t0, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims), 1);
     auto ref = t4 + t2;
 
     testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
   }
 }
+
+TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
+  for (const auto is_take_along : {false, true}) {
+    // torch_gather not supported yet. The issue is one of the index
+    // tensor has a broadcast domain, but its corresponding input
+    // domain is a normal domain. The output domain is also a
+    // broadcast in torch_gather, whereas it's a normal domain in
+    // take_along_axis. In the case of torch_gather, indexing the
+    // input domain needs to be able to index the normal producer
+    // domain with a broadcast reference domain. getProduerIndex needs
+    // some fix.
+    if (!is_take_along) {
+      continue;
+    }
+    for (const auto inp_indexed_dim : {1, 11}) {
+      for (const auto idx_index_dim : {1, 3}) {
+        // [B, B, I] when inp_indexed_dim == 1, otherwise [B, I, I]
+        std::vector<int64_t> input_dims{1, inp_indexed_dim, 12};
+        // [I, B] when idx_index_dim == 1, otherwise [I, I]
+        // In torch_gather, an index dimension must be smaller or
+        // equal to the corresponding input dimension
+        std::vector<int64_t> index_dims{
+            is_take_along ? 5 : input_dims.at(0), idx_index_dim};
+        // This needs to match with the take_along_axis output
+        std::vector<int64_t> out_dims{
+            index_dims.at(0), index_dims.at(1), input_dims.at(2)};
+
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
+
+        auto tv0 = makeSymbolicTensor(input_dims);
+        auto tv1 = makeSymbolicTensor(index_dims, DataType::Int);
+        auto tv2 = makeSymbolicTensor(out_dims);
+        fusion.addInput(tv0);
+        fusion.addInput(tv1);
+        fusion.addInput(tv2);
+
+        auto tv3 = broadcast(tv1, {false, false, true});
+        auto tv4 = take_along_axis(tv0, tv3, 1);
+        auto tv5 = add(tv4, tv2);
+        fusion.addOutput(tv5);
+
+        at::manual_seed(0);
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto options_i =
+            at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+        at::Tensor t0 = at::randn(input_dims, options);
+        at::Tensor t1 = at::randint(0, input_dims[1], index_dims, options_i);
+        at::Tensor t2 = at::randn(out_dims, options);
+        std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+        auto t4 = is_take_along ? at::take_along_dim(t0, t1.unsqueeze(-1), 1)
+                                : at::gather(t0, 1, t1.unsqueeze(-1));
+        auto ref = t4 + t2;
+
+        testValidate(
+            &fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+      }
+    }
+  }
+}
+
 
 TEST_F(NVFuserTest, TMP1) {
   Fusion fusion;

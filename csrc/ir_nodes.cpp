@@ -217,14 +217,14 @@ TorchGatherOp::TorchGatherOp(
     Val* in,
     int dim,
     Val* indices,
-    bool is_take_along_axis)
+    bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
-  addAttribute(IrBuilder::create<Attribute<bool>>(
-      passkey.ir_container_, is_take_along_axis));
+  addAttribute(
+      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
@@ -232,11 +232,10 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = "
-                          << (isTakeAlongAxis() ? "take_along_axis"
-                                                : "torch_gather")
+                          << (exactSizes() ? "take_along_axis" : "torch_gather")
                           << "( ";
   ss << ir_utils::getTvInput(this)->toString();
-  if (isTakeAlongAxis()) {
+  if (exactSizes()) {
     ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
   } else {
     ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
@@ -1372,7 +1371,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaInputLayout> input_layout = std::nullopt;
+  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1405,7 +1404,7 @@ TensorViewDetails getDetailsFor(const TensorView* tv) {
   return details;
 }
 
-MmaOptions::MmaInputLayout getInputLayout(
+MmaOptions::MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1419,7 +1418,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::TT;
+    return MmaOptions::MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
@@ -1429,7 +1428,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaInputLayout::TN;
+    return MmaOptions::MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
@@ -1439,7 +1438,7 @@ MmaOptions::MmaInputLayout getInputLayout(
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::NT;
+    return MmaOptions::MmaLayout::NT;
   }
 
   TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
@@ -1633,7 +1632,7 @@ MmaOp::MmaOp(
   addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
   // ATTR_POS_INPUT_LAYOUT
   addAttribute(
-      IrBuilder::create<Attribute<MmaInputLayoutOpt>>(passkey.ir_container_));
+      IrBuilder::create<Attribute<MmaLayoutOpt>>(passkey.ir_container_));
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -1652,7 +1651,7 @@ MmaOp::MmaOp(
       std::move(mma_details.k_axes);
   attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
       std::move(mma_details.batch_axes);
-  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaInputLayoutOpt>>()->value =
+  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
       mma_details.input_layout;
 }
 
@@ -1663,13 +1662,12 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init,
     const OptionsInMma& options,
-    const MmaInputLayoutOpt& input_layout)
+    const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
 
-  const auto input_layout_ = attribute(ATTR_POS_INPUT_LAYOUT)
-                                 ->as<Attribute<MmaInputLayoutOpt>>()
-                                 ->value;
+  const auto input_layout_ =
+      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
   if (input_layout_.has_value()) {
     TORCH_INTERNAL_ASSERT(
         input_layout_.value() == input_layout.value(),
@@ -1679,9 +1677,8 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
-        ->value = input_layout;
+    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
+        input_layout;
   }
 }
 
@@ -1962,6 +1959,13 @@ std::string LoadStoreOp::toString(int indent_size) const {
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool LoadStoreOp::hasTranspose() const {
+  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
+    return out_tv->hasRFactor();
+  }
+  return false;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
@@ -2453,11 +2457,10 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  // Only Inteation is considered for now.
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
-          in->getIterType() == IterType::Broadcast,
-      "Not a valid IterType: ",
+          in->getIterType() == IterType::Broadcast ||
+          in->getIterType() == IterType::Symbolic || "Not a valid IterType: ",
       in->getIterType());
 
   TORCH_CHECK(
@@ -2615,20 +2618,10 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  std::vector<Val*> domain_vals(domain_.begin(), domain_.end());
-  auto inps = IterVisitor::getInputsTo(domain_vals);
-
-  // Validate that the root domain consists of all inputs to domain
-  // Uncertain if this will hold for RFactor
-
-  std::unordered_set<Val*> root_vals(root_domain_.begin(), root_domain_.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2662,30 +2655,14 @@ TensorDomain::TensorDomain(
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  auto inps = IterVisitor::getInputsTo(
-      std::vector<Val*>(domain_.begin(), domain_.end()));
-
-  // Validate that the root domain consists of all inputs to domain
-  // Uncertain if this will hold for RFactor
-
-  std::unordered_set<Val*> root_vals(root_domain_.begin(), root_domain_.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
-
-  inps = IterVisitor::getInputsTo(
-      std::vector<Val*>(rfactor_domain_.begin(), rfactor_domain_.end()));
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of the rfactor domain, but it is not found in the root domain.");
-  });
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, domain_);
+    }
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2832,6 +2809,20 @@ bool TensorDomain::hasBroadcast() const {
 
 bool TensorDomain::hasRFactor() const {
   return !rfactor_domain_.empty();
+}
+
+bool TensorDomain::hasSymbolicAxis() const {
+  // If there's any Symbolic axis, there must be one at the root or
+  // rfactor domain.
+  return std::any_of(
+             getRootDomain().begin(),
+             getRootDomain().end(),
+             [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
+      (hasRFactor() &&
+       std::any_of(
+           getMaybeRFactorDomain().begin(),
+           getMaybeRFactorDomain().end(),
+           [](auto id) { return id->getIterType() == IterType::Symbolic; }));
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {

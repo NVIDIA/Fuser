@@ -201,7 +201,11 @@ void ReplayTransformations::handle(Resize* exp) {
   auto out = mapped;
 
   if (replay_resize_) {
-    out = IterDomain::resize(mapped, exp->leftExpand(), exp->rightExpand());
+    out = IterDomain::resize(
+        mapped,
+        exp->leftExpand(),
+        exp->rightExpand(),
+        mapped->isRFactorProduct());
   }
 
   leaf_ids_.erase(mapped);
