@@ -14,10 +14,10 @@ namespace pointwise_utils {
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
   tvs_with_rfactor_ = scheduler_utils::getTVsWithNonReductionRFactor(fusion);
   for (auto select : ir_utils::getSelectOps(fusion)) {
-    select_ids_.emplace(select->getIndexedProducerDomain());
+    select_ids_.emplace(select->getIndexedID());
   }
   for (auto select : ir_utils::getIndexSelectOps(fusion)) {
-    select_ids_.emplace(select->getIndexedProducerDomain());
+    select_ids_.emplace(select->getIndexedID());
   }
   for (auto select : ir_utils::getTorchGatherOps(fusion)) {
     TORCH_INTERNAL_ASSERT(select->input(0)->isA<TensorView>());

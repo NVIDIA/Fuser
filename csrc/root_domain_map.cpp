@@ -77,18 +77,18 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
   IterDomain* indexed_id = nullptr;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedProducerDomain();
+    indexed_id = sop->getIndexedID();
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedProducerDomain();
+      indexed_id = sop->getIndexedID();
       has_consumer_id = true;
     }
   } else if (
       auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv->definition())) {
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedProducerDomain();
+      indexed_id = gop->getIndexedID();
       has_consumer_id = true;
     }
   }

@@ -155,7 +155,7 @@ std::string SelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
-                          << ", axis = " << getIndexedProducerDomain()
+                          << ", axis = " << getIndexedID()
                           << ", index = " << input(1)->toString() << " )\n";
   return ss.str();
 }
@@ -164,7 +164,7 @@ std::string SelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* SelectOp::getIndexedProducerDomain() const {
+IterDomain* SelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
              ir_utils::getTvInput(this)->getMaybeRFactorDomain())
       .at(dim());
@@ -199,13 +199,13 @@ std::string IndexSelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* IndexSelectOp::getIndexedProducerDomain() const {
+IterDomain* IndexSelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
              ir_utils::getTvInput(this)->getMaybeRFactorDomain())
       .at(dim());
 }
 
-IterDomain* IndexSelectOp::getIndexedConsumerDomain() const {
+IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
@@ -247,12 +247,12 @@ std::string TorchGatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* TorchGatherOp::getIndexedProducerDomain() const {
+IterDomain* TorchGatherOp::getIndexedID() const {
   return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
       .at(dim());
 }
 
-IterDomain* TorchGatherOp::getIndexedConsumerDomain() const {
+IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
@@ -265,8 +265,7 @@ ScatterOp::ScatterOp(
     Val* self,
     int dim,
     Val* index,
-    Val* src,
-    IterDomain* select_out_id)
+    Val* src)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
@@ -274,7 +273,6 @@ ScatterOp::ScatterOp(
   addOutput(out);
   // we need to generate code like T_out[T_index[...]] = T_src[...], so we need
   // select_out_id as an attribute.
-  addAttribute(select_out_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
@@ -293,6 +291,10 @@ std::string ScatterOp::toString(int indent_size) const {
 
 std::string ScatterOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Scatter op can not be printed inline");
+}
+
+IterDomain* ScatterOp::getIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());  
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
