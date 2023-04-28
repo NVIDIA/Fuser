@@ -556,7 +556,6 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
   }
 }
 
-
 TEST_F(NVFuserTest, TMP1) {
   Fusion fusion;
   FusionGuard fg(&fusion);

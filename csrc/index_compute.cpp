@@ -1916,7 +1916,7 @@ std::vector<Val*> Index::getProducerRootIndices(
   // is not what we want.
   const auto p2c_map_ = invertOneToOneMap(c2p_map);
   for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
-           .mapBroadcast(false) // TODO: maybe true?
+                            .mapBroadcast(false) // TODO: maybe true?
                             .mapDifferentExtents(true)
                             .mapConsumerToProducer(
                                 consumer_tv->domain(), producer_tv->domain())) {

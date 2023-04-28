@@ -2037,14 +2037,13 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       continue;
     }
     if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
-      tvs.emplace_back(
-          gather->lookupTv(), consumer);
-    } else if (auto index_select = dynamic_cast<IndexSelectOp*>(consumer->definition())) {
-      tvs.emplace_back(
-          index_select->lookupTv(), consumer);
+      tvs.emplace_back(gather->lookupTv(), consumer);
+    } else if (
+        auto index_select =
+            dynamic_cast<IndexSelectOp*>(consumer->definition())) {
+      tvs.emplace_back(index_select->lookupTv(), consumer);
     } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
-      tvs.emplace_back(
-          select->lookupTv(), consumer);
+      tvs.emplace_back(select->lookupTv(), consumer);
     } else if (ir_utils::hasResizedRfactor(consumer)) {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
@@ -2113,7 +2112,8 @@ bool revertUseOfInputCache(
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
 
-  ir_utils::replaceValInExpr(consumer->definition(), promoted_producer, fusion_input);
+  ir_utils::replaceValInExpr(
+      consumer->definition(), promoted_producer, fusion_input);
 
   return true;
 }
@@ -2234,7 +2234,8 @@ void promoteProducerMemoryTypes(
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
+        TORCH_INTERNAL_ASSERT(
+            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }
@@ -2250,8 +2251,7 @@ void promoteProducerMemoryTypes(
     // Required memory type of the producer
     const auto new_mem_type = it->second;
 
-    if (revertUseOfInputCache(
-            consumer, producer, new_mem_type, input_caches)) {
+    if (revertUseOfInputCache(consumer, producer, new_mem_type, input_caches)) {
       continue;
     }
 
