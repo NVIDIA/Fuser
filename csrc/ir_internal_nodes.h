@@ -155,7 +155,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 
   bool exactSizes() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute(1)->as<Attribute<bool>>()->value;
   }
 };
 
