@@ -348,8 +348,51 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return std::any_cast<T&>(managed_named_data_.at(key).first);
   }
 
+  //! Try to get managed data by index, checking that we have an entry for it,
+  //! and that the entry has not been reset (see stopManaging).
+  template <typename T>
+  inline std::optional<const T> getManagedSafe(size_t index) const {
+    if (hasManaged(index)) {
+      return std::any_cast<T>(managed_data_.at(index).first);
+    }
+    return std::nullopt;
+  }
+
+  //! Try to get managed data by key, checking that we have an entry for that
+  //! key.
+  template <typename T>
+  inline std::optional<const T> getManagedSafe(std::string key) const {
+    auto it = managed_named_data_.find(key);
+    if (it == managed_named_data_.end()) {
+      return std::nullopt;
+    }
+    return std::any_cast<T>(it->second.first);
+  }
+
+  //! Disables a piece of managed data. After this, there will still be an entry
+  //! but .has_value() will return false. getManagedSafe() should be used in
+  //! cases where the data management may have been stopped.
+  inline void stopManaging(size_t index) {
+    if (!hasManaged(index)) {
+      return;
+    }
+    managed_data_.at(index).first.reset();
+  }
+
+  //! Disables a piece of managed data by removing the entry with this key.
+  //! getManagedSafe() should be used in cases where the data management may
+  //! have been stopped.
+  inline void stopManaging(std::string key) {
+    auto it = managed_named_data_.find(key);
+    if (it == managed_named_data_.end()) {
+      return;
+    }
+    managed_named_data_.erase(it);
+  }
+
   inline bool hasManaged(size_t index) const {
-    return index >= 0 && index < managed_data_.size();
+    return index >= 0 && index < managed_data_.size() &&
+        managed_data_[index].first.has_value();
   }
 
   inline bool hasManaged(std::string key) const {

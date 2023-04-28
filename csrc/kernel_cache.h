@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <dynamic_transform.h>
 #include <evaluator_common.h>
 #include <executor.h>
 #include <fusion.h>
@@ -33,6 +34,7 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
+<<<<<<< HEAD
 struct RuntimeWorkSpace {
   //! Pre-determined order to run the segmented groups
   std::vector<SegmentedGroup*> group_run_order;
@@ -40,6 +42,21 @@ struct RuntimeWorkSpace {
   //! Pre-determined order to bind tensor input meta data
   std::vector<Val*> group_extent_binding_order;
 };
+=======
+//! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
+//! there are a lot of options how to combine hashes. In a case where one
+//! element of the pair is unlikely to change much, the following hash is fast
+//! and effective.
+struct SimplePairHash {
+  template <typename T, typename U>
+  size_t operator()(const std::pair<T, U>& p) const {
+    auto hT = std::hash<T>{}(p.first);
+    auto hU = std::hash<U>{}(p.second);
+    return hT ^ hU;
+  }
+};
+
+>>>>>>> main
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -52,7 +69,7 @@ struct RuntimeWorkSpace {
 class TORCH_CUDA_CU_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
-      Fusion* fusion,
+      std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -285,7 +302,12 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! within the lookup cache. This is needed because lookup shortcut is also
   //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- 2 level cache implementation ]
-  IdLookupReturn lookupId(const at::ArrayRef<c10::IValue>& inputs);
+  //! If hash_scalars is true, this unique id also contains the values of input
+  //! integer scalars. This is used for dynamic reshapes, since they might
+  //! depend on those inputs and omitting them would lead to a collision.
+  IdLookupReturn lookupId(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool hash_scalars = false);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
@@ -323,6 +345,12 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! `EncodingEntry`
   //! ). We store an iterator to `used_entry_` to implement LRU
   std::unordered_map<std::string, EncodingEntry> encoding_lookup_;
+
+  //! If true, input scalars will also affect the cache. For static Fusions this
+  //! is not desirable. However, for dynamic Fusions, the concretization of
+  //! dynamic reshapes may depend on input scalars, so we must take this into
+  //! account in order to avoid short-circuiting cache lookups in those cases.
+  bool hash_scalars_ = false;
 };
 
 //! [ Note -- 2 level cache implementation ]
@@ -454,6 +482,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
+  //! Get all cached runtimes
+  auto& getKernelRuntimes() {
+    return kernel_runtimes_;
+  }
+
   void profile(bool to_profile) {
     profiling_ = to_profile;
     for (auto& it : kernel_runtimes_) {
@@ -493,14 +526,24 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
  private:
-  //! original un-scheduled `Fusion`;
+  //! original un-scheduled `Fusion`. This may contain dynamic transforms and
+  //! Symbolic IterDomains.
   std::unique_ptr<Fusion> fusion_;
 
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
-  //! Graphs after input dependent transfoms
-  std::unordered_map<size_t, std::vector<std::unique_ptr<FusionKernelRuntime>>>
+  //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
+  //! map is a (device, concretization info) pair. In case fusion_ contains
+  //! no dynamic transforms, the second part of the key is null. When a new set
+  //! of inputs is received, we extract the corresponding value from this map,
+  //! which is a vector of FusionKernelRuntime objects representing scheduled
+  //! Fusions. We then check each of these to see if we can re-use any of those
+  //! kernels and if not, we create a new one.
+  std::unordered_map<
+      std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
+      std::vector<std::unique_ptr<FusionKernelRuntime>>,
+      SimplePairHash>
       kernel_runtimes_;
 
   //! Logging state for most recent compilation
@@ -516,6 +559,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! TODO: this can be largely expanded to look at complete
   //!   caching profiles. Currently it just makes it easier to test
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
+
+  //! Whether fusion_ contains dynamic reshapes
+  bool has_dynamic_reshape_ = false;
 };
 
 class GraphCache {
