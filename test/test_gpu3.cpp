@@ -8183,6 +8183,48 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
           testing::HasSubstr("Invalid derived domain")));
 }
 
+// Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
+TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dt = DataType::Float;
+
+  auto tv0 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = mul(tv4, tv0);
+  fusion->addOutput(tv5);
+
+  // The persistent scheduler with this problem size resulted in an
+  // error as reported in #236
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dt)).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({11}, options);
+  at::Tensor t1 = at::randn({11}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  t1 = t1.to(at::kDouble);
+  auto ref = (t1 - t1.sum().unsqueeze(0)) * t0;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
