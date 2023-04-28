@@ -12,4 +12,3 @@ cmake $TOP_LEVEL/third_party/flatbuffers
 ninja
 cd $TOP_LEVEL/csrc/serde
 $BUILD_DIR/flatc --cpp ./python_fusion_cache.fbs
-
