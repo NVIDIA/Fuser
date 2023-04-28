@@ -141,14 +141,13 @@ SelectOp::SelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* select_id,
+    int dim,
     Val* index)
     : Expr(passkey) {
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(index);
+  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -156,13 +155,19 @@ std::string SelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
-                          << ", axis = " << getSelectAxis()
+                          << ", axis = " << getIndexedProducerDomain()
                           << ", index = " << input(1)->toString() << " )\n";
   return ss.str();
 }
 
 std::string SelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* SelectOp::getIndexedProducerDomain() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
@@ -172,13 +177,11 @@ IndexSelectOp::IndexSelectOp(
     Val* out,
     Val* in,
     int dim,
-    IterDomain* select_id,
     Val* indices)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
 }
 
@@ -187,17 +190,23 @@ std::string IndexSelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = index_select( ";
-  if (input(0)->isA<kir::TensorIndex>()) {
-    ss << input(0)->as<kir::TensorIndex>()->view()->toString();
-  } else {
-    ss << input(0)->toString();
-  }
+  ss << ir_utils::getTvInput(this)->toString();
   ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
   return ss.str();
 }
 
 std::string IndexSelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexSelectOp::getIndexedProducerDomain() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* IndexSelectOp::getIndexedConsumerDomain() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -207,14 +216,12 @@ TorchGatherOp::TorchGatherOp(
     Val* out,
     Val* in,
     int dim,
-    IterDomain* select_id,
     Val* indices,
     bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
   addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
@@ -227,11 +234,7 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent(ss, indent_size) << " = "
                           << (exactSizes() ? "take_along_axis" : "torch_gather")
                           << "( ";
-  if (lookupTv()->isA<kir::TensorIndex>()) {
-    ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
-  } else {
-    ss << lookupTv()->toString();
-  }
+  ss << ir_utils::getTvInput(this)->toString();
   if (exactSizes()) {
     ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
   } else {
@@ -242,6 +245,15 @@ std::string TorchGatherOp::toString(int indent_size) const {
 
 std::string TorchGatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* TorchGatherOp::getIndexedProducerDomain() const {
+  return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* TorchGatherOp::getIndexedConsumerDomain() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)

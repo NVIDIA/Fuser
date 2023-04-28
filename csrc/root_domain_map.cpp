@@ -51,13 +51,8 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
 
 PairwiseRootDomainMap::PairwiseRootDomainMap(
     const TensorView* producer,
-    const TensorView* consumer,
-    bool is_exact,
-    bool require_same_extent)
-    : producer_tv_(producer),
-      consumer_tv_(consumer),
-      is_exact_(is_exact),
-      require_same_extent_(require_same_extent) {
+    const TensorView* consumer)
+    : producer_tv_(producer), consumer_tv_(consumer) {
   TORCH_INTERNAL_ASSERT(producer != nullptr);
   TORCH_INTERNAL_ASSERT(consumer != nullptr);
   TORCH_INTERNAL_ASSERT(producer->fusion() == consumer->fusion());
@@ -70,6 +65,39 @@ PairwiseRootDomainMap::PairwiseRootDomainMap(
       consumer);
 }
 
+namespace {
+
+// Returns a producer ID that is indirectly accessed. A bool is also
+// returned indicating there's a corresponding consumer ID. For
+// example, select doesn't have a consumer ID, whereas index_select
+// does.
+std::pair<IterDomain*, bool> getIndexedDomainInfo(
+    const TensorView* producer_tv,
+    const TensorView* consumer_tv) {
+  IterDomain* indexed_id = nullptr;
+  bool has_consumer_id = false;
+  if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
+    indexed_id = sop->getIndexedProducerDomain();
+    has_consumer_id = false;
+  } else if (
+      auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+    if (producer_tv == sop->lookupTv()) {
+      indexed_id = sop->getIndexedProducerDomain();
+      has_consumer_id = true;
+    }
+  } else if (
+      auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv->definition())) {
+    if (producer_tv == gop->lookupTv()) {
+      indexed_id = gop->getIndexedProducerDomain();
+      has_consumer_id = true;
+    }
+  }
+
+  return std::make_pair(indexed_id, has_consumer_id);
+}
+
+} // namespace
+
 std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     const TensorDomain* producer,
     const TensorDomain* consumer,
@@ -80,18 +108,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // given to the constructor.
   TORCH_INTERNAL_ASSERT(producer_tv_->domain() == producer);
   TORCH_INTERNAL_ASSERT(consumer_tv_->domain() == consumer);
-
-  // In torch.gather, even non-indexed dimensions may have different
-  // extents, whereas in numpy.take_along_axis, they are guaranteed to
-  // be the same
-  if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
-      consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() ==
-          producerTv() &&
-      !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
-      require_same_extent_) {
-    // Nothing to map when having same extent is required
-    return {};
-  }
 
   std::vector<bool> broadcast_flags;
   if (BroadcastOp* bop =
@@ -104,22 +120,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  IterDomain* selected_id = nullptr;
-  bool select_skip_consumer = true;
-  if (SelectOp* sop = dynamic_cast<SelectOp*>(consumer_tv_->definition())) {
-    selected_id = sop->getSelectAxis();
-    select_skip_consumer = false;
-  } else if (
-      IndexSelectOp* sop =
-          dynamic_cast<IndexSelectOp*>(consumer_tv_->definition())) {
-    selected_id = sop->getSelectAxis();
-    select_skip_consumer = true;
-  } else if (
-      TorchGatherOp* gop =
-          dynamic_cast<TorchGatherOp*>(consumer_tv_->definition())) {
-    selected_id = gop->getSelectAxis();
-    select_skip_consumer = true;
-  }
+  auto [indexed_producer_id, has_consumer_of_indexed_id] =
+      getIndexedDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_root =
@@ -127,20 +129,43 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   const auto& consumer_root = consumer->getRootDomain();
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
-    IterDomain* producer_id = producer_root[itp];
-    IterDomain* consumer_id = consumer_root[itc];
+    IterDomain* producer_id = producer_root.at(itp);
+    IterDomain* consumer_id = consumer_root.at(itc);
 
-    // When the producer ID is the dim of a select-like op, there is no
-    // mapping for it.
-    if (producer_id == selected_id) {
-      itp++;
-      if (select_skip_consumer) {
-        itc++;
+    // Conditions to check:
+    // 1. Indirectly accessed IDs (e.g., select)
+    // 2. IDs that may have different extents (e.g., non indexed
+    //  domains of torch_gather)
+    // 3. Squeeze and unsqueeze
+    // 4. Broadcast and non broadcast
+
+    // Condition 1: when the producer ID is the dim of a select-like op
+    if (producer_id == indexed_producer_id) {
+      // If there's no corresponding consumer, skip the indexed producer
+      if (!has_consumer_of_indexed_id) {
+        itp++;
+        continue;
       }
+      // Skip both producer and consumer if mapping not allowed
+      if (!map_indexed_domains_) {
+        itp++;
+        itc++;
+        continue;
+      }
+    }
+
+    // Condition 2: Different extents
+    if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
+        !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
+        producer_tv_ ==
+            consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() &&
+        producer_id != indexed_producer_id && !map_different_extents_) {
+      itp++;
+      itc++;
       continue;
     }
 
-    // When the consumer ID is a new broadcast domain, there is no
+    // Condition 3: when the consumer ID is a new broadcast domain, there is no
     // mapping for it.
     if (!broadcast_flags.empty() && broadcast_flags.at(itc)) {
       TORCH_INTERNAL_ASSERT(consumer_id->isBroadcast());
@@ -148,17 +173,17 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       continue;
     }
 
-    // When the producer ID is a removed broadcast domain, there is no
-    // mapping for it.
+    // Condition 3: when the producer ID is a removed broadcast domain, there is
+    // no mapping for it.
     if (!squeeze_flags.empty() && squeeze_flags.at(itp)) {
       TORCH_INTERNAL_ASSERT(producer_id->isBroadcast());
       itp++;
       continue;
     }
 
-    // In exact mapping, do not map broadcast domains with
-    // non-broadcast domains
-    if (is_exact_ && producer_id->isBroadcast() != consumer_id->isBroadcast()) {
+    // Condition 4
+    if (!map_broadcast_ &&
+        producer_id->isBroadcast() != consumer_id->isBroadcast()) {
       itc++;
       itp++;
       continue;
@@ -1084,6 +1109,7 @@ void ComputeAtRootDomainMapBuilder::handle(TorchGatherOp* op) {
   const auto idx_root =
       TensorDomain::noReductions(idx_td->getMaybeRFactorDomain());
   const auto& out_root = out_td->getRootDomain();
+
   TORCH_INTERNAL_ASSERT(
       idx_root.size() == out_root.size(),
       "\nExpression: ",
@@ -1225,7 +1251,8 @@ class ExactRootDomainMapBuilder : private IterVisitor {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
-        PairwiseRootDomainMap pwise_map(producer, consumer, true);
+        PairwiseRootDomainMap pwise_map(producer, consumer);
+        pwise_map.mapBroadcast(false);
         const auto mappings = pwise_map.mapProducerToConsumer(
             producer->domain(), consumer->domain());
         for (const auto& mapping : mappings) {

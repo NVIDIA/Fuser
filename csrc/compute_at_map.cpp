@@ -463,7 +463,8 @@ void IterDomainGraph::build(Fusion* fusion) {
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
         auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv, true)
+            PairwiseRootDomainMap(p_tv, c_tv)
+                .mapBroadcast(false)
                 .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
         // Same as permissive above but for exact

@@ -751,11 +751,11 @@ bool isIndexedID(const TensorView* tv, const IterDomain* id) {
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
   return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
     return (expr->isA<TorchGatherOp>() &&
-            expr->as<TorchGatherOp>()->getSelectAxis() == id) ||
+            expr->as<TorchGatherOp>()->getIndexedProducerDomain() == id) ||
         (expr->isA<SelectOp>() &&
-         expr->as<SelectOp>()->getSelectAxis() == id) ||
+         expr->as<SelectOp>()->getIndexedProducerDomain() == id) ||
         (expr->isA<IndexSelectOp>() &&
-         expr->as<IndexSelectOp>()->getSelectAxis() == id);
+         expr->as<IndexSelectOp>()->getIndexedProducerDomain() == id);
   });
 }
 
