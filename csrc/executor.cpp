@@ -664,7 +664,8 @@ std::vector<at::Tensor> allocOutputs(
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
     const KernelArgumentHolder& inputs,
-    const c10::Device& device) {
+    const c10::Device& device,
+    const AllocatedOutputsHolder& preAllocatedOutputs) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
 
   std::vector<at::Tensor> outputs;
@@ -695,13 +696,19 @@ std::vector<at::Tensor> allocOutputs(
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(at::empty({0}, tensor_options));
     } else {
-      outputs.emplace_back(at::native::empty_strided_cuda(
-          buf_info.sizes,
-          buf_info.strides,
-          buf_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt));
+      // Checking if an output was already passed in, for this output val
+      if (preAllocatedOutputs.contains(kernel->outputs().at(output_idx))) {
+        outputs.emplace_back(
+            preAllocatedOutputs.get(kernel->outputs().at(output_idx)));
+      } else {
+        outputs.emplace_back(at::native::empty_strided_cuda(
+            buf_info.sizes,
+            buf_info.strides,
+            buf_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt));
+      }
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(outputs.back());
       }
@@ -976,7 +983,8 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
       output_info,
       output_to_input_aliases,
       kernel_inputs,
-      options_.device);
+      options_.device,
+      {});
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1361,13 +1369,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    std::vector<at::Tensor> outputs) {
+    const AllocatedOutputsHolder& outputs_map) {
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
   TORCH_INTERNAL_ASSERT(compiled());
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
   TORCH_INTERNAL_ASSERT(
-      !args.getCacheId().has_value() || outputs.empty(),
+      !args.getCacheId().has_value() || outputs_map.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(kernel(), compile_params);
@@ -1375,6 +1383,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   const auto num_inputs = args.size();
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
+    auto outputs = outputs_map.empty()
+        ? std::vector<at::Tensor>{}
+        : outputs_map.get(fusion_->outputs(), true); // Adding empty tensors
     dumpFusionArgs(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
@@ -1394,6 +1405,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
+    auto outputs = outputs_map.contains(fusion_->outputs())
+        ? outputs_map.get(fusion_->outputs())
+        : std::vector<at::Tensor>{};
+
     initializeExecutorEntry(
         *executor_entry, args, launch_constraints, compile_params, outputs);
   }
@@ -1406,21 +1421,21 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  // only allocate outputs when not given
-  if (outputs.empty()) {
-    outputs = allocOutputs(
-        kernel(),
-        executor_entry->outputs,
-        executor_entry->output_to_input_aliases,
-        args,
-        options_.device);
-  } else {
-    // TODO: Use validateKernelOutputs
-    TORCH_INTERNAL_ASSERT(
-        outputs.size() == fusion_->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
-  }
+  // We used to require the number of output tensors - if provided - to be
+  // matching the number of outputs from the current fusion. However now the
+  // allocated at::Tensors are bound to the fusion's output values,
+  // we don't rely on the ordering anymore - so it allows to proceed even if we
+  // have only some outputs allocated. That is required to support segmented
+  // fusions with "user outputs" (as only some of them can end-up being passed
+  // down to this function).
+  auto outputs = allocOutputs(
+      kernel(),
+      executor_entry->outputs,
+      executor_entry->output_to_input_aliases,
+      args,
+      options_.device,
+      outputs_map);
+
   args.push(outputs);
 
   std::vector<at::Tensor> intermediates;

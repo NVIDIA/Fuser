@@ -117,11 +117,16 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
       has_dynamic_reshape_(fusion_->hasDynamicTransform()) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool skipCacheLookup) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs);
+
+  if (skipCacheLookup) {
+    return args;
+  }
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
@@ -194,7 +199,8 @@ void FusionExecutorCache::compileFusionAsync(
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type,
+    const AllocatedOutputsHolder& allocatedOutputs) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   // Permute input tensor for kernel execution.
@@ -214,7 +220,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  KernelArgumentHolder args = prepareInputs(perm_inputs);
+  // TODO permute outputs ? But can allocatedOutputs even come from Pytorch?
+  bool skipCacheLookup = !allocatedOutputs.empty();
+  // TODO Should we skip caching? Won't it result in re-compiling?
+  KernelArgumentHolder args = prepareInputs(perm_inputs, skipCacheLookup);
 
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
   most_recent_runtime_ = kernel_runtime;
@@ -237,7 +246,25 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       "run_fused_kernel",
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
-  auto outputs = kernel_runtime->runWithInputs(args);
+
+  // Translating passed in outputs to segmented fusion vals*
+  TORCH_INTERNAL_ASSERT(
+      fusion_->outputs().size() ==
+          kernel_runtime->fusionSegments()->outputs().size(),
+      "This should be unreachable. Segmented fusion has not the same number of ouputs as the original fusion");
+
+  // Holder associates at::tensors to fusion outputs, so
+  // we remake it, but with the segented fusion outputs
+  AllocatedOutputsHolder segmentedFusionOutputs;
+  for (int i : c10::irange(fusion_->outputs().size())) {
+    if (allocatedOutputs.contains(fusion_->outputs()[i])) {
+      segmentedFusionOutputs.bind(
+          kernel_runtime->fusionSegments()->outputs()[i],
+          allocatedOutputs.get(fusion_->outputs()[i]));
+    }
+  }
+
+  auto outputs = kernel_runtime->runWithInputs(args, segmentedFusionOutputs);
   RECORD_OUTPUTS(outputs);
 
   // Permute output tensor returned by kernel execution.
@@ -520,7 +547,8 @@ FusionKernelRuntime::FusionKernelRuntime(
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
+    SegmentedGroup* sg,
+    const AllocatedOutputsHolder& segmentOutputHolder) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
   // This function will be called once on un-segmented fusion,
@@ -545,7 +573,24 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  TORCH_INTERNAL_ASSERT(executors_.at(group_id).compiled(), "?");
+
+  auto fusionOutputs = executors_.at(group_id).kernel()->outputs();
+  auto segmentOutputs = sg->outputs();
+  TORCH_INTERNAL_ASSERT(fusionOutputs.size() == segmentOutputs.size(), "?");
+
+  // We iterate over both output vectors and select tensors that were already
+  // allocated and that are required for this fusion
+  AllocatedOutputsHolder fusionOutputsHolder;
+  for (auto i : c10::irange(fusionOutputs.size())) {
+    if (segmentOutputHolder.contains(segmentOutputs[i])) {
+      fusionOutputsHolder.bind(
+          fusionOutputs[i], segmentOutputHolder.get(segmentOutputs[i]));
+    }
+  }
+
+  auto outputs = executor.runFusion(
+      args, launch_params, compile_params, fusionOutputsHolder);
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -743,7 +788,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    KernelArgumentHolder& args,
+    const AllocatedOutputsHolder& allocatedOutputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -753,7 +799,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
   std::unordered_map<Val*, const ArgAbstract*> tensor_map =
-      runSegmentsWithInputs(args, false /* is_dry_run */);
+      runSegmentsWithInputs(args, false /* is_dry_run */, allocatedOutputs);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -822,7 +868,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 }
 
 std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args, bool is_dry_run) {
+    runSegmentsWithInputs(
+        KernelArgumentHolder& args,
+        bool is_dry_run,
+        const AllocatedOutputsHolder& allocatedOutputs) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -874,8 +923,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
           dryRunKernelWithInput(group_runtime_inputs, group_to_run);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     } else {
-      std::vector<at::Tensor> group_runtime_outputs =
-          runKernelWithInput(group_runtime_inputs, group_to_run);
+      std::vector<at::Tensor> group_runtime_outputs = runKernelWithInput(
+          group_runtime_inputs, group_to_run, allocatedOutputs);
       update_outputs(group_to_run->outputs(), group_runtime_outputs);
     }
   }

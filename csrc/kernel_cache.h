@@ -103,7 +103,9 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  std::vector<at::Tensor> runWithInputs(
+      KernelArgumentHolder& args,
+      const AllocatedOutputsHolder& outputs = {});
 
   //! starts compilation async
   void startAsyncCompile(const KernelArgumentHolder& input_args);
@@ -182,14 +184,16 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! real PyTorch tensor or a fake MetaData tensor.
   std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
       KernelArgumentHolder& args,
-      bool is_dry_run);
+      bool is_dry_run,
+      const AllocatedOutputsHolder& outputs = {});
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
   std::vector<at::Tensor> runKernelWithInput(
       KernelArgumentHolder& args,
-      SegmentedGroup* sg);
+      SegmentedGroup* sg,
+      const AllocatedOutputsHolder& outputs = {});
 
   //! Interface to compile a single kernel and returns the kernel outputs
   //! but the tensor does not own memory.
@@ -409,7 +413,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      const AllocatedOutputsHolder& outputs = {});
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! async, there's some restriction on the user side. e.g. Do not overlap
@@ -419,7 +424,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
-  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
+  KernelArgumentHolder prepareInputs(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool skipCacheLookup = false);
 
   //! query if there's a kernel ready to go for given inputs
   bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
