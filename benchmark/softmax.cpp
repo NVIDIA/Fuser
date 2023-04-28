@@ -150,7 +150,7 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->domain()->domain()) {
+    for (IterDomain* id : tv->domain()->leaf()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }
