@@ -1859,9 +1859,6 @@ std::vector<Val*> Index::getProducerRootIndices(
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
 
-  // bool debug = producer_tv->name() == 1;
-  bool debug = false;
-
   auto pairwise_map =
       PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
 
@@ -1872,12 +1869,6 @@ std::vector<Val*> Index::getProducerRootIndices(
 
   // Make the producer_tv look like consumer while performing indexing math
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
-
-  if (debug) {
-    std::cerr << "Producer like consume: " << producer_tv->toString()
-              << std::endl;
-    std::cerr << "Consumer: " << consumer_tv->toString() << std::endl;
-  }
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
@@ -1916,7 +1907,7 @@ std::vector<Val*> Index::getProducerRootIndices(
   // is not what we want.
   const auto p2c_map_ = invertOneToOneMap(c2p_map);
   for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
-                            .mapBroadcast(false) // TODO: maybe true?
+                            .mapBroadcast(false)
                             .mapDifferentExtents(true)
                             .mapConsumerToProducer(
                                 consumer_tv->domain(), producer_tv->domain())) {
@@ -2004,12 +1995,6 @@ std::vector<Val*> Index::getProducerRootIndices(
         root_ind, root_dom[i], producer_tv, consumer_tv);
 
     root_inds.at(i) = root_ind;
-  }
-
-  if (debug) {
-    for (auto ri : root_inds) {
-      std::cerr << "Root id: " << ri->toInlineString() << std::endl;
-    }
   }
 
   return root_inds;

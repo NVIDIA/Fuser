@@ -28,19 +28,11 @@ getIndexedProducerConsumerPairs(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   for (auto expr : fusion->exprs()) {
     if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
-      auto producer_indexe_id = gather->getIndexedID();
-      auto out_tv = ir_utils::getTvOutput(expr);
-      PairwiseRootDomainMap p2c(gather->lookupTv(), out_tv);
-      p2c.mapDifferentExtents(true).mapIndexedDomains(true);
-      for (const auto& [p_id, c_id] : p2c.mapProducerToConsumer(
-               gather->lookupTv()->domain(), out_tv->domain())) {
-        if ((gather->exactSizes() && p_id == producer_indexe_id) ||
-            !gather->exactSizes()) {
-          indexed_ids.emplace_back(
-              ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
-              ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
-        }
-      }
+      auto p_id = gather->getIndexedID();
+      auto c_id = gather->getConsumerOfIndexedID();
+      indexed_ids.emplace_back(
+          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
+          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
     } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
       auto p_id = index_select->getIndexedID();
       auto c_id = index_select->getConsumerOfIndexedID();
@@ -59,6 +51,60 @@ getIndexedProducerConsumerPairs(Fusion* fusion, const ComputeAtMap& ca_map) {
   return indexed_ids;
 }
 
+// Check if a root ID of a fusion input tensor that is indirectly
+// accessed by ops such as torch_gather needs to be mapped with
+// a reference tensor. Select has a similar effect as squeeze as the
+// indexed domain is removed, so the domain does not need to be mapped
+// as long as the tensor is a fusion input. Similarly, in index_select
+// and torch_gather, if the output domain is a broadcast, it does not
+// need to be mapped if not resolved.
+bool canIgnoreIndexedInputDomainID(
+    TensorView* input_tv,
+    IterDomain* root_id,
+    const ComputeAtMap& ca_map) {
+  for (auto use : input_tv->uses()) {
+    if (auto select = dynamic_cast<SelectOp*>(use)) {
+      if (root_id != select->getIndexedID()) {
+        return false;
+      }
+    } else if (auto index_select = dynamic_cast<IndexSelectOp*>(use)) {
+      // If the root_id is an indexed ID, and the consumer ID may be a
+      // broadcast. In that case, nothing needs to be mapped if the
+      // consumer broadcast is not resolved
+      if (root_id != index_select->getIndexedID() ||
+          !ca_map
+               .getConcreteMappedID(
+                   index_select->getConsumerOfIndexedID(),
+                   IdMappingMode::PERMISSIVE)
+               ->isBroadcast()) {
+        return false;
+      }
+    } else if (auto gather = dynamic_cast<TorchGatherOp*>(use)) {
+      // TODO: Remove this. Once slice is used for torch_gather, this
+      // should not be necessary. For now, it is necessary to not
+      // break the existing torch_gather tests
+      if (!gather->exactSizes()) {
+        continue;
+      }
+      // If the root_id is an indexed ID, and the consumer ID may be a
+      // broadcast. In that case, nothing needs to be mapped if the
+      // consumer broadcast is not resolved
+      if (root_id != gather->getIndexedID() ||
+          !ca_map
+               .getConcreteMappedID(
+                   gather->getConsumerOfIndexedID(), IdMappingMode::PERMISSIVE)
+               ->isBroadcast()) {
+        return false;
+      }
+    } else {
+      // If the input TV is used by any other ops
+      return false;
+    }
+  }
+
+  return true;
+}
+
 } // namespace
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
@@ -71,52 +117,23 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   // Get concrete IDs for input root or rfactor domain
   std::unordered_set<IterDomain*> in_concrete_ids;
   for (auto in_id : input_tv->getMaybeRFactorDomain()) {
+    if (canIgnoreIndexedInputDomainID(input_tv, in_id, ca_map_)) {
+      continue;
+    }
+
     // Permissive map is required for the transpose scheduler to support cases
     // like T0[I0, b] + T1[b, I1]
     auto concrete =
         ca_map_.getConcreteMappedID(in_id, IdMappingMode::PERMISSIVE);
 
-    bool skip = true;
-    for (auto use : input_tv->uses()) {
-      if (auto select = dynamic_cast<SelectOp*>(use)) {
-        if (in_id == select->getIndexedID()) {
-          // effectively same as squeeze
-          continue;
-        }
-      } else if (auto index_select = dynamic_cast<IndexSelectOp*>(use)) {
-        // The consumer ID may be a broadcast. In that case, nothing
-        // needs to be mapped with it
-        if (in_id == index_select->getIndexedID() &&
-            index_select->getConsumerOfIndexedID()->isBroadcast()) {
-          continue;
-        } else {
-          skip = false;
-          break;
-        }
-      } else if (auto gather = dynamic_cast<TorchGatherOp*>(use)) {
-        // The consumer ID may be a broadcast. In that case, nothing
-        // needs to be mapped with it
-        if (in_id == gather->getIndexedID() &&
-            gather->getConsumerOfIndexedID()->isBroadcast()) {
-          continue;
-        } else {
-          skip = false;
-          break;
-        }
-      } else {
-        skip = false;
-        break;
-      }
-    }
-
-    if (!concrete->isBroadcast() && !in_id->isReduction() && !skip) {
+    if (!concrete->isBroadcast() && !in_id->isReduction()) {
       in_concrete_ids.insert(concrete);
     }
   }
 
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
-  eraseIfInputMappedThroughRFactorDomain(
+  eraseifInputMappedThroughRFactorDomainAndIndexing(
       in_concrete_ids, tv->getMaybeRFactorDomain());
 
   return in_concrete_ids.empty();
@@ -136,7 +153,7 @@ bool DomainMap::eraseIfMapped(
   return found_match;
 }
 
-void DomainMap::eraseIfInputMappedThroughRFactorDomain(
+void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
     std::unordered_set<IterDomain*>& in_ids,
     const std::vector<IterDomain*>& ids) const {
   // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer
@@ -147,8 +164,7 @@ void DomainMap::eraseIfInputMappedThroughRFactorDomain(
     exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
   });
 
-  // Traverse through indexed domains. Don't care if indexed or
-  // not. Maybe it should be configurable.
+  // Traverse through indexed domains.
   const auto indexed_sets = getIndexedProducerConsumerPairs(fusion_, ca_map_);
 
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
@@ -162,10 +178,14 @@ void DomainMap::eraseIfInputMappedThroughRFactorDomain(
 
     current_sets.clear();
 
+    // Further traversal if any of the new producer sets is a producer
+    // of indexed domains
     for (const auto& exact_set : producer_sets) {
       auto indexed_it = std::find_if(
-          indexed_sets.begin(), indexed_sets.end(), [&](const auto& pair) {
-            return pair.second == exact_set;
+          indexed_sets.begin(),
+          indexed_sets.end(),
+          [&](const auto& producer_and_consumer) {
+            return producer_and_consumer.second == exact_set;
           });
       if (indexed_it != indexed_sets.end()) {
         current_sets.pushBack(indexed_it->first);
