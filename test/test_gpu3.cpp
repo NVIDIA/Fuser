@@ -8223,6 +8223,8 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
       {ref},
       __LINE__,
       __FILE__);
+}
+
 // Test for void IterDomain::parallelize(ParallelType t)
 // Only allowed to parallelize a leaf domain.
 TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
