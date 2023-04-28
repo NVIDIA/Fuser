@@ -1796,6 +1796,23 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.gather");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
         fd->defineRecord(new TorchGatherOpRecord(
@@ -1868,6 +1885,23 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.take_along_axis");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
         fd->defineRecord(new TakeAlongAxisOpRecord(
