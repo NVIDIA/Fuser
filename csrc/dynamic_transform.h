@@ -27,12 +27,12 @@ class DynamicTransformInfoBuilder;
 //! of the fusion inputs
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
-  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>
+  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
   getReshapeTransforms() const {
     return reshape_transforms_;
   }
 
-  const std::vector<std::pair<IterDomain*, IterType>> getResizeTransforms()
+  const std::vector<std::pair<IterDomain*, IterType>>& getResizeTransforms()
       const {
     return resize_transforms_;
   }
