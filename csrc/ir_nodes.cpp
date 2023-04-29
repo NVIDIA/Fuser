@@ -2479,12 +2479,25 @@ IterDomain* IterDomain::resize(
   }
 
   auto iter_type = in->getIterType();
-  auto is_symbolic = !resized_id_size->isConstInt();
-  if (symbolic) {
-    iter_type = IterType::Symbolic;
+  if (resized_id_size->isConstInt()) {
+    auto in_extent = in->extent()->getInt().value();
+    auto out_extent = resized_id_size->getInt().value();
+    auto left = left_expansion->getInt().value();
+    auto right = right_expansion->getInt().value();
+    TORCH_CHECK(out_extent >= 0, "Resized extent must be non-negative.");
+    if (
+        // negative padding sums to input extent. Output is zero-dimensional
+        out_extent == 0 ||
+        // input overlaps output
+        left + in_extent > 0 || right + in_extent > 0) {
+      iter_type = IterType::Iteration;
+    } else {
+      // Result is zero-dimensional, broadcast, or input doesn't overlap output
+      // In these cases, the output is just the broadcasted pad value
+      iter_type = IterType::Broadcast;
+    }
   } else {
-    auto extent_val = resized_id_size->getInt().value();
-    iter_type = extent_val == 1 ? IterType::Broadcast : IterType::Iteration;
+    iter_type = IterType::Symbolic;
   }
 
   auto resized_id =
