@@ -342,12 +342,6 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! `EncodingEntry`
   //! ). We store an iterator to `used_entry_` to implement LRU
   std::unordered_map<std::string, EncodingEntry> encoding_lookup_;
-
-  //! If true, input scalars will also affect the cache. For static Fusions this
-  //! is not desirable. However, for dynamic Fusions, the concretization of
-  //! dynamic reshapes may depend on input scalars, so we must take this into
-  //! account in order to avoid short-circuiting cache lookups in those cases.
-  [[maybe_unused]] bool hash_scalars_ = false;
 };
 
 //! [ Note -- 2 level cache implementation ]
