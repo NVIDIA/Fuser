@@ -219,6 +219,8 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     if (input_tv->uses().empty()) {
       continue;
     }
+    // TODO: Same backward traversal from tv is done for all input
+    // tvs. Consider doing the analysis one for all inputs
     if (!areAllInputIdsMappedTo(input_tv, tv)) {
       return false;
     }

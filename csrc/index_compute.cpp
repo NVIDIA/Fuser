@@ -1858,7 +1858,6 @@ std::vector<Val*> Index::getProducerRootIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::getProducerRootIndices");
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
-
   auto pairwise_map =
       PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
 

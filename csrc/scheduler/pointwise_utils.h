@@ -29,12 +29,7 @@ class DomainMap {
   // Determine if a TensorView is a valid reference tensor for this fusion.
   // The reference tensor must map to all the iterDomains in each input.
   bool isValidReference(TensorView* tv) const;
-#if 0
-  // Determine if and ID is a selected ID of some SelectOp
-  bool isSelectId(IterDomain* id) const {
-    return select_ids_.count(id);
-  }
-#endif
+
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
@@ -59,7 +54,6 @@ class DomainMap {
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
   std::vector<TensorView*> tvs_with_rfactor_;
-  // std::unordered_set<IterDomain*> select_ids_;
 };
 
 // Returns number of non-reduction/non-broadcast dims in rfactor domain
