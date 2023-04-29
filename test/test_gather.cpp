@@ -694,7 +694,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
 // Reduction then take_along_axis. This is currently segmented due to
 // the post-reduction rule as documented in
 // https://github.com/NVIDIA/Fuser/issues/260
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction_CUDA) {
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -737,8 +737,61 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// take_along_axis to broadcast, squeeze, then reduction. Segmented
+// before the reduction
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100, 100});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  auto tv5 = squeeze(tv4, std::vector<bool>{false, true});
+  auto tv6 = sum(tv5, {0});
+  fusion.addOutput(tv6);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto runtime = fec.getMostRecentKernelRuntime();
+  TORCH_CHECK(
+      runtime->fusionSegments()->groups().size() == 2, "Segmentation expected");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+          ScheduleHeuristic::PointWise,
+      "Expected to use the pointwise scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic() ==
+          ScheduleHeuristic::Reduction,
+      "Expected to use the reduction scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic(),
+      ", was used");
+
+  auto t4 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1);
+  auto ref = t4.squeeze(1).sum({0});
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Normalization then take_along_axis
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization_CUDA) {
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -747,22 +800,21 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
   auto tv2 = sum(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = div(tv0, tv3);
-  auto tv5 = take_along_axis(tv4, tv1, 1);
-  fusion.addOutput(tv5);
-
-  fusion.printMath();
+  auto tv5 = broadcast(tv1, {false, true});
+  auto tv6 = take_along_axis(tv4, tv5, 1);
+  fusion.addOutput(tv6);
 
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto t1 = at::randint(0, shape[1], {shape[0], 1}, options_i);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -779,7 +831,66 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization_CUDA) {
       ", was used");
 
   auto t0_d = t0.to(at::kDouble);
-  auto ref = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
+  auto ref = at::take_along_dim(
+      t0_d / t0_d.sum({1}).unsqueeze(-1), t1.unsqueeze(-1), 1);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// take_along_dim to broadcast, squeeze, then normalization. Segmented
+// as the input dim to take_along_dim cannot be scheduled by the
+// reduction tv
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({32, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  auto tv5 = squeeze(tv4, std::vector<bool>{false, true});
+  auto tv6 = sum(tv5, {0});
+  auto tv7 = broadcast(tv6, {true});
+  auto tv8 = div(tv5, tv7);
+  fusion.addOutput(tv8);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto runtime = fec.getMostRecentKernelRuntime();
+
+  TORCH_CHECK(
+      runtime->fusionSegments()->groups().size() == 2, "Segmentation expected");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
+          ScheduleHeuristic::PointWise,
+      "Expected to use the pointwise scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
+      ", was used");
+  TORCH_CHECK(
+      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic() ==
+          ScheduleHeuristic::Persistent,
+      "Expected to use the persistent scheduler but ",
+      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic(),
+      ", was used");
+
+  auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
+                .squeeze(1);
+  auto ref = t5 / t5.sum({0}).unsqueeze(0);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }

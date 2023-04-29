@@ -380,6 +380,10 @@ TORCH_CUDA_CU_API bool isIndexedConsumerID(
     const TensorView* tv,
     const IterDomain* id);
 
+TORCH_CUDA_CU_API IterDomain* getIndexedProducerID(const Expr* expr);
+
+TORCH_CUDA_CU_API IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
+
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and
 // unique.
 TORCH_CUDA_CU_API std::vector<IterDomain*> allIDsOf(const TensorView* tv);

@@ -415,7 +415,7 @@ class SchedulerTopologyChecker {
    */
   static bool hasViewNotBeforeRef(
       Fusion* fusion,
-      std::vector<TensorView*> reference_tvs) {
+      const std::vector<TensorView*>& reference_tvs) {
     std::vector<TensorView*> view_tvs;
     auto view_ops = ir_utils::getViewOps(fusion);
     for (auto view_op : view_ops) {
@@ -437,6 +437,63 @@ class SchedulerTopologyChecker {
           return true;
         }
       }
+    }
+
+    return false;
+  }
+
+  // Checks if there's any gather-like ops that result in non-resolved
+  // broadcast domains before reduction TVs. The reduction scheduler
+  // uses reduction TVs as a scheduling reference, but that won't
+  // schedule such unresolved/ broadcasts, and thus the input domains
+  // to the gather-like ops.
+  //
+  // This analysis has some similarity as DomainMap. Can be
+  // consolidated?
+  static bool hasGatherToBroadcastBeforeReduction(
+      Fusion* fusion,
+      const std::vector<TensorView*>& reduction_tvs) {
+    std::vector<Val*> reduction_inputs;
+    const auto all_exprs = DependencyCheck::getAllExprsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()},
+        {reduction_tvs.begin(), reduction_tvs.end()});
+
+    // Grab all consumer domains of indexed domains by gather-like ops
+    std::unordered_set<IterDomain*> broadcast_consumer_of_indexed_ids;
+    for (auto expr : all_exprs) {
+      auto in_tv = ir_utils::getTvInput(expr);
+      // Fusion input does not conflict
+      if (in_tv == nullptr || in_tv->isFusionInput()) {
+        continue;
+      }
+      // In the case of select, there's no consumer domain, and thus
+      // there's no way to schedule the indexed producer domain
+      if (auto select = dynamic_cast<SelectOp*>(expr)) {
+        return true;
+      }
+      if (auto consumer_of_indexed_producer =
+              ir_utils::getConsumerOfIndexedProducerID(expr)) {
+        if (consumer_of_indexed_producer->isBroadcast()) {
+          broadcast_consumer_of_indexed_ids.insert(
+              consumer_of_indexed_producer);
+        }
+      }
+    }
+
+    if (broadcast_consumer_of_indexed_ids.empty()) {
+      return false;
+    }
+
+    // Check if the broadcast domains are resolved. If any of them is
+    // not resolved, the reduction scheduler can't schedule the fusion
+    ConcretizedBroadcastDomains concretized_broadcast_domains(fusion);
+    if (std::any_of(
+            broadcast_consumer_of_indexed_ids.begin(),
+            broadcast_consumer_of_indexed_ids.end(),
+            [&concretized_broadcast_domains](auto id) {
+              return !concretized_broadcast_domains.isConcretized(id);
+            })) {
+      return true;
     }
 
     return false;
@@ -1503,6 +1560,14 @@ class ReductionScheduler : public SchedulerEntry {
       return false;
     }
 
+    if (SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
+            fusion, reduction_tvs)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "has unsupported gather-like ops before reduction");
+      return false;
+    }
+
     return true;
   }
 
@@ -1887,6 +1952,15 @@ class PersistentKernelScheduler : public SchedulerEntry {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
           "unsupported post reduction normalization");
+      return false;
+    }
+
+    // TODO: What tensors are reference tensors? Not all reduction tvs are same.
+    if (SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
+            fusion, reduction_tvs)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent,
+          "has unsupported gather-like ops before normalization");
       return false;
     }
 
