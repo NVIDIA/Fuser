@@ -92,11 +92,6 @@ for i, arg in enumerate(sys.argv):
 sys.argv = forward_args
 
 
-def get_cmake_bin():
-    # TODO: double check cmake version here and retrieve later version if necessary
-    return "cmake"
-
-
 class clean(setuptools.Command):
     user_options = []
 
@@ -123,28 +118,24 @@ class clean(setuptools.Command):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
-    def build_extensions(self):
-        for i, ext in enumerate(self.extensions):
-            if ext.name == "nvfuser._C":
-                # NOTE: nvfuser pybind target is built with cmake, we remove the entry for ext_modules
-                del self.extensions[i]
-
-                # Copy nvfuser extension to proper file name
-                fullname = self.get_ext_fullname("nvfuser._C")
-                filename = self.get_ext_filename(fullname)
-                fileext = os.path.splitext(filename)[1]
-                cwd = os.path.dirname(os.path.abspath(__file__))
-                src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
-                dst = os.path.join(cwd, filename)
-                if os.path.exists(src):
-                    print(
-                        "handling nvfuser pybind API, copying from {} to {}".format(
-                            src, dst
-                        )
-                    )
-                    self.copy_file(src, dst)
-
-        setuptools.command.build_ext.build_ext.build_extensions(self)
+    def build_extension(self, ext):
+        if ext.name == "nvfuser._C":
+            fullname = self.get_ext_fullname("nvfuser._C")
+            filename = self.get_ext_filename(fullname)
+            fileext = os.path.splitext(filename)[1]
+            cwd = os.path.dirname(os.path.abspath(__file__))
+            src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
+            dst = os.path.join(cwd, filename)
+            build_lib = self.get_finalized_command("build_py").build_lib
+            another_dst = os.path.join(build_lib, filename)
+            print(f"### {src = }, {dst = }, {build_lib = }")
+            if os.path.exists(src):
+                print(f"### handling nvfuser pybind API, copying from {src} to {dst} & {another_dst}")
+                self.copy_file(src, dst)
+                self.copy_file(src, another_dst)
+            print("\n### `nvfuser._C` exiting\n")
+        else:
+            super().build_extension(ext)
 
 
 class concat_third_party_license:
@@ -226,6 +217,17 @@ else:
                 super().run()
 
 
+def version_tag():
+    from tools.gen_nvfuser_version import get_version
+
+    version = get_version()
+    if OVERWRITE_VERSION:
+        version = version.split("+")[0]
+        if len(VERSION_TAG) != 0:
+            version = "+".join([version, VERSION_TAG])
+    return version
+
+
 def cmake():
     # make build directories
     build_dir_name = "build"
@@ -250,9 +252,10 @@ def cmake():
 
     # generate cmake directory
     cmd_str = [
-        get_cmake_bin(),
+        "cmake",
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
+        f"-DCMAKE_INSTALL_PREFIX={os.path.join(cwd, 'nvfuser')}",
         "-B",
         build_dir_name,
     ]
@@ -268,13 +271,14 @@ def cmake():
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
 
+    print(f"\n### cmake command: {' '.join(cmd_str)}\n")
     subprocess.check_call(cmd_str)
 
     if not CMAKE_ONLY:
         # build binary
         max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
         cmd_str = [
-            get_cmake_bin(),
+            "cmake",
             "--build",
             build_dir_name,
             "--target",
@@ -286,21 +290,8 @@ def cmake():
         subprocess.check_call(cmd_str)
 
 
-def version_tag():
-    from tools.gen_nvfuser_version import get_version
-
-    version = get_version()
-    if OVERWRITE_VERSION:
-        version = version.split("+")[0]
-        if len(VERSION_TAG) != 0:
-            version = "+".join([version, VERSION_TAG])
-    return version
-
-
 def main():
-    if BUILD_SETUP:
-        cmake()
-
+    cmake()
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
         nvfuser_package_data = [
