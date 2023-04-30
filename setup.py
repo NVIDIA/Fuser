@@ -342,6 +342,7 @@ def main():
         if BUILD_SETUP and PATCH_NVFUSER:
             sys.path.append("./nvfuser_python_utils")
             from patch_nvfuser import patch_installation
+
             patch_installation()
 
 
