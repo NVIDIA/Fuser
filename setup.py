@@ -120,20 +120,17 @@ class clean(setuptools.Command):
 class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
-            fullname = self.get_ext_fullname("nvfuser._C")
-            filename = self.get_ext_filename(fullname)
+            # Copy files on necessity.
+            filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
             fileext = os.path.splitext(filename)[1]
-            cwd = os.path.dirname(os.path.abspath(__file__))
-            src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
-            dst = os.path.join(cwd, filename)
-            build_lib = self.get_finalized_command("build_py").build_lib
-            another_dst = os.path.join(build_lib, filename)
-            print(f"### {src = }, {dst = }, {build_lib = }")
-            if os.path.exists(src):
-                print(f"### handling nvfuser pybind API, copying from {src} to {dst} & {another_dst}")
-                self.copy_file(src, dst)
-                self.copy_file(src, another_dst)
-            print("\n### `nvfuser._C` exiting\n")
+
+            libnvfuser_path = os.path.join("./nvfuser/lib", f"libnvfuser{fileext}")
+            assert os.path.exists(libnvfuser_path)
+            install_dst = os.path.join(self.build_lib, filename)
+            if not os.path.exists(os.path.dirname(install_dst)):
+                os.makedirs(os.path.dirname(install_dst))
+            self.copy_file(libnvfuser_path, install_dst)
+            # print("\n### `nvfuser._C` exiting\n")
         else:
             super().build_extension(ext)
 
@@ -228,11 +225,10 @@ def version_tag():
     return version
 
 
-def cmake():
+def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     # make build directories
-    build_dir_name = "build"
     cwd = os.path.dirname(os.path.abspath(__file__))
-    cmake_build_dir = os.path.join(cwd, "build")
+    cmake_build_dir = os.path.join(cwd, "build" if not build_dir else build_dir)
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
@@ -255,9 +251,9 @@ def cmake():
         "cmake",
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
-        f"-DCMAKE_INSTALL_PREFIX={os.path.join(cwd, 'nvfuser')}",
+        f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         "-B",
-        build_dir_name,
+        cmake_build_dir,
     ]
     if not NO_NINJA:
         cmd_str.append("-G")
@@ -280,7 +276,7 @@ def cmake():
         cmd_str = [
             "cmake",
             "--build",
-            build_dir_name,
+            cmake_build_dir,
             "--target",
             "install",
             "--",
@@ -291,6 +287,9 @@ def cmake():
 
 
 def main():
+    # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
+    # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
+    # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
     cmake()
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
@@ -313,7 +312,7 @@ def main():
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser", "nvfuser_python_utils"],
-            ext_modules=[Extension(name=str("nvfuser._C"), sources=[])],
+            ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
@@ -322,6 +321,11 @@ def main():
             },
             package_data={
                 "nvfuser": nvfuser_package_data,
+            },
+            exclude_package_data={
+                # FIXME(crcrpar): Still this seems to be copied into nvfuser/lib while
+                # the content is the same as `nvfuser._C`.
+                "nvfuser": ["libnvfuser.so"],
             },
             install_requires=INSTALL_REQUIRES,
             entry_points={
