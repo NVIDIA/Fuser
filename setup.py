@@ -293,9 +293,10 @@ def main():
     cmake()
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
+        # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
+        # might can be treated by using `exclude_package_data`.
         nvfuser_package_data = [
-            "*.so",
-            "lib/*.so",
+            "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
@@ -304,6 +305,10 @@ def main():
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
+            # TODO(crcrpar): it'd be better to ship the following two binaries.
+            # Would need some change in CMakeLists.txt.
+            # "bin/nvfuser_tests",
+            # "bin/nvfuser_bench"
         ]
 
         setup(
@@ -322,12 +327,10 @@ def main():
             package_data={
                 "nvfuser": nvfuser_package_data,
             },
-            exclude_package_data={
-                # FIXME(crcrpar): Still this seems to be copied into nvfuser/lib while
-                # the content is the same as `nvfuser._C`.
-                "nvfuser": ["libnvfuser.so"],
-            },
             install_requires=INSTALL_REQUIRES,
+            extra_requires={
+                "test": ["numpy", "expecttest", "pytest"],
+            },
             entry_points={
                 "console_scripts": [
                     "patch-nvfuser = nvfuser_python_utils:patch_installation",
@@ -337,7 +340,9 @@ def main():
         )
 
         if BUILD_SETUP and PATCH_NVFUSER:
-            subprocess.check_call(["patch-nvfuser"])
+            sys.path.append("./nvfuser_python_utils")
+            from patch_nvfuser import patch_installation
+            patch_installation()
 
 
 if __name__ == "__main__":
