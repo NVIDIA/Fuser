@@ -439,24 +439,8 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
 } // namespace
 
 namespace {
-int getKAxis(const MmaLayout& layout) {
-  switch (layout) {
-    //! NT : K,M x K,N -> K,M,N
-    case MmaLayout::NT:
-      return 0;
-    //! TT : M,K X K,N -> M,K,N
-    case MmaLayout::TT:
-      return 1;
-    //! TN : M,K X N,K -> M,N,K
-    case MmaLayout::TN:
-      return 2;
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-}
 void scheduleSplitKReduction(
     TensorView* tv,
-    const MmaLayout& layout,
     const MatMulTileOptions& gemm_tile,
     const int split_k_factor) {
   // This function is to schedule the reduction part in split-k
@@ -471,7 +455,8 @@ void scheduleSplitKReduction(
   // Mw = warp_tile_m / instruction_tile_m
   // Nw = warp_tile_n / instruction_tile_n
   // Mist = instruction_tile_m
-  // Nist = instruction_tile_n  
+  // Nist = instruction_tile_n 
+  std::cout << "tv= " << tv->toString() << std::endl;
   for (int i = 0; i < 3; i++) {
     tv->merge(5);
   }
@@ -506,12 +491,9 @@ void scheduleSplitKReduction(
   //{..., {warp_tile_m*warp_tile_n/warp_size/split_k_factor}, {split_k_factor},
   //{warp_size}, {split_k_factor}}
 
-  // step-5, set vectorize
-  const bool vectoriziable = getKAxis(layout) == 2;
-  const int max_vectorization_factor =
-      16 / dataTypeSize(tv->getDataType().value());
-  const int vectorization_factor =
-      vectoriziable ? std::gcd(split_k_factor, max_vectorization_factor) : 1;
+  // step-5, set vectorization_factor
+  const int max_vectorization_factor = 16 / dataTypeSize(tv->getDataType().value());
+  const int vectorization_factor = std::gcd(split_k_factor, max_vectorization_factor);
   if (vectorization_factor > 1) {
     tv->split(-1, vectorization_factor);
     tv->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -688,8 +670,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         "via ldmatrix.trans for fp16 or explicitly for other types.");
     if (!acr->hasRFactor() && !bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::TN);
+      std::cout << "llu MmaOptions::MmaLayout::TN" << std::endl;
     } else if (!acr->hasRFactor() && bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::TT);
+      std::cout << "llu MmaOptions::MmaLayout::TT" << std::endl;
     } else if (acr->hasRFactor() && !bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::NN);
     } else if (acr->hasRFactor() && bcr->hasRFactor()) {
@@ -864,7 +848,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Up to here, first part transformation and parallelization is done.
   if (params.split_k_factor > 1) {
-    scheduleSplitKReduction(cc, layout, gemm_tile, params.split_k_factor);
+    scheduleSplitKReduction(cc, gemm_tile, params.split_k_factor);
 
     // allows propagte to tmp_gmem_reload but can't propage from tmp_gmem_reload
     reduction_scheduler_utils::propagateTransformation(cc, {tmp_gmem_reload});

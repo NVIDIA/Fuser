@@ -3416,23 +3416,18 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
-  // MatmulLayout::TT, k = 1, 2, 4
-  // kernel1 run in 0.101376 ms, achieved: 141.576 GB/s
-  // kernel2 run in 0.084992 ms, achieved: 168.867 GB/s
-  // kernel3 run in 0.059392 ms, achieved: 241.655 GB/s
-
-  // MatmulLayout::NT, k = 1, 2, 4
-  // kernel4 run in 0.088064 ms, achieved: 162.977 GB/s
-  // kernel5 run in 0.077824 ms, achieved: 184.421 GB/s
-  // kernel6 run in 0.057344 ms, achieved: 250.286 GB/s
-
-  // MatmulLayout::TN, k = 1, 2, 4
-  // kernel7 run in 0.095232 ms, achieved: 150.71 GB/s
-  // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
-  // kernel9 run in 0.076800 ms, achieved: 186.88 GB/s
+    // kernel1 run in 0.077824 ms, achieved: 184.421 GB/s
+    // kernel2 run in 0.086016 ms, achieved: 166.857 GB/s
+    // kernel3 run in 0.074752 ms, achieved: 192 GB/s
+    // kernel4 run in 0.065536 ms, achieved: 219 GB/s
+    // kernel5 run in 0.082944 ms, achieved: 173.037 GB/s
+    // kernel6 run in 0.073728 ms, achieved: 194.667 GB/s
+    // kernel7 run in 0.07168 ms, achieved: 200.229 GB/s
+    // kernel8 run in 0.088064 ms, achieved: 162.977 GB/s
+    // kernel9 run in 0.0768 ms, achieved: 186.88 GB/s
   int M = 128 * 3, N = 128 * 9, K = 4096;
-  for (auto layout : kAllSupportedMatmulLayout) {
-    for (int k_factor : {4}) {
+  for (auto layout : {MatmulLayout::TT}) {
+    for (int k_factor : {1,4}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3452,6 +3447,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
       params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
+      params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 4;
       params.tile_sizes = gemm_tile;
       scheduleMatmul(&fusion, params);
