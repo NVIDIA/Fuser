@@ -36,6 +36,8 @@ class TORCH_CUDA_CU_API IdGraph {
   //     otherwise a null shared ptr
   //     (2) If the disjoint set of the provided Iter Domain exists
   //   }
+  //
+  // TODO: Audit usage
   std::pair<IdGroup, bool> disjointIdSet(IterDomain* id) const;
 
   // Returns the disjoint Expr set.
@@ -44,6 +46,8 @@ class TORCH_CUDA_CU_API IdGraph {
   DisjointSets<Expr*>& disjointExprSets();
 
   // Same as getDisjointIdSet but for the Expression sets.
+  //
+  // TODO: Audit usage
   std::pair<ExprGroup, bool> disjointExprSet(Expr* expr) const;
 
   // Convert expr to its exprGroup, assert that it exists.
@@ -329,7 +333,7 @@ class TORCH_CUDA_CU_API IdGraphVisitor {
   // If sub_selection is assumed to be a set of iter domains by which form a
   // sub-regrion of the IdGraph provided. Only that sub-region will be visited.
   IdGraphVisitor(
-      IdGraph& id_graph,
+      const IdGraph& id_graph,
       const VectorOfUniqueEntries<IterDomain*> sub_selection = {})
       : id_graph_(id_graph), sub_selection_(sub_selection) {}
 
@@ -338,7 +342,7 @@ class TORCH_CUDA_CU_API IdGraphVisitor {
 
   void traverse();
 
-  IdGraph& graph() {
+  const IdGraph& graph() {
     return id_graph_;
   };
 
@@ -353,7 +357,7 @@ class TORCH_CUDA_CU_API IdGraphVisitor {
   virtual ~IdGraphVisitor() = default;
 
  private:
-  IdGraph& id_graph_;
+  const IdGraph& id_graph_;
   const VectorOfUniqueEntries<IterDomain*> sub_selection_;
 };
 
@@ -361,7 +365,7 @@ class TORCH_CUDA_CU_API IdGraphVisitor {
 class IdGraphStmtSort : public IdGraphVisitor {
  public:
   IdGraphStmtSort(
-      IdGraph& id_graph,
+      const IdGraph& id_graph,
       const VectorOfUniqueEntries<IterDomain*> sub_selection = {})
       : IdGraphVisitor(id_graph, sub_selection) {
     IdGraphVisitor::traverse();
@@ -390,6 +394,12 @@ class IdGraphStmtSort : public IdGraphVisitor {
   ExprGroups sorted_exprs;
   IdGroups sorted_ids;
 };
+
+namespace {
+// Convenience to store some intermediate data across a few lowering build
+// passes.
+struct StatefulLoweringInfo;
+} // namespace
 
 // TODO: Comment is stale, update.
 //
@@ -557,12 +567,57 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // AlmostExact entries, then map through broadcasts
   void buildPermissiveMap(const std::vector<Expr*>& exprs);
 
+  // Make sure only leaf nodes of tensor views are parallelized
+  void validatePTypes(const std::vector<TensorView*>& all_tvs) const;
+
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
   //! all IterDomains in the disjoint set to that PType.
-  void validateAndPropagatePType() const;
+  void propagateLoopPTypes() const;
 
-  void buildLoopPromotionMap(const std::vector<Expr*>& exprs);
+  // !! START Helper functions to build loop promotion and index map!!
+
+  // Terminal loop ids are iteration domains in each loop group that:
+  // 1) Don't have an entry in p2c_ca_permissive_maps, which would mean a
+  //    consumer TV's iter domain maps to this domain in a way that that domain
+  //    is also in the same loop group
+  // 2) Don't have a direct IterDomain consumer within the group
+  VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
+      const StatefulLoweringInfo info);
+
+  // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
+  // graph1.
+  IdGraph buildIntersection(
+      const IdGraph& graph0,
+      const IdGraph& graph1,
+      bool propagate_exprs = true);
+
+  // !! END Helper functions to build loop promotion and index map!!
+
+  // Start loop map by grouping inlined iter domains
+  void initializeLoopMap(StatefulLoweringInfo& info);
+
+  // Returns map of IdGroups in the loop map to a representative IterDomain that
+  // contains all resolved transformations that the terminal IterDomains should
+  // be promoted to. The returned promotions are valid only for inlined iter
+  // domains.
+  std::unordered_map<IdGroup, IterDomain*> buildInlinePromotions(
+      StatefulLoweringInfo& info);
+
+  // Returns a similar thing to buildInlinePromotions but also includes iter
+  // domains that are not inlined.
+  std::unordered_map<IdGroup, IterDomain*> buildLoopPromotionMap(
+      const std::vector<Expr*>& exprs,
+      StatefulLoweringInfo& info,
+      std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
+
+  // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
+  // map to go from leaf domains of each (consumer only?) tensor to their
+  // corresponding leaf domain in the index graph.
+  std::unordered_map<IterDomain*, IterDomain*> buildIndexGraph(
+      const std::vector<Expr*>& exprs,
+      StatefulLoweringInfo& info,
+      std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
 
   // Returns the terminal rfactor or input iter domains each group in the almost
   // exact map covers (in the almost exact map). This effectively returns all
