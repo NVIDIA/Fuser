@@ -1773,11 +1773,10 @@ void schedulePersistentKernelInnerOuter(
       inner_reference_tv, boundaryNodesSet);
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
-  // For parallelization, we need to explicitly skip tvs in boundaryNodesSet,
-  // otherwise the parallelization will be propagated to the first domain of tvs
-  // in boundaryNodesSet, because that domain was calculated from the partial
-  // reduction and these tensors are not scheduled yet.
-  auto selected_tvs_inner = ir_utils::allTvsExcept(fusion, boundaryNodesSet);
+
+  // Don't allow parallelization propagation goes through boundaryNodesSet
+  const auto& selected_tvs_inner =
+      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   reduction_scheduler_utils::propagateParallelization(
       fusion,
       inner_reduction_tvs[0],
@@ -1788,7 +1787,8 @@ void schedulePersistentKernelInnerOuter(
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
-      selected_tvs_inner);
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
   // boundaryNodesSet, the transformation from one outer reduction can't
@@ -1798,7 +1798,7 @@ void schedulePersistentKernelInnerOuter(
   // 246.
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
-        outer_reduction_tvs[i], {cached_gmem[i]});
+        {outer_reduction_tvs[i]}, {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
     reduction_scheduler_utils::propagateParallelization(
