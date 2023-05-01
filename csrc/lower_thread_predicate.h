@@ -52,20 +52,24 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     ParallelTypeBitmap redundant_types;
 
     // when a leaf domain is merged from concretized broadcast root domain, only
-    // part of thread/block do the write to gmem is enough e.g. [B1,I2,B3] is
-    // merged to [B1*I2*B3] and parallelized by blockIdx.x. The write pattern
-    // should be: write every len(B3) blocks of the first len(I2) * len(B3)
-    // blocks. len(B) is the size of the concretized domain.
-    // write_stride_less = {len(I2) * len(B3), 1}
-    // write_stride_mod = len(B3)
-    // generated condition is: blockIdx.x < write_stride_less && blockIdx.x %
-    // write_stride_mod < 1
-    // Another example, [I1, B2, I3] merged to [I1*B2*I3], the condition is:
-    // blockIdx.x % (len(B2)*len(I3)) < len(I3).
-    // write_stride_mod will generate condition: index % pair(1) < pair(2)
-    std::unordered_map<ParallelType, std::pair<Val*, Val*>> write_stride_mod;
-    // write_stride_less will generate condition: index < write_stride_less
-    std::unordered_map<ParallelType, Val*> write_stride_less;
+    // part of thread/block do the write to gmem is enough.
+    // e.g. [B1,I2,B3] is merged to [B1*I2*B3] and parallelized by blockIdx.x,
+    // the write condition is: blockIdx.x == write_index,
+    // where write_index = write_index_map[ParallelType::BIDx].
+    // write_index is calculated by the following method:
+    // (1) Find the root domains merged to this leaf domain, e.g. [B1, I2, B3]
+    // (2) Calculate the stride if we index the leaf domain using its root
+    // domains,
+    //     e.g. extended_stride = [len(I2)*len(B3), len(B3) ,1],
+    //     where len(Bx) is the length its concretized domain.
+    // (3) Calculate the index of each dimension. e.g. linear_index =
+    // blockIdx.x;
+    //     index[i] = (linear_index / stride[i]); linear_index %= stride[i];
+    // (4) index the leaf domain skipping the broadcasted dimensions.
+    //     e.g. write_index = 0 * stride[0] + index[1] * stride[1] + 0 *
+    //     stride[2]
+
+    std::unordered_map<ParallelType, Val*> write_index_map;
 
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]

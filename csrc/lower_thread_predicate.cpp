@@ -42,30 +42,15 @@ Bool* getPredicatePerParallelType(
                    GpuLower::current()->kernel()->oneVal()))
         ->as<Bool>();
   }
-  // when pt is in write_stride, use only a fraction of
-  // thread/block, smap_less is for [Broadcast, IterDomain] and smap_mod is for
-  // [IterDomain, Broadcast]
-  const auto& smap_less = pred_info.write_stride_less;
-  const auto& smap_mod = pred_info.write_stride_mod;
-  const bool has_less = smap_less.count(pt);
-  const bool has_mod = smap_mod.count(pt);
-  if ((has_less || has_mod) && pred_info.redundant_types.get(pt)) {
-    Val* cond_less = GpuLower::current()->kernel()->trueVal();
-    Val* cond_mod = GpuLower::current()->kernel()->trueVal();
-    if (has_mod) {
-      auto expr_mod = SimplifyingIrBuilder::modExpr(
-          NamedScalar::getParallelIndex(pt), std::get<0>(smap_mod.at(pt)));
-      cond_mod =
-          SimplifyingIrBuilder::ltExpr(expr_mod, std::get<1>(smap_mod.at(pt)))
-              ->as<Bool>();
-    }
-    if (has_less) {
-      cond_less = SimplifyingIrBuilder::ltExpr(
-                      NamedScalar::getParallelIndex(pt), smap_less.at(pt))
-                      ->as<Bool>();
-    }
-    return SimplifyingIrBuilder::andExpr(cond_less, cond_mod)->as<Bool>();
+
+  // skip concretized broadcast root domains
+  const auto& write_index_map = pred_info.write_index_map;
+  if (write_index_map.find(pt) != write_index_map.end()) {
+    return SimplifyingIrBuilder::eqExpr(
+               NamedScalar::getParallelIndex(pt), write_index_map.at(pt))
+        ->as<Bool>();
   }
+
   // Otherwise, only thread of index 0 executes the computation
   return SimplifyingIrBuilder::eqExpr(
              NamedScalar::getParallelIndex(pt),
@@ -519,34 +504,60 @@ class RedundantUseAnalysis : BackwardVisitor {
 
 } // namespace
 
-// This function removes the redundant write to gmem when an output tensor has a
+namespace {
+// This class removes the redundant write to gmem when an output tensor has a
 // leaf domain merged from concretized broadcast root domain and parallelized by
 // thread/block id. issue https://github.com/csarofeen/pytorch/issues/2125
-void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
-    const TensorView* out_tv) {
-  // step-1, check if there is a leaf domain parallelized by thread/block id and
-  // its definition is a merged
-  bool merged_parallelized_thread_block = false;
-  for (auto ld : out_tv->domain()->domain()) {
-    const ParallelType& pt = ld->getParallelType();
-    auto merge = dynamic_cast<Merge*>(ld->definition());
-    if (isParallelTypeThread(pt) && merge) {
-      merged_parallelized_thread_block = true;
-      break;
+class ConcretizedBroadcastRedundantWriteRemover {
+ public:
+  // interface to run the check
+  ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
+      : tv_(out_tv), root_domain_(out_tv->getRootDomain()) {
+    setCandidateLeafDomains();
+    if (!candidate_leaf_domains_.empty()) {
+      setConcretizedBroadcastRootDomain();
+      if (!concretized_broadcast_root_domains_.empty()) {
+        for (auto ld : candidate_leaf_domains_) {
+          // find all root domains that are merged to this leaf domain.
+          const std::vector<IterDomain*>& merged_root_domains =
+              getRootDomainsMergedToLeaf(ld);
+          const ParallelType& pt = ld->getParallelType();
+          Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
+          write_index_map_[pt] = write_index;
+        }
+      }
     }
   }
-  // shortcut if there is no such leaf domain
-  if (!merged_parallelized_thread_block) {
-    return;
+  // interface to get results
+  std::unordered_map<ParallelType, Val*> getWriteIndexMap() {
+    return write_index_map_;
   }
 
-  const auto& root_domain = out_tv->getMaybeRFactorDomain();
+ private:
+  const TensorView* tv_;
+  const std::vector<IterDomain*>& root_domain_;
+  // leaf domains that are merged from root domains and parallelized by thread
+  // blocks
+  std::vector<IterDomain*> candidate_leaf_domains_;
+  // map from root domain to its concretized domain
+  std::unordered_map<IterDomain*, IterDomain*>
+      concretized_broadcast_root_domains_;
+  // map from parallel type to its write index
+  std::unordered_map<ParallelType, Val*> write_index_map_;
+
+  void setCandidateLeafDomains() {
+    for (auto ld : tv_->domain()->domain()) {
+      const ParallelType& pt = ld->getParallelType();
+      auto merge = dynamic_cast<Merge*>(ld->definition());
+      if (isParallelTypeThread(pt) && merge) {
+        candidate_leaf_domains_.push_back(ld);
+      }
+    }
+  }
   // For each broadcast root domain, find a concretized domain from its
   // exact mapped domain set.
-  auto getConcretizedBroadcastRootDomain = [&]() {
-    std::unordered_map<IterDomain*, IterDomain*>
-        concretized_broadcast_root_domains;
-    for (auto rd : root_domain) {
+  void setConcretizedBroadcastRootDomain() {
+    for (auto rd : root_domain_) {
       if (rd->isBroadcast()) {
         const auto& mapped_rd_exact_set = GpuLower::current()
                                               ->caMap()
@@ -558,24 +569,22 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
                   ->concretizedBroadcastDomains()
                   ->allConcretizedDomains(mapped_rd);
           if (!all_cids.empty()) {
-            concretized_broadcast_root_domains[rd] = *all_cids.begin();
+            concretized_broadcast_root_domains_[rd] = *all_cids.begin();
             break;
           }
         }
       }
     }
-    return concretized_broadcast_root_domains;
-  };
-
+  }
   // Find all the root domains that are merged to the leaf domain.
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1B2B3], the merged_root_domains =
   // {B3,B2,I1}
-  auto getRootDomainsMergedToLeaf = [&](IterDomain* ld) {
+  std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
     std::vector<IterDomain*> merged_root_domains;
     std::vector<int> index_root_domain;
-    std::vector<IterDomain*> intermediate_domains = root_domain;
+    std::vector<IterDomain*> intermediate_domains = root_domain_;
     auto all_exp = DependencyCheck::getAllExprsBetween(
-        {root_domain.begin(), root_domain.end()}, {ld});
+        {root_domain_.begin(), root_domain_.end()}, {ld});
     for (auto expr : all_exp) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
         auto outer_iter_im = std::find(
@@ -607,22 +616,24 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
         intermediate_domains.insert(beg, merge->out());
 
         auto outer_iter =
-            std::find(root_domain.begin(), root_domain.end(), merge->outer());
+            std::find(root_domain_.begin(), root_domain_.end(), merge->outer());
         auto inner_iter =
-            std::find(root_domain.begin(), root_domain.end(), merge->inner());
+            std::find(root_domain_.begin(), root_domain_.end(), merge->inner());
         // outer_iter and inner_iter should be neighbors in root_domain
-        if (inner_iter != root_domain.end() &&
-            outer_iter != root_domain.end() &&
+        if (inner_iter != root_domain_.end() &&
+            outer_iter != root_domain_.end() &&
             std::distance(outer_iter, inner_iter) != 1) {
           return std::vector<IterDomain*>();
         }
-        if (inner_iter != root_domain.end()) {
-          merged_root_domains.emplace_back(*inner_iter);
-          index_root_domain.emplace_back(inner_iter - root_domain.begin());
-        }
-        if (outer_iter != root_domain.end()) {
+        if (outer_iter != root_domain_.end()) {
           merged_root_domains.emplace_back(*outer_iter);
-          index_root_domain.emplace_back(outer_iter - root_domain.begin());
+          index_root_domain.emplace_back(
+              std::distance(root_domain_.begin(), outer_iter));
+        }
+        if (inner_iter != root_domain_.end()) {
+          merged_root_domains.emplace_back(*inner_iter);
+          index_root_domain.emplace_back(
+              std::distance(root_domain_.begin(), inner_iter));
         }
       } else {
         // current analysis of predication is only valid if all the exprs
@@ -631,12 +642,12 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
       }
     }
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
-    // the order is [B2, I1, I3] while the correct order should be [I3, B2, I1]
+    // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     int n_elements = merged_root_domains.size();
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
-      return index_root_domain[a] > index_root_domain[b];
+      return index_root_domain[a] < index_root_domain[b];
     });
     std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
     for (int i = 0; i < n_elements; ++i) {
@@ -644,96 +655,53 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     }
 
     return merged_root_domains_sorted;
-  };
+  }
 
-  // Set stride when use extent of merged root domains to index leaf domain.
-  // e.g. Root: [I1,B2,B3] -> Leaf: [I1B2B3], the merged_root_domains =
-  // {B3,B2,I1}. root_stride = {1, len(B3), len(B3) * len(B2)}. For broadcast
-  // root domain, use the extent of its concretized domain.
-  auto getRootStride = [&](const std::vector<IterDomain*>& merged_root_domains,
-                           const std::unordered_map<IterDomain*, IterDomain*>&
-                               concretized_broadcast_root_domains) {
-    std::vector<Val*> root_stride(merged_root_domains.size());
-    root_stride[0] = IrBuilder::create<Int>(1);
-    for (int i = 1; i < (int)merged_root_domains.size(); i++) {
-      auto pre_crd = merged_root_domains[i - 1];
+  // Get the index of the leaf domain if we skip the broadcasted root domains
+  Val* getIndexWithoutBroadcast(
+      const std::vector<IterDomain*>& merged_root_domains,
+      ParallelType pt) {
+    const int ndim = (int)merged_root_domains.size();
+    // get the stride if we index the leaf domain using its root domains
+    std::vector<Val*> root_stride(ndim);
+    root_stride[ndim - 1] = IrBuilder::create<Int>(1);
+    for (int i = ndim - 2; i >= 0; i--) {
+      auto pre_crd = merged_root_domains[i + 1];
       Val* pre_extent = pre_crd->isBroadcast()
-          ? concretized_broadcast_root_domains.at(pre_crd)->extent()
+          ? concretized_broadcast_root_domains_.at(pre_crd)->extent()
           : pre_crd->extent();
-      root_stride[i] = IrBuilder::mulExpr(root_stride[i - 1], pre_extent);
+      root_stride[i] = IrBuilder::mulExpr(root_stride[i + 1], pre_extent);
     }
-    return root_stride;
-  };
-
-  // set write stride
-  // e.g. Root: [I1,B2,B3] -> Leaf: [I1B2B3], the merged_root_domains =
-  // {B3,B2,I1}. root_stride = {1, len(B3), len(B3) * len(B2)}. write_stride_mod
-  // = {len(B3) * len(B2)}. More cases can be found in
-  // NVFuserTest.FusionAvoidRedundantWrite_CUDA
-  auto setWriteStride = [&](const std::vector<IterDomain*>& merged_root_domains,
-                            const std::vector<Val*>& root_stride,
-                            const ParallelType& pt) {
-    int ndim = (int)merged_root_domains.size();
-    if (ndim > 3) {
-      // only tested up to 3 dims merged into 1 dim
-      return;
+    // convert the linear index of the leaf domain to the indices of the root
+    // domains
+    Val* remaining_index = NamedScalar::getParallelIndex(pt);
+    std::vector<Val*> root_indices(ndim);
+    for (int i = 0; i < ndim; i++) {
+      root_indices[i] = IrBuilder::divExpr(remaining_index, root_stride[i]);
+      remaining_index = IrBuilder::modExpr(remaining_index, root_stride[i]);
     }
 
-    // backward iterator, to ensure the visit is from outer to inner dims
-    int idx = ndim - 1;
-    while (idx >= 0) {
-      auto crd = merged_root_domains.at(idx);
-      if (crd->isBroadcast()) {
-        // for pattern [B1,X], only first len(X) blocks needs to write, len(X) =
-        // root_stride[idx of crd]
-        thread_predicates_[out_tv].write_stride_less[pt] = root_stride[idx];
-        thread_predicates_[out_tv].redundant_types.set(pt);
-        idx--;
-      } else if (crd->isIteration()) {
-        // for pattern [I1,B2,I3], write len(I3) blocks for every len[B2] *
-        // len[I3] blocks
-        if (idx >= 2 && merged_root_domains[idx - 1]->isBroadcast() &&
-            !merged_root_domains[idx - 2]->isBroadcast()) {
-          thread_predicates_[out_tv].write_stride_mod[pt] =
-              std::make_pair(root_stride[idx], root_stride[idx - 1]);
-          thread_predicates_[out_tv].redundant_types.set(pt);
-          break;
-        }
-        // all other cases, [X,B,B], [X,I,B], [X,B,I], X can be I or B
-        else {
-          thread_predicates_[out_tv].write_stride_mod[pt] =
-              std::make_pair(root_stride[idx], IrBuilder::create<Int>(1));
-          thread_predicates_[out_tv].redundant_types.set(pt);
-          idx--;
-          // skip all following broadcast domains
-          while (idx >= 0 && merged_root_domains[idx]->isBroadcast()) {
-            idx--;
-          }
-        }
+    // get the index of the leaf domain if we skip the broadcasted root domains
+    Val* index_without_broadcast = IrBuilder::create<Int>(0);
+    for (int i = 0; i < ndim; i++) {
+      if (!merged_root_domains[i]->isBroadcast()) {
+        index_without_broadcast = IrBuilder::addExpr(
+            index_without_broadcast,
+            IrBuilder::mulExpr(root_indices[i], root_stride[i]));
       }
     }
-  };
+    return index_without_broadcast;
+  }
+};
+} // namespace
 
-  // step-2, map broadcast root domain to concretized domain
-  const std::unordered_map<IterDomain*, IterDomain*>&
-      concretized_broadcast_root_domains = getConcretizedBroadcastRootDomain();
-
-  // step-3, if it has concretized broadcast root domain, there is redundant
-  // write for leaf domain parallelized by thread/block, and merged from
-  // concretized broadcast root domains.
-  if (!concretized_broadcast_root_domains.empty()) {
-    for (auto ld : out_tv->domain()->domain()) {
-      const ParallelType& pt = ld->getParallelType();
-      auto merge = dynamic_cast<Merge*>(ld->definition());
-      if (isParallelTypeThread(pt) && merge) {
-        // find all root domains that are merged to this leaf domain.
-        const std::vector<IterDomain*>& merged_root_domains =
-            getRootDomainsMergedToLeaf(ld);
-        const std::vector<Val*>& root_stride = getRootStride(
-            merged_root_domains, concretized_broadcast_root_domains);
-        setWriteStride(merged_root_domains, root_stride, pt);
-      }
-    }
+void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
+    const TensorView* out_tv) {
+  ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
+  const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
+  thread_predicates_[out_tv].write_index_map = write_index_map;
+  for (auto iter : write_index_map) {
+    thread_predicates_[out_tv].redundant_types.set(iter.first);
   }
 }
 

@@ -8099,7 +8099,7 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
-// Repro of issue #2125, 1.19e+03 GB/s on A100-80G
+// Repro of issue #2125, 1.45e+03 GB/s on A100-80G
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -8137,11 +8137,11 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
     auto tv = ir_utils::getTvOutput(expr);
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
-      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx);
-      bool has_stride = thread_pred.write_stride_mod.count(ParallelType::BIDx);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.write_index_map.count(ParallelType::BIDx);
       TORCH_CHECK(
-          predicted && has_stride,
-          "Tv15 should be predicted by ParallelType::BIDx with a write stride!");
+          predicted,
+          "Tv15 should be predicted by ParallelType::BIDx with a write_index_map!");
       break;
     }
   }
@@ -8193,61 +8193,15 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     auto kernel = fe.kernel();
     const auto& thread_pred_map = fe.threadPredMap();
 
-    int first_broadcast_dim = shape1.size(), last_iter_dim = -1;
-    int first_iter_dim = shape1.size(), last_broadcast_dim = -1;
-    // last dim is not merged
-    for (int i = 0; i < ndim - 1; i++) {
-      if (is_broadcast[i]) {
-        first_broadcast_dim = std::min(first_broadcast_dim, i);
-        last_broadcast_dim = std::max(last_broadcast_dim, i);
-      } else {
-        first_iter_dim = std::min(first_iter_dim, i);
-        last_iter_dim = std::max(last_iter_dim, i);
-      }
-    }
-    // if there is a broadcast before iter domain, e.g. [B,I] we expect a
-    // stride_less, except [I,B,I] where only stride_mod is expected
-    bool expect_stride_less =
-        first_broadcast_dim == 0 && first_broadcast_dim < last_iter_dim ? true
-                                                                        : false;
-    // if there is a iter before broadcast domain, e.g. [I,B] we expect a
-    // stride_mod
-    bool expect_stride_mod = first_iter_dim < last_broadcast_dim ? true : false;
-    // if there is no iter domain, e.g. [B,B] we expect a stride_less (only
-    // the first block writes)
-    if (last_iter_dim == -1) {
-      expect_stride_less = true;
-    }
     for (const auto expr : kernel->exprs()) {
       auto tv = ir_utils::getTvOutput(expr);
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
-        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx);
-        bool has_stride_less =
-            thread_pred.write_stride_less.count(ParallelType::BIDx);
-        bool has_stride_mod =
-            thread_pred.write_stride_mod.count(ParallelType::BIDx);
-        if (has_stride_mod) {
-          // don't cout x % 1 as a valid write_stride_mod
-          Val* val =
-              std::get<0>(thread_pred.write_stride_mod.at(ParallelType::BIDx));
-          if (val->isConstScalar()) {
-            auto const_val = (dynamic_cast<Int*>(val))->value();
-            if (const_val.value() == 1) {
-              has_stride_mod = false;
-            }
-          }
-        }
-
-        TORCH_CHECK(predicted, "Tv8 should be predicted by ParallelType::BIDx");
+        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+            thread_pred.write_index_map.count(ParallelType::BIDx);
         TORCH_CHECK(
-            expect_stride_mod == has_stride_mod,
-            expect_stride_mod ? "write_stride_mod is expected"
-                              : "write_stride_mod is not expected");
-        TORCH_CHECK(
-            expect_stride_less == has_stride_less,
-            expect_stride_less ? "write_stride_less is expected"
-                               : "write_stride_less is not expected");
+            predicted,
+            "Tv8 should be predicted by ParallelType::BIDx with a write_index_map!");
         break;
       }
     }
