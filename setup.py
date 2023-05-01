@@ -294,7 +294,8 @@ def main():
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
     # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
     # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
-    cmake()
+    if BUILD_SETUP:
+        cmake()
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
