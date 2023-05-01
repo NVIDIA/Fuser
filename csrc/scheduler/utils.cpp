@@ -2193,9 +2193,6 @@ void promoteProducerMemoryTypes(
   // dependencies
   // TODO: Clean up once the index map refactor is done
   for (auto& [producer, consumer] : non_pwise_pairs) {
-    std::cerr << "Producer: " << producer->toString()
-              << ", consumer: " << consumer->toString() << std::endl;
-
     auto c2p_exact_map =
         BestEffortReplay(
             producer->domain()->leaf(),
