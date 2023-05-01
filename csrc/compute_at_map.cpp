@@ -458,9 +458,8 @@ void IterDomainGraph::build(Fusion* fusion) {
         //
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
-        const auto pairwise_resize_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                             .mapDifferentExtents(true)
-                                             .mapIndexedDomains(true);
+        const auto pairwise_resize_map =
+            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
                 p_tv, c_tv, -1, pairwise_resize_map, true, true, true)

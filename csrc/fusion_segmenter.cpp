@@ -2982,6 +2982,8 @@ getPreferredGroupsToMerge(const std::vector<SegmentedGroup*>& groups) {
       std::pair<SegmentedGroup*, std::vector<SegmentedGroup::NeighborGroup>>>
       preferred_groups;
 
+  return preferred_groups;
+
   // Prefer merging groups with gather-like exprs with producer
   // groups. It should be sufficient to just prioritize groups
   // when they just consist of a single gather-like expr since once
