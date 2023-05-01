@@ -75,6 +75,34 @@ at::Tensor generateScatter2DIndex(
   }
 }
 
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+  const auto& segment_groups = runtime->fusionSegments()->groups();
+
+  TORCH_CHECK(
+      segment_groups.size() == expected_heuristics.size(),
+      "Unexpected segments. Expected: ",
+      expected_heuristics.size(),
+      ". Actual: ",
+      segment_groups.size());
+
+  // Assumes up to two segments exist for simplicity
+  TORCH_INTERNAL_ASSERT(
+      segment_groups.size() <= 2, "True segment order analysis is required");
+
+  for (auto& group : segment_groups) {
+    int segment_order = group->producer_edges.empty() ? 0 : 1;
+    TORCH_CHECK(
+        group->heuristic() == expected_heuristics.at(segment_order),
+        "Expected to use the ",
+        expected_heuristics.at(segment_order),
+        " scheduler but ",
+        group->heuristic(),
+        " was used");
+  }
+}
+
 } // namespace
 
 TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
@@ -597,7 +625,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   }
 
   // This should not inline the indexed producer domain. Note that the
-  // producer tensor of the take_along_axis expr is not tv2 as a coyp
+  // producer tensor of the take_along_axis expr is not tv2 as a copy
   // is inserted
   inlineMost();
   auto take_along_axis_input =
@@ -676,15 +704,8 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::PointWise,
-      "Expected to use the pointwise scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
 
   auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
 
@@ -720,17 +741,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  // TODO: Enable the assertions
-#if 0
-  auto runtime = fec.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::Reduction,
-      "Expected to use the reduction scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
-#endif
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::Reduction, ScheduleHeuristic::PointWise});
 
   auto ref = at::take_along_dim(t0.to(at::kDouble).sum({1}), t1, 0);
 
@@ -768,21 +781,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-  TORCH_CHECK(
-      runtime->fusionSegments()->groups().size() == 2, "Segmentation expected");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::PointWise,
-      "Expected to use the pointwise scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic() ==
-          ScheduleHeuristic::Reduction,
-      "Expected to use the reduction scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic(),
-      ", was used");
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
 
   auto t4 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1);
   auto ref = t4.squeeze(1).sum({0});
@@ -820,15 +821,8 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::Persistent,
-      "Expected to use the persistent scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto ref = at::take_along_dim(
@@ -871,22 +865,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-
-  TORCH_CHECK(
-      runtime->fusionSegments()->groups().size() == 2, "Segmentation expected");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::PointWise,
-      "Expected to use the pointwise scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic() ==
-          ScheduleHeuristic::Persistent,
-      "Expected to use the persistent scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(1)->heuristic(),
-      ", was used");
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
 
   auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
                 .squeeze(1);
@@ -928,21 +909,11 @@ TEST_F(
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-
-  // This is actually fused to just a single kernel, even though
-  // there's an additional reduction. This is probably fine since the
-  // last reduciton is not persistent.
-  TORCH_CHECK(
-      runtime->fusionSegments()->groups().size() == 1,
-      "Segmentation not expected. ",
-      runtime->fusionSegments()->groups().size());
-  TORCH_CHECK(
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic() ==
-          ScheduleHeuristic::Persistent,
-      "Expected to use the persistent scheduler but ",
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic(),
-      ", was used");
+  // The reduction patterns of the normalization and the final
+  // reduction are different, so they are segmented out
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
 
   auto t0_d = t0.to(at::kDouble);
   auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
@@ -994,17 +965,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
 
   FusionExecutorCache fec(std::move(fusion_ptr));
 
-  // This fusion is similar to
-  // TakeAlongAxisIntermediateTensorNormalizationAndReduction, but the
-  // post-nomalization reductions only has one dimension (the second
-  // axes of the root domains are broadcast, which are squeezed before
-  // the reductions). Because of that, those reductions are not fused
-  // with the normalization.
-
-  // Still failing because take_along_axis is fused with the
-  // post-nomalization reductions and then the reduction scheduler
-  // fails to schedule the take_along_axis input.
   auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
 
   // note: reduction arg
   //   none -> 0
