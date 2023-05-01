@@ -141,13 +141,14 @@ SelectOp::SelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
+    int64_t dim,
     Val* index)
     : Expr(passkey) {
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -176,13 +177,14 @@ IndexSelectOp::IndexSelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
+    int64_t dim,
     Val* indices)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string IndexSelectOp::toString(int indent_size) const {
@@ -190,8 +192,8 @@ std::string IndexSelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = index_select( ";
-  ss << ir_utils::getTvInput(this)->toString();
-  ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
+  ss << input(0)->toString() << ", dim = " << dim() << ", "
+     << input(1)->toString() << " )\n";
   return ss.str();
 }
 
@@ -215,14 +217,15 @@ TorchGatherOp::TorchGatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
+    int64_t dim,
     Val* indices,
     bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
@@ -233,12 +236,11 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent_size++;
   indent(ss, indent_size) << " = "
                           << (exactSizes() ? "take_along_axis" : "torch_gather")
-                          << "( ";
-  ss << ir_utils::getTvInput(this)->toString();
+                          << "( " << input(0)->toString();
   if (exactSizes()) {
-    ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
+    ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
   } else {
-    ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+    ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
   }
   return ss.str();
 }
@@ -263,7 +265,7 @@ ScatterOp::ScatterOp(
     ScatterOpType type,
     Val* out,
     Val* self,
-    int dim,
+    int64_t dim,
     Val* index,
     Val* src)
     : Expr(passkey) {
@@ -271,9 +273,8 @@ ScatterOp::ScatterOp(
   addInput(index);
   addInput(src);
   addOutput(out);
-  // we need to generate code like T_out[T_index[...]] = T_src[...], so we need
-  // select_out_id as an attribute.
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
 }

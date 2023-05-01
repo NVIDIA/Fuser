@@ -155,11 +155,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
 
     // Condition 2: Different extents
-    if (consumer_tv_->definition()->isA<TorchGatherOp>() &&
-        !consumer_tv_->definition()->as<TorchGatherOp>()->exactSizes() &&
-        producer_tv_ ==
-            consumer_tv_->definition()->as<TorchGatherOp>()->lookupTv() &&
-        producer_id != indexed_producer_id && !map_different_extents_) {
+    if (auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv_->definition());
+        gop != nullptr && !gop->exactSizes() &&
+        producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
+        !map_different_extents_) {
       itp++;
       itc++;
       continue;

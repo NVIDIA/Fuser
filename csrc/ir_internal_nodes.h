@@ -58,7 +58,7 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
  public:
   using Expr::Expr;
 
-  SelectOp(IrBuilderPasskey, Val* out, Val* in, int dim, Val* index);
+  SelectOp(IrBuilderPasskey, Val* out, Val* in, int64_t dim, Val* index);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -73,8 +73,8 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
     return input(0)->as<TensorView>();
   }
 
-  int dim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t dim() const {
+    return attribute(0)->as<Attribute<int64_t>>()->value;
   }
 
   IterDomain* getIndexedID() const;
@@ -88,7 +88,7 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexSelectOp(IrBuilderPasskey, Val* out, Val* in1, int dim, Val* in3);
+  IndexSelectOp(IrBuilderPasskey, Val* out, Val* in1, int64_t dim, Val* in3);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -111,8 +111,8 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 
   IterDomain* getConsumerOfIndexedID() const;
 
-  int dim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t dim() const {
+    return attribute(0)->as<Attribute<int64_t>>()->value;
   }
 };
 
@@ -129,7 +129,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
       IrBuilderPasskey,
       Val* out,
       Val* in,
-      int dim,
+      int64_t dim,
       Val* index,
       bool exact_sizes);
 
@@ -150,8 +150,8 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
     return input(1)->as<TensorView>();
   }
 
-  int dim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t dim() const {
+    return attribute(0)->as<Attribute<int64_t>>()->value;
   }
 
   IterDomain* getIndexedID() const;
@@ -171,7 +171,7 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
       ScatterOpType type,
       Val* out,
       Val* self,
-      int dim,
+      int64_t dim,
       Val* index,
       Val* src);
 
@@ -196,8 +196,8 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  int dim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t dim() const {
+    return attribute(0)->as<Attribute<int64_t>>()->value;
   }
 
   IterDomain* getIndexedID() const;
