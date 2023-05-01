@@ -335,22 +335,23 @@ void DynamicTransformConcretizer::concretizeResize() {
     ir_utils::replaceValInExpr(id->definition(), id, new_id);
 
     // We need to replace the TensorDomain of incomplete_out_tv with one where
-    // we've replaced id with new_id in the r-factor domain
-    auto old_rfactor_domain =
-        incomplete_out_tv->domain()->getMaybeRFactorDomain();
-    std::vector<IterDomain*> new_rfactor_domain(old_rfactor_domain.size());
-    for (auto i : c10::irange(old_rfactor_domain.size())) {
-      new_rfactor_domain[i] =
-          old_rfactor_domain[i] == id ? new_id : old_rfactor_domain[i];
-      std::cout << "new_rfactor_domain[" << i << "] = " << new_rfactor_domain[i]
-                << std::endl;
+    // we've replaced id with new_id in the r-factor domain.
+    std::vector<IterDomain*> new_rfactor_domain;
+    if (incomplete_out_tv->domain()->hasRFactor()) {
+      auto old_rfactor_domain =
+          incomplete_out_tv->domain()->getMaybeRFactorDomain();
+      new_rfactor_domain.resize(old_rfactor_domain.size());
+      for (auto i : c10::irange(old_rfactor_domain.size())) {
+        new_rfactor_domain[i] =
+            old_rfactor_domain[i] == id ? new_id : old_rfactor_domain[i];
+      }
     }
 
     auto new_td = IrBuilder::create<TensorDomain>(
         incomplete_out_tv->container(),
         incomplete_out_tv->domain()->getRootDomain(),
         new_rfactor_domain,
-        new_rfactor_domain,
+        new_rfactor_domain,  // TODO: add check that we don't have leaf transforms
         incomplete_out_tv->domain()->getContiguityFilledWith(
             new_rfactor_domain, true));
     auto new_out_tv = IrBuilder::create<TensorView>(
@@ -373,7 +374,9 @@ void DynamicTransformConcretizer::concretizeResize() {
       incomplete_out_tv->fusion()->replaceOutput(incomplete_out_tv, new_out_tv);
     }
 
+    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv->domain());
     incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
+    incomplete_out_tv->fusion()->removeVal(id);
   }
 }
 

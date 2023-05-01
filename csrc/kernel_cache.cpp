@@ -389,9 +389,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
               std::any_cast<DynamicTransformConcretizationInfo>(data);
           return orig_conc_info.clone(ir_cloner);
         });
-
-    std::cout << "Concretization info: " << conc_info.value().toString()
-              << std::endl;
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
@@ -429,9 +426,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    std::cout << "Before concretization: " << std::endl;
-    fusion->printMath();
-    fusion->printTransforms();
     if (has_dynamic_reshape_) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
@@ -448,9 +442,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       // here, effectively as if it now describes a non-dynamic Fusion.
       // cloned_conc_info.clear();
       fusion->stopManaging(conc_info_index);
-
-      std::cout << "\nAfter concretization: " << std::endl;
-      fusion->printTransforms();
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));

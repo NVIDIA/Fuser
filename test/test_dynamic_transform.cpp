@@ -784,6 +784,9 @@ void reductionDynamicViewAddFusion(
     auto output_shape = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
 
+    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
+    TORCH_INTERNAL_ASSERT(output_shape.size() == output_dims);
+
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
@@ -857,19 +860,19 @@ void reductionDynamicPadAddFusion(
     std::vector<dynamic_pad_invocation>& invocations) {
   constexpr int kReductionAxis = -1;
 
-  auto input_shape = std::get<0>(invocations[0]);
-  auto pad_widths = std::get<1>(invocations[0]);
+  auto input_dims = std::get<0>(invocations[0]).size();
+  auto num_pad_widths = std::get<1>(invocations[0]).size();
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   // TODO: change symbolic size for padded dimension if start size is 1
-  TensorView* x = makeSymbolicTensor(input_shape.size());
+  TensorView* x = makeSymbolicTensor(input_dims);
   fusion.addInput(x);
 
-  std::vector<Val*> pad_width_vals(pad_widths.size());
-  for (auto i : c10::irange(pad_widths.size())) {
+  std::vector<Val*> pad_width_vals(num_pad_widths);
+  for (auto i : c10::irange(num_pad_widths)) {
     pad_width_vals[i] = IrBuilder::create<Int>();
     fusion.addInput(pad_width_vals[i]);
   }
@@ -901,9 +904,12 @@ void reductionDynamicPadAddFusion(
   };
 
   for (auto& inv : invocations) {
-    auto pad_widths = std::get<0>(inv);
-    auto start_extent = std::get<1>(inv);
+    auto input_shape = std::get<0>(inv);
+    auto pad_widths = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
+
+    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
+    TORCH_INTERNAL_ASSERT(pad_widths.size() == num_pad_widths);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
