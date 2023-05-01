@@ -437,6 +437,22 @@ class SchedulerTopologyChecker {
   }
 };
 
+// we only block merging of SegmenterLoad
+bool tryingToMergeSegmenterLoad(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterLoad) {
+      if (!std::any_of(
+	    fusion->outputs().begin(),
+	    fusion->outputs().end(),
+            [](Val* val) { return val == expr->output(0); })) {
+         return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool isConnectedFusionGraph(Fusion* fusion) {
   if (fusion->outputs().empty()) {
     // Trivial case interpreted as connected
@@ -2433,6 +2449,9 @@ bool checkCanSchedule(
   //  it has to pass all the compile time checks to create a data cache for this
   //  fusion.
   if (!data_cache) {
+    if (tryingToMergeSegmenterLoad(fusion)) {
+      return false;
+    }
     if (!isConnectedFusionGraph(fusion)) {
       return false;
     }
