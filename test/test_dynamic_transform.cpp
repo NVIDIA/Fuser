@@ -934,21 +934,32 @@ void reductionDynamicPadAddFusion(
 TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
   auto invocations = std::vector<dynamic_pad_invocation>{
       {{3, 5}, {0, 0}, true}, // trivial
-      //{{-1, 1}, 5, false}, // shift by one. Re-uses Iteration
-      /*
-    {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
-    {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
-    {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, true}, // merge(2) osplit(1, 3)
-    {{8, 3 * 4, 7, 9},
-     {8, 3, 4 * 7, 9},
-     true}, // merge(1) merge(2) osplit(1, 3)
-    {{8, 3 * 4, 7, 5},
-     {8, 3, 4 * 7, 5},
-     false}, // merge(1) merge(2) osplit(1, 3)
-    {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
-    // test passing -1 dynamically for dimension size
-    //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
-    */
+
+      {{3, 5}, {2, 1}, false}, // simple pad of both sides
+      {{3, 5}, {-1, 1}, false}, // shift by one
+      // TODO: The following fails with a SIGFPE in innerReductionHeuristic
+      //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
+
+      // Output has size 1 so is set to broadcast
+      // Currently fails since: IterDomain cannot be both a broadcast and
+      // rfactor domain. Exception raised from IterDomain at
+      // /opt/pytorch/nvfuser/csrc/ir_nodes.cpp:2080
+      //{{3, 5}, {0, -4}, true},
+
+      // Test full negative shifts, so output doesn't overlap input
+      {{3, 5},
+       {-5, 2},
+       false}, // TODO: why doesn't this miss due to concretize to broadcast?
+      {{3, 5}, {2, -5}, false}, // full shift the other direction, re-use
+
+      // The following reuses the schedule of {3, 5} inputs, and does not set
+      // broadcast on the second input dimension.
+      {{3, 1}, {1, 1}, false},
+
+      // Test zero-dimensional input
+      //{{3, 0}, {0, 0}, false}, // TODO: SIGFPE (see above)
+      {{3, 0}, {1, 1}, false},
+      //{{3, 0}, {-1, 1}, false}, // TODO: SIGFPE (see above)
   };
   reductionDynamicPadAddFusion(invocations);
 }
