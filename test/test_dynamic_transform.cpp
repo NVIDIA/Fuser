@@ -838,7 +838,9 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
        {8, 3, 4 * 7, 5},
        false}, // merge(1) merge(2) osplit(1, 3)
       {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
+
       // test passing -1 dynamically for dimension size
+      // This currently fails. see https://github.com/NVIDIA/Fuser/issues/249
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
   };
   reductionDynamicViewAddFusion(
