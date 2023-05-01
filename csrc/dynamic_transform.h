@@ -32,7 +32,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return reshape_transforms_;
   }
 
-  const std::vector<std::tuple<TensorDomain*, IterDomain*, IterType>>&
+  const std::vector<std::tuple<TensorView*, IterDomain*, IterType>>&
   getResizeTransforms() const {
     return resize_transforms_;
   }
@@ -64,8 +64,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
 
   // Holds the resized IterDomain (output of the Resize op) along with the
-  // TensorDomain where it appears, and the concretized IterType
-  std::vector<std::tuple<TensorDomain*, IterDomain*, IterType>>
+  // TensorView where it appears, and its concretized IterType
+  std::vector<std::tuple<TensorView*, IterDomain*, IterType>>
       resize_transforms_;
 
   friend class DynamicTransformInfoBuilder;

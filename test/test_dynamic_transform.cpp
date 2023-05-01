@@ -747,7 +747,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (int i : c10::irange(output_dims)) {
+  for (size_t i : c10::irange(output_dims)) {
     output_shape[i] = IrBuilder::create<Int>();
     fusion.addInput(output_shape[i]);
   }
@@ -808,8 +808,8 @@ void reductionDynamicViewAddFusion(
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (int i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+    for (size_t i : c10::irange(output_dims)) {
+      aten_inputs.emplace_back(output_shape[i]);
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
@@ -854,8 +854,7 @@ using dynamic_pad_invocation = std::tuple<
     >;
 
 void reductionDynamicPadAddFusion(
-    std::vector<dynamic_pad_invocation>& invocations,
-    bool pad_before_reduction) {
+    std::vector<dynamic_pad_invocation>& invocations) {
   constexpr int kReductionAxis = -1;
 
   auto input_shape = std::get<0>(invocations[0]);
@@ -865,24 +864,17 @@ void reductionDynamicPadAddFusion(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto bias_dims =
-      pad_before_reduction ? input_shape.size() : input_shape.size() - 1;
-
   // TODO: change symbolic size for padded dimension if start size is 1
   TensorView* x = makeSymbolicTensor(input_shape.size());
-  TensorView* bias = makeSymbolicTensor(bias_dims);
   fusion.addInput(x);
-  fusion.addInput(bias);
 
-  auto tv1 = (pad_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   std::vector<Val*> pad_width_vals(pad_widths.size());
   for (auto i : c10::irange(pad_widths.size())) {
     pad_width_vals[i] = IrBuilder::create<Int>();
     fusion.addInput(pad_width_vals[i]);
   }
-  auto x_pad = pad(tv1, pad_width_vals);
-  auto y =
-      (pad_before_reduction) ? sum(x_pad, {kReductionAxis}) : add(x_pad, bias);
+  auto x_pad = pad(x, pad_width_vals);
+  auto y = sum(x_pad, {kReductionAxis});
   fusion.addOutput(y);
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
@@ -916,43 +908,17 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    std::vector<int64_t> bias_shape(input_shape);
-    if (!pad_before_reduction) {
-      // remove last dimension due to reduction
-      bias_shape.resize(bias_shape.size() - 1);
-    }
-    if (!pad_before_reduction) {
-      // When bias_shape = output_shape, it may contain -1s
-      // concretize bias_shape so that we can properly initialize at_bias
-      size_t other_numel = 1;
-      ssize_t negone_dim = -1; // negative if no -1 shape is provided
-      for (auto i : c10::irange(bias_shape.size())) {
-        if (bias_shape[i] == -1) {
-          ASSERT_EQ(negone_dim, -1); // test cases should not have multiple -1s
-          negone_dim = -1;
-        } else {
-          other_numel *= bias_shape[i];
-        }
-      }
-      if (negone_dim >= 0) {
-        bias_shape[negone_dim] = at_x.numel() / other_numel;
-      }
-    }
-    at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+    std::vector<c10::IValue> aten_inputs = {at_x};
     // Add input scalars describing the reshape size for concretization
-    for (int i : c10::irange(pad_widths.size())) {
-      aten_inputs.push_back(pad_widths[i]);
+    for (size_t i : c10::irange(pad_widths.size())) {
+      aten_inputs.emplace_back(pad_widths[i]);
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
     checkCache(expect_miss);
 
-    auto at_tv1 = (pad_before_reduction) ? (at_x + at_bias)
-                                         : at::sum(at_x, kReductionAxis);
-    auto at_x_reshape = at::native::view(at_tv1, bias_shape);
-    auto at_y = (pad_before_reduction) ? at::sum(at_x_reshape, kReductionAxis)
-                                       : at::add(at_x_reshape, at_bias);
+    auto at_x_pad = at::pad(at_x, pad_widths);
+    auto at_y = at::sum(at_x_pad, kReductionAxis);
 
     testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
   }
@@ -978,7 +944,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
     //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
     */
   };
-  reductionDynamicPadAddFusion(invocations, true /* pad_before_reduction */);
+  reductionDynamicPadAddFusion(invocations);
 }
 
 } // namespace nvfuser

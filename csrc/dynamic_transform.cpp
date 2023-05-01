@@ -30,8 +30,7 @@ class DynamicTransformInfoBuilder : public IterVisitor {
   // Analyze a dynamic reshape and generate AnalyzeViewResult
   void handle(ViewOp* op) override;
 
-  // We handle IterDomain "Resize" ops at TensorDomain level
-  void handle(TensorDomain* td) override;
+  // We handle IterDomain "Resize" ops at TensorView level
   void handle(TensorView* tv) override;
 
   const auto& getInfo() const {
@@ -100,7 +99,7 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
     cloned_info.resize_transforms_.emplace_back(
         ir_cloner.clone(std::get<0>(tx)),
         ir_cloner.clone(std::get<1>(tx)),
-        // Similar to reshape_transforms_, we only clone the TensorDomains and
+        // Similar to reshape_transforms_, we only clone the TensorViews and
         // IterDomains in resize_transforms_
         std::get<2>(tx));
   }
@@ -124,10 +123,9 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
-void DynamicTransformInfoBuilder::handle(TensorDomain* td) {
-  std::cout << "Handling TensorDomain " << td->toString() << std::endl;
-  auto rootd = td->getRootDomain();
-  for (auto id : rootd) {
+void DynamicTransformInfoBuilder::handle(TensorView* tv) {
+  auto rfd = tv->domain()->getMaybeRFactorDomain();
+  for (auto id : rfd) {
     if (id->getIterType() == IterType::Symbolic && id->definition()) {
       auto def = id->definition();
       if (def->isA<Resize>()) {
@@ -164,21 +162,10 @@ void DynamicTransformInfoBuilder::handle(TensorDomain* td) {
             ? IterType::Broadcast
             : IterType::Iteration;
 
-        info_.resize_transforms_.emplace_back(
-            // std::make_tuple(
-            td,
-            id,
-            out_itertype
-            //)
-        );
+        info_.resize_transforms_.emplace_back(tv, id, out_itertype);
       }
     }
   }
-}
-
-void DynamicTransformInfoBuilder::handle(TensorView* tv) {
-  std::cout << "Handling TensorView " << tv->toString() << std::endl;
-  handle(tv->domain());
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
@@ -302,7 +289,7 @@ void DynamicTransformConcretizer::concretize() {
   concretizeResize();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_.fusion(), false);
+  auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
       mutate(stmt);
@@ -338,7 +325,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
   for (const auto& resize_info : info_.getResizeTransforms()) {
-    auto td = std::get<0>(resize_info);
+    auto incomplete_out_tv = std::get<0>(resize_info);
     auto id = std::get<1>(resize_info);
     auto iter_type = std::get<2>(resize_info);
 
@@ -347,12 +334,46 @@ void DynamicTransformConcretizer::concretizeResize() {
     // swap in new IterDomain as output of the resize Expr
     ir_utils::replaceValInExpr(id->definition(), id, new_id);
 
-    // replace id with new_id in root domain of output TensorDomain
-    auto rootd = td->getRootDomain();
-    for (auto root_id : td->getRootDomain()) {
-      if (root_id == id) {
-      }
+    // We need to replace the TensorDomain of incomplete_out_tv with one where
+    // we've replaced id with new_id in the r-factor domain
+    auto old_rfactor_domain =
+        incomplete_out_tv->domain()->getMaybeRFactorDomain();
+    std::vector<IterDomain*> new_rfactor_domain(old_rfactor_domain.size());
+    for (auto i : c10::irange(old_rfactor_domain.size())) {
+      new_rfactor_domain[i] =
+          old_rfactor_domain[i] == id ? new_id : old_rfactor_domain[i];
+      std::cout << "new_rfactor_domain[" << i << "] = " << new_rfactor_domain[i]
+                << std::endl;
     }
+
+    auto new_td = IrBuilder::create<TensorDomain>(
+        incomplete_out_tv->container(),
+        incomplete_out_tv->domain()->getRootDomain(),
+        new_rfactor_domain,
+        new_rfactor_domain,
+        incomplete_out_tv->domain()->getContiguityFilledWith(
+            new_rfactor_domain, true));
+    auto new_out_tv = IrBuilder::create<TensorView>(
+        new_td, incomplete_out_tv->dtype(), incomplete_out_tv->getMemoryType());
+
+    TORCH_INTERNAL_ASSERT(
+        incomplete_out_tv->definition(),
+        "Cannot replace TensorView with resized IterDomain if it has no definition");
+
+    // This should set the definition of new_out_tv
+    ir_utils::replaceValInExpr(
+        incomplete_out_tv->definition(), incomplete_out_tv, new_out_tv);
+
+    // Replace the old tensor with the new concretized tensor
+    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
+      ir_utils::replaceValInExpr(use_of_old_tv, incomplete_out_tv, new_out_tv);
+    }
+
+    if (incomplete_out_tv->isFusionOutput()) {
+      incomplete_out_tv->fusion()->replaceOutput(incomplete_out_tv, new_out_tv);
+    }
+
+    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
   }
 }
 
