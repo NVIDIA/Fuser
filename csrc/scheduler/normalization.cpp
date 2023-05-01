@@ -1798,7 +1798,7 @@ void schedulePersistentKernelInnerOuter(
   // 246.
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer =
-        scheduler_utils::getAllTvsFrom(outer_reduction_tvs, {cached_gmem[i]});
+        scheduler_utils::getAllTvsFrom(outer_reduction_tvs[i], {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
     reduction_scheduler_utils::propagateParallelization(
