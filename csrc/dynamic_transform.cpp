@@ -30,8 +30,9 @@ class DynamicTransformInfoBuilder : public IterVisitor {
   // Analyze a dynamic reshape and generate AnalyzeViewResult
   void handle(ViewOp* op) override;
 
-  // Analyze a dynamic resize
-  void handle(Resize* op) override;
+  // We handle IterDomain "Resize" ops at TensorDomain level
+  void handle(TensorDomain* td) override;
+  void handle(TensorView* tv) override;
 
   const auto& getInfo() const {
     return info_;
@@ -95,12 +96,13 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
         // Statements that would need cloning, only integer indices of axes.
         pair.second);
   }
-  for (auto& pair : resize_transforms_) {
+  for (auto& tx : resize_transforms_) {
     cloned_info.resize_transforms_.emplace_back(
-        ir_cloner.clone(pair.first),
-        // Similar to reshape_transforms_, we only clone the IterDomains in
-        // resize_transforms_
-        pair.second);
+        ir_cloner.clone(std::get<0>(tx)),
+        ir_cloner.clone(std::get<1>(tx)),
+        // Similar to reshape_transforms_, we only clone the TensorDomains and
+        // IterDomains in resize_transforms_
+        std::get<2>(tx));
   }
   return cloned_info;
 }
@@ -114,7 +116,69 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << kv.first->toString() << ", "
        << kv.second.toString() << "\n";
   }
+  ss << indent << "Resize:\n";
+  for (const auto& kv : resize_transforms_) {
+    ss << indent << indent << std::get<0>(kv)->toString() << ", "
+       << std::get<1>(kv)->toString() << ", " << std::get<2>(kv) << "\n";
+  }
   return ss.str();
+}
+
+void DynamicTransformInfoBuilder::handle(TensorDomain* td) {
+  std::cout << "Handling TensorDomain " << td->toString() << std::endl;
+  auto rootd = td->getRootDomain();
+  for (auto id : rootd) {
+    if (id->getIterType() == IterType::Symbolic && id->definition()) {
+      auto def = id->definition();
+      if (def->isA<Resize>()) {
+        auto op = def->as<Resize>();
+
+        auto out_extent_val = expr_eval_->evaluate(id->extent());
+        TORCH_INTERNAL_ASSERT(
+            out_extent_val.has_value(),
+            "Cannot evaluate the extent of a resized IterDomain: ",
+            id->toString());
+
+        auto in_id = op->in()->as<IterDomain>();
+        auto in_extent_val = expr_eval_->evaluate(in_id->extent());
+        TORCH_INTERNAL_ASSERT(
+            in_extent_val.has_value(),
+            "Cannot evaluate the extent of input to an IterDomain resize: ",
+            in_id->toString());
+
+        auto left = op->leftExpand()->as<Int>();
+        auto left_val = expr_eval_->evaluate(left);
+        TORCH_INTERNAL_ASSERT(
+            left_val.has_value(),
+            "Cannot evaluate the left expansion of an IterDomain resize: ",
+            left->toString());
+
+        auto right = op->rightExpand()->as<Int>();
+        auto right_val = expr_eval_->evaluate(right);
+        TORCH_INTERNAL_ASSERT(
+            right_val.has_value(),
+            "Cannot evaluate the right expansion of an IterDomain resize: ",
+            right->toString());
+
+        auto out_itertype = out_extent_val->as<int64_t>() == 1
+            ? IterType::Broadcast
+            : IterType::Iteration;
+
+        info_.resize_transforms_.emplace_back(
+            // std::make_tuple(
+            td,
+            id,
+            out_itertype
+            //)
+        );
+      }
+    }
+  }
+}
+
+void DynamicTransformInfoBuilder::handle(TensorView* tv) {
+  std::cout << "Handling TensorView " << tv->toString() << std::endl;
+  handle(tv->domain());
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
@@ -196,48 +260,6 @@ void DynamicTransformInfoBuilder::handle(ViewOp* op) {
   info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
-void DynamicTransformInfoBuilder::handle(Resize* op) {
-  auto out_id = op->out()->as<IterDomain>();
-
-  // If the input is not symbolic, and the expansion sizes are static, this is
-  // a static resize
-  if (out_id->getIterType() != IterType::Symbolic) {
-    return;
-  }
-
-  auto out_extent_val = expr_eval_->evaluate(out_id->extent());
-  TORCH_INTERNAL_ASSERT(
-      out_extent_val.has_value(),
-      "Cannot evaluate the extent of a resized IterDomain: ",
-      out_id->toString());
-
-  auto in_id = op->in()->as<IterDomain>();
-  auto in_extent_val = expr_eval_->evaluate(in_id->extent());
-  TORCH_INTERNAL_ASSERT(
-      in_extent_val.has_value(),
-      "Cannot evaluate the extent of input to an IterDomain resize: ",
-      in_id->toString());
-
-  auto left = op->leftExpand()->as<Int>();
-  auto left_val = expr_eval_->evaluate(left);
-  TORCH_INTERNAL_ASSERT(
-      left_val.has_value(),
-      "Cannot evaluate the left expansion of an IterDomain resize: ",
-      left->toString());
-
-  auto right = op->rightExpand()->as<Int>();
-  auto right_val = expr_eval_->evaluate(right);
-  TORCH_INTERNAL_ASSERT(
-      right_val.has_value(),
-      "Cannot evaluate the right expansion of an IterDomain resize: ",
-      right->toString());
-
-  auto out_itertype = out_extent_val->as<int64_t>() == 1 ? IterType::Broadcast
-                                                         : IterType::Iteration;
-
-  info_.resize_transforms_.emplace_back(out_id, out_itertype);
-}
-
 //! Concretize a symbolic fusion with concrete transformation info
 class DynamicTransformConcretizer : public OptOutMutator {
  public:
@@ -270,7 +292,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   const DynamicTransformConcretizationInfo& info_;
-  std::unordered_map<IterDomain*, IterDomain*> update_map_;
 };
 
 void DynamicTransformConcretizer::concretize() {
@@ -316,15 +337,22 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& kv : info_.getResizeTransforms()) {
-    auto id = kv.first;
-    auto iter_type = kv.second;
+  for (const auto& resize_info : info_.getResizeTransforms()) {
+    auto td = std::get<0>(resize_info);
+    auto id = std::get<1>(resize_info);
+    auto iter_type = std::get<2>(resize_info);
+
+    auto new_id = IterDomainBuilder(id).iter_type(iter_type).build();
 
     // swap in new IterDomain as output of the resize Expr
-    ir_utils::replaceValInExpr(
-        id->definition(),
-        id,
-        IterDomainBuilder(id).iter_type(iter_type).build());
+    ir_utils::replaceValInExpr(id->definition(), id, new_id);
+
+    // replace id with new_id in root domain of output TensorDomain
+    auto rootd = td->getRootDomain();
+    for (auto root_id : td->getRootDomain()) {
+      if (root_id == id) {
+      }
+    }
   }
 }
 
