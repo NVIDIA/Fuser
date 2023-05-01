@@ -1901,7 +1901,6 @@ std::vector<Val*> Index::getProducerRootIndices(
 
   auto producer_indexing = producer_indexing_from_idgraph.index;
 
-
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
   auto root_dom = producer_tv->getMaybeRFactorDomain();
