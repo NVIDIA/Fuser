@@ -126,7 +126,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
   ParallelTypeBitmap unused_types;
   // Initially all types are conservatively assumed to not be used.
   unused_types = ~unused_types;
-  for (auto out_tv_id : out_tv->domain()->domain()) {
+  for (auto out_tv_id : out_tv->domain()->leaf()) {
     auto pt = out_tv_id->getParallelType();
     if (!isParallelTypeThread(pt)) {
       continue;
@@ -221,8 +221,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   // Parallel types used by the output tensor
   ParallelTypeBitmap output_ptypes;
   std::for_each(
-      ir_utils::getTvOutput(expr)->domain()->domain().begin(),
-      ir_utils::getTvOutput(expr)->domain()->domain().end(),
+      ir_utils::getTvOutput(expr)->domain()->leaf().begin(),
+      ir_utils::getTvOutput(expr)->domain()->leaf().end(),
       [&](auto out_tv_id) {
         if (out_tv_id->isThread()) {
           output_ptypes.set(out_tv_id->getParallelType());
@@ -255,7 +255,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     ParallelTypeBitmap id_bcasts;
     ParallelTypeBitmap id_ptypes;
 
-    for (auto id : tv_inp->domain()->domain()) {
+    for (auto id : tv_inp->domain()->leaf()) {
       if (id->isThread()) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
@@ -816,7 +816,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
 
   ParallelTypeBitmap parallel_broadcast;
 
-  const auto& iter_domains = tv->domain()->domain();
+  const auto& iter_domains = tv->domain()->leaf();
 
   // If the output is on shared memory, assume that all subsequent
   // reads from all threads in its CTA can be done with no parallel

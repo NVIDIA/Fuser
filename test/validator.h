@@ -276,7 +276,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
     // Roughly taken from executor.cpp/computeLaunchParams
     auto tv = val->as<TensorView>();
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (!(id->isThread() && id->extent()->definition() == nullptr)) {
         continue;
       }

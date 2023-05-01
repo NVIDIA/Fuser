@@ -12,6 +12,9 @@
 
 #include <benchmark/benchmark.h>
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 

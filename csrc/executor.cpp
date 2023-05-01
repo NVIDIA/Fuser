@@ -1472,6 +1472,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         executor_entry->intermediates);
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+    std::cout << "Index type: " << kernel()->indexType() << std::endl;
+  }
+
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
 

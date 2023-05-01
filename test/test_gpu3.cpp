@@ -8260,6 +8260,181 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
   runTest({true, true, true, false});
 }
 
+// Test for ir_utils::validateDomainEquivalence. We could consider
+// it well tested as it's always used when TensorDomain is created, but
+// here's some corner cases.
+TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1]
+  tv1->split(0, 4);
+  // [I0/4, 4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: [4, I1]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  tv1->merge(0);
+  // [I0/4*4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf domain
+  // Should succeed.
+  ir_utils::validateDomainEquivalence(
+      tv1->getRootDomain(), tv1->domain()->leaf());
+
+  auto tv1_intermediate_id = tv1->axis(0);
+
+  tv1->split(0, 3);
+  // [I0/4*4/3, 3, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two leaves are redundant
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(),
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  // Testing symbolic domains
+  auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
+
+  ir_utils::validateDomainEquivalence(
+      tv2->getRootDomain(), tv2->domain()->leaf());
+
+  // create a 2D tensor with one symbolid and another non-symbolic
+  auto tv4 = broadcast(sum(tv2, {1}), {false, true});
+  fusion.addOutput(tv4);
+
+  // [S0, B0]
+  tv4->split(1, 4);
+  // [S0, B0/4, 4]
+
+  ir_utils::validateDomainEquivalence(
+      tv4->getRootDomain(), tv4->domain()->leaf());
+
+  // Initial domain: root domain
+  // Derived domain: [S0, B0/4]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+}
+
+// Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
+TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dt = DataType::Float;
+
+  auto tv0 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = mul(tv4, tv0);
+  fusion->addOutput(tv5);
+
+  // The persistent scheduler with this problem size resulted in an
+  // error as reported in #236
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dt)).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({11}, options);
+  at::Tensor t1 = at::randn({11}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  t1 = t1.to(at::kDouble);
+  auto ref = (t1 - t1.sum().unsqueeze(0)) * t0;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
+}
+
+// delete intermediate tensors between segments to reduce memory usage of large
+// segmented graphs
+TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> input_shape{32, 64, 8, 128};
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = sum(tv1, {0}); // Group 0
+  auto tv3 = sum(tv2, {-1}); // Group 1
+  auto output = sum(tv3, {0}); // Group 2
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({0});
+  auto t3 = t2.sum({-1});
+  auto t4 = t3.sum({0});
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
+
+  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      optimized_fusion->fusionSegments()->groups().size() == 3,
+      "segmentation didn't happen as expected");
+  // group-0: tv1 -> tv2
+  // group-1: tv2 -> tv3
+  // group-2: tv3 -> tv4
+  // -----------without args erase------------------------
+  // after group-0, args: {t0, 32, 64, 8, 128, t2}
+  // after group-1, args: {t0, 32, 64, 8, 128, t2, t3}
+  // after group-2, args: {t0, 32, 64, 8, 128, t2, t3, t4}
+  // -----------with args erase---------------------------
+  // after group-0, args: {t0, 32, 64, 8, 128, t2}
+  // after group-1, args: {t0, 32, 64, 8, 128, t3} (t2 is erased)
+  // after group-2, args: {t0, 32, 64, 8, 128, t4} (t3 is erased)
+  TORCH_CHECK(
+      args_num[1] == args_num[0] && args_num[2] == args_num[0],
+      "unused intermediate args should be deleted");
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t4}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

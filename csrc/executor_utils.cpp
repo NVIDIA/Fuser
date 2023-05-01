@@ -998,26 +998,11 @@ c10::optional<int> getMaxRegCount(
   // If the block size is known, set the maximum that at least allows
   // one block to be resident on an SM
   if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-    int num_partition = 0;
-    int reg_allocation_granularity = 0;
-    const auto prop = at::cuda::getCurrentDeviceProperties();
-    cudaOccDeviceProp occ_prop(*prop);
-    cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
-    cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
-    int warp_size = prop->warpSize;
-    int64_t num_warps = ceilDiv(opt_block_size.value(), warp_size);
-
-    // warps could be distributed unevenly across partition
-    int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
-    // registers are evenly distributed across partitions, partition with most
-    // wraps determins the maximum register available per warp
-    int max_reg_per_warp =
-        prop->regsPerBlock / num_partition / (int)max_warps_per_sm_partition;
-    // clamp down to register allocation granularity at warp level
-    int effective_max_reg_per_warp = max_reg_per_warp /
-        reg_allocation_granularity * reg_allocation_granularity;
-    max_register =
-        std::min(max_register_limit, effective_max_reg_per_warp / warp_size);
+    constexpr int block_per_sm = 1;
+    max_register = std::min(
+        max_register_limit,
+        (int)getRegPerThreadGivenThreadsPerSM(
+            opt_block_size.value() * block_per_sm));
   }
 
   // If a heuristic value is given, i.e., max_register_heuristic is
@@ -1537,7 +1522,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved
