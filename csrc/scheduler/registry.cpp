@@ -243,7 +243,7 @@ class SchedulerTopologyChecker {
                       // If mapped, and producer is a producer of a reduction,
                       // we can resolve this id
                       ids_to_resolve.erase(
-                          ids_to_resolve.begin() + (int64_t)entry_i - 1l);
+                          ids_to_resolve.begin() + (int64_t)entry_i - 1);
                     } else {
                       ids_to_resolve[entry_i - 1] = std::make_pair(
                           orig_id, backward_c2p_root_map.at(running_id));
@@ -2255,6 +2255,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
               properties.total_iteration_numel,
               vectorization_factor,
               persistent_buffer_size);
+
+      if (!cross_grid_params.has_value()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent, "no valid launch config found");
+        return false;
+      }
     }
 
     TORCH_INTERNAL_ASSERT(!is_cross_grid || cross_grid_params.has_value())
@@ -2279,7 +2285,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    const int64_t max_used_sms = is_cross_grid && cross_grid_params.has_value()
+    const int64_t max_used_sms = is_cross_grid
         ? ceilDiv(
               ceilDiv(properties.total_iteration_numel, vectorization_factor),
               cross_grid_params->launch_params.bdimx()) *
@@ -2337,7 +2343,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // disable the schedule if not evenly divisible on Titan RTX and
     // V100, i.e., compute architecture version 7.
     // TODO: Revisit
-    if (is_cross_grid && cross_grid_params.has_value() &&
+    if (is_cross_grid &&
         (properties.total_iteration_numel %
              (vectorization_factor * cross_grid_params->launch_params.bdimx() *
               cross_grid_params->launch_params.gdimx()) !=

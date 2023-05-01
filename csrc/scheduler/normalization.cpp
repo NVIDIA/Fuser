@@ -326,7 +326,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   constexpr int64_t l1_cache = 32l * 1024l;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
-  constexpr int64_t active_threads = 1024l;
+  constexpr int64_t active_threads = 1024;
 
   // if data fits in l2 and we need more parallelization in the reduction dim,
   // we can use a smaller warp size. While thread local data fits in l1, and
