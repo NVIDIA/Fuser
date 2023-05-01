@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <disjoint_set.h>
+#include <dynamic_transform.h>
 #include <ir_cloner.h>
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
@@ -2484,18 +2485,7 @@ IterDomain* IterDomain::resize(
     auto out_extent = resized_id_size->getInt().value();
     auto left = left_expansion->getInt().value();
     auto right = right_expansion->getInt().value();
-    TORCH_CHECK(out_extent >= 0, "Resized extent must be non-negative.");
-    if (
-        // negative padding sums to input extent. Output is zero-dimensional
-        out_extent == 0 ||
-        // input overlaps output
-        left + in_extent > 0 || right + in_extent > 0) {
-      iter_type = IterType::Iteration;
-    } else {
-      // Result is zero-dimensional, broadcast, or input doesn't overlap output
-      // In these cases, the output is just the broadcasted pad value
-      iter_type = IterType::Broadcast;
-    }
+    iter_type = resize_output_itertype(in_extent, out_extent, left, right);
   } else {
     iter_type = IterType::Symbolic;
   }

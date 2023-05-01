@@ -23,6 +23,29 @@ class Fusion;
 class ExpressionEvaluator;
 class DynamicTransformInfoBuilder;
 
+//! Compute the IterType of an IterDomain that has been resized. If the output
+//! is size 1, or the output uses no input elements, this function returns
+//! Broadcast. Otherwise, it returns Iteration.
+inline IterType resize_output_itertype(
+    int64_t in_extent,
+    int64_t out_extent,
+    int64_t left,
+    int64_t right) {
+  TORCH_CHECK(out_extent >= 0, "Resized extent must be non-negative.");
+  if (
+      // negative padding sums to input extent. Output is zero-dimensional
+      out_extent == 0 ||
+      // input overlaps output
+      left + in_extent > 0 || right + in_extent > 0) {
+    return IterType::Iteration;
+  } else {
+    // Result is size-1 or input doesn't overlap output.
+    // In these cases, the output is just a broadcast of either the used input
+    // value, or the pad value.
+    return IterType::Broadcast;
+  }
+}
+
 //! A set of transformations for a symbolic fusion with concrete sizes
 //! of the fusion inputs
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {

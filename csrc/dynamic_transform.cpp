@@ -158,9 +158,11 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
             "Cannot evaluate the right expansion of an IterDomain resize: ",
             right->toString());
 
-        auto out_itertype = out_extent_val->as<int64_t>() == 1
-            ? IterType::Broadcast
-            : IterType::Iteration;
+        auto out_itertype = resize_output_itertype(
+            in_extent_val->as<int64_t>(),
+            out_extent_val->as<int64_t>(),
+            left_val->as<int64_t>(),
+            right_val->as<int64_t>());
 
         info_.resize_transforms_.emplace_back(tv, id, out_itertype);
       }
@@ -351,7 +353,8 @@ void DynamicTransformConcretizer::concretizeResize() {
         incomplete_out_tv->container(),
         incomplete_out_tv->domain()->getRootDomain(),
         new_rfactor_domain,
-        new_rfactor_domain,  // TODO: add check that we don't have leaf transforms
+        new_rfactor_domain, // TODO: add check that we don't have leaf
+                            // transforms
         incomplete_out_tv->domain()->getContiguityFilledWith(
             new_rfactor_domain, true));
     auto new_out_tv = IrBuilder::create<TensorView>(
