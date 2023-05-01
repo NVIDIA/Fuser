@@ -130,7 +130,6 @@ class build_ext(setuptools.command.build_ext.build_ext):
             if not os.path.exists(os.path.dirname(install_dst)):
                 os.makedirs(os.path.dirname(install_dst))
             self.copy_file(libnvfuser_path, install_dst)
-            # print("\n### `nvfuser._C` exiting\n")
         else:
             super().build_extension(ext)
 
@@ -258,7 +257,6 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     if not NO_NINJA:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
-    cmd_str.append(".")
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
@@ -266,8 +264,9 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    cmd_str.append(".")
 
-    print(f"\n### cmake command: {' '.join(cmd_str)}\n")
+    print(f"Configuraing CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
 
     if not CMAKE_ONLY:
