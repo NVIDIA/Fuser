@@ -8218,45 +8218,25 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
         fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
   };
 
-  // Test case where [B1,I2,I3] is merged to [B1I2I3] and paralled by blockIdx.x
-  // The write pattern should be: write only the first len(I2)*len(I3) blocks,
-  // where len(I) is the extent of the concretized domain.
-  // write_stride_less= ( ( 1 * T0.size[1] ) * T0.size[0] )
-  // condition = blockIdx.x < ( ( 1 * T0.size[1] ) * T0.size[0] )
+  // Test case where [B1,I2,I3] is merged to [B1I2I3]
   runTest({true, false, false, false});
 
-  // Test case where [I1,B2,I3] is merged to [I1B2I3] and paralled by blockIdx.x
-  // The write pattern should be: len(I3) blocks write, in every len(B2)*len(I3)
-  // blocks, write_stride_mod= {len(B2)*len(I3), len(I3)} condition = blockIdx.x
-  // % (len(B2)*len(I3)) < len(I3)
+  // Test case where [I1,B2,I3] is merged to [I1B2I3]
   runTest({false, true, false, false});
 
-  // Test case where [I1,I2,B3] is merged to [I1I2B3] and paralled by blockIdx.x
-  // The write pattern should be: write every len(B3) blocks,
-  // where len(B) is the extent of the domain.
-  // write_stride_mod= ( 1 * T1.size[2] )
+  // Test case where [I1,I2,B3] is merged to [I1I2B3]
   runTest({false, false, true, false});
 
-  // Test case where [I1,B2,B3] is merged to [I1B2B3] and paralled by blockIdx.x
-  // The write pattern should be: write every len(B2)*len(B3) blocks,
-  // where len(B) is the extent of the concretized domain.
-  // write_stride_mod= ( ( 1 * T1.size[2] ) * T1.size[1] )
+  // Test case where [I1,B2,B3] is merged to [I1B2B3]
   runTest({false, true, true, false});
 
-  // Test case where [B1,I2,B3] is merged to [B1I2B3] and paralled by blockIdx.x
-  // The write pattern should be: write every len(B3) blocks of the first
-  // len(I2) * len(B3) blocks write_stride_less= ( ( 1 * T1.size[2] ) *
-  // T0.size[0] ) write_stride_mod= ( 1 * T1.size[2] )
+  // Test case where [B1,I2,B3] is merged to [B1I2B3]
   runTest({true, false, true, false});
 
-  // Test case where [B1,B2,I3] is merged to [B1B2I3] and paralled by blockIdx.x
-  // The write pattern should be: write only the first len(I3) blocks
-  // write_stride_less= ( 1 * T0.size[0] )
+  // Test case where [B1,B2,I3] is merged to [B1B2I3]
   runTest({true, true, false, false});
 
-  // Test case where [B1,B2,B3] is merged to [B1B2B3] and paralled by blockIdx.x
-  // The write pattern should be: write only the first block
-  // write_stride_less= 1 (write when blockIDx.x < 1)
+  // Test case where [B1,B2,B3] is merged to [B1B2B3]
   runTest({true, true, true, false});
 }
 
