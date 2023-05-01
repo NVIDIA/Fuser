@@ -1797,8 +1797,8 @@ void schedulePersistentKernelInnerOuter(
   // Don't allow parallelization propagation goes through cached_gmem, see issue
   // 246.
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
-    const auto& selected_tvs_outer =
-        scheduler_utils::getAllTvsFrom(outer_reduction_tvs[i], {cached_gmem[i]});
+    const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
+        outer_reduction_tvs[i], {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
     reduction_scheduler_utils::propagateParallelization(
