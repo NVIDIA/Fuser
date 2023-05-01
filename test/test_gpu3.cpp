@@ -8287,8 +8287,10 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
                  .dtype(DataType::Double)
                  .build();
   fusion->addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion->addOutput(tv1);
+  auto tv1 = relu(tv0);
+  auto tv2 = segment_alias(tv1);
+  auto tv3 = neg(tv2);
+  fusion->addOutput(tv3);
 
   // auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
   // auto tv2 = sum(tv1, {0}); // Group 0
