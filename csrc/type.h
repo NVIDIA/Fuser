@@ -509,6 +509,7 @@ static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
 //  op will be lowered to.
 enum class LoadStoreOpType {
   Set,
+  SegmenterLoad,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,

@@ -27,7 +27,7 @@ TensorView* set(TensorView* tv) {
 
 Val* segment_alias(Val* v) {
   Val* out = ops::newValLike(v, v->getDataType().value());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Load, out, v);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterLoad, out, v);
   return out;
 }
 
