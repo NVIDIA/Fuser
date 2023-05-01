@@ -441,10 +441,12 @@ class SchedulerTopologyChecker {
   }
 
   // Checks if there's any gather-like ops that result in non-resolved
-  // broadcast domains before reduction TVs. The reduction scheduler
-  // uses reduction TVs as a scheduling reference, but that won't
-  // schedule such unresolved/ broadcasts, and thus the input domains
-  // to the gather-like ops.
+  // broadcast domains that appear before reduction TVs. For example,
+  // a pattern like gather to a size-1 domain and then squeeze.  The reduction
+  // scheduler uses reduction TVs as a scheduling reference, so that
+  // won't be able to schedule the unresolved broadcast ID and its
+  // corresponding index-accessed producer ID, and any IDs that the
+  // producer ID depends on.
   //
   // This analysis has some similarity as DomainMap. Can be
   // consolidated?
@@ -1877,7 +1879,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
     bool combined_inner_outer =
         !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
 
-    // TODO: This should be always checked?
     if (!checkReductionPattern(
             fusion, inner_reduction_tvs, outer_reduction_tvs)) {
       return false;
