@@ -8302,7 +8302,7 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
   at::Tensor at_x = at::randn(input_shape, options);
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({at_x});
-  auto ref_out = at_x.clone();
+  auto ref_out = at_x.clone().relu().neg();
 
   // auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   // auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();

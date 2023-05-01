@@ -1170,6 +1170,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       if (!print_inline_) {
         code_ << ";\n";
       }
+      return;
     }
 
     if (ldst->out()->isA<kir::TensorIndex>()) {
