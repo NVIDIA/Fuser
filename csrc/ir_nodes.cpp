@@ -2502,21 +2502,15 @@ void IterDomain::parallelize(ParallelType t) {
 
   // assert check that we only parallelize a leaf domain.
   // leaf domains are domains that are not used by any other domains.
-  // this check is only applied to isParallelTypeThread
-  // getNonGlobalProducerStridedIndices in NVFuserTest.FusionIndexHoist2_CUDA
-  // is trying to parallelize a non-leaf domain using vectorize
-  // should be albe to apply to all parallel types after computeAt is retired.
-  if (isParallelTypeThread(t)) {
-    TORCH_CHECK(
-        uses().empty(),
-        "Only allowed to parallelize a leaf domain.",
-        " Domain: ",
-        toString(),
-        ", Parallel type: ",
-        t,
-        definition() != nullptr ? ", Definition: " + definition()->toString()
-                                : "");
-  }
+  TORCH_CHECK(
+      uses().empty(),
+      "Only allowed to parallelize a leaf domain.",
+      " Domain: ",
+      toString(),
+      ", Parallel type: ",
+      t,
+      definition() != nullptr ? ", Definition: " + definition()->toString()
+                              : "");
 
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {

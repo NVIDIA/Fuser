@@ -1552,35 +1552,11 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       c2p_root_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
-  p2c_index_map = invertOneToOneMap(c2p_index_map);
-
-  // Forward vectorized IDs to index into producer correctly
-  // We want p_id to be vectorized like consumer just for the indexing, then we
-  // need to switch it back later. Store previous state here when changing. We
-  // need to do this as replaying producer as consumer can use replay best
-  // effort which means some domains may be the originals.
-  std::vector<std::pair<IterDomain*, ParallelType>> p_id_backup;
-  for (auto entry : c2p_index_map) {
-    auto ref_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        entry.first, IdMappingMode::EXACT);
-    auto p_id = entry.second;
-    if (ref_id->getParallelType() == ParallelType::Vectorize) {
-      p_id_backup.emplace_back(p_id, p_id->getParallelType());
-      p_id->parallelize(ParallelType::Vectorize);
-    } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      p_id->parallelize(ParallelType::MisalignedVectorize);
-    }
-  }
 
   auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, false, c2p_index_map);
 
   auto producer_indexing = producer_indexing_from_idgraph.index;
-
-  // Revert p_ids
-  for (auto entry : p_id_backup) {
-    entry.first->parallelize(entry.second);
-  }
 
   IndexSwizzle index_swizzle(
       producer_tv,
@@ -1920,35 +1896,11 @@ std::vector<Val*> Index::getProducerRootIndices(
     }
   }
 
-  const auto p2c_map = invertOneToOneMap(c2p_map);
-
-  // Forward vectorized IDs to index into producer correctly
-  // We want p_id to be vectorized like consumer just for the indexing, then we
-  // need to switch it back later. Store previous state here when changing. We
-  // need to do this as replaying producer as consumer can use replay best
-  // effort which means some domains may be producer's original domains.
-  std::vector<std::pair<IterDomain*, ParallelType>> p_id_backup;
-  for (auto entry : c2p_map) {
-    auto ref_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        entry.first, IdMappingMode::EXACT);
-    auto p_id = entry.second;
-    if (ref_id->getParallelType() == ParallelType::Vectorize) {
-      p_id_backup.emplace_back(p_id, p_id->getParallelType());
-      p_id->parallelize(ParallelType::Vectorize);
-    } else if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      p_id->parallelize(ParallelType::MisalignedVectorize);
-    }
-  }
-
   auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
 
   auto producer_indexing = producer_indexing_from_idgraph.index;
 
-  // Revert p_ids
-  for (auto entry : p_id_backup) {
-    entry.first->parallelize(entry.second);
-  }
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
