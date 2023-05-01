@@ -445,7 +445,7 @@ bool tryingToMergeSegmenterLoad(Fusion* fusion) {
       if (!std::any_of(
 	    fusion->outputs().begin(),
 	    fusion->outputs().end(),
-            [](Val* val) { return val == expr->output(0); })) {
+            [expr](Val* val) { return val == expr->output(0); })) {
          return true;
       }
     }
