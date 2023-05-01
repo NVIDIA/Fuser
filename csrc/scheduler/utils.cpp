@@ -20,6 +20,7 @@
 #include <transform_replay.h>
 
 #include <algorithm>
+#include <queue>
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -2257,6 +2258,41 @@ void promoteProducerMemoryTypesOfResizedTensors(
       producer->setMemoryType(new_mem_type);
     }
   }
+}
+
+std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set) {
+  std::unordered_set<TensorView*> tv_group;
+  std::queue<TensorView*> tensors_to_visit;
+  auto addIfNotVisited = [&](TensorView* tv) {
+    if (tv_group.find(tv) == tv_group.end() &&
+        cutoff_tv_set.find(tv) == cutoff_tv_set.end()) {
+      tv_group.emplace(tv);
+      tensors_to_visit.push(tv);
+    }
+  };
+
+  for (auto tv : from_tvs) {
+    tensors_to_visit.push(tv);
+  }
+  while (!tensors_to_visit.empty()) {
+    auto next_tv = tensors_to_visit.front();
+    tensors_to_visit.pop();
+    // visit consumers
+    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit siblings
+    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit producer
+    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+  }
+  return tv_group;
 }
 
 } // namespace scheduler_utils
