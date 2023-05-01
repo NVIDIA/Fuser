@@ -28,7 +28,6 @@ if (PROJECT_IS_TOP_LEVEL)
   if(BUILD_NVFUSER_BENCHMARK)
     include(cmake/Dependencies.cmake)
   endif()
-  # set(CMAKE_INSTALL_PREFIX "${NVFUSER_ROOT}/nvfuser")
   # set CUDA_ARCH for cu tests.
   if(EXISTS ${TORCH_CUDA_ARCH_LIST})
     set(ARCH_FLAGS)
