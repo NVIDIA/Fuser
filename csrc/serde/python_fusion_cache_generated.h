@@ -82,7 +82,7 @@ struct TrieNodeBuilder;
 struct FusionCache;
 struct FusionCacheBuilder;
 
-enum DataType {
+enum DataType : int32_t {
   DataType_Double = 0,
   DataType_Float = 1,
   DataType_Half = 2,
@@ -135,7 +135,7 @@ inline const char* EnumNameDataType(DataType e) {
   return EnumNamesDataType()[index];
 }
 
-enum StateType {
+enum StateType : int32_t {
   StateType_Tensor = 0,
   StateType_Scalar = 1,
   StateType_None = 2,
@@ -161,7 +161,7 @@ inline const char* EnumNameStateType(StateType e) {
   return EnumNamesStateType()[index];
 }
 
-enum Contiguity {
+enum Contiguity : int32_t {
   Contiguity_Strided = 0,
   Contiguity_Contiguous = 1,
   Contiguity_None = 2,
@@ -188,7 +188,7 @@ inline const char* EnumNameContiguity(Contiguity e) {
   return EnumNamesContiguity()[index];
 }
 
-enum RecordType {
+enum RecordType : int32_t {
   RecordType_Base = 0,
   RecordType_BatchNormOp = 1,
   RecordType_BroadcastOp = 2,
@@ -206,51 +206,52 @@ enum RecordType {
   RecordType_IotaOp = 14,
   RecordType_IndexSelectOp = 15,
   RecordType_TorchGatherOp = 16,
-  RecordType_Unary_TV = 17,
-  RecordType_Unary_VAL = 18,
-  RecordType_Binary_TV = 19,
-  RecordType_Binary_VAL = 20,
-  RecordType_Binary_TV_VAL = 21,
-  RecordType_Binary_VAL_TV = 22,
-  RecordType_Ternary_TV = 23,
-  RecordType_Ternary_VAL = 24,
-  RecordType_Ternary_TV_TV_VAL = 25,
-  RecordType_Ternary_TV_VAL_TV = 26,
-  RecordType_Ternary_VAL_TV_TV = 27,
-  RecordType_Ternary_VAL_VAL_TV = 28,
-  RecordType_Ternary_TV_VAL_VAL = 29,
-  RecordType_Ternary_VAL_TV_VAL = 30,
-  RecordType_Ternary_Alpha_TV = 31,
-  RecordType_Ternary_Alpha_VAL = 32,
-  RecordType_Ternary_Alpha_TV_TV_VAL = 33,
-  RecordType_Ternary_Alpha_TV_VAL_TV = 34,
-  RecordType_Ternary_Alpha_VAL_TV_TV = 35,
-  RecordType_Ternary_Alpha_VAL_VAL_TV = 36,
-  RecordType_Ternary_Alpha_TV_VAL_VAL = 37,
-  RecordType_Ternary_Alpha_VAL_TV_VAL = 38,
-  RecordType_OutputTv = 39,
-  RecordType_OutputVal = 40,
-  RecordType_PadOp = 41,
-  RecordType_PermuteOp = 42,
-  RecordType_RandomOp = 43,
-  RecordType_ReductionMax = 44,
-  RecordType_ReductionMin = 45,
-  RecordType_ReductionProd = 46,
-  RecordType_ReductionSum = 47,
-  RecordType_ReshapeOp = 48,
-  RecordType_Scalar = 49,
-  RecordType_SliceOp = 50,
-  RecordType_SqueezeOp = 51,
-  RecordType_Start = 52,
-  RecordType_Tensor = 53,
-  RecordType_TensorSizes = 54,
-  RecordType_VarianceOp = 55,
-  RecordType_VarianceMeanOp = 56,
+  RecordType_TakeAlongAxisOp = 17,
+  RecordType_Unary_TV = 18,
+  RecordType_Unary_VAL = 19,
+  RecordType_Binary_TV = 20,
+  RecordType_Binary_VAL = 21,
+  RecordType_Binary_TV_VAL = 22,
+  RecordType_Binary_VAL_TV = 23,
+  RecordType_Ternary_TV = 24,
+  RecordType_Ternary_VAL = 25,
+  RecordType_Ternary_TV_TV_VAL = 26,
+  RecordType_Ternary_TV_VAL_TV = 27,
+  RecordType_Ternary_VAL_TV_TV = 28,
+  RecordType_Ternary_VAL_VAL_TV = 29,
+  RecordType_Ternary_TV_VAL_VAL = 30,
+  RecordType_Ternary_VAL_TV_VAL = 31,
+  RecordType_Ternary_Alpha_TV = 32,
+  RecordType_Ternary_Alpha_VAL = 33,
+  RecordType_Ternary_Alpha_TV_TV_VAL = 34,
+  RecordType_Ternary_Alpha_TV_VAL_TV = 35,
+  RecordType_Ternary_Alpha_VAL_TV_TV = 36,
+  RecordType_Ternary_Alpha_VAL_VAL_TV = 37,
+  RecordType_Ternary_Alpha_TV_VAL_VAL = 38,
+  RecordType_Ternary_Alpha_VAL_TV_VAL = 39,
+  RecordType_OutputTv = 40,
+  RecordType_OutputVal = 41,
+  RecordType_PadOp = 42,
+  RecordType_PermuteOp = 43,
+  RecordType_RandomOp = 44,
+  RecordType_ReductionMax = 45,
+  RecordType_ReductionMin = 46,
+  RecordType_ReductionProd = 47,
+  RecordType_ReductionSum = 48,
+  RecordType_ReshapeOp = 49,
+  RecordType_Scalar = 50,
+  RecordType_SliceOp = 51,
+  RecordType_SqueezeOp = 52,
+  RecordType_Start = 53,
+  RecordType_Tensor = 54,
+  RecordType_TensorSizes = 55,
+  RecordType_VarianceOp = 56,
+  RecordType_VarianceMeanOp = 57,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_VarianceMeanOp
 };
 
-inline const RecordType (&EnumValuesRecordType())[57] {
+inline const RecordType (&EnumValuesRecordType())[58] {
   static const RecordType values[] = {
       RecordType_Base,
       RecordType_BatchNormOp,
@@ -269,6 +270,7 @@ inline const RecordType (&EnumValuesRecordType())[57] {
       RecordType_IotaOp,
       RecordType_IndexSelectOp,
       RecordType_TorchGatherOp,
+      RecordType_TakeAlongAxisOp,
       RecordType_Unary_TV,
       RecordType_Unary_VAL,
       RecordType_Binary_TV,
@@ -313,7 +315,7 @@ inline const RecordType (&EnumValuesRecordType())[57] {
 }
 
 inline const char* const* EnumNamesRecordType() {
-  static const char* const names[58] = {
+  static const char* const names[59] = {
       "Base",
       "BatchNormOp",
       "BroadcastOp",
@@ -331,6 +333,7 @@ inline const char* const* EnumNamesRecordType() {
       "IotaOp",
       "IndexSelectOp",
       "TorchGatherOp",
+      "TakeAlongAxisOp",
       "Unary_TV",
       "Unary_VAL",
       "Binary_TV",
@@ -382,7 +385,7 @@ inline const char* EnumNameRecordType(RecordType e) {
   return EnumNamesRecordType()[index];
 }
 
-enum RecordData {
+enum RecordData : uint8_t {
   RecordData_NONE = 0,
   RecordData_BatchNorm = 1,
   RecordData_Bool = 2,
