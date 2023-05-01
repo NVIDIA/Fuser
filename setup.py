@@ -92,6 +92,11 @@ for i, arg in enumerate(sys.argv):
 sys.argv = forward_args
 
 
+def get_cmake_bin():
+    # TODO: double check cmake version here and retrieve later version if necessary
+    return "cmake"
+
+
 class clean(setuptools.Command):
     user_options = []
 
@@ -247,7 +252,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
 
     # generate cmake directory
     cmd_str = [
-        "cmake",
+        get_cmake_bin(),
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
@@ -273,7 +278,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         # build binary
         max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
         cmd_str = [
-            "cmake",
+            get_cmake_bin(),
             "--build",
             cmake_build_dir,
             "--target",
