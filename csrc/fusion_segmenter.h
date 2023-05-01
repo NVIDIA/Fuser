@@ -186,9 +186,6 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
 
-  // Is this class really necessary?
-  // temporarily make it public
- public:
   //! Utility struct to represent a group connection
   //!  both the group to connect with and the edge
   //!  to connect through
@@ -198,7 +195,6 @@ class TORCH_CUDA_CU_API SegmentedGroup {
     SegmentedEdge* edge;
   };
 
- private:
   //! TODO: May want to sort this based on size of connections between this and
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
@@ -570,10 +566,6 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   void buildInitialSegments();
 
   void findSegments();
-
-  void trySetUpMerge(
-      SegmentedGroup* group,
-      std::vector<SegmentedGroup::NeighborGroup> candidates = {});
 
   std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
 

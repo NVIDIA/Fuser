@@ -2973,89 +2973,6 @@ bool areDirectlyConnected(SegmentedGroup* group1, SegmentedGroup* group2) {
   return false;
 }
 
-// TODO:
-
-std::vector<
-    std::pair<SegmentedGroup*, std::vector<SegmentedGroup::NeighborGroup>>>
-getPreferredGroupsToMerge(const std::vector<SegmentedGroup*>& groups) {
-  std::vector<
-      std::pair<SegmentedGroup*, std::vector<SegmentedGroup::NeighborGroup>>>
-      preferred_groups;
-
-  return preferred_groups;
-
-  // Prefer merging groups with gather-like exprs with producer
-  // groups. It should be sufficient to just prioritize groups
-  // when they just consist of a single gather-like expr since once
-  // they are merged with producers, they would not be merged with
-  // reduction-like consumers
-  for (auto& group : groups) {
-    const auto& exprs = group->exprs();
-    if (exprs.size() != 1) {
-      continue;
-    }
-    auto expr = exprs.at(0);
-    // Gather-like exprs have a producer ID that is indirectly
-    // accessed with an index input
-    if (ir_utils::getIndexedProducerID(expr) == nullptr) {
-      continue;
-    }
-
-    auto lookup_tv = ir_utils::getTvInput(expr);
-
-    // If the lookup tv is a fusion input, there's nothing to do
-    if (lookup_tv->isFusionInput()) {
-      continue;
-    }
-
-    // If the corresponding consumer is a broadcast, prefer merging
-    // with its producer expr rather than the consumer. When merged
-    // with the consumer, since the indexed domain may be squeezed, it
-    // may not be fused with any more exprs unless the lookup tensor
-    // of the gather-like expr is kept as a fusion input, thereby
-    // preventing any of the producer exprs to be merged with the
-    // gather like expr.
-    //
-    // A motivating example is cross-entropy loss, where softmax is
-    // followed by take_along_axis, and then is followed by a
-    // reduction. Currently, it's not possible to fuse the softmax and
-    // the reduction, so it must be segmented to two groups, and we
-    // want to segment the fusion between the take_along_axis and the
-    // reduction, not between the softma and take_along_axis.
-
-    auto consumer_of_indexed_id =
-        ir_utils::getConsumerOfIndexedProducerID(expr);
-
-    // If there's no consumer, that means the expr is select, and it
-    // has the same effect as broadcast
-    if (consumer_of_indexed_id != nullptr &&
-        !consumer_of_indexed_id->isBroadcast()) {
-      continue;
-    }
-
-    // Find the producer group that corresponds to the lookup tensor
-    // of the expr.
-    auto producer_edge_it = std::find_if(
-        group->producer_edges.begin(),
-        group->producer_edges.end(),
-        [&lookup_tv](SegmentedEdge* edge) { return edge->val == lookup_tv; });
-
-    // Could this happen?
-    if (producer_edge_it == group->producer_edges.end()) {
-      TORCH_INTERNAL_ASSERT(false, "Unexpected");
-      continue;
-    }
-
-    // Insert the group and its producer edge to the preferred_groups
-    SegmentedGroup::NeighborGroup neighbor_group(
-        (*producer_edge_it)->from, *producer_edge_it);
-    preferred_groups.emplace_back(
-        group, std::vector<SegmentedGroup::NeighborGroup>{neighbor_group});
-  }
-
-  return preferred_groups;
-}
-
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(
@@ -3156,42 +3073,6 @@ void SegmentCandidateFinder::buildInitialSegments() {
   }
 }
 
-void SegmentCandidateFinder::trySetUpMerge(
-    SegmentedGroup* group,
-    std::vector<SegmentedGroup::NeighborGroup> candidates) {
-  if (group->merged_ || group->isFusionInputGroup()) {
-    return;
-  }
-
-  if (candidates.empty()) {
-    candidates = group->getMergeCandidates();
-  }
-
-  if (candidates.empty()) {
-    return;
-  }
-
-  auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() &&
-         !codeGenSupportedMerge(group, candidate_it->group)) {
-    candidate_it++;
-  }
-  if (candidate_it == candidates.end()) {
-    return;
-  }
-
-  to_merge_.emplace_back(group);
-  to_merge_.emplace_back(candidate_it->group);
-
-  group->merged_ = true;
-  group->merge_with_ = candidate_it->group;
-  group->merge_through_ = candidate_it->edge;
-
-  candidate_it->group->merged_ = true;
-  candidate_it->group->merge_with_ = group;
-  candidate_it->group->merge_through_ = candidate_it->edge;
-}
-
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
 
@@ -3242,13 +3123,34 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
-      for (auto& [group, candidates] : getPreferredGroupsToMerge(groups())) {
-        std::cerr << "Try preferred merge: " << group << std::endl;
-        trySetUpMerge(group, candidates);
-      }
-
       for (auto& group : groups()) {
-        trySetUpMerge(group);
+        if (group->merged_ || group->isFusionInputGroup()) {
+          continue;
+        }
+        auto candidates = group->getMergeCandidates();
+        if (candidates.empty()) {
+          continue;
+        }
+
+        auto candidate_it = candidates.begin();
+        while (candidate_it != candidates.end() &&
+               !codeGenSupportedMerge(group, candidate_it->group)) {
+          candidate_it++;
+        }
+        if (candidate_it == candidates.end()) {
+          continue;
+        }
+
+        to_merge_.emplace_back(group);
+        to_merge_.emplace_back(candidate_it->group);
+
+        group->merged_ = true;
+        group->merge_with_ = candidate_it->group;
+        group->merge_through_ = candidate_it->edge;
+
+        candidate_it->group->merged_ = true;
+        candidate_it->group->merge_with_ = group;
+        candidate_it->group->merge_through_ = candidate_it->edge;
       }
 
       if (to_merge_.empty()) {
