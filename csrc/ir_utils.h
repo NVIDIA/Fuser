@@ -380,8 +380,12 @@ TORCH_CUDA_CU_API bool isIndexedConsumerID(
     const TensorView* tv,
     const IterDomain* id);
 
+// Return a producer ID, if any, that is indirectly accessed by, e.g.,
+// index_select and torch_gather.
 TORCH_CUDA_CU_API IterDomain* getIndexedProducerID(const Expr* expr);
 
+// Return the corresponding consumer if of a producer ID that is
+// indirectly accessed.
 TORCH_CUDA_CU_API IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and

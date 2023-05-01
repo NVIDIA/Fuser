@@ -363,8 +363,6 @@ class SchedulerTopologyChecker {
     // If reductions are on fastest dim, don't fuse any operations (after
     // reductions) that requires an input that is not an input to the
     // reductions.
-    //
-    // TODO: Why?
     if (fastest_dim_reduction) {
       auto post_reduction_vals = DependencyCheck::getAllValsBetween(
           reduction_tv_set,
@@ -1956,7 +1954,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    // TODO: What tensors are reference tensors? Not all reduction tvs are same.
     if (SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
             fusion, reduction_tvs)) {
       scheduler_debug_utils::canScheduleRejectReason(
