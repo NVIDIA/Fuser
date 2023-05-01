@@ -1523,10 +1523,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
     return is_rfactor_domain_;
   }
 
-  bool isIteration() const {
-    return getIterType() == IterType::Iteration;
-  }
-
   bool isBroadcast() const {
     return getIterType() == IterType::Broadcast;
   }

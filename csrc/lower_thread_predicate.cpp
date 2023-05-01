@@ -546,7 +546,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   std::unordered_map<ParallelType, Val*> write_index_map_;
 
   void setCandidateLeafDomains() {
-    for (auto ld : tv_->domain()->domain()) {
+    for (auto ld : tv_->domain()->leaf()) {
       const ParallelType& pt = ld->getParallelType();
       auto merge = dynamic_cast<Merge*>(ld->definition());
       if (isParallelTypeThread(pt) && merge) {
@@ -568,7 +568,22 @@ class ConcretizedBroadcastRedundantWriteRemover {
               GpuLower::current()
                   ->concretizedBroadcastDomains()
                   ->allConcretizedDomains(mapped_rd);
+          auto fromSameExactGroup = [&all_cids]() {
+            const auto& exact_set = GpuLower::current()
+                                        ->caMap()
+                                        ->getIdSets(IdMappingMode::EXACT)
+                                        .getDisjointSetOf(*all_cids.begin());
+            return std::all_of(
+                all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
+                  return exact_set.has(id);
+                });
+          };
           if (!all_cids.empty()) {
+            // assert that all_cids are in the same group in the
+            // IdMappingMode::EXACT graph
+            TORCH_INTERNAL_ASSERT(
+                fromSameExactGroup(),
+                "All concretized domains of a broadcast root domain should be in the same group in the IdMappingMode::EXACT graph.");
             concretized_broadcast_root_domains_[rd] = *all_cids.begin();
             break;
           }
@@ -577,8 +592,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
   // Find all the root domains that are merged to the leaf domain.
-  // e.g. Root: [I1,B2,B3] -> Leaf: [I1B2B3], the merged_root_domains =
-  // {B3,B2,I1}
+  // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
   std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
     std::vector<IterDomain*> merged_root_domains;
     std::vector<int> index_root_domain;
