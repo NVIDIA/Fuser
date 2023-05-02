@@ -161,6 +161,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     const ArgAbstract* arg = args[i];
+    TORCH_INTERNAL_ASSERT(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       if (const auto& tensor_arg_abstract =
               dynamic_cast<const TensorArgAbstract*>(arg)) {
@@ -170,7 +171,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
             arg != nullptr && arg->isType(ArgType::CpuScalarTensor),
             "binding input to TensorView expects input arg to be of tensor type");
       }
-    } else if (input != nullptr && input->isScalar()) {
+    } else if (input->isScalar()) {
       if (input->getDataType() == DataType::Int) {
         TORCH_CHECK(
             arg->isType(ArgType::Long),
