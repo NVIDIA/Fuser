@@ -2072,14 +2072,14 @@ class TestNvFuserFrontend(TestCase):
     
     def test_matmuls(self):
         inputs = [
-            torch.randn(4, 4, device="cuda", dtype=torch.float16),
-            torch.randn(4, 4, device="cuda", dtype=torch.float16),
+            torch.randn(8, 4, device="cuda", dtype=torch.float16),
+            torch.randn(4, 6, device="cuda", dtype=torch.float16),
         ]
 
         def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
-            t2 = fd.ops._matmul_nt(t0, t1)
+            t2 = fd.ops._matmul_tt(t0, t1)
             fd.add_output(t2)
 
         eager_out = torch.matmul(inputs[0], inputs[1]).to(dtype=torch.float32)
