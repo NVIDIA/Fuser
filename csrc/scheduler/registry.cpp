@@ -1878,7 +1878,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
     bool combined_inner_outer =
         !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
-
     if (!checkReductionPattern(
             fusion, inner_reduction_tvs, outer_reduction_tvs)) {
       return false;
