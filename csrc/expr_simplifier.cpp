@@ -144,20 +144,6 @@ Val* flatten(Val* value);
 
 namespace {
 
-std::vector<Bool*> getAxioms() {
-  std::vector<Bool*> axioms;
-  axioms.reserve(kParallelTypeThreads.size() * 3);
-  for (auto p : kParallelTypeThreads) {
-    auto pidx = NamedScalar::getParallelIndex(p);
-    auto pdim = NamedScalar::getParallelDim(p);
-    auto zero = pidx->container()->zeroVal();
-    axioms.push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
-    axioms.push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
-    axioms.push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
-  }
-  return axioms;
-}
-
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
@@ -181,7 +167,7 @@ class Context {
       var_set_.emplace(var);
     }
     // decompose a && b in assumptions as a and b
-    auto axioms = getAxioms();
+    const auto& axioms = FusionGuard::getCurFusion()->axioms();
     assumptions.insert(assumptions.end(), axioms.begin(), axioms.end());
     while (!assumptions.empty()) {
       auto back = assumptions.back();
