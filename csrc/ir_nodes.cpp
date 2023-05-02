@@ -2515,6 +2515,20 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
+  // assert check that we only parallelize a leaf domain.
+  // leaf domains are domains that are not used by any other domains.
+  if (t != ParallelType::Serial) {
+    TORCH_CHECK(
+        uses().empty(),
+        "Only allowed to parallelize a leaf domain.",
+        " Domain: ",
+        toString(),
+        ", Parallel type: ",
+        t,
+        definition() != nullptr ? ", Definition: " + definition()->toString()
+                                : "");
+  }
+
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {
     TORCH_CHECK(
