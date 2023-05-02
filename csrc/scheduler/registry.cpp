@@ -1557,7 +1557,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto select : ir_utils::getSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           select->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (select->getSelectAxis() == root[root.size() - 1]) {
+      if (select->getIndexedID() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "SelectOp on inner dim is not supported by transpose scheduler yet."
@@ -1568,7 +1568,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto idx_sel : ir_utils::getIndexSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           idx_sel->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (idx_sel->getSelectAxis() == root[root.size() - 1]) {
+      if (idx_sel->getIndexedID() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "IndexSelectOp on inner dim is not supported by transpose scheduler yet."

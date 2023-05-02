@@ -2198,7 +2198,8 @@ void promoteProducerMemoryTypesOfResizedTensors(
       auto c2p_map = BestEffortReplay(
                          producer->domain()->leaf(),
                          resized_tensor->domain()->leaf(),
-                         PairwiseRootDomainMap(producer, resized_tensor, true)
+                         PairwiseRootDomainMap(producer, resized_tensor)
+                             .mapBroadcast(false)
                              .mapConsumerToProducer(
                                  resized_tensor->domain(), producer->domain()))
                          .getReplay();
