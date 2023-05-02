@@ -40,7 +40,7 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
   if (cluster->params().auto_schedule) {
     // Get runtime info from fusion graph and concrete tensor inputs.
     SchedulerRuntimeInfo runtime_info(
-        fusion_from_cluster.get(), cluster_inputs, true);
+        fusion_from_cluster.get(), cluster_inputs);
 
     // Get heuristic tag that applies to the given fusion and input info.
     auto heuristic = SchedulerEntry::proposeHeuristics(
@@ -63,7 +63,7 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
 
   // Infer which device this fusion runs from input device ids.
   // TODO: fix should bind device with cluster?
-  const int device_index = getCommonDeviceCUDA(cluster_inputs);
+  const auto device_index = getCommonDeviceCUDA(cluster_inputs);
   TORCH_CHECK(device_index >= 0, "All inputs must be on the same device");
 
   // Set launch parameters

@@ -9,7 +9,9 @@ build
 dist
 
 nvfuser/version.py
+nvfuser/include
 nvfuser/lib
+nvfuser/share
 
 .hypothesis
 *.egg-info/
@@ -36,3 +38,6 @@ nvfuser/lib
 *~
 .~lock.*
 .vscode
+
+# debugging temporaries
+*.log

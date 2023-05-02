@@ -104,7 +104,8 @@ class RotateLoop : kir::ExprMutator {
     // interacting with each other.
     for (auto item : params) {
       exprs = RotateLoop(
-                  std::get<0>(item)->axis(std::get<1>(item)), std::get<2>(item))
+                  std::get<0>(item)->axis((int)std::get<1>(item)),
+                  std::get<2>(item))
                   .traverseAndInsert(exprs);
     }
     return exprs;
@@ -120,7 +121,7 @@ class RotateLoop : kir::ExprMutator {
       : loop_concrete_id_(GpuLower::current()->caMap()->getConcreteMappedID(
             loop_id,
             IdMappingMode::LOOP)),
-        selection_(selection) {}
+        selection_(std::move(selection)) {}
 
   // We use the following strategy on expr selection:
   // - If a Val is selected, then its allocation is automatically selected.
@@ -364,7 +365,7 @@ class RotateLoop : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  virtual void handle(kir::ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) final {
     ExprMutator::handle(fl);
     expandSelection(fl);
     auto id = fl->iter_domain();
@@ -375,7 +376,7 @@ class RotateLoop : kir::ExprMutator {
     }
   }
 
-  virtual void handle(Expr* expr) final {
+  void handle(Expr* expr) final {
     ExprMutator::handle(expr);
     expandSelection(expr);
   }

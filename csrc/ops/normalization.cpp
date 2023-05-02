@@ -11,15 +11,15 @@
 
 namespace nvfuser {
 
-int nonNegativeAxis(int axis, int ndims) {
-  return (axis >= 0) ? axis : (ndims + axis);
+int nonNegativeAxis(int axis, size_t ndims) {
+  return (axis >= 0) ? axis : ((int)ndims + axis);
 }
 
-Val* numFeatures(TensorView* x, const std::vector<int>& dims, int ndims) {
+Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
   Val* num_features = IrBuilder::create<Double>(x->container(), 1);
   for (const auto dim : dims) {
     const int axis = nonNegativeAxis(dim, ndims);
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
   }
   return num_features;
 }
@@ -27,7 +27,7 @@ Val* numFeatures(TensorView* x, const std::vector<int>& dims, int ndims) {
 TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
 
   auto sum_x = sum(x, dims, keepdim);
@@ -55,7 +55,7 @@ TensorView* variance(
   TORCH_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
 
   auto bcast_mean = mean(x, dims, true /* keepdim */);
@@ -92,22 +92,17 @@ VarMeanResult variance_mean(
       " please upcast to float");
 
   if (isComplexType(x->getDataType().value())) {
-    // There are compilation errors:
-    // __tmp_kernel1.cu(6727): error: namespace "CudaCodeGen::std" has no member
-    // "imagf"
-    // __tmp_kernel1.cu(6753): error: namespace "CudaCodeGen::std" has no member
-    // "realf"
-    TORCH_CHECK(false, "var_mean is not supported for complex types.");
+    // The variance of a complex tensor is a real number its value equals the
+    // sum of real and imaginary variances. The mean of a complex tensor is a
+    // complex number its real and image parts equals the mean of real and
+    // imaginary parts of the original tensor, separately.
     auto out_real = variance_mean(real(x), dims, correction, keepdim);
     auto out_imag = variance_mean(imag(x), dims, correction, keepdim);
-    // variance of a complex tensor is the sum of real and imaginary variances
-    // and is real mean of a complex tensor is complex complex(out_real.mean,
-    // out_imag.mean) It seems construction of a complex tensor from two real
-    // tensors is not supported yet
-    return {add(out_real.var, out_imag.var), nullptr};
+    return {
+        add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
   if (correction > 0) {
@@ -143,10 +138,11 @@ TensorView* standard_deviation(
 TensorView* softmax(TensorView* x, int dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
+  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
+  TORCH_INTERNAL_ASSERT(
+      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -166,10 +162,11 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
   TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
   TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
+  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
+  TORCH_INTERNAL_ASSERT(
+      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -186,10 +183,11 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
 TensorView* log_softmax(TensorView* x, int dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
+  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
+  TORCH_INTERNAL_ASSERT(
+      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -209,10 +207,11 @@ TensorView* log_softmax_backward(TensorView* dy, TensorView* y, int dim) {
   TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
   TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
 
-  const int kNumberOfDims =
+  const size_t kNumberOfDims =
       TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
+  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
+  TORCH_INTERNAL_ASSERT(
+      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   auto bcast_sum_grad = sum(dy, {kReductionAxis}, true /* keepdim */);
   auto softmax = exp(y);
@@ -249,16 +248,16 @@ auto norm_properties_from_num_dims(
   std::vector<bool> inner_broadcast_mask(kNumberOfDims, false);
 
   for (const auto idx : c10::irange(kOuterNumDims)) {
-    outer_reduction_axes[idx] = idx;
+    outer_reduction_axes[idx] = (int)idx;
     outer_broadcast_mask[idx] = true;
   }
 
   Val* num_features = IrBuilder::create<Double>(x->container(), 1);
   for (const auto idx : c10::irange(kNormShapeNumDims)) {
     const size_t axis = kNumberOfDims - 1 - idx;
-    inner_reduction_axes[idx] = axis;
+    inner_reduction_axes[idx] = (int)axis;
     inner_broadcast_mask[axis] = true;
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
   }
   struct result {
     std::vector<int> outer_reduction_axes;
@@ -503,9 +502,9 @@ ForwardNormResult batch_norm(
 
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != c_axis) {
-      reduction_axes.push_back(axis);
+      reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
-      num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+      num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
     }
   }
 
@@ -646,14 +645,14 @@ BackwardNormResult batch_norm_backward(
   Val* num_features = nullptr;
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != c_axis) {
-      reduction_axes.push_back(axis);
+      reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->domain()[axis]->extent());
+            castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
+            mul(num_features, input->domain()->leaf()[axis]->extent());
       }
     }
   }
@@ -753,13 +752,13 @@ ForwardNormResult instance_norm(
   Val* N = IrBuilder::create<Double>(x->container(), 1);
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
-      x_reduction_axes.push_back(axis);
+      x_reduction_axes.push_back((int)axis);
       x_broadcast_mask[axis] = true;
-      N = mul(N, x->domain()->domain()[axis]->extent());
+      N = mul(N, x->domain()->leaf()[axis]->extent());
     }
   }
   Val* B = IrBuilder::create<Double>(x->container(), 1);
-  B = mul(B, x->domain()->domain()[kBatchDim]->extent());
+  B = mul(B, x->domain()->leaf()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -907,14 +906,14 @@ BackwardNormResult instance_norm_backward(
     if (axis != c_axis) {
       weight_broadcast_mask[axis] = true;
       if (axis != b_axis) {
-        reduction_axes.push_back(axis);
+        reduction_axes.push_back((int)axis);
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
-          num_features = castOp(
-              DataType::Double, input->domain()->domain()[axis]->extent());
+          num_features =
+              castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
         } else {
           num_features =
-              mul(num_features, input->domain()->domain()[axis]->extent());
+              mul(num_features, input->domain()->leaf()[axis]->extent());
         }
       }
     }

@@ -13,7 +13,7 @@
 #include <ir_internal_nodes.h>
 #include <ir_iostream.h>
 #include <iter_visitor.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <transform_iter.h>
 
 namespace nvfuser {
@@ -95,6 +95,14 @@ class Transform : public PolymorphicBase {
     return index_;
   }
 
+  bool operator==(const Transform& other) const {
+    return index() == other.index();
+  }
+
+  bool operator!=(const Transform& other) const {
+    return !(*this == other);
+  }
+
  protected:
   // Relevant location information for the transformation. Stored information is
   // related to when we have to apply that transformation (see long comment at
@@ -148,7 +156,15 @@ class ViewTransform : public Transform {
   }
 
   // Debugging utility to convert the transformation into a string.
-  virtual std::string toString() const override = 0;
+  std::string toString() const override = 0;
+
+  bool operator==(const ViewTransform& other) const {
+    return Transform::operator==(other);
+  }
+
+  bool operator!=(const ViewTransform& other) const {
+    return !(*this == other);
+  }
 
  protected:
   ViewTransform(const int64_t& index) : Transform(index) {}
@@ -163,7 +179,7 @@ class MergeTransform final : public ViewTransform {
  public:
   MergeTransform(int64_t index) : ViewTransform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Merge at index: " << index_;
     return ss.str();
@@ -211,6 +227,14 @@ class MergeTransform final : public ViewTransform {
     current_transformed_domain.insert(
         current_transformed_domain.begin() + index_, new_merged_id);
   }
+
+  bool operator==(const MergeTransform& other) const {
+    return ViewTransform::operator==(other);
+  }
+
+  bool operator!=(const MergeTransform& other) const {
+    return !(*this == other);
+  }
 };
 
 //! The split tranformation creates two new iterDomains via an outer split.
@@ -225,9 +249,9 @@ class SplitTransform final : public ViewTransform {
         " during view transformation.");
   }
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
-    ss << "Split Index at: " << index_ << " by: " << split_factor_ << std::endl;
+    ss << "Split Index at: " << index_ << " by: " << split_factor_;
     return ss.str();
   }
 
@@ -284,6 +308,15 @@ class SplitTransform final : public ViewTransform {
     return split_factor_;
   }
 
+  bool operator==(const SplitTransform& other) const {
+    return ViewTransform::operator==(other) &&
+        split_factor_ == other.split_factor_;
+  }
+
+  bool operator!=(const SplitTransform& other) const {
+    return !(*this == other);
+  }
+
  private:
   const int64_t split_factor_ = 0;
 };
@@ -295,7 +328,7 @@ class BroadcastTransform final : public Transform {
  public:
   BroadcastTransform(int64_t index) : Transform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Broadcast at: " << index_ << std::endl;
     return ss.str();
@@ -308,7 +341,7 @@ class SqueezeTransform final : public Transform {
  public:
   SqueezeTransform(int64_t index) : Transform(index) {}
 
-  virtual std::string toString() const override {
+  std::string toString() const override {
     std::stringstream ss;
     ss << "Squeeze at: " << index_ << std::endl;
     return ss.str();
@@ -362,16 +395,16 @@ class AnalyzeViewTransformation {
       }
     }
 
-    for (auto squeeze : squeeze_transforms_) {
+    for (const auto& squeeze : squeeze_transforms_) {
       constraint.squeeze_string.push_back(squeeze->index());
     }
 
-    for (auto broadcast : broadcast_transforms_) {
+    for (const auto& broadcast : broadcast_transforms_) {
       constraint.broadcast_string.push_back(broadcast->index());
     }
 
     // Dilimeter for split/merge transforms is -2
-    for (auto split_merge : view_transforms_) {
+    for (const auto& split_merge : view_transforms_) {
       if (split_merge->isA<SplitTransform>()) {
         constraint.split_merge_string.push_back(split_merge->index());
         constraint.split_merge_string.push_back(
@@ -462,8 +495,13 @@ class AnalyzeViewTransformation {
       return original_view_.at(original_view_index) == 1;
     } else {
       TORCH_INTERNAL_ASSERT(original_view_index < (int64_t)root_domain_.size());
-      return root_domain_.at(original_view_index)->isImplicitBroadcast() &&
-          !root_domain_.at(original_view_index)->hasExpandedExtent();
+      auto root_id = root_domain_.at(original_view_index);
+      // A symbolic root ID with concrete size of 1 always gets
+      // concretized to a broadcast ID
+      return (root_id->isImplicitBroadcast() &&
+              !root_id->hasExpandedExtent()) ||
+          (root_id->getIterType() == IterType::Symbolic &&
+           original_view_.at(original_view_index) == 1);
     }
   }
 
@@ -619,7 +657,11 @@ class AnalyzeViewTransformation {
       // dimension, merge the next dimension in.
       TORCH_INTERNAL_ASSERT(
           original_view_index + 1 < (int64_t)original_view_.size(),
-          "Expecting to still have original dimensions to work on in view, but none left.");
+          "Expecting to still have original dimensions to work on in view, but none left.",
+          " Original view index: ",
+          original_view_index,
+          ". Original view size: ",
+          original_view_.size());
 
       view_transforms_.push_back(
           std::make_shared<MergeTransform>(transform_view_index));
@@ -714,6 +756,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
   const int64_t kNumElements = std::accumulate(
       original_view.begin(), original_view.end(), 1, std::multiplies<>());
   if (dynamic_index != -1) {
+    TORCH_INTERNAL_ASSERT(
+        kNumElements % new_size_num_elements == 0,
+        "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
+        "Number of input elements: ",
+        kNumElements,
+        ". Number of output elements: ",
+        new_size_num_elements);
     new_view.at(dynamic_index) = kNumElements / new_size_num_elements;
   }
 
@@ -727,7 +776,7 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
   FUSER_PERF_SCOPE("analyzeView");
-  if (original_sizes.size() == 0) {
+  if (original_sizes.empty()) {
     TORCH_INTERNAL_ASSERT(
         std::all_of(
             new_sizes.begin(),
@@ -771,6 +820,176 @@ TensorDomain* transformView(
     const AnalyzeViewResult& view_analysis) {
   FUSER_PERF_SCOPE("transformView");
   return createViewDomain(original_domain, view_analysis);
+}
+
+std::string AnalyzeViewResult::toString() const {
+  std::stringstream ss;
+  ss << "{ "
+     << "broadcast: " << broadcast_axes << ", squeeze: " << squeeze_axes
+     << ", transforms: ";
+  bool first_transform = true;
+  for (const auto& transform : transforms) {
+    if (!first_transform) {
+      ss << ", ";
+    }
+    ss << transform->toString();
+    first_transform = false;
+  }
+  ss << " }";
+  return ss.str();
+}
+
+bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
+  if (this == &other) {
+    return true;
+  }
+
+  if (broadcast_axes != other.broadcast_axes ||
+      squeeze_axes != other.squeeze_axes) {
+    return false;
+  }
+
+  if (transforms.size() != other.transforms.size()) {
+    return false;
+  }
+
+  for (const auto i : c10::irange(transforms.size())) {
+    auto transform = transforms.at(i);
+    auto other_transform = other.transforms.at(i);
+    if (transform->isA<SplitTransform>()) {
+      if (!other_transform->isA<SplitTransform>() ||
+          *transform->as<SplitTransform>() !=
+              *other_transform->as<SplitTransform>()) {
+        return false;
+      }
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          transform->isA<MergeTransform>(),
+          "Unrecognized transformation found.");
+      if (!other_transform->isA<MergeTransform>() ||
+          *transform->as<MergeTransform>() !=
+              *other_transform->as<MergeTransform>()) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+size_t AnalyzeViewResult::hash() const {
+  auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
+    size_t hash = 0;
+    for (const auto i : c10::irange(vec.size())) {
+      hash = (hash << 1) + static_cast<size_t>(vec.at(i));
+    }
+    return hash;
+  };
+
+  auto transform_vec_hash =
+      [](const std::vector<std::shared_ptr<ViewTransform>>& vec) -> size_t {
+    size_t hash = 0;
+    // Transform index indicates the axis position each transform
+    // operates on. Given that the number of axes is typically up to
+    // 8, we use 4 bits to encode the position. Another 1 bit is
+    // used to encode the differene between the merge and split
+    // transform types. So, we use 5 bits for each transform, and thus
+    // total of 12 transforms, which should be suffiently large for
+    // most of the cases. Note that this is still just a hash and does
+    // not need to guarantee different values for different
+    // AnalyzeViewResult.
+    for (const auto& transform : vec) {
+      size_t idx = static_cast<size_t>(transform->index());
+      idx = idx & (0b1111);
+      size_t transform_type_hash =
+          static_cast<size_t>(transform->isA<SplitTransform>());
+      // Shift the current hash by 5 bits and then append the index
+      // and transform type hash bits
+      hash = (hash << 5) | (idx << 1) | transform_type_hash;
+    }
+    return hash;
+  };
+
+  auto broadcast_hash = bool_vec_hash(broadcast_axes);
+  auto squeeze_hash = bool_vec_hash(squeeze_axes);
+  auto transform_hash = transform_vec_hash(transforms);
+
+  return broadcast_hash ^ squeeze_hash ^ transform_hash;
+}
+
+namespace {
+
+//! Transform TensorView according to keep, merge, and split transformations.
+//! Squeeze and broadcast transformations are handled separately.
+//! It is recommend to use the composite ops view function, which will call
+//! the analyzeView function to generate the appropriate transformations.
+//!
+//! For example:
+//! original sizes = [2, 10, 40]
+//! new_size = [2, 10, 2, 20]
+//! auto analysis = analyzeView(TV0, original_sizes, new_sizes)
+//! auto TV1 = TV0->view(analysis.transforms);
+//!
+//! Transforms = [(Keep I0), (Keep I1), (Split I2 by 2)]
+//! Before: TV0[I0, I1, I2]
+//! After: TV0[I0, I1, 2, ceilDiv(I2, 2)]
+//!
+//! orig_tv is the tensor view originally coming in from user for the view
+//! operation. This is the tensor view all of the view analysis is relative to.
+//! View might be doing squeezes before sending into the view operation, so we
+//! want the actual input to the view operation to be potentially after the
+//! original view operation.
+TensorView* applyViewTransforms(
+    TensorView* orig_tv,
+    TensorView* post_reduce_tv,
+    const AnalyzeViewResult& view_analysis) {
+  TORCH_INTERNAL_ASSERT(orig_tv != nullptr, "Input is invalid.");
+  TORCH_INTERNAL_ASSERT(post_reduce_tv != nullptr, "Input is invalid.");
+  TORCH_INTERNAL_ASSERT(
+      !post_reduce_tv->hasComputeAt(),
+      "Cannot modify rfactor domain after compute at has been set.");
+
+  TORCH_INTERNAL_ASSERT(
+      post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
+
+  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
+
+  TensorView* consumer = IrBuilder::create<TensorView>(
+      orig_tv->container(),
+      orig_tv->domain()->view(view_analysis),
+      orig_tv->getDataType().value());
+
+  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
+
+  return consumer;
+}
+
+} // namespace
+
+TensorView* reshape(
+    TensorView* inp_tv,
+    const AnalyzeViewResult& view_analysis) {
+  TORCH_INTERNAL_ASSERT(inp_tv != nullptr, "Input is invalid.");
+
+  auto squeezed = std::any_of(
+                      view_analysis.squeeze_axes.begin(),
+                      view_analysis.squeeze_axes.end(),
+                      [](bool s) { return s; })
+      ? squeeze(inp_tv, view_analysis.squeeze_axes)
+      : inp_tv;
+
+  auto view = view_analysis.transforms.empty()
+      ? squeezed
+      : applyViewTransforms(inp_tv, squeezed, view_analysis);
+
+  auto bcasted = std::any_of(
+                     view_analysis.broadcast_axes.begin(),
+                     view_analysis.broadcast_axes.end(),
+                     [](bool b) { return b; })
+      ? broadcast(view, view_analysis.broadcast_axes)
+      : view;
+
+  return bcasted;
 }
 
 } // namespace nvfuser

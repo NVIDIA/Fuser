@@ -47,7 +47,7 @@ namespace {
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
   auto& parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
-  for (auto id : tv->domain()->domain()) {
+  for (auto id : tv->domain()->leaf()) {
     if (id->isThreadDim()) {
       auto ptype = id->getParallelType();
       // Need to predicate to avoid out of bound access
@@ -88,7 +88,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
     PredicateAnalyzer analyzer(disjoint_c2p_ids);
 
-    for (auto id : consumer->domain()->domain()) {
+    for (auto id : consumer->domain()->leaf()) {
       if (analyzer.needsPredicate(id)) {
         return true;
       }
@@ -196,9 +196,10 @@ class PredicateChcker : public IterVisitor {
   using IterVisitor::handle;
 
   void handle(Expr* expr) final {
+    const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
-        predicateSharedMemAccess(expr) || predicateProducerConsumerPair(expr) ||
+        needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
 
@@ -213,7 +214,7 @@ class PredicateChcker : public IterVisitor {
     //  should be cleaned up all together when we extend predicate/masking
     //  logic to cover this usage.
     TORCH_INTERNAL_ASSERT(
-        !(ir_utils::isCpAsyncOp(expr) && predicateSharedMemAccess(expr)),
+        !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access),
         "predicate removal: unsupported use case of cp.async");
 
     if (needs_predicate_) {
@@ -249,7 +250,7 @@ class PredicateChcker : public IterVisitor {
     }
     auto tv_inputs = ir_utils::getTvs(expr->inputs());
     TORCH_INTERNAL_ASSERT(
-        tv_inputs.size() > 0,
+        !tv_inputs.empty(),
         "Should never have a reduction op without a tensor view input.");
     bool found_expand = false;
     for (auto tv_input : tv_inputs) {
@@ -297,8 +298,8 @@ class PredicateChcker : public IterVisitor {
     for (const auto& inputs_or_outputs : inputs_and_outputs) {
       for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
         if (std::any_of(
-                tv->domain()->domain().begin(),
-                tv->domain()->domain().end(),
+                tv->domain()->leaf().begin(),
+                tv->domain()->leaf().end(),
                 [](IterDomain* axis) {
                   return axis->getParallelType() ==
                       ParallelType::MisalignedVectorize;
@@ -408,7 +409,7 @@ class PredicateChcker : public IterVisitor {
       }
     }
 
-    for (auto id : consumer->domain()->domain()) {
+    for (auto id : consumer->domain()->leaf()) {
       // TODO: (Enable in a follow up)
       //  smem predicate removal with init would break unroll and unswitch,
       //  eg. as in issue 1133, so disabling this removal pattern for now.
@@ -447,7 +448,7 @@ class PredicateChcker : public IterVisitor {
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_leaf_ids;
     for (const auto i : c10::irange(tv->nDims())) {
-      auto leaf_id = tv->axis(i);
+      auto leaf_id = tv->axis((int)i);
       if (is_shared_mem && leaf_id->isThreadDim()) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
@@ -494,8 +495,7 @@ class PredicateChcker : public IterVisitor {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
            output->getMaybeRFactorDomain().end()},
-          {output->domain()->domain().begin(),
-           output->domain()->domain().end()});
+          {output->domain()->leaf().begin(), output->domain()->leaf().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
           output->getMaybeRFactorDomain().begin(),

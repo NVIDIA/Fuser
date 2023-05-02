@@ -15,62 +15,85 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 
+namespace {
+
+TensorView* transposeMaybeInplace(
+    TensorView* inp,
+    int64_t dim1,
+    int64_t dim2,
+    bool inplace) {
+  if (!inplace) {
+    return transpose(inp, dim1, dim2);
+  } else {
+    inp->reorder({{dim1, dim2}, {dim2, dim1}});
+    inp->commitLeafToRFactor();
+    return inp;
+  }
+}
+
+} // namespace
+
 // x->sin->transpose->cos->y
 TEST_F(NVFuserTest, FusionScheduleTransposeSimple_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  for (auto inplace : {true, false}) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
-  fusion.addInput(tv0);
-  auto tv1 = sin(tv0);
-  auto tv2 = transpose(tv1, 1, 2);
-  auto tv3 = cos(tv2);
-  fusion.addOutput(tv3);
+    auto tv0 = makeContigTensor(3);
+    fusion.addInput(tv0);
+    auto tv1 = sin(tv0);
+    auto tv2 = transposeMaybeInplace(tv1, 1, 2, inplace);
+    auto tv3 = cos(tv2);
+    fusion.addOutput(tv3);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({256, 1024, 1024}, options);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
+    auto lparams = scheduleTranspose(&fusion, {input});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, lparams);
+    auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.sin().transpose(1, 2).cos();
+    auto tv_ref = input.sin().transpose(1, 2).cos();
 
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  }
 }
 
 // x->tanspose->sin->transpose->cos->y
 TEST_F(NVFuserTest, FusionScheduleTransposeSinTransposeCos_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  for (auto inplace : {true, false}) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
-  fusion.addInput(tv0);
-  auto tv1 = transpose(tv0, 0, 2);
-  auto tv2 = sin(tv1);
-  auto tv3 = transpose(tv2, 1, 2);
-  auto tv4 = cos(tv3);
-  fusion.addOutput(tv4);
+    auto tv0 = makeContigTensor(3);
+    fusion.addInput(tv0);
+    // fusion input can not be transposed inplace
+    auto tv1 = transpose(tv0, 0, 2);
+    auto tv2 = sin(tv1);
+    auto tv3 = transposeMaybeInplace(tv2, 1, 2, inplace);
+    auto tv4 = cos(tv3);
+    fusion.addOutput(tv4);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({256, 1024, 1024}, options);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
+    auto lparams = scheduleTranspose(&fusion, {input});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, lparams);
+    auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
+    auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
 
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  }
 }
 
 /*
@@ -111,32 +134,34 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMultipleInput_CUDA) {
 // t0->sin->transpose->t5
 //  `->cos->transpose->t6
 TEST_F(NVFuserTest, FusionScheduleTransposeMultipleOutput_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  for (auto inplace : {true, false}) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
-  fusion.addInput(tv0);
-  auto tv2 = sin(tv0);
-  auto tv3 = cos(tv0);
-  auto tv5 = transpose(tv2, 0, 2);
-  auto tv6 = transpose(tv3, 0, 2);
-  fusion.addOutput(tv5);
-  fusion.addOutput(tv6);
+    auto tv0 = makeContigTensor(3);
+    fusion.addInput(tv0);
+    auto tv2 = sin(tv0);
+    auto tv3 = cos(tv0);
+    auto tv5 = transposeMaybeInplace(tv2, 0, 2, inplace);
+    auto tv6 = transposeMaybeInplace(tv3, 0, 2, inplace);
+    fusion.addOutput(tv5);
+    fusion.addOutput(tv6);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({32, 1024, 1024}, options);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
+    auto lparams = scheduleTranspose(&fusion, {input});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, lparams);
+    auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref1 = input.sin().transpose(0, 2);
-  auto tv_ref2 = input.cos().transpose(0, 2);
+    auto tv_ref1 = input.sin().transpose(0, 2);
+    auto tv_ref2 = input.cos().transpose(0, 2);
 
-  testValidate(
-      &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
+    testValidate(
+        &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
+  }
 }
 
 /*
@@ -1027,6 +1052,49 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
 
   // no bank confliction
   TORCH_CHECK(bank_conflict_info.empty());
+}
+
+TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({32, 32, 2});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1, 0, 1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->split(0, 4);
+  tv1->split(0, 32);
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1->axis(-2)->parallelize(ParallelType::TIDx);
+
+  for (auto tv : {tv2, tv3}) {
+    tv->merge(1);
+    tv->split(1, 2);
+    tv->split(1, 32);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+
+  auto bank_conflict_info = fusion.bankConflictInfo();
+  ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({32, 32, 2}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({input});
+
+  auto tv_ref = input.transpose(0, 1);
+
+  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -333,7 +333,8 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
   //! Make heuristics for all groups in this segmented fusion
   std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Inline Debug print for segmented fusion
   std::string toString(int verbosity) const;
@@ -398,7 +399,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
  private:
   //! Unique name for segmented fusion
-  int segmented_fusion_name_;
+  size_t segmented_fusion_name_;
 
   //! States representing segmentation
   std::vector<SegmentedEdge*> edges_;
@@ -463,6 +464,10 @@ class TORCH_CUDA_CU_API SegmentedFusion {
     return counter++;
   }
 };
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const SegmentedFusion* segmented_fusion);
 
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that

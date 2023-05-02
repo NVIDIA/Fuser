@@ -399,7 +399,7 @@ std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
 }
 
 std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
-  const auto it = exprs_.begin() + pos;
+  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
   return insert(it, expr);
 }
 
@@ -417,8 +417,7 @@ void Scope::erase(Expr* ref) {
 }
 
 void Scope::erase(size_t pos) {
-  TORCH_INTERNAL_ASSERT(pos < size());
-  erase(exprs_.begin() + pos);
+  erase(exprs_.begin() + (std::ptrdiff_t)pos);
 }
 
 bool Scope::contains(Expr* expr) const {
@@ -628,7 +627,8 @@ bool ForLoop::isTrivial() const {
   }
 
   // Extent-1 loop: for (int i = 0; i < 1; ++i) {
-  if (start()->isZeroInt() && stop()->isOneInt() && step()->isOneInt()) {
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
     return true;
   }
 
@@ -1048,17 +1048,17 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz * dataTypeSize(out_tv->getDataType().value()) *
-        2 +
+    return bdimx * bdimy * bdimz *
+        (int)dataTypeSize(out_tv->getDataType().value()) * 2 +
         bdimx * bdimy * bdimz *
-        dataTypeSize(DataType::Index, kernel->indexType());
+        (int)dataTypeSize(DataType::Index, kernel->indexType());
   }
 
   // In the outer-reduction version, the size is blockDim.x * NumberOfWarps *
   // GroupCount
 
   int group_count = 1;
-  for (auto axis : out_tv->domain()->domain()) {
+  for (auto axis : out_tv->domain()->leaf()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->getInt();
@@ -1073,9 +1073,9 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   TORCH_INTERNAL_ASSERT((bdimx * bdimy) % 32 == 0);
 
   int buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSize(out_tv->getDataType().value());
+      (int)dataTypeSize(out_tv->getDataType().value());
   int buf_size_for_N =
-      num_warps * dataTypeSize(DataType::Index, kernel->indexType());
+      num_warps * (int)dataTypeSize(DataType::Index, kernel->indexType());
 
   return buf_size_for_avg_var * 2 + buf_size_for_N;
 }

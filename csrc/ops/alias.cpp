@@ -15,54 +15,15 @@
 
 namespace nvfuser {
 
-namespace {
-
-//! Transform TensorView according to keep, merge, and split transformations.
-//! Squeeze and broadcast transformations are handled separately.
-//! It is recommend to use the composite ops view function, which will call
-//! the analyzeView function to generate the appropriate transformations.
-//!
-//! For example:
-//! original sizes = [2, 10, 40]
-//! new_size = [2, 10, 2, 20]
-//! auto analysis = analyzeView(TV0, original_sizes, new_sizes)
-//! auto TV1 = TV0->view(analysis.transforms);
-//!
-//! Transforms = [(Keep I0), (Keep I1), (Split I2 by 2)]
-//! Before: TV0[I0, I1, I2]
-//! After: TV0[I0, I1, 2, ceilDiv(I2, 2)]
-//!
-//! orig_tv is the tensor view originally coming in from user for the view
-//! operation. This is the tensor view all of the view analysis is relative to.
-//! View might be doing squeezes before sending into the view operation, so we
-//! want the actual input to the view operation to be potentially after the
-//! original view operation.
-TensorView* applyViewTransforms(
-    TensorView* orig_tv,
-    TensorView* post_reduce_tv,
-    const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(orig_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(post_reduce_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
-      !post_reduce_tv->hasComputeAt(),
-      "Cannot modify rfactor domain after compute at has been set.");
-
-  TORCH_INTERNAL_ASSERT(
-      post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
-
-  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
-
-  TensorView* consumer = IrBuilder::create<TensorView>(
-      orig_tv->container(),
-      orig_tv->domain()->view(view_analysis),
-      orig_tv->getDataType().value());
-
-  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
-
-  return consumer;
+Val* set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
+  return out;
 }
 
-} // namespace
+TensorView* set(TensorView* tv) {
+  return set(tv->as<Val>())->as<TensorView>();
+}
 
 TensorView* view(TensorView* x, DataType dtype) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
@@ -92,42 +53,101 @@ TensorView* reshape(
 
   auto view_analysis = analyzeView(x, original_sizes, new_sizes);
 
-  auto squeezed = std::any_of(
-                      view_analysis.squeeze_axes.begin(),
-                      view_analysis.squeeze_axes.end(),
-                      [](bool s) { return s; })
-      ? squeeze(x, view_analysis.squeeze_axes)
-      : x;
+  return reshape(x, view_analysis);
+}
 
-  auto view = view_analysis.transforms.empty()
-      ? squeezed
-      : applyViewTransforms(x, squeezed, view_analysis);
+namespace {
 
-  auto bcasted = std::any_of(
-                     view_analysis.broadcast_axes.begin(),
-                     view_analysis.broadcast_axes.end(),
-                     [](bool b) { return b; })
-      ? broadcast(view, view_analysis.broadcast_axes)
-      : view;
+// Check if a dynamic reshape is actually static. Returns a reshaped
+// tensor if static. Nullptr if not.
+TensorView* tryStaticReshape(
+    TensorView* inp_tv,
+    const std::vector<IterDomain*>& inp_dom,
+    const std::vector<Val*>& new_sizes) {
+  std::vector<int64_t> inp_sizes(inp_dom.size());
+  for (const auto i : c10::irange(inp_dom.size())) {
+    auto id = inp_dom.at(i);
+    auto id_size = id->extent()->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    inp_sizes.at(i) = id_size.value();
+  }
 
-  return bcasted;
+  std::vector<int64_t> out_sizes(new_sizes.size());
+  for (const auto i : c10::irange(new_sizes.size())) {
+    auto id_size = new_sizes.at(i)->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    out_sizes.at(i) = id_size.value();
+  }
+
+  // Both inputs are outputs are static. Just use the static version
+  // of reshape
+  return reshape(inp_tv, inp_sizes, out_sizes);
+}
+
+} // namespace
+
+TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
+  auto inp_dom = TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+
+  TORCH_CHECK(
+      std::none_of(
+          inp_dom.begin(),
+          inp_dom.end(),
+          [](auto inp_id) { return inp_id->maybePartial(); }),
+      "Unsupported input tensor to reshape as its axes may be partial: ",
+      inp_tv->toString());
+
+  auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
+  if (static_reshape_output) {
+    return static_reshape_output;
+  }
+
+  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+
+  // Create placeholder rfactor domain. Note it's not connected with the root
+  // domain.
+  std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
+  for (const auto i : c10::irange(new_sizes.size())) {
+    auto rf_id = IterDomainBuilder(
+                     FusionGuard::getCurFusion()->zeroVal(), new_sizes.at(i))
+                     .iter_type(IterType::Symbolic)
+                     .is_rfactor_domain(true)
+                     .build();
+    rfactor_domain.at(i) = rf_id;
+  }
+
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          rfactor_domain,
+          rfactor_domain,
+          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
+      inp_tv->dtype());
+
+  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+
+  return out_tv;
 }
 
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
   if (start_dim < 0) {
-    start_dim += inp_domain.size();
+    start_dim += (int64_t)inp_domain.size();
   }
   if (end_dim < 0) {
-    end_dim += inp_domain.size();
+    end_dim += (int64_t)inp_domain.size();
   }
   TORCH_CHECK(
-      start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
+      start_dim >= 0 && start_dim < (int64_t)inp_domain.size(),
       "Invalid start_dim ",
       start_dim);
   TORCH_CHECK(
-      end_dim >= 0 && end_dim < int64_t(inp_domain.size()),
+      end_dim >= 0 && end_dim < (int64_t)inp_domain.size(),
       "Invalid end_dim ",
       end_dim);
   TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
@@ -295,11 +315,10 @@ TensorView* unsqueeze(TensorView* x, int dim) {
 
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  if (new2old.size() == 0) {
+  if (new2old.empty()) {
     return set(x);
   }
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
-  std::vector<IterDomain*> out_domain(inp_domain.size());
 
   TORCH_CHECK(
       inp_domain.size() == new2old.size(),
@@ -310,23 +329,33 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
       new2old.size());
 
   // Return scalar tensors immediately
-  if (inp_domain.size() == 0) {
+  if (inp_domain.empty()) {
     return set(x);
   }
 
   auto normalized_new2old =
       ir_utils::normalizeNew2Old(new2old, inp_domain.size());
 
-  for (const auto i : c10::irange(out_domain.size())) {
-    auto in_id = inp_domain[normalized_new2old[i]];
-    out_domain[i] = in_id->cloneWithoutRFactor();
+  std::vector<IterDomain*> out_root;
+  out_root.reserve(inp_domain.size());
+  for (const auto id : inp_domain) {
+    out_root.emplace_back(id->cloneWithoutRFactor());
+  }
+
+  std::vector<IterDomain*> out_rfactor;
+  out_rfactor.reserve(inp_domain.size());
+  for (const auto i : normalized_new2old) {
+    out_rfactor.emplace_back(out_root.at(i));
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_root,
+          out_rfactor,
+          out_rfactor,
+          TensorDomain::getContiguityFilledWith(out_rfactor, true)),
       x->getDataType().value());
-  IrBuilder::create<TransposeOp>(out_tensor, x, normalized_new2old);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
 }
 
@@ -483,13 +512,13 @@ TensorView* pad(
 // account for the size difference between each of the inputs and the
 // output. All of the inputs to CatOp have the same shape as the
 // output shape.
-TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
+TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
   TORCH_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
   std::vector<std::vector<IterDomain*>> inp_doms;
-  int ndims = -1;
+  int64_t ndims = -1;
 
   for (auto inp : inputs) {
     TORCH_CHECK(
@@ -500,7 +529,7 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int cat_dim) {
         inp->getDataType().value());
     inp_doms.emplace_back(
         TensorDomain::noReductions(inp->getMaybeRFactorDomain()));
-    auto i_ndims = static_cast<int>(inp_doms.back().size());
+    auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
       ndims = i_ndims;
     } else {

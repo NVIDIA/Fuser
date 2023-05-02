@@ -22,10 +22,10 @@ IndexFromIdGraph::IndexFromIdGraph(
     IndexCompute concrete_index_,
     std::unordered_map<IterDomain*, Val*> initial_concrete_index_map_,
     std::vector<IterDomain*> loop_domains_)
-    : index(index_),
-      concrete_index(concrete_index_),
-      initial_concrete_index_map(initial_concrete_index_map_),
-      resolved_loop_domains(loop_domains_) {}
+    : index(std::move(index_)),
+      concrete_index(std::move(concrete_index_)),
+      initial_concrete_index_map(std::move(initial_concrete_index_map_)),
+      resolved_loop_domains(std::move(loop_domains_)) {}
 
 namespace {
 
@@ -52,7 +52,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->domain()->domain()) {
+  for (auto id : consumer_tv->domain()->leaf()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -118,14 +118,7 @@ IndexingParameters getLinearIndexParameters(
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
-    if (loop->isTrivial()) {
-      // This is useful information in the case of
-      //  MisalignedVectorize and double buffer epilog, etc.
-      loop_index_map[index_domain] = loop->start();
-    } else {
-      // Default use pre-allocated integers for index
-      loop_index_map[index_domain] = loop->index();
-    }
+    loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
     if (rotated_loops.count(loop) > 0) {
       loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
           loop_index_map.at(index_domain), loop->step());
@@ -449,8 +442,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
-                     db_loop->index(), db_loop->step()))
-               : cur_index == db_loop->index());
+                     db_loop->indexOrStartIfTrivial(), db_loop->step()))
+               : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
@@ -459,7 +452,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (int loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : c10::irange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(
@@ -527,9 +520,9 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
         // Make sure consumer_leaf_id is indeed a consumer leaf ID
         TORCH_INTERNAL_ASSERT(
             std::find(
-                consumer_tv->domain()->domain().begin(),
-                consumer_tv->domain()->domain().end(),
-                consumer_leaf_id) != consumer_tv->domain()->domain().end(),
+                consumer_tv->domain()->leaf().begin(),
+                consumer_tv->domain()->leaf().end(),
+                consumer_leaf_id) != consumer_tv->domain()->leaf().end(),
             "Not a consumer leaf ID: ",
             consumer_leaf_id->toString(),
             ", consumer: ",
@@ -546,8 +539,8 @@ void LoopIndexingAnalysis::run() {
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
       {consumer_tv_->getRootDomain().begin(),
        consumer_tv_->getRootDomain().end()},
-      {consumer_tv_->domain()->domain().begin(),
-       consumer_tv_->domain()->domain().end()});
+      {consumer_tv_->domain()->leaf().begin(),
+       consumer_tv_->domain()->leaf().end()});
 
   // Resolve definition of each exact concrete id's involved in the whole loop
   // nest transform history
@@ -589,9 +582,9 @@ void LoopIndexingAnalysis::validateLoopStructure(
   // becomes a real concern in practice.
   // Map concrete id to the original loop iter domain.
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_loop;
-  for (auto it_i = loops.begin(); it_i != loops.end(); ++it_i) {
+  for (auto for_loop : loops) {
     // Largely duplicating original logic
-    auto loop_id = (*it_i)->iter_domain();
+    auto loop_id = for_loop->iter_domain();
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
 
@@ -845,8 +838,8 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->domain()->domain().begin(),
-       consumer_tv->domain()->domain().end()});
+      {consumer_tv->domain()->leaf().begin(),
+       consumer_tv->domain()->leaf().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -907,8 +900,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       if (index_update_map_it == index_update_map.end()) {
         index_update_map_it =
             index_update_map
-                .emplace(std::make_pair(
-                    ref_exact_id, VectorOfUniqueEntries<IterDomain*>()))
+                .emplace(ref_exact_id, VectorOfUniqueEntries<IterDomain*>())
                 .first;
       }
       auto& mapped_dims = index_update_map_it->second;
@@ -918,7 +910,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->domain()->domain(),
+      target_tv->domain()->leaf(),
       target_tv->getMaybeRFactorDomain(),
       target_tv->domain()->contiguity(),
       {},
@@ -983,8 +975,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_tv->getMaybeRFactorDomain().begin(),
        consumer_tv->getMaybeRFactorDomain().end()},
-      {consumer_tv->domain()->domain().begin(),
-       consumer_tv->domain()->domain().end()});
+      {consumer_tv->domain()->leaf().begin(),
+       consumer_tv->domain()->leaf().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -1002,9 +994,9 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
     if (almost_exact_2_consumer_ids_it == almost_exact_2_consumer_ids.end()) {
       almost_exact_2_consumer_ids_it =
           almost_exact_2_consumer_ids
-              .emplace(std::make_pair(
+              .emplace(
                   almost_exact_concrete_id,
-                  VectorOfUniqueEntries<IterDomain*>()))
+                  VectorOfUniqueEntries<IterDomain*>())
               .first;
     }
     auto& mapped_dims = almost_exact_2_consumer_ids_it->second;
@@ -1032,8 +1024,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       if (index_update_map_it == index_update_map.end()) {
         index_update_map_it =
             index_update_map
-                .emplace(std::make_pair(
-                    ref_exact_id, VectorOfUniqueEntries<IterDomain*>()))
+                .emplace(ref_exact_id, VectorOfUniqueEntries<IterDomain*>())
                 .first;
       }
       auto& mapped_dims = index_update_map_it->second;
@@ -1216,9 +1207,9 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
 
   // Start the set with all the leaf ids.
   std::transform(
-      consumer_tv_->domain()->domain().begin() +
+      consumer_tv_->domain()->leaf().begin() +
           consumer_tv_->getComputeAtPosition(),
-      consumer_tv_->domain()->domain().end(),
+      consumer_tv_->domain()->leaf().end(),
       std::inserter(out_of_line_ids, out_of_line_ids.end()),
       exactConcreteId);
 
@@ -1329,8 +1320,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     auto all_original_ids = DependencyCheck::getAllValsBetween(
         {original_tv->getMaybeRFactorDomain().begin(),
          original_tv->getMaybeRFactorDomain().end()},
-        {original_tv->domain()->domain().begin(),
-         original_tv->domain()->domain().end()});
+        {original_tv->domain()->leaf().begin(),
+         original_tv->domain()->leaf().end()});
 
     for (auto original_id :
          ir_utils::filterByType<IterDomain>(all_original_ids)) {

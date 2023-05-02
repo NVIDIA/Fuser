@@ -23,16 +23,18 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <lower2device.h>
+#include <lower_bank_conflict.h>
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
+#include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -44,6 +46,10 @@
 
 #include <algorithm>
 #include <iostream>
+#include "dispatch.h"
+#include "ir_builder.h"
+#include "ops/arith.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -79,7 +85,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-                         .layout(MmaOptions::MmaInputLayout::TT);
+                         .layout(MmaOptions::MmaLayout::TT);
   mma_builder.configureMma(tv2);
 
   // Write A to smem
@@ -105,7 +111,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   //  part we have in this unit test.
   // Assumes last 3 dims are mnk
   // The innermost loops are dictated by the type of mma used,
-  //   the scheduler needs to use mma_util::WarpMmaSwizzler to
+  //   the scheduler needs to use mma_utils::WarpMmaSwizzler to
   //   get the right thread swizzle. Currently this is the only
   //   method allowed to schedule the 3/2 inner most loops of
   //   mma input/output.
@@ -176,7 +182,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATN_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-                         .layout(MmaOptions::MmaInputLayout::TN);
+                         .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -241,7 +247,7 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-                         .layout(MmaOptions::MmaInputLayout::NT);
+                         .layout(MmaOptions::MmaLayout::NT);
 
   mma_builder.configureMma(tv2);
 
@@ -284,6 +290,11 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+#if 0
+TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
+}
+#endif
+
 // Matmul test for Volta MMA: across supported layouts
 TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
@@ -298,7 +309,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, false);
 
     fusion.addOutput(tv2);
 
@@ -307,16 +318,13 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Volta_16_16_4;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -327,6 +335,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -348,7 +358,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, false);
 
     fusion.addOutput(tv2);
 
@@ -357,17 +367,14 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Volta_16_16_4;
     params.tile_sizes = gemm_tile;
     params.double_buffer_options.double_buffer_smem_read = true;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -378,6 +385,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -392,14 +401,14 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [N,K]
+  // [N, K]
   auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,N,K]
+  // [M, N, K]
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -416,22 +425,19 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
 
   auto tv2c = tv2->cacheBefore();
-
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,N,K] -> [N,M,K]
+  // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
@@ -466,18 +472,21 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,K,N]
-  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  // [M, K, N]
   auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, N, K]
+  auto tv1t = transpose(tv1b, 1, 2);
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -488,30 +497,24 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TT);
+          .layout(MmaOptions::MmaLayout::TT);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
-
   mma_builder.accumulatorTv(tv2c);
-  // [M,K,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -2}, {-2, -1}, {-1, -3}});
+
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv1cr->reorder({{-2, -1}, {-1, -2}});
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv2c->reorder({{-2, -1}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -545,17 +548,21 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [K,M]
+  // [K, M]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [K,M,N]
+  // [K, M, N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {false, true, false});
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv1t = permute(tv1b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -566,34 +573,26 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::NT);
+          .layout(MmaOptions::MmaLayout::NT);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -1}, {-1, -3}});
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv1cr->reorder({
-      {-3, -1},
-      {-2, -3},
-      {-1, -2},
-  });
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv2c->reorder({{-3, -1}, {-2, -3}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -618,12 +617,86 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// MMA unit test on Ampere
+TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [K, M]
+  auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
+  // [N, K]
+  auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [K, M, N]
+  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv1b = broadcast(tv1, {true, false, false});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1b, {2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 8, 16);
+  gemm_tile.warp_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  auto mma_builder =
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
+          .layout(MmaOptions::MmaLayout::NN);
+
+  mma_builder.configureMma(tv2);
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
+
+  auto tv2c = tv2->cacheBefore();
+  mma_builder.accumulatorTv(tv2c);
+
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv2c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 16}, options);
+  auto t1 = at::randn({8, 16}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1});
+
+  auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
+
+  testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -632,7 +705,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -641,19 +714,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -664,6 +735,58 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::BFloat16);
+    auto tv1 = makeContigTensor(2, DataType::BFloat16);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout, at::kBFloat16);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -679,7 +802,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
 
   // Gmem pipeline stage
   for (auto stage : {3, 4}) {
-    for (auto layout : kAllSupportedMatmulLayout) {
+    for (auto layout : kAllSupportedMatmulLayoutAndNN) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -688,7 +811,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -697,20 +820,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
+      MatmulParams params;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
-      auto inputs = fp16MatmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -721,10 +841,129 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    }
+  }
+}
+
+// Matmul test for Ampere MMA: checking CTA Swizzles
+TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int dim = 8192;
+  int M = dim, N = dim, K = dim;
+  const auto all_orders = {
+      MatmulParams::TileRasterizationOrder::RowMajor,
+      MatmulParams::TileRasterizationOrder::ColumnMajor};
+
+  REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
+
+  auto test = [&](MatmulLayout layout,
+                  MatmulParams::TileRasterizationOrder order,
+                  int swizzle,
+                  float& runtime) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 3;
+
+    params.cta_order = order;
+    params.grid_swizzle_factor = swizzle;
+
+    scheduleMatmul(&fusion, params);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    fe.setMeasureKernelTimeFlag(true);
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+
+    int gdimx = fe.lastLaunchParams().gdimx();
+    int gdimy = fe.lastLaunchParams().gdimy();
+
+    int expected_gdim_unswizzled = (dim + 128 - 1) / 128;
+    int expected_gdimx = expected_gdim_unswizzled * swizzle;
+    int expected_gdimy = (expected_gdim_unswizzled + swizzle - 1) / swizzle;
+
+    TORCH_CHECK(gdimx == expected_gdimx);
+    TORCH_CHECK(gdimy == expected_gdimy);
+
+    runtime = fe.kernelTimeMs();
+
+    // Check that mma op is not predicated. This is a regression test for
+    // https://github.com/NVIDIA/Fuser/issues/95
+    class PredicateChecker : public kir::IrVisitor {
+     public:
+      using kir::IrVisitor::handle;
+      bool found_mma = false;
+
+     private:
+      void handle(MmaOp* uop) final {
+        found_mma = true;
+        for (auto expr : scope_exprs_) {
+          TORCH_CHECK(
+              !expr->isA<kir::IfThenElse>() ||
+                  expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
+              "MmaOp should't be predicated!",
+              " Get predicate ",
+              expr->as<kir::IfThenElse>()->predicate()->toInlineString());
+        }
+      }
+    } pred_checker;
+
+    GpuLower gpulw(&fusion);
+    pred_checker.handle(gpulw.kernel()->topLevelExprs());
+    ASSERT_TRUE(pred_checker.found_mma);
+  };
+
+  // Checking only a single layout to keep runtime short (compilation overhead)
+  for (auto layout : {MatmulLayout::TT}) {
+    for (auto order : all_orders) {
+      float runtime1 = 0;
+      test(layout, order, 1, runtime1);
+
+      float runtime4 = 0;
+      test(layout, order, 4, runtime4);
+
+      // GRID Swizzle requires further changes to work in main. So for now we
+      // don't assert the perf benefit here.
+      // TORCH_CHECK(runtime4 < runtime1);
     }
   }
 }
@@ -736,7 +975,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
 
   // Gmem pipeline stage
   for (auto stage : {3, 4}) {
-    for (auto layout : kAllSupportedMatmulLayout) {
+    for (auto layout : kAllSupportedMatmulLayoutAndNN) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -745,7 +984,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -754,21 +993,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
-      params.tile_sizes = gemm_tile;
+      MatmulParams params;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.smem_double_buffer_stage = stage;
       params.double_buffer_options.double_buffer_smem_read = true;
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
-      auto inputs = fp16MatmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -779,6 +1014,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -843,11 +1079,11 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   auto mma_builder1 =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile1)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_builder2 =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder1.configureMma(tv3);
   mma_builder2.configureMma(tv4);
@@ -908,10 +1144,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(
-      tv4c, gemm_tile2);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv4, gemm_tile2);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile2);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile2);
   //           -8   -7  -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -924,10 +1158,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv2r->merge(-2);
 
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2cw, gemm_tile2, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2r, gemm_tile2, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2cw, gemm_tile2, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2r, gemm_tile2, 8);
   tv2cw->setMemoryType(MemoryType::Shared);
 
   // Schedule tv2 gmem read and smem write:
@@ -972,10 +1204,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(
-      tv3c, gemm_tile1);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv3cw, gemm_tile1);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile1);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3cw, gemm_tile1);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -987,10 +1217,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile1, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile1, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -998,10 +1226,8 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile1, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile1, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile1, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
 
   // Schedule mma input
@@ -1148,11 +1374,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   auto mma_builder1 =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_builder2 =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder1.configureMma(tv3);
   mma_builder2.configureMma(tv4);
@@ -1215,9 +1441,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv2r->computeAt(tv4c, 3);
 
   // Make warp tile
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv4, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv4c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv4, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv3cr->computeAt(tv4c, -4);
@@ -1230,10 +1455,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv2r->merge(-2);
 
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv2r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv2r, gemm_tile, 8);
   tv2cw->setMemoryType(MemoryType::Shared);
 
   // Schedule tv2 gmem read and smem write:
@@ -1285,9 +1508,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv3, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv3c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv3, gemm_tile);
 
   tv0cr->computeAt(tv3c, -4);
   tv1cr->computeAt(tv3c, -4);
@@ -1299,10 +1521,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -1310,10 +1530,8 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
 
   // Schedule mma input
@@ -1334,7 +1552,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv3->applyMmaSwizzle(
       mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
 
-  // mma_util::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
+  // mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
   // mma_builder1.build());
 
   // Put tv3 result in smem
@@ -1457,14 +1675,14 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [N,K]
+  // [N, K]
   auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,N,K]
+  // [M, N, K]
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -1481,21 +1699,19 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,N,K] -> [N,M,K]
+  // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
@@ -1529,18 +1745,21 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,K,N]
-  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  // [M, K, N]
   auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, N, K]
+  auto tv1t = transpose(tv1b, 1, 2);
 
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -1551,30 +1770,24 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TT);
+          .layout(MmaOptions::MmaLayout::TT);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,K,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -2}, {-2, -1}, {-1, -3}});
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv1cr->reorder({{-2, -1}, {-1, -2}});
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [M,K,N] -> [M,N,K]
-  tv2c->reorder({{-2, -1}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -1605,17 +1818,21 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [K,M]
+  // [K, M]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({16, 8}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [K,M,N]
+  // [K, M, N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {false, true, false});
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv1t = permute(tv1b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1t, {2});
 
   fusion.addOutput(tv2);
 
@@ -1626,34 +1843,26 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::NT);
+          .layout(MmaOptions::MmaLayout::NT);
 
   mma_builder.configureMma(tv2);
 
   auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
   auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1t;
+  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
 
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-3, -1}, {-1, -3}});
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv1cr->reorder({
-      {-3, -1},
-      {-2, -3},
-      {-1, -2},
-  });
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-
-  // [K,M,N] -> [M,N,K]
-  tv2c->reorder({{-3, -1}, {-2, -3}, {-1, -2}});
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -1679,12 +1888,84 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// MMA unit test on Ampere
+TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [K, M]
+  auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
+  // [N, K]
+  auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [K, M, N]
+  auto tv0b = broadcast(tv0, {false, false, true});
+  // [M, N, K]
+  auto tv1b = broadcast(tv1, {true, false, false});
+
+  // [M, N, K]
+  auto tv0t = permute(tv0b, {1, 2, 0});
+  auto tv2 = fusedMultiplySum(tv0t, tv1b, {2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 8, 16);
+  gemm_tile.warp_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  auto mma_builder =
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
+          .layout(MmaOptions::MmaLayout::NN);
+
+  mma_builder.configureMma(tv2);
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr = tv0t;
+  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
+
+  auto tv2c = tv2->cacheBefore();
+  mma_builder.accumulatorTv(tv2c);
+
+  // [M, N, K] -> [N, M, K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv2c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 16}, options);
+  auto t1 = at::randn({8, 16}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      7,
+      5,
+      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1});
+
+  auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
+
+  testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
 // Matmul test for Turing MMA: across supported layouts
 TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -1693,7 +1974,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -1702,20 +1983,18 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -1754,7 +2033,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -1793,9 +2072,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1805,16 +2083,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   // ---------------------------------------------------------------------------
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
   // [No,Ko,N,K]
   tv1cw->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -1895,7 +2171,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -1953,9 +2229,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -1966,10 +2241,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   // [Mo,Ko,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -1977,10 +2250,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2077,7 +2348,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -2120,9 +2391,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2134,10 +2404,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   tv0cw->merge(-2);
   tv0r->merge(-2);
   tv0_reshape->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2145,10 +2413,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2237,7 +2503,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-                         .layout(MmaOptions::MmaInputLayout::TN);
+                         .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -2277,15 +2543,14 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
   auto tv2c_rf = tv2c->rFactor({-9, -4, -1});
 
   // tv2c_rf is the actual output of the mma op after
   //  Rfactoring.
   mma_builder.accumulatorTv(tv2c_rf);
 
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
 
   //           -8   -7  -6 -5 -4 -3 -2 -1
   // [Mo No Ko Mwo  Nwo Kwo Mw Nw Mi Ni Ki]
@@ -2302,10 +2567,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   // [Mo,No,Ko,N,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2313,10 +2576,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [Mo,No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2399,7 +2660,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 4);
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
-                         .layout(MmaOptions::MmaInputLayout::TN);
+                         .layout(MmaOptions::MmaLayout::TN);
 
   mma_builder.configureMma(tv2);
 
@@ -2442,7 +2703,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
 
   // Make warp tile:
   // -------------------------------------------------------------------------
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
   //              -9 -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No K2CTA Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   auto tv2c_rf = tv2c->rFactor({-9, -8, -1});
@@ -2451,8 +2712,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   //  Rfactoring.
   mma_builder.accumulatorTv(tv2c_rf);
 
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
 
   //                 -8  -7  -6  -5 -4 -3 -2 -1
   // [Mo No K2CTA Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
@@ -2469,10 +2729,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   // [Mo,No,Ko,N,M,K]
   tv0cw->merge(-2);
   tv0r->merge(-2);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv0r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv0r, gemm_tile, 8);
   tv0cw->setMemoryType(MemoryType::Shared);
   // [Mo,Ko,i,wy,wx,v]
 
@@ -2480,10 +2738,8 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   tv1cw->merge(-2);
   tv1r->merge(-2);
   // [Mo,No,Ko,i,wy,wx,v]
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1cw, gemm_tile, 8);
-  scheduler_utils::matmul_utils::scheduleContiguousVectorLoad(
-      tv1r, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1cw, gemm_tile, 8);
+  mma_utils::scheduleContiguousVectorLoad(tv1r, gemm_tile, 8);
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
@@ -2569,7 +2825,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   auto mma_builder =
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaInputLayout::TN);
+          .layout(MmaOptions::MmaLayout::TN);
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
@@ -2613,9 +2869,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   // Make warp tile:
   //
-  scheduler_utils::matmul_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
-  scheduler_utils::matmul_utils::scheduleWarpTileWithNoReduction(
-      tv2, gemm_tile);
+  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile);
+  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile);
   //           -8   -7 -6 -5 -4 -3 -2 -1
   // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   tv0cr->computeAt(tv2c, -4);
@@ -2709,7 +2964,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto t1 = at::randn({N, K}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {}, LaunchParams(), matmul_cparams);
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -2722,7 +2977,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -2731,7 +2986,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -2740,20 +2995,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2764,6 +3016,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2776,7 +3029,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -2785,7 +3038,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -2794,16 +3047,13 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Turing_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Turing_16_16_16;
     params.tile_sizes = gemm_tile;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2814,6 +3064,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2826,7 +3077,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     // Symmetric tile with 16x16x16 macro,
     //  supports mn_size of multiple of 32,
     //  and k size multiple of 16.
@@ -2840,7 +3091,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         fusion.addInput(tv0);
         fusion.addInput(tv1);
 
-        auto tv2 = matmul(tv0, tv1, layout);
+        auto tv2 = matmul(tv0, tv1, layout, true);
 
         fusion.addOutput(tv2);
 
@@ -2849,18 +3100,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.warp_tile = GemmTile(mn_size / 2, mn_size / 2, k_size);
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-        auto mma_builder =
-            MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-                .layout(layout);
-
-        MatmulParam params(mma_builder);
+        MatmulParams params;
+        params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
-        scheduleMatmul(tv2, tv0, tv1, params);
+        scheduleMatmul(&fusion, params);
 
         at::manual_seed(0);
-        auto inputs = fp16MatmulAtInput(M, N, K, layout);
+        auto inputs = matmulAtInput(M, N, K, layout);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2871,6 +3119,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2891,7 +3140,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     // ASymmetric tile with 16x16x16 macro,
     for (int m_size : {256}) {
       for (int n_size : {32, 64, 96, 128}) {
@@ -2904,7 +3153,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           fusion.addInput(tv0);
           fusion.addInput(tv1);
 
-          auto tv2 = matmul(tv0, tv1, layout);
+          auto tv2 = matmul(tv0, tv1, layout, true);
 
           fusion.addOutput(tv2);
 
@@ -2913,21 +3162,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.warp_tile = GemmTile(m_size / 4, n_size / 2, k_size);
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-          auto mma_builder =
-              MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-                  .layout(layout);
-
-          MatmulParam params(mma_builder);
+          MatmulParams params;
+          params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
 
-          scheduleMatmul(tv2, tv0, tv1, params);
+          scheduleMatmul(&fusion, params);
 
           at::manual_seed(0);
-          auto inputs = fp16MatmulAtInput(M, N, K, layout);
+          auto inputs = matmulAtInput(M, N, K, layout);
 
           FusionExecutor fe;
           NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2938,6 +3184,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
                   {inputs.first, inputs.second},
                   LaunchParams(),
                   matmul_cparams));
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
           auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
           auto tref = atMatmul(
               inputs.first.to(at::kFloat),
@@ -2954,7 +3201,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     for (int k_size : {32, 48, 64}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
@@ -2964,7 +3211,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       fusion.addInput(tv0);
       fusion.addInput(tv1);
 
-      auto tv2 = matmul(tv0, tv1, layout);
+      auto tv2 = matmul(tv0, tv1, layout, true);
 
       fusion.addOutput(tv2);
 
@@ -2974,21 +3221,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, k_size);
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-      auto mma_builder =
-          MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-              .layout(layout);
-
-      MatmulParam params(mma_builder);
+      MatmulParams params;
+      params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
 
-      scheduleMatmul(tv2, tv0, tv1, params);
+      scheduleMatmul(&fusion, params);
 
       at::manual_seed(0);
-      auto inputs = fp16MatmulAtInput(M, N, K, layout);
+      auto inputs = matmulAtInput(M, N, K, layout);
 
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2999,6 +3243,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3011,7 +3256,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 2048;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3020,7 +3265,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     fusion.addInput(tv0);
     fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout);
+    auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
 
@@ -3029,20 +3274,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    auto mma_builder =
-        MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-            .layout(layout);
-
-    MatmulParam params(mma_builder);
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 3;
-    scheduleMatmul(tv2, tv0, tv1, params);
+    scheduleMatmul(&fusion, params);
 
     at::manual_seed(0);
-    auto inputs = fp16MatmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -3053,10 +3295,123 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
             {inputs.first, inputs.second},
             LaunchParams(),
             matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
     TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+  }
+}
+
+// Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
+//   with strict ref check hence single layout check
+TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  const int M = 128, N = 256, K = 512;
+  const auto layout = MatmulLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = matmul(tv0, tv1, layout, true);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  TORCH_CHECK(
+      1 == ir_utils::getMmaOps(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+  TORCH_CHECK(
+      ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
+      "input layout has not be set for MmaOp");
+  TORCH_CHECK(
+      MatmulLayout::TN ==
+          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+      "input layout from test and MmaOp do not match");
+
+  at::manual_seed(0);
+
+  at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+  at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+  at::Tensor tref = atMatmul(t0, t1, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  TORCH_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  TORCH_CHECK(
+      isSchedulerInUse(
+          executor_cache.getMostRecentKernelRuntime(),
+          ScheduleHeuristic::Matmul),
+      "matmul scheduler was not used to handle prepared fusion");
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
+// Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
+//   with relaxed result verification
+TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  const int M = 504, N = 136, K = 2048;
+  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addOutput(tv2);
+
+    TORCH_CHECK(
+        1 == ir_utils::getMmaOps(fusion.get()).size(),
+        "matmul fusion must have at least one MmaOp");
+    TORCH_CHECK(
+        ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
+        "input layout has not be set for MmaOp");
+    TORCH_CHECK(
+        MatmulLayout::TN ==
+            ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+        "input layout from test and MmaOp do not match");
+
+    at::manual_seed(0);
+
+    at::Tensor t0 =
+        matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+    at::Tensor t1 =
+        matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+    at::Tensor tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+    TORCH_CHECK(
+        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+        "fusion got segmented, expected to match whole fusion with single segment");
+
+    TORCH_CHECK(
+        isSchedulerInUse(
+            executor_cache.getMostRecentKernelRuntime(),
+            ScheduleHeuristic::Matmul),
+        "matmul scheduler was not used to handle prepared fusion");
+
+    // NOTE: checking with lower expectations for relative/absolute error
+#if 1
+    TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+#else
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+#endif
   }
 }
 

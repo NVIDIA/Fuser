@@ -28,7 +28,9 @@ namespace scheduler_utils {
 // with a compile time coonstant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size = 256 * 1024 / 2;
+constexpr int64_t register_file_size_full = 256 * 1024;
+constexpr int64_t register_file_size = register_file_size_full / 2;
+
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
@@ -44,6 +46,29 @@ constexpr int64_t lastPow2(int64_t n) {
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   return std::max((int64_t)1, n - (n >> 1));
+}
+
+// round up to multiple of 8 or pow2 whichever smaller
+constexpr int64_t roundUpPow2Or8(const int64_t x) {
+  auto round_up_pow2 = lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  constexpr int64_t kEight = 8;
+  auto round_up_8 = x % kEight == 0 ? x : x + (kEight - x % kEight);
+  return std::min(round_up_8, round_up_pow2);
+}
+
+constexpr int64_t roundUpPow2(const int64_t x) {
+  auto round_up_pow2 = scheduler_utils::lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  return round_up_pow2;
+}
+
+constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x + (n - x % n);
 }
 
 // Div x by y, but min at 1
@@ -357,61 +382,6 @@ struct BroadcastMultipleInformation {
 // multiple.
 TORCH_CUDA_CU_API BroadcastMultipleInformation
 getBroadcastMultiples(TensorView* reference_tv, DataType index_type);
-
-namespace matmul_utils {
-//! Utilities in this namespace facilitates scheduling matmul kernels with
-//!  hierarchichal tiling specified in MatMulTileOptions.
-
-//! Schedule utility for matmul prolog:
-//!   Use all the threads on a CTA tile to load matmul operands
-//!  into shared memory with the given vectorization word.
-//! TODO:
-//!  will need to add bank conflict removal swizzle in a follow up.
-TORCH_CUDA_CU_API void scheduleContiguousVectorLoad(
-    TensorView* tv,
-    MatMulTileOptions tile,
-    int vector_word,
-    bool vectorize = true);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options.
-//! TODO: rewrite this one with makeTile
-TORCH_CUDA_CU_API void scheduleWarpTileWithReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options
-//! on consumers of mma ops in epilog.
-//! TODO: remove this one eventually.
-TORCH_CUDA_CU_API void scheduleWarpTileWithNoReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Lower level primitive spliting inner iterdomains into tiles:
-//! Eg.
-//!  A[B,I0,I1,I2] -> makeTile({1,2,3})
-//! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-TORCH_CUDA_CU_API void makeTile(TensorView* tv, std::vector<int> tile_sizes);
-
-//! Order the inner tile dimensions as the original order in
-//!  root domain. Also putting broadcast domains on the left.
-//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (root domain: I1,B,I0)
-//! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
-//! This is used to facilitate data layout swizzling and
-//!  defining vectorized loads.
-TORCH_CUDA_CU_API void orderTiledConcreteIdAsRoot(TensorView* tv);
-
-//! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
-//!  for easier processing of later scheduling steps.
-//!
-//! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
-//!  not a root id.
-TORCH_CUDA_CU_API void canonicalizeMmaTvOrdering(TensorView* tv);
-
-} // namespace matmul_utils
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has

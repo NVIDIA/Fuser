@@ -135,7 +135,7 @@ std::vector<int> normalizeOld2New(
   // All available new positions
   std::set<int> all_positions;
   for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert(i);
+    all_positions.insert((int)i);
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -174,9 +174,9 @@ struct SubstituteInExpr : public OptOutMutator {
   }
 
  protected:
-  virtual void removeExpr(IrContainer*, Expr*) const override {}
+  void removeExpr(IrContainer*, Expr*) const override {}
 
-  virtual void registerNewExpr(Expr* expr) override {
+  void registerNewExpr(Expr* expr) override {
     expr_ = expr;
   }
 
@@ -237,7 +237,7 @@ std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
 } // namespace
 
 // Return immediate producers of val
-std::vector<Val*> producerValsOf(Val* val) {
+std::vector<Val*> producerValsOf(const Val* val) {
   if (val->definition() == nullptr) {
     return {};
   }
@@ -246,7 +246,7 @@ std::vector<Val*> producerValsOf(Val* val) {
 }
 
 // Return immediate consumers of val
-std::vector<Val*> consumerValsOf(Val* val) {
+std::vector<Val*> consumerValsOf(const Val* val) {
   std::vector<Val*> consumer_vals;
   for (auto use_expr : val->uses()) {
     auto outputs = use_expr->outputs();
@@ -256,7 +256,7 @@ std::vector<Val*> consumerValsOf(Val* val) {
 }
 
 // Return immediate siblings of val
-std::vector<Val*> siblingValsOf(Val* val) {
+std::vector<Val*> siblingValsOf(const Val* val) {
   std::vector<Val*> sibling_vals;
   auto def = val->definition();
   if (def != nullptr) {
@@ -295,19 +295,19 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals) {
   return uniqueEntries<Val>(all_consumer_vals);
 }
 
-std::vector<TensorView*> producerTvsOf(TensorView* tv) {
+std::vector<TensorView*> producerTvsOf(const TensorView* tv) {
   auto producer_vals = producerValsOf(tv);
   auto producer_tvs = ir_utils::filterByType<TensorView>(producer_vals);
   return {producer_tvs.begin(), producer_tvs.end()};
 }
 
-std::vector<TensorView*> consumerTvsOf(TensorView* tv) {
+std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
   auto consumer_vals = consumerValsOf(tv);
   auto consumer_tvs = ir_utils::filterByType<TensorView>(consumer_vals);
   return {consumer_tvs.begin(), consumer_tvs.end()};
 }
 
-std::vector<TensorView*> siblingTvsOf(TensorView* tv) {
+std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
   auto sibling_vals = siblingValsOf(tv);
   auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
@@ -450,6 +450,17 @@ std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
   return select_ops;
 }
 
+std::vector<MmaOp*> getMmaOps(Fusion* fusion) {
+  std::vector<MmaOp*> mma_ops;
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<MmaOp>()) {
+      mma_ops.push_back(expr->as<MmaOp>());
+    }
+  }
+
+  return mma_ops;
+}
+
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {
@@ -571,6 +582,15 @@ bool isReductionOp(const Expr* expr) {
 
 bool isReductionTvOp(const Expr* expr) {
   return ir_utils::isTvOp(expr) && isReductionOp(expr);
+}
+
+bool isPointwiseTvOp(const Expr* expr) {
+  // LoadStoreOp with rfactor domain means transpose, which is not
+  // considered pointwise
+  return isTvOp(expr) &&
+      (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
+       (expr->isA<LoadStoreOp>() &&
+        !ir_utils::getTvOutput(expr)->hasRFactor()));
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -736,9 +756,29 @@ bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
   return false;
 }
 
+bool isIndexedID(const TensorView* tv, const IterDomain* id) {
+  return isIndexedProducerID(tv, id) || isIndexedConsumerID(tv, id);
+}
+
+bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
+  return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
+    return (expr->isA<TorchGatherOp>() &&
+            expr->as<TorchGatherOp>()->getSelectAxis() == id) ||
+        (expr->isA<SelectOp>() &&
+         expr->as<SelectOp>()->getSelectAxis() == id) ||
+        (expr->isA<IndexSelectOp>() &&
+         expr->as<IndexSelectOp>()->getSelectAxis() == id);
+  });
+}
+
+bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
+  return tv->definition()->isA<ScatterOp>() &&
+      tv->definition()->as<ScatterOp>()->getOutputSelectAxis() == id;
+}
+
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->domain()->domain();
+  const auto& domain = tv->domain()->leaf();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
@@ -831,6 +871,148 @@ bool hasResizedRfactor(const TensorView* tv) {
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
         return expr->isA<Resize>();
       });
+}
+
+std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
+  const auto all_tvs = ir_utils::allTvs(fusion);
+  std::vector<TensorView*> dynamic_tvs;
+  std::copy_if(
+      all_tvs.begin(),
+      all_tvs.end(),
+      std::back_inserter(dynamic_tvs),
+      [](auto tv) { return tv->domain()->hasSymbolicAxis(); });
+  return dynamic_tvs;
+}
+
+namespace {
+
+class ValidateDomainEquivalence : private IterVisitor {
+ public:
+  ValidateDomainEquivalence(
+      const std::vector<IterDomain*>& initial_domain,
+      const std::vector<IterDomain*>& derived_domain)
+      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
+        derived_domain_({derived_domain.begin(), derived_domain.end()}),
+        frontier_({initial_domain.begin(), initial_domain.end()}) {
+    TORCH_INTERNAL_ASSERT(!initial_domain.empty());
+    TORCH_INTERNAL_ASSERT(!derived_domain.empty());
+    // Make sure there's no duplicate in the parameter vectors
+    TORCH_INTERNAL_ASSERT(
+        initial_domain.size() == initial_domain_.size(),
+        "Duplicated entry is detected in inial_domain: ",
+        toDelimitedString(initial_domain));
+    TORCH_INTERNAL_ASSERT(
+        derived_domain.size() == derived_domain_.size(),
+        "Duplicated entry is detected in derived_domain: ",
+        toDelimitedString(derived_domain));
+
+    traverseBetween(
+        initial_domain.at(0)->fusion(),
+        {initial_domain.begin(), initial_domain.end()},
+        {derived_domain.begin(), derived_domain.end()});
+
+    // At this point, the frontier set and the derived set should be
+    // equal, except when there's a symbolic ID in the derived set,
+    // where the traversal may be incomplete.
+    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
+          return id->getIterType() == IterType::Symbolic;
+        })) {
+      // Make sure all non-symbolic IDs of the derived set are included
+      // in the frontier set
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              derived_domain.begin(),
+              derived_domain.end(),
+              [&](auto id) {
+                return id->getIterType() == IterType::Symbolic ||
+                    frontier_.count(id);
+              }),
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
+      // Similarly, all frontier vals should be included in the
+      // derived set. It is also possible that an ID in the initial
+      // domain set still remains in the frontier set as there may be
+      // no expr connecting to the derived set, e.g., dynamic reshape
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              frontier_.begin(),
+              frontier_.end(),
+              [&](Val* val) {
+                TORCH_INTERNAL_ASSERT(val->isA<IterDomain>());
+                return derived_domain_.count(val->as<IterDomain>()) ||
+                    initial_domain_.count(val);
+              }),
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          derived_domain_ == frontier_,
+          "Invalid derived domain. Initial domain: ",
+          toDelimitedString(initial_domain),
+          ". Derived domain: ",
+          toDelimitedString(derived_domain));
+    }
+  };
+
+  void handle(Expr* expr) override {
+    TORCH_INTERNAL_ASSERT(
+        std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return v->isA<IterDomain>();
+        }));
+    TORCH_INTERNAL_ASSERT(
+        std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
+          return v->isA<IterDomain>();
+        }));
+    // If any of the inputs is included in derived_domain_, that means there's a
+    // dependency within derived_domain_ and the dependent domains
+    // redundantly cover the initial domain
+    TORCH_INTERNAL_ASSERT(
+        std::none_of(
+            expr->inputs().begin(),
+            expr->inputs().end(),
+            [&](Val* input_val) {
+              return derived_domain_.find(input_val) != derived_domain_.end();
+            }),
+        "Invalid derived domain due to dependent expr: ",
+        expr->toString(),
+        ". Derived domain: ",
+        toDelimitedString(derived_domain_));
+    for (auto out : expr->outputs()) {
+      // Make sure the output is not yet visited
+      TORCH_INTERNAL_ASSERT(
+          frontier_.insert(out).second,
+          "Invalid derived domain due to dependent expr: ",
+          expr->toString(),
+          ". Output should just show up once: ",
+          out->toString());
+    }
+    for (auto inp : expr->inputs()) {
+      TORCH_INTERNAL_ASSERT(
+          frontier_.erase(inp) == 1,
+          "Invalid derived domain due to dependent expr: ",
+          expr->toString(),
+          ". Input not seen before: ",
+          inp->toString());
+    }
+  }
+
+ private:
+  const std::unordered_set<Val*> initial_domain_;
+  const std::unordered_set<Val*> derived_domain_;
+  //! Traversal frontier vals
+  std::unordered_set<Val*> frontier_;
+};
+
+} // namespace
+
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain) {
+  ValidateDomainEquivalence(initial_domain, derived_domain);
 }
 
 } // namespace ir_utils

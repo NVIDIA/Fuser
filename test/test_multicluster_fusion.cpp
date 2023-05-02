@@ -13,7 +13,7 @@
 #include <multidevice/aggregate_dag.h>
 #include <multidevice/multicluster_fusion.h>
 #include <ops/all_ops.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
 
 #include <algorithm>
 #include <iostream>

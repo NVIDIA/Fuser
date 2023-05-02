@@ -215,12 +215,12 @@ TensorDomain* TransformReplay::fullSelfReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->domain(), axis_map);
+  ReplaySelf replay(self->leaf(), axis_map);
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {
     size_t i = 0;
-    for (auto id : self->domain()) {
+    for (auto id : self->leaf()) {
       auto it = replay.getReplay().find(id);
       TORCH_INTERNAL_ASSERT(
           it != replay.getReplay().end(),
@@ -278,7 +278,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 
   auto all_unmapped_vals = DependencyCheck::getAllValsBetween(
       unmapped_root_ids,
-      {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+      {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
 
   std::unordered_set<IterDomain*> all_unmapped_ids;
   std::transform(
@@ -296,10 +296,10 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 // really want to do is validate if we replayed these axes to the ones they
 // mapped to in the consumer the operations would all be the same. then we want
 // to start the replay of the producer from the rfactor root axes, not the root.
-std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
+std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
-    int consumer_pos,
+    int64_t consumer_pos,
     const RootDomainMap& root_map,
     bool replay_swizzle,
     bool replay_resize) {
@@ -308,17 +308,17 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     return {producer->domain(), producer->nDims()};
   }
   if (consumer_pos < 0) {
-    consumer_pos += (int)consumer->nDims() + 1;
+    consumer_pos += (int64_t)consumer->nDims() + 1;
   }
 
   TORCH_INTERNAL_ASSERT(
-      consumer_pos >= 0 && (unsigned int)consumer_pos <= consumer->nDims(),
+      consumer_pos >= 0 && (size_t)consumer_pos <= consumer->nDims(),
       "Invalid axis in transform replayPasC.");
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> target_consumer_ids(
-      consumer->domain()->domain().begin(),
-      consumer->domain()->domain().begin() + consumer_pos);
+      consumer->domain()->leaf().begin(),
+      consumer->domain()->leaf().begin() + consumer_pos);
 
   // Instead of replaying from the root, lets try to play forward the history of
   // producer if they match ops on consumer. Enforce if we modify an rfactor
@@ -333,7 +333,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   auto forward_replay = BestEffortReplay::replayPasC(
       producer,
       consumer,
-      consumer_pos,
+      (int)consumer_pos,
       root_map,
       false,
       !replay_swizzle,
@@ -440,8 +440,8 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
 
   // Play forward transformations all producer IDs we can
   auto producer_replayed_leaves = BestEffortReplay(
-      producer->domain()->domain(),
-      producer->domain()->domain(),
+      producer->domain()->leaf(),
+      producer->domain()->leaf(),
       producer_self_replay_map);
 
   /*
@@ -483,10 +483,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     used_IDs.emplace(it->second);
   }
 
-  unsigned int producer_pos = new_IDs.size();
+  size_t producer_pos = new_IDs.size();
 
   // Add axes in (2)
-  for (auto c_id : consumer->domain()->domain()) {
+  for (auto c_id : consumer->domain()->leaf()) {
     auto it = replay_PasC.getReplay().find(c_id);
     if (it != replay_PasC.getReplay().end()) {
       auto id = it->second;
@@ -504,7 +504,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   }
 
   // Add axes in (3)
-  for (auto id : producer->domain()->domain()) {
+  for (auto id : producer->domain()->leaf()) {
     if (producer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
         producer_replayed_leaves.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -530,10 +530,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   return {replayed, producer_pos};
 }
 
-std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
+std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
-    int producer_pos,
+    int64_t producer_pos,
     const RootDomainMap& root_map,
     bool replay_swizzle) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
@@ -544,11 +544,11 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     return {consumer->domain(), consumer->nDims()};
 
   if (producer_pos < 0) {
-    producer_pos += (int)producer->nDims() + 1;
+    producer_pos += (int64_t)producer->nDims() + 1;
   }
 
   TORCH_INTERNAL_ASSERT(
-      producer_pos >= 0 && (unsigned int)producer_pos <= producer->nDims(),
+      producer_pos >= 0 && (size_t)producer_pos <= producer->nDims(),
       "Invalid axis in transform replayCasP. Consumer: ",
       consumer->toString(),
       " Producer: ",
@@ -556,8 +556,8 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> target_producer_ids(
-      producer->domain()->domain().begin(),
-      producer->domain()->domain().begin() + producer_pos);
+      producer->domain()->leaf().begin(),
+      producer->domain()->leaf().begin() + producer_pos);
   target_producer_ids = TensorDomain::noReductions(target_producer_ids);
 
   // Instead of replaying from the root, lets try to forward the history of
@@ -571,7 +571,13 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
   // The consumer may have resize, which replayCasP skips and forwards
   // the mapping to the output domain of the resize.
   BestEffortReplay forward_replay = BestEffortReplay::replayCasP(
-      consumer, producer, producer_pos, root_map, false, !replay_swizzle, true);
+      consumer,
+      producer,
+      (int)producer_pos,
+      root_map,
+      false,
+      !replay_swizzle,
+      true);
 
   // Track dangling leaves which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
@@ -669,8 +675,8 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 
   // Play forward transformations all consumer IDs we can
   auto consumer_replayed_leaves = BestEffortReplay(
-      consumer->domain()->domain(),
-      consumer->domain()->domain(),
+      consumer->domain()->leaf(),
+      consumer->domain()->leaf(),
       consumer_self_replay_map);
 
   /*
@@ -714,7 +720,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
   }
 
   // Add axes in (2)
-  for (auto p_id : producer->domain()->domain()) {
+  for (auto p_id : producer->domain()->leaf()) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it != replay_CasP.getReplay().end()) {
       auto id = it->second;
@@ -731,10 +737,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     }
   }
 
-  unsigned int consumer_pos = new_IDs.size();
+  size_t consumer_pos = new_IDs.size();
 
   // Add axes in (3)
-  for (auto id : consumer->domain()->domain()) {
+  for (auto id : consumer->domain()->leaf()) {
     if (consumer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
         consumer_replayed_leaves.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -762,10 +768,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 }
 
 // replay Producer as Consumer
-std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
+std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
-    int compute_at_axis,
+    int64_t compute_at_axis,
     bool replay_swizzle,
     bool replay_resize) {
   // Use the pairwise root map as a default mapper
@@ -779,10 +785,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
       replay_resize);
 }
 
-std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
+std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
-    int compute_at_axis,
+    int64_t compute_at_axis,
     bool replay_swizzle) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
@@ -794,10 +800,10 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 // all the beginning axes in the producer should be mapped to the consumer in
 // the same order. Reductions in the producer needs to be in the back of the
 // producer.
-int TransformReplay::getMatchedLeafPosWithoutReplayPasC(
+int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
     const TensorView* producer,
     const TensorView* consumer,
-    int consumer_pos,
+    int64_t consumer_pos,
     bool skip_resize) {
   FUSER_PERF_SCOPE("transform_replay.cpp::getMatchedLeafPosWithoutReplayPasC");
 
@@ -806,7 +812,7 @@ int TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       consumer->domain(), producer->domain());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->domain()->domain();
+  const auto consumer_domain = consumer->domain()->leaf();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : c2p_root_map) {
@@ -820,7 +826,7 @@ int TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   // IterDomains in `producer` root also in `consumer` root
-  const auto producer_domain = producer->domain()->domain();
+  const auto producer_domain = producer->domain()->leaf();
 
   auto it_consumer = consumer_domain.begin();
   auto it_producer = producer_domain.begin();
@@ -830,8 +836,8 @@ int TransformReplay::getMatchedLeafPosWithoutReplayPasC(
           producer, consumer, -1, pairwise_map, true, true, skip_resize)
           .getIterDomainEquivalence();
 
-  int mismatched_consumer_pos = 0;
-  int mismatched_producer_pos = 0;
+  int64_t mismatched_consumer_pos = 0;
+  int64_t mismatched_producer_pos = 0;
   while (it_consumer != consumer_domain.end()) {
     if (consumer_pos == mismatched_consumer_pos) {
       return mismatched_producer_pos;
@@ -865,10 +871,10 @@ int TransformReplay::getMatchedLeafPosWithoutReplayPasC(
 }
 
 // We want to ignore reductions in the producer in a CasP replay.
-int TransformReplay::getMatchedLeafPosWithoutReplayCasP(
+int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
     const TensorView* consumer,
     const TensorView* producer,
-    int producer_pos,
+    int64_t producer_pos,
     bool skip_resize) {
   FUSER_PERF_SCOPE("transform_replay.cpp::getMatchedLeafPosWithoutReplayCasP");
 
@@ -877,14 +883,14 @@ int TransformReplay::getMatchedLeafPosWithoutReplayCasP(
       producer->domain(), consumer->domain());
 
   // IterDomains in `producer` root that are not reduction
-  const auto producer_domain = producer->domain()->domain();
+  const auto producer_domain = producer->domain()->leaf();
   auto unskippable_producer_ids_vec =
       TensorDomain::noReductions(producer_domain);
   std::unordered_set<IterDomain*> unskippable_producer_ids(
       unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->domain()->domain();
+  const auto consumer_domain = consumer->domain()->leaf();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_root_map) {
@@ -905,8 +911,8 @@ int TransformReplay::getMatchedLeafPosWithoutReplayCasP(
           producer, consumer, -1, pairwise_map, true, true, skip_resize)
           .getIterDomainEquivalence();
 
-  int mismatched_producer_pos = 0;
-  int mismatched_consumer_pos = 0;
+  int64_t mismatched_producer_pos = 0;
+  int64_t mismatched_consumer_pos = 0;
   while (it_producer != producer_domain.end()) {
     if (producer_pos == mismatched_producer_pos) {
       return mismatched_consumer_pos;
@@ -949,9 +955,9 @@ bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
   auto replay_root = replay->getRootDomain();
-  auto replay_dom = replay->domain()->domain();
+  auto replay_dom = replay->domain()->leaf();
   auto target_root = target->getRootDomain();
-  auto target_dom = target->domain()->domain();
+  auto target_dom = target->domain()->leaf();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
@@ -989,7 +995,7 @@ bool validateDomain(TensorView* tv, TensorDomain* new_td) {
 } // namespace
 
 void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int64_t pos = replayed_pos_.at(from);
   // Note: [Using multiple TransformPropagators]
   // There are cases that we use multiple TransformPropagators along different
   // spanning trees with different references in the same fusion. Some of these
@@ -1001,7 +1007,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
   //
   // Note on resize: When propagating transformations, resize is just
   // skipped, or forwarded, so the matching here is done by skipping it.
-  int new_pos =
+  int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1019,7 +1025,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = replay.second;
+    new_pos = (int)replay.second;
     if (debug) {
       std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
@@ -1030,9 +1036,9 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int64_t pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
-  int new_pos =
+  int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1050,7 +1056,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    new_pos = replay.second;
+    new_pos = (int)replay.second;
     if (debug) {
       std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
@@ -1061,7 +1067,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
 }
 
 void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
-  int pos = replayed_pos_.at(from);
+  int64_t pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1090,7 +1096,7 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
 
 TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
   if (pos < 0) {
-    pos += int64_t(from->nDims()) + 1;
+    pos += (int64_t)from->nDims() + 1;
   }
   TORCH_CHECK(
       pos >= 0 && pos <= (int64_t)from->nDims(),
@@ -1101,9 +1107,9 @@ TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
 void MostInlinedTransformPropagator::propagateC2P(
     TensorView* from,
     TensorView* to) {
-  int pos = from->nDims();
+  int64_t pos = (int64_t)from->nDims();
   // See note [Using multiple TransformPropagators]
-  int new_pos =
+  int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {
@@ -1132,9 +1138,9 @@ void MostInlinedTransformPropagator::propagateC2P(
 void MostInlinedTransformPropagator::propagateP2C(
     TensorView* from,
     TensorView* to) {
-  int pos = from->nDims();
+  int64_t pos = (int64_t)from->nDims();
   // See note [Using multiple TransformPropagators]
-  int new_pos =
+  int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug) {

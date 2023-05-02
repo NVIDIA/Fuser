@@ -22,6 +22,9 @@
 #include <sstream>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // Return reduction tensor view and output of reduction
 static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
@@ -32,7 +35,7 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
   TensorView* tv0 = TensorViewBuilder()
                         .ndims(4)
                         .dtype(dtype)
-                        .contiguity({true, false, false, true})
+                        .contiguity({true, c10::nullopt, c10::nullopt, true})
                         .shape({-1, 1, 1, -1})
                         .build();
   TensorView* tv1 = makeContigTensor(4, dtype);
@@ -141,7 +144,7 @@ static void MagicScheduler_DivMaxSoftDropFwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -201,7 +204,7 @@ static void MagicScheduler_DivMaxSoftDropBwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
@@ -316,7 +319,7 @@ static void MagicScheduler_BiasDropoutAddLayernormFwd(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -426,7 +429,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd1(
   scheduleReduction(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -537,7 +540,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd2(
   schedulePersistentKernel(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 
@@ -628,7 +631,7 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd3(
   scheduleReduction(&fusion, *norm_params);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs);
+  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
   fe.setMeasureKernelTimeFlag(true);
   // Sync everything up before we start
 

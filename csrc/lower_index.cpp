@@ -171,7 +171,8 @@ void IndexLowering::handle(const FullOp* fop) {
   auto result = fop->getFillValue();
   GpuLower::current()->commonScalarMap().hoistScalar(result, for_loops_);
 
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(fop, back());
 }
@@ -191,7 +192,8 @@ void IndexLowering::handle(const IotaOp* aop) {
       aop->start(),
       aop->step(),
       aop->dtype());
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(aop, back());
@@ -204,7 +206,8 @@ void IndexLowering::handle(const EyeOp* eop) {
   // TensorIndex for writing eye output.
   const auto out = lowerDstIndex(out_tv);
   auto result = Index::eye(out_tv, for_loops_, getRotatedLoop(), eop->dtype());
-  auto lowered = IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, result);
+  auto lowered =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(eop, back());
@@ -277,7 +280,7 @@ void IndexLowering::handle(const TorchGatherOp* top) {
   auto input = lowerSrcIndex(top->lookupTv(), top->output(0), override_index);
 
   const auto out = lowerDstIndex(top->output(0));
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
@@ -321,7 +324,7 @@ void IndexLowering::handle(const SelectOp* sop) {
 
   const auto out = lowerDstIndex(sop->output(0));
 
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, input));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, input));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -334,7 +337,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
-      Val* index = loop->index();
+      Val* index = loop->indexOrStartIfTrivial();
       pushBack(
           IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
       GpuLower::current()->propagateExprInfo(uop, back());
@@ -376,7 +379,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -441,7 +444,7 @@ Val* getGridSyncBufferSize(
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
-    if (std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+    if (std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -506,7 +509,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
     linear_index = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(
             linear_index, loop->iter_domain()->extent()),
-        loop->index());
+        loop->indexOrStartIfTrivial());
   }
   return linear_index;
 }
@@ -570,8 +573,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -720,8 +723,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -811,8 +814,8 @@ void IndexLowering::handle(const WelfordOp* wop) {
   if (has_grid_reduce) {
     TORCH_INTERNAL_ASSERT(
         std::none_of(
-            out_domain->domain().begin(),
-            out_domain->domain().end(),
+            out_domain->leaf().begin(),
+            out_domain->leaf().end(),
             [](IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -1044,7 +1047,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   // TIDx and BIDx must be used for non-reduction domains. TIDy and
   // BIDy must be used for reduction domains.
   ParallelTypeBitmap used_pts;
-  for (auto leaf_id : out_domain->domain()) {
+  for (auto leaf_id : out_domain->leaf()) {
     auto pt = leaf_id->getParallelType();
     if (isParallelTypeThread(pt)) {
       used_pts.set(pt);
@@ -1101,13 +1104,13 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   int num_grouped_iterations = 1;
-  for (auto axis : out_domain->domain()) {
+  for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       TORCH_INTERNAL_ASSERT(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= axis->extent()->evaluateInt();
+      num_grouped_iterations *= (int)axis->extent()->evaluateInt();
     }
   }
 
@@ -1157,8 +1160,8 @@ void IndexLowering::handleGroupedGridWelford(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -1239,11 +1242,12 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  // Today, LoadStoreOp can only be ld.matrix and cp.async. In the future, when
-  // we start to work on hopper support, this can also be TMA operations.
-  const auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  const auto out =
-      lowerDstIndex(ldst->out(), {}, !ir_utils::isLdMatrixOp(ldst));
+  const auto in = lowerSrcIndex(
+      ldst->in(),
+      ldst->out(),
+      {},
+      ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+  const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
   auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
                       ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
@@ -1254,8 +1258,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   const auto a = lowerSrcIndex(mma->inA(), mma->out());
   const auto b = lowerSrcIndex(mma->inB(), mma->out());
   const auto out = lowerDstIndex(mma->out());
-  auto mma_indexed =
-      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->options());
+  auto mma_indexed = IrBuilder::create<MmaOp>(
+      out, a, b, mma->init(), mma->options(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }
@@ -1455,7 +1459,7 @@ void IndexLowering::handle(const SliceOp* slice) {
   const auto in = lowerSrcIndex(slice->in(), slice->out());
   const auto out = lowerDstIndex(slice->out());
 
-  pushBack(IrBuilder::create<UnaryOp>(UnaryOpType::Set, out, in));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
   GpuLower::current()->propagateExprInfo(slice, back());
 }
 

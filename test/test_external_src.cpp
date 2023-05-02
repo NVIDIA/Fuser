@@ -10,16 +10,18 @@
 
 #include <executor_utils.h>
 #include <fusion.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
+
+class ExternalSrcExample : public NVFuserTest {};
 
 // This is for internal testing only and is intended to be used as a template to
 // compile and run an external source file. By default, it should just
 // return immediately, but if PYTORCH_NVFUSER_EXTERNAL_SRC is defined,
 // the file specified by the env var is loaded and compiled.
-TEST_F(NVFuserTest, FusionExternalSrc_CUDA) {
+TEST_F(ExternalSrcExample, Reduction_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   FusionExecutor fe;
@@ -91,7 +93,7 @@ TEST_F(NVFuserTest, FusionExternalSrc_CUDA) {
 
 // This is based on the following benchmark:
 // Nvfuser_Matmul_4warp3stage/no_quant_nvfuser_4warp_TN_Legacy/2048/3456/2048/manual_time
-TEST_F(NVFuserTest, FusionExternalSrcMatmul_CUDA) {
+TEST_F(ExternalSrcExample, Matmul_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   FusionExecutor fe;
@@ -114,8 +116,8 @@ TEST_F(NVFuserTest, FusionExternalSrcMatmul_CUDA) {
       cuda_src_str, "CudaCodeGen::kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
-  MmaOptions::MmaInputLayout layout = MmaOptions::MmaInputLayout::TN;
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  MmaOptions::MmaLayout layout = MmaOptions::MmaLayout::TN;
+  auto inputs = matmulAtInput(M, N, K, layout);
   auto at_output = atMatmul(inputs.first, inputs.second, layout).to(at::kFloat);
 
   LaunchParams lp(16, 27, 1, 32, 2, 2);

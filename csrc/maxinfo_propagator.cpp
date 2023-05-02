@@ -25,7 +25,7 @@ MaxInfoSpanningTree::MaxInfoSpanningTree(
     Selector* selector)
     : selector_(selector),
       reference_(reference),
-      reference_info_(reference_info) {}
+      reference_info_(std::move(reference_info)) {}
 
 void MaxInfoSpanningTree::compute_spanning_tree() {
   // A set that allows us to quickly tell if a tensor has been replayed. If yes,
@@ -384,7 +384,7 @@ MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(
       "MaxRootDomainInfoSpanningTree called on an leaf_pos outside valid range.");
   RootDomainInfo result;
   const auto& root_domain = tv->getMaybeRFactorDomain();
-  const auto& leaf_domain = tv->domain()->domain();
+  const auto& leaf_domain = tv->domain()->leaf();
   std::unordered_set<IterDomain*> selected_leaves(
       leaf_domain.begin(), leaf_domain.begin() + leaf_pos);
   for (auto id : root_domain) {

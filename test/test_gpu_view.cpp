@@ -34,8 +34,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -1253,7 +1253,7 @@ TEST_F(NVFuserTest, FusionReshapeVectorize_CUDA) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->domain()->domain()) {
+    for (auto i : tv->domain()->leaf()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }

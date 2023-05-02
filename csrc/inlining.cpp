@@ -15,9 +15,9 @@
 namespace nvfuser {
 
 MaxPosCalculator::MaxPosCalculator(
-    const std::unordered_set<IterDomain*>& uninlinable_ids,
+    std::unordered_set<IterDomain*> uninlinable_ids,
     bool compute_at_only)
-    : uninlinable_ids_(uninlinable_ids) {
+    : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
 }
 
@@ -98,7 +98,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->domain()->domain();
+  auto dom = tv->domain()->leaf();
   auto iter = std::find_if(dom.begin(), dom.end(), [=](IterDomain* id) {
     return !isAllowedID(
         id,
@@ -124,16 +124,15 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
   auto p2c_replay_map = replay_CasP.getReplay();
 
-  for (size_t producer_pos = 0; producer_pos < producer->nDims();
-       producer_pos++) {
+  for (const auto producer_pos : c10::irange(producer->nDims())) {
     // If the producer position is mismatching with the consumer, then we can
     // not inline into this position, otherwise the max producer position of
     // the consumer will become invalid and expression sort will fail.
     if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            consumer, producer, producer_pos + 1) < 0) {
+            consumer, producer, (int)producer_pos + 1) < 0) {
       return producer_pos;
     }
-    auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
+    auto map_it = p2c_replay_map.find(producer->axis((int)producer_pos));
     if (map_it != p2c_replay_map.end()) {
       auto c_id = map_it->second;
       if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
@@ -203,11 +202,11 @@ class FindMappedPositions : public MaxInfoSpanningTree::Propagator {
       TensorView* reference,
       int64_t reference_pos);
 
-  ~FindMappedPositions() = default;
+  ~FindMappedPositions() override = default;
 
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
 };
 
 FindMappedPositions::FindMappedPositions(
@@ -231,7 +230,7 @@ FindMappedPositions::FindMappedPositions(
 }
 
 void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
-  int from_pos = output_.at(from);
+  int from_pos = (int)output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -245,7 +244,7 @@ void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void FindMappedPositions::propagateP2C(TensorView* from, TensorView* to) {
-  int from_pos = output_.at(from);
+  int from_pos = (int)output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -290,7 +289,7 @@ void inlineAllAt(
   auto mapped_positions = getPositionsMappedTo(reference_tv, reference_pos);
   MaxPosCalculator calc(uninlinable_ids);
   for (auto pair : mapped_positions) {
-    pair.first->inlineAt(pair.second, best_effort, &calc);
+    pair.first->inlineAt((int64_t)pair.second, best_effort, &calc);
   }
 }
 
@@ -304,7 +303,7 @@ void inlineSelectedAt(
   MaxPosCalculator calc(uninlinable_ids);
   for (auto pair : mapped_positions) {
     if (selected.count(pair.first) > 0) {
-      pair.first->inlineAt(pair.second, best_effort, &calc);
+      pair.first->inlineAt((int64_t)pair.second, best_effort, &calc);
     }
   }
 }

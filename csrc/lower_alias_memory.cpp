@@ -439,8 +439,8 @@ class ExprPosMap {
 // Create ScopeInfo for each loop
 class ScopeMap : private kir::IrVisitor {
  public:
-  ScopeMap(const std::vector<Expr*>& exprs) {
-    global_scope_info_ = makeAndRegisterScopeInfo(nullptr);
+  ScopeMap(const std::vector<Expr*>& exprs)
+      : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
     global_scope_info_->end_pos = expr_pos_map_.getCurrentPos() + 1;
 
@@ -1225,7 +1225,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (!tv_def) {
           continue;
         }
-        if (!isPointwiseTvOp(tv_def) && !ir_utils::isReductionTvOp(tv_def)) {
+        if (!ir_utils::isPointwiseTvOp(tv_def) &&
+            !ir_utils::isReductionTvOp(tv_def)) {
           if (isBroadcastTvOp(tv_def)) {
             info.has_broadcast_between = true;
           } else {
@@ -1264,16 +1265,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     } else {
       allocation_info_map_.useOuterAlias(alloc_info, to_reuse);
     }
-  }
-
-  // Do we have a true pointwise op?
-  // (ie. a TV op, excluding direct assignments and reductions)
-  bool isPointwiseTvOp(const Expr* expr) {
-    if (ir_utils::isTvOp(expr)) {
-      return expr->isA<UnaryOp>() || expr->isA<BinaryOp>() ||
-          expr->isA<TernaryOp>();
-    }
-    return false;
   }
 
   // Utility to capture broadcast ops

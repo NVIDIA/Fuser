@@ -113,6 +113,10 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return hasValue() && value_->isConst();
   }
 
+  bool isTrivial() const {
+    return isConst() && value_->getBool() == true;
+  }
+
  private:
   PredicateType ptype_ = PredicateType::Manual;
 
@@ -533,6 +537,10 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   Val* index() const {
     return input(0);
+  }
+
+  Val* indexOrStartIfTrivial() const {
+    return isTrivial() ? start() : index();
   }
 
   Val* start() const;

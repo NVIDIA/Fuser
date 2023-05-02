@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -136,6 +139,76 @@ static void Baseline_LayerNorm_fp16(benchmark::State& benchmark_state) {
   Baseline_LayerNorm(benchmark_state, DataType::Half);
 }
 
+static void NvFuserScheduler_TIMM_LayerNorm(
+    benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
+    DataType dtype) {
+  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+
+  // NHWC, norm on C
+  std::vector<int64_t> input_shape{
+      benchmark_state.range(0) * benchmark_state.range(2) *
+          benchmark_state.range(2),
+      benchmark_state.range(1)};
+
+  // inputs
+  at::manual_seed(0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input = at::randn(input_shape, options);
+  at::Tensor weight = at::randn({input_shape[1]}, options);
+  at::Tensor bias = at::randn({input_shape[1]}, options);
+
+  std::vector<c10::IValue> aten_inputs({input, weight, bias});
+
+  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (2 * input.numel() + weight.numel() + bias.numel()) *
+      int64_t(dataTypeSize(dtype)));
+}
+
+static void Baseline_TIMM_LayerNorm(
+    benchmark::State& benchmark_state,
+    DataType dtype) {
+  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+
+  // NHWC, norm on C
+  std::vector<int64_t> input_shape{
+      benchmark_state.range(0) * benchmark_state.range(2) *
+          benchmark_state.range(2),
+      benchmark_state.range(1)};
+  const size_t kReductionAxis = 1;
+  std::vector<int64_t> norm_shape;
+  for (auto idx = kReductionAxis; idx < input_shape.size(); ++idx) {
+    norm_shape.push_back(input_shape[idx]);
+  }
+
+  // inputs
+  at::manual_seed(0);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input = at::randn(input_shape, options);
+  at::Tensor weight = at::randn({input_shape[1]}, options);
+  at::Tensor bias = at::randn({input_shape[1]}, options);
+
+  clearL2Cache();
+  cudaDeviceSynchronize();
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    auto output = at::layer_norm(input, norm_shape, weight, bias);
+    benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
+    cudaDeviceSynchronize();
+    clearL2Cache();
+    cudaDeviceSynchronize();
+  }
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (2 * input.numel() + weight.numel() + bias.numel()) *
+      int64_t(dataTypeSize(dtype)));
+}
 //------------------------------------------------------------------------------
 
 NVFUSER_BENCHMARK_DEFINE(
@@ -170,18 +243,18 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
 
 // GPT-2
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
-    ->Args({8 * 1024, 768})
-    ->Args({8 * 1024, 1024})
-    ->Args({8 * 1024, 1280})
-    ->Args({8 * 1024, 1600})
+    ->Args({8192, 768})
+    ->Args({8192, 1024})
+    ->Args({8192, 1280})
+    ->Args({8192, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp32)
-    ->Args({16 * 1024, 768})
-    ->Args({16 * 1024, 1024})
-    ->Args({16 * 1024, 1280})
-    ->Args({16 * 1024, 1600})
+    ->Args({16384, 768})
+    ->Args({16384, 1024})
+    ->Args({16384, 1280})
+    ->Args({16384, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
@@ -218,18 +291,18 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
 
 // GPT-2
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    ->Args({8 * 1024, 768})
-    ->Args({8 * 1024, 1024})
-    ->Args({8 * 1024, 1280})
-    ->Args({8 * 1024, 1600})
+    ->Args({8192, 768})
+    ->Args({8192, 1024})
+    ->Args({8192, 1280})
+    ->Args({8192, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    ->Args({16 * 1024, 768})
-    ->Args({16 * 1024, 1024})
-    ->Args({16 * 1024, 1280})
-    ->Args({16 * 1024, 1600})
+    ->Args({16384, 768})
+    ->Args({16384, 1024})
+    ->Args({16384, 1280})
+    ->Args({16384, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
@@ -280,5 +353,51 @@ BENCHMARK(Baseline_LayerNorm_fp16)
 BENCHMARK(Baseline_LayerNorm_fp16)
     // ->RangeMultiplier(2)
     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// TIMM, NvFuser
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_TIMM_LayerNorm_fp16,
+    setupLayerNorm,
+    NvFuserScheduler_TIMM_LayerNorm,
+    DataType::Half);
+
+// hidden_size = 24, 40, 48, 56, 72, 152, 184, 200, 368
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_TIMM_LayerNorm_fp16)
+    ->ArgsProduct(
+        {{8, 16, 32, 64, 128, 256},
+         {24, 40, 48, 56, 72, 152, 184, 200, 368},
+         {7, 14, 28, 56, 112}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// hidden_size = 24, 40, 48, 56, 72, 152
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_TIMM_LayerNorm_fp16)
+    ->ArgsProduct(
+        {{128, 256, 512, 1024, 2048},
+         {24, 40, 48, 56, 72, 152},
+         {7, 14, 28, 56}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// TIMM, Baseline
+static void Baseline_TIMM_LayerNorm_fp16(benchmark::State& benchmark_state) {
+  Baseline_TIMM_LayerNorm(benchmark_state, DataType::Half);
+}
+
+BENCHMARK(Baseline_TIMM_LayerNorm_fp16)
+    ->ArgsProduct(
+        {{8, 16, 32, 64, 128, 256},
+         {24, 40, 48, 56, 72, 152, 184, 200, 368},
+         {7, 14, 28, 56, 112}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(Baseline_TIMM_LayerNorm_fp16)
+    ->ArgsProduct(
+        {{128, 256, 512, 1024, 2048},
+         {24, 40, 48, 56, 72, 152},
+         {7, 14, 28, 56}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();

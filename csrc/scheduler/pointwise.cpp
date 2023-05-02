@@ -71,7 +71,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getPointwiseHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -84,7 +84,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
-  const auto index_type = indexModeToDtype(runtime_info.getIndexMode());
+  const auto index_type = runtime_info.getIndexType();
 
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 
@@ -136,7 +136,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->domain()->domain()))
+          TensorDomain::noBroadcasts(largest_out->domain()->leaf()))
               .size() == 0 ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -504,8 +504,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getMaybeRFactorDomain().begin(),
          reference_tv->getMaybeRFactorDomain().begin() + params.break_point},
-        {reference_tv->domain()->domain().begin(),
-         reference_tv->domain()->domain().end()});
+        {reference_tv->domain()->leaf().begin(),
+         reference_tv->domain()->leaf().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
@@ -513,8 +513,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getMaybeRFactorDomain().begin() + params.break_point,
          reference_tv->getMaybeRFactorDomain().end()},
-        {reference_tv->domain()->domain().begin(),
-         reference_tv->domain()->domain().end()});
+        {reference_tv->domain()->leaf().begin(),
+         reference_tv->domain()->leaf().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
         rhs_all_vals.begin(), rhs_all_vals.end());
