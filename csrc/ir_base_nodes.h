@@ -237,9 +237,9 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   static void mutatorDispatch(T mutator, Val*);
 
-  //! Return the position of this Val in the vals() vector of the IrContainer
-  //! that created it. Note that this differs from name(), which is specific to
-  //! ValType.
+  //! Return the position of this Val in the valsVector() vector of the
+  //! IrContainer that created it. Note that this differs from name(), which is
+  //! specific to ValType.
   size_t number() const {
     return number_;
   }
@@ -420,7 +420,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
-  // The position of this Val in the vals() vector for the originating
+  // The position of this Val in the valsVector() vector for the originating
   // IrContainer
   size_t number_;
 
@@ -602,6 +602,15 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   // Get the label for Graphviz
   virtual std::string getGraphvizLabel() const;
 
+  //! Return the position of this Expr in its IrContainer's exprsVector()
+  size_t number() const {
+    return number_;
+  }
+
+  void setNumber(size_t number) {
+    number_ = number;
+  }
+
  protected:
   template <typename IndexType>
   friend class ValEquivalence;
@@ -667,6 +676,10 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   // Only used for reduction-related expressions
   kir::Predicate* write_predicate_ = nullptr;
+
+  // The position of this Expr in the exprsVector() vector for the originating
+  // IrContainer
+  size_t number_;
 };
 
 template <typename T>

@@ -24,7 +24,8 @@
 
 namespace nvfuser {
 
-//! Val equivalence classes and E-graphs
+//! [Val equivalence classes and E-graphs]
+//!
 //! This class tracks a single notion of Val equivalence over all Vals in an
 //! IrContainer. It also includes "extraction" utilities which form part of the
 //! E-Graph machinery. Equality saturation is the missing component, which
@@ -34,7 +35,9 @@ namespace nvfuser {
 template <typename IndexType>
 class ValEquivalence {
  public:
-  ValEquivalence(IrContainer& container) : container_(container), uf_(0) {}
+  ValEquivalence(IrContainer& container) : container_(container) {
+    enlarge(container.valsVector().size());
+  }
 
   //! Merge the sets containing a and b
   void merge(Val* a, Val* b) {
@@ -283,6 +286,10 @@ class ValEquivalence {
       mergeOutputs(aexpr, bexpr);
     }
     return true;
+  }
+
+  IrContainer& container() {
+    return container_;
   }
 
  private:

@@ -21,7 +21,7 @@ namespace nvfuser {
 template <typename IndexType>
 class UnionFind {
  public:
-  UnionFind(size_t size) : parent_(size), rank_(size, 0) {
+  UnionFind(size_t size = 0) : parent_(size), rank_(size, 0) {
     for (size_t i = 0; i < size; ++i) {
       parent_[i] = (IndexType)i;
     }

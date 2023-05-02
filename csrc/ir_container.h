@@ -82,6 +82,10 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
     return exprs_;
   }
 
+  const std::vector<Expr*>& exprsVector() const noexcept {
+    return exprs_vector_;
+  }
+
   //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept {
     return vals_;
@@ -157,6 +161,9 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
 
+  // Exprs are placed in this vector at a position equal to op->number()
+  std::vector<Expr*> exprs_vector_;
+
   // Used to implement a generic "inContainer" that can be passed an invalid
   // pointer. Specifically a pointer to a Statement owned by another container
   // that has been freed. We can't check normally with the unordered_sets we
@@ -167,6 +174,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 
+  // Vals are placed in this vector at a position equal to val->number()
   std::vector<Val*> vals_vector_;
 
   // Expression names counter
