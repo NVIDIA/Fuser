@@ -243,7 +243,7 @@ class SchedulerTopologyChecker {
                       // If mapped, and producer is a producer of a reduction,
                       // we can resolve this id
                       ids_to_resolve.erase(
-                          ids_to_resolve.begin() + (entry_i - 1));
+                          ids_to_resolve.begin() + (int64_t)entry_i - 1);
                     } else {
                       ids_to_resolve[entry_i - 1] = std::make_pair(
                           orig_id, backward_c2p_root_map.at(running_id));
@@ -877,11 +877,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       auto dims = tensor_arg_abstract->getRank();
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getSize(dim);
+        auto size = tensor_arg_abstract->getSize((int)dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getStride(dim);
+        auto stride = tensor_arg_abstract->getStride((int)dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1110,7 +1110,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   auto inner_most_dim = scheduler_utils::innerMostRootDim(tv);
 
   int id_pos = -1;
-  for (auto root_i : c10::irange(tv_root_no_reductions_size)) {
+  for (auto root_i : c10::irange((int)tv_root_no_reductions_size)) {
     if (tv_root_no_reductions[root_i] == inner_most_dim) {
       id_pos = root_i;
       break;
@@ -1309,7 +1309,7 @@ class NoOpScheduler : public SchedulerEntry {
     // Check that all outputs are either broadcast or ignored reduction.
     for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
       auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->domain()->domain()));
+          TensorDomain::noBroadcasts(out_tv->domain()->leaf()));
       if (!concrete_dimension.empty()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::NoOp, "output has a concrete dimension");
@@ -2078,7 +2078,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     for (auto tv : reduction_tvs) {
       int64_t n_elements = 1;
       const int64_t vectorization_factor = 16 /
-          dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType());
+          (int64_t)dataTypeSize(tv->getDataType().value(),
+                                runtime_info.getIndexType());
       const int64_t n_elements_factor = quarter_warp * vectorization_factor;
       const bool is_inner_reduction =
           scheduler_utils::isFastestDimReduction(tv);
@@ -2205,12 +2206,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     const int64_t vectorization_factor =
-        vectorize_helper::getVectorizationFactor(
+        (int64_t)vectorize_helper::getVectorizationFactor(
             runtime_info,
             reduction_tvs.at(0),
             data_cache,
-            reduction_tvs.at(0)->nDims() -
-                properties.inner_most_dimension_ndims);
+            (int)reduction_tvs.at(0)->nDims() -
+                (int)properties.inner_most_dimension_ndims);
 
     // Minimum required multi reduction factor.
     const int64_t min_multi_reduction_factor = vectorization_factor *
@@ -2261,6 +2262,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
         return false;
       }
     }
+
+    TORCH_INTERNAL_ASSERT(!is_cross_grid || cross_grid_params.has_value())
 
     // Maximum number of iteration dimensions we can have and still be
     // persistent.

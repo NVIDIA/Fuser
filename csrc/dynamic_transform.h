@@ -46,6 +46,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   size_t hash() const;
 
+  DynamicTransformConcretizationInfo clone(IrCloner& ir_cloner) const;
+
  private:
   DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}
 
@@ -63,6 +65,12 @@ class TORCH_CUDA_CU_API DynamicTransform {
   static DynamicTransformConcretizationInfo getConcretizationInfo(
       Fusion* fusion,
       ExpressionEvaluator* expr_eval);
+
+  //! Get concrete transformations for a symbolic fusion with concrete
+  //! input sizes given through kernel arguments
+  static DynamicTransformConcretizationInfo getConcretizationInfo(
+      Fusion* fusion,
+      const KernelArgumentHolder* args);
 
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.

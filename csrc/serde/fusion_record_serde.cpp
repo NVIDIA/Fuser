@@ -589,6 +589,15 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
 
+  auto deserializeTakeAlongAxisRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::TakeAlongAxisOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(
+      serde::RecordType_TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
+
   auto deserializeIndexSelectRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::IndexSelectOpRecord(
         parseStateArgs(buffer->args()),

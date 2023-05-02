@@ -1017,7 +1017,7 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1119,7 +1119,7 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1454,7 +1454,7 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Int* init_N) {
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1520,7 +1520,7 @@ WelfordResult Welford(
     TensorView* init_var,
     Int* init_N) {
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
