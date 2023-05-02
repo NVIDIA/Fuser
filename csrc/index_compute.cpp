@@ -1887,7 +1887,7 @@ std::vector<Val*> Index::getProducerRootIndices(
   // I1 and I2 are not mapped. For this case, we should allow the root unmapped,
   // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
   // is not what we want.
-  const auto p2c_map_ = invertOneToOneMap(c2p_map);
+  const auto p2c_map = invertOneToOneMap(c2p_map);
   for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
                             .mapBroadcast(false)
                             .mapDifferentExtents(true)
