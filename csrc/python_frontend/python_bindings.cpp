@@ -7,6 +7,7 @@
 // clang-format on
 #include <python_frontend/python_bindings.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
@@ -68,6 +69,72 @@ std::vector<c10::optional<bool>> computeContiguity(
     }
   }
   return contiguity;
+}
+
+// Matmul functions are temporary internal functions for testing purposes only
+TensorView* _matmul_nn(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
+  if (is_turing_or_later) {
+    auto tv0t = transpose(a, 0, 1);
+    tv0b = broadcast(tv0t, {false, true, false});
+    tv1b = broadcast(b, {true, false, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+    return tv2;
+  } else {
+    tv0b = broadcast(b, {false, false, true});
+    tv1b = broadcast(a, {true, false, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+    return transpose(tv2, 0, 1);
+  }
+}
+TensorView* _matmul_nt(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
+  if (is_turing_or_later) {
+    auto tv0t = transpose(a, 0, 1);
+    auto tv1t = transpose(b, 0, 1);
+    tv0b = broadcast(tv0t, {false, true, false});
+    tv1b = broadcast(tv1t, {true, false, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  } else {
+    tv0b = broadcast(a, {false, false, true});
+    tv1b = broadcast(b, {false, true, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+  }
+  return tv2;
+}
+TensorView* _matmul_tn(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  auto tv0b = broadcast(a, {false, true, false});
+  auto tv1b = broadcast(b, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+TensorView* _matmul_tt(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
+  if (is_turing_or_later) {
+    auto tv1t = transpose(b, 0, 1);
+    tv0b = broadcast(a, {false, true, false});
+    tv1b = broadcast(tv1t, {true, false, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  } else {
+    tv0b = broadcast(a, {false, false, true});
+    tv1b = broadcast(b, {true, false, false});
+    tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  }
+  return tv2;
 }
 
 void initNvFuserPythonBindings(PyObject* module) {
@@ -659,6 +726,33 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("real", real)
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
+
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+  nvf_ops.def(                                                                 \
+      op_str,                                                                  \
+      [](FusionDefinition::Operators& self,                                    \
+         Tensor arg1,                                                          \
+         Tensor arg2) -> Tensor {                                              \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        TORCH_CHECK(                                                           \
+            self.validUse(), "Attempting to add to a completed definition!");  \
+        FusionDefinition* fd = self.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Binary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
   tensor_class.def(                                                            \
