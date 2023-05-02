@@ -223,6 +223,20 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Get alias mappings from fusion outputs to inputs
   std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
 
+  // Initialize output by using the input tensor.
+  // Note: Currently the only place it's used is in the running stats update for
+  // scatter/scatter_add/scatter_reduce.
+  void initializeOutputUsingInput(Val* output, Val* input);
+
+  //! Return the initialize value for output or nullptr if not using input to init
+  Val* getOutputInputInitialized(Val* output);
+
+  //! Get indices of input initialized outputs
+  std::unordered_set<int> getIndicesOfInputInitializedOutputs() const;
+
+  //! Get input initialized mappings from fusion outputs to inputs
+  std::vector<std::pair<int, int>> getOutputToInputInitializedIndices() const;
+
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
     permuted_input_map_.insert({index, permutation});
@@ -447,6 +461,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
 
   // io alias pointing from output to input
   std::unordered_map<Val*, Val*> io_alias_;
+
+  // io initialize pointing from output to input
+  std::unordered_map<Val*, Val*> io_initialize_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

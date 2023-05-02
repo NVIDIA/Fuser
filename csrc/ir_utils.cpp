@@ -426,6 +426,18 @@ std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion) {
   return torch_gather_ops;
 }
 
+std::vector<ScatterOp*> getScatterOps(Fusion* fusion) {
+  std::vector<ScatterOp*> scatter_ops;
+
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<ScatterOp>()) {
+      scatter_ops.push_back(expr->as<ScatterOp>());
+    }
+  }
+
+  return scatter_ops;
+}
+
 std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
   std::vector<SelectOp*> select_ops;
 

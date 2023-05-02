@@ -1513,6 +1513,7 @@ template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
 template class ExecutorCompileTimeEntry<InputAliasIndices>;
+template class ExecutorCompileTimeEntry<InputInitializeIndices>;
 template class ExecutorCompileTimeEntry<OutputAliasIndices>;
 
 } // namespace caching

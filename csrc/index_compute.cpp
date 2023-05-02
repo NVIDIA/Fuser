@@ -463,6 +463,10 @@ void IndexCompute::handle(Merge* merge) {
     return;
   }
 
+  // For ScatterOp, the extend of outputTv should be the extend of indexTv.
+  // The caMap.idMap store this info.
+  inner_id = GpuLower::current()->caMap()->maybeGetScatterMapID(inner_id);
+
   Val* inner_extent = getExtent(inner_id);
 
   // When the reference has halo extent for inner_id, that extent needs to
@@ -2724,16 +2728,18 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
 
   // These adjustments are not required when predicating non-divisible splits
   if (!intermediate_domain_pred) {
-    if (consumer_def->isA<ShiftOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
-          consumer_tv, consumer_id, padding_predicate);
-    } else if (consumer_def->isA<GatherOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForGather(
-          consumer_tv,
-          consumer_id,
-          consumer_start_index_map,
-          consumer_stop_index_map,
-          padding_predicate);
+    if(consumer_def) {
+      if (consumer_def->isA<ShiftOp>()) {
+        std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
+            consumer_tv, consumer_id, padding_predicate);
+      } else if (consumer_def->isA<GatherOp>()) {
+        std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForGather(
+            consumer_tv,
+            consumer_id,
+            consumer_start_index_map,
+            consumer_stop_index_map,
+            padding_predicate);
+      }
     }
 
     // Adjustment for partial split
@@ -2890,6 +2896,17 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     kir::ForLoop* unswitch_or_vec_loop,
     bool shift_padding) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getReferenceRootPredicates");
+
+  // For ScatterOp, the Predicates should keep the same as the index.
+  if (consumer_tv->definition() &&
+      consumer_tv->definition()->isA<ScatterOp>()) {
+    return getReferenceRootPredicates(
+        consumer_tv->definition()->as<ScatterOp>()->indexTv(),
+        loops,
+        rotated_loops,
+        unswitch_or_vec_loop,
+        shift_padding);
+  }
 
   const auto gpu_lower = GpuLower::current();
 

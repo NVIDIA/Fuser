@@ -145,6 +145,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     LaunchParams launch_params;
     // Aliased output and input mappings
     std::vector<std::pair<int, int>> output_to_input_aliases;
+    std::vector<std::pair<int, int>> output_to_input_initialize;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
