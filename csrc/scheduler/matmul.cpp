@@ -439,16 +439,34 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
 } // namespace
 
 namespace {
+int getKAxis(const MmaLayout& layout) {
+  switch (layout) {
+    //! NT : K,M x K,N -> K,M,N
+    case MmaLayout::NT:
+      return 0;
+    //! TT : M,K X K,N -> M,K,N
+    case MmaLayout::TT:
+      return 1;
+    //! TN : M,K X N,K -> M,N,K
+    case MmaLayout::TN:
+      return 2;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+}
 void scheduleSplitKReduction(
     TensorView* tv,
+    const MmaLayout& layout,
     const MatMulTileOptions& gemm_tile,
-    const int split_k_factor) {
+    const MatmulParams& params) {
   // This function is to schedule the reduction part in split-k
-  // step-1, call merge 3 times to merge last 4 domains {5,6,7,8}
-  // id=  0   1  2   3   4   5  6  7    8
-  // tv= [Mo  No SKo Mwo Nwo Mw Nw Mist Nist]
-  // Mo = m / cta_tile_m
-  // No = n / cta_tile_n
+  // step-1, call merge 3 times to merge last 4 domains
+  // id=  0   1   2   3   4   5   6   7  8  9    10
+  // tv= [Moo Moi Noo Noi SKo Mwo Nwo Mw Nw Mist Nist]
+  // Moo = m / cta_tile_m / grid_dim_m
+  // Moi = grid_dim_m
+  // Noo = n / cta_tile_n / grid_dim_n
+  // Noi = grid_dim_n
   // SKo = split_k_factor
   // Mwo = cta_tile_m / warp_tile_m
   // Nwo = cta_tile_n / warp_tile_n
@@ -456,45 +474,61 @@ void scheduleSplitKReduction(
   // Nw = warp_tile_n / instruction_tile_n
   // Mist = instruction_tile_m
   // Nist = instruction_tile_n
-  for (int i = 0; i < 3; i++) {
-    tv->merge(5);
-  }
-  // step-2, move reduction domain to last
-  // id=  0   1  2   3   4   5
-  // tv= [Mo  No SKo Mwo Nwo MNMN]
-  tv->reorder({{2, -1}});
 
-  // step-3, parallelize first 4 domains same as the first part
-  // id=  0   1  2   3   4    5
-  // tv= [Mo  No Mwo Nwo MNMN SKo]
-  int axis = 0;
-  tv->axis(axis++)->parallelize(ParallelType::BIDx);
-  tv->axis(axis++)->parallelize(ParallelType::BIDy);
-  tv->axis(axis++)->parallelize(ParallelType::TIDz);
-  tv->axis(axis++)->parallelize(ParallelType::TIDy);
-
-  // step-4, schedule last two domains {warp_tile_m*warp_tile_n} and
-  // {split_k_factor} with {TIDx(32), BIDz(split_k_factor), Vectorize}
-  // id=  0   1  2   3   4    5
-  // tv= [Mo  No Mwo Nwo MNMN SKo]
+  // reset leaf domain leads to simple index
+  // for (int i = 0; i < 3; i++) {
+  //   tv->merge(7);
+  // }
+  tv->domain()->resetLeafDomain();
   constexpr int warp_size = 32;
-  tv->split(4, warp_size);
-  // id=  0   1  2   3   4        5   6
-  // tv= [Mo  No Mwo Nwo MNMN/Ws, Ws, SKo]
-  tv->axis(5)->parallelize(ParallelType::TIDx);
+  auto dim_analysis =
+      scheduler_utils::canonicalDimReduction(nullptr, tv, false);
+  std::cout << "tv= " << tv->toString() << std::endl;
+  bool has_iter_axis = dim_analysis.first;
+  bool has_red_axis = dim_analysis.second;
+  TORCH_INTERNAL_ASSERT(
+      has_red_axis,
+      "Could not find reduction axis in tensor used for reduction scheduler.");
+  TORCH_INTERNAL_ASSERT(
+      has_iter_axis,
+      "Could not find iteration axis in tensor used for reduction scheduler.");
+  // all parallel goes to the iteration domain
+  auto splitAndParallelize =
+      [](TensorView* tv, int axis, int factor, ParallelType p_type) {
+        tv->split(axis, factor);
+        tv->axis(axis + 1)->parallelize(p_type);
+      };
+  const int bdimx = warp_size;
+  const int bdimy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
+  const int bdimz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
 
-  tv->split(4, split_k_factor);
-  // id=  0   1  2   3   4           5   6   7
-  // tv= [Mo  No Mwo Nwo MNMN/Ws/Kf, Kf, Ws, SKo]
-  tv->axis(5)->parallelize(ParallelType::BIDz);
-  //{..., {warp_tile_m*warp_tile_n/warp_size/split_k_factor}, {split_k_factor},
-  //{warp_size}, {split_k_factor}}
+  const int gdimz = params.grid_dim_k;
+  const int gdimy = params.grid_dim_n;
+  const int gdimx = params.grid_dim_m;
+  int axis = 0;
+  // [I, R]
+  splitAndParallelize(tv, axis, bdimx, ParallelType::TIDx);
+  // [I, bdimx, R]
+  splitAndParallelize(tv, axis, bdimy, ParallelType::TIDy);
+  // [I, bdimy, bdimx, R]
+  splitAndParallelize(tv, axis, bdimz, ParallelType::TIDz);
+  // [I, bdimz, bdimy, bdimx, R]
+  splitAndParallelize(tv, axis, gdimx, ParallelType::BIDx);
+  // [I, gdimx, bdimz, bdimy, bdimx, R]
+  splitAndParallelize(tv, axis, gdimy, ParallelType::BIDy);
+  // [I, gdimy, gdimx, bdimz, bdimy, bdimx, R]
+  splitAndParallelize(tv, axis, gdimz, ParallelType::BIDz);
+  // [I, gdimz, gdimy, gdimx, bdimz, bdimy, bdimx, R]
+  std::cout << "tv= " << tv->toString() << std::endl;
 
-  // step-5, set vectorization_factor
+  // step-5, set vectorize, after NN branch, the root domain
+  // is always [M, N, K], reduction over K
+  const bool vectoriziable = getKAxis(layout) == 2;
   const int max_vectorization_factor =
       16 / dataTypeSize(tv->getDataType().value());
-  const int vectorization_factor =
-      std::gcd(split_k_factor, max_vectorization_factor);
+  const int vectorization_factor = vectoriziable
+      ? std::gcd(params.split_k_factor, max_vectorization_factor)
+      : 1;
   if (vectorization_factor > 1) {
     tv->split(-1, vectorization_factor);
     tv->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -711,11 +745,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // [Mo, No, Ko, Mi, Ni, Ki]
     constexpr int Ko_axis = 2;
     cc->split(Ko_axis, params.split_k_factor, false);
-    // Propagate tiling to all except the output tensor, which will be scheduled
+    // [Mo, No, SKo, SKi, Mi, Ni, Ki]
+    // create dim for grid_dim_m and grid_dim_n
+    cc->split(0, params.grid_dim_m);
+    // [Moo, Moi, No, SKo, SKi, Mi, Ni, Ki]
+    cc->split(2, params.grid_dim_n);
+    // [Moo, Moi, Noo, Noi, SKo, SKi, Mi, Ni, Ki]
+    // Propagate to all except the output tensor, which will be scheduled
     // differently
+    // [Moo, Moi, Noo, Noi, SKo, SKi, Mi, Ni, Ki]
     const std::vector<TensorView*>& selected_tvs =
         ir_utils::allTvsExcept(fusion, {c});
-    // [Mo, No, SKo, SKi, Mi, Ni, Ki]
     scheduler_utils::transformPropagateToSelectedFrom(
         cc, {selected_tvs.begin(), selected_tvs.end()});
   } else {
@@ -732,9 +772,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* tmp_gmem = nullptr; // output
   TensorView* tmp_gmem_reload = nullptr;
   if (params.split_k_factor > 1) {
+    std::cout << "cc= " << cc->toString() << std::endl;
     // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c[output]
-    // id=  0   1  2   3   4   5   6   7  8  9    10   11
-    // cc= [Mo  No SKo SKi Kw  Mwo Nwo Mw Nw Mist Nist Kist]
+    // id=  0   1   2   3   4   5   6   7   8   9  10 11   12   13
+    // cc= [Moo Moi Noo Noi SKo SKi Kw  Mwo Nwo Mw Nw Mist Nist Kist]
     // 0 Mo = M / cta_tile_m
     // 1 No = N / cta_tile_n
     // 2 SKo = split_k_factor
@@ -747,7 +788,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // 9 Mist = instruction_tile_m
     // 10 Nist = instruction_tile_n
     // 11 Kist = instruction_tile_k
-    tmp_gmem = cc->rFactor({3, 4, 11});
+    tmp_gmem = cc->rFactor({5, 6, 13});
     mma_result = tmp_gmem->cacheBefore();
     tmp_gmem->setMemoryType(MemoryType::Global);
     tmp_gmem_reload = tmp_gmem->cacheAfter();
@@ -808,28 +849,39 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //  0   1  2  3   4   5   6  7  8  9  10
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  int axis_m = -1, axis_n = -1;
+  if (params.split_k_factor > 1) {
+    // id=  0   1   2   3   4   5   6   7   8   9  10 11   12   13
+    // cc= [Moo Moi Noo Noi SKo SKi Kw  Mwo Nwo Mw Nw Mist Nist Kist]
+    axis_m = 1;
+    axis_n = 3;
+  } else {
+    //  0   1  2  3   4   5   6  7  8  9  10
+    // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+    axis_m = 0;
+    axis_n = 1;
+  }
+
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDx);
-      mma_result->axis(1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(axis_m)->parallelize(ParallelType::BIDx);
+      mma_result->axis(axis_n)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDy);
-      mma_result->axis(1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(axis_m)->parallelize(ParallelType::BIDy);
+      mma_result->axis(axis_n)->parallelize(ParallelType::BIDx);
       break;
     default:
       TORCH_INTERNAL_ASSERT(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
-  const int warp_iter_axis_z = params.split_k_factor > 1 ? 5 : 4;
+  const int warp_iter_axis_z = params.split_k_factor > 1 ? 7 : 4;
   const int warp_iter_axis_y = warp_iter_axis_z + 1;
   mma_result->axis(warp_iter_axis_z)->parallelize(ParallelType::TIDz);
   mma_result->axis(warp_iter_axis_y)->parallelize(ParallelType::TIDy);
   if (params.split_k_factor > 1) {
-    constexpr int split_k_axis = 2;
+    constexpr int split_k_axis = 4;
     mma_result->axis(split_k_axis)->parallelize(ParallelType::BIDz);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
@@ -847,7 +899,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Up to here, first part transformation and parallelization is done.
   if (params.split_k_factor > 1) {
-    scheduleSplitKReduction(cc, gemm_tile, params.split_k_factor);
+    scheduleSplitKReduction(cc, layout, gemm_tile, params);
 
     // allows propagte to tmp_gmem_reload but can't propage from tmp_gmem_reload
     reduction_scheduler_utils::propagateTransformation(cc, {tmp_gmem_reload});
@@ -870,7 +922,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
+  const int inline_pos = params.split_k_factor > 1 ? 9 : 6;
+  std::cout << "mma_result= " << mma_result->toString() << std::endl;
+  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, inline_pos);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {

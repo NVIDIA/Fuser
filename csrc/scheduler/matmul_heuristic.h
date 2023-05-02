@@ -92,7 +92,10 @@ class MatmulParams : public HeuristicParams {
 
   //! use multiple thread blocks to calculate one tile
   int split_k_factor = 1;
-
+  //! persistent kernel
+  int grid_dim_m = -1;
+  int grid_dim_n = -1;
+  int grid_dim_k = -1;
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -116,6 +119,8 @@ class MatmulParams : public HeuristicParams {
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
        << "split k factor: " << split_k_factor << "\n"
+       << "grid_dim_mnk=: " << grid_dim_m << ", " << grid_dim_n << ", "
+       << grid_dim_k << "\n"
        << "====================================\n";
     return ss.str();
   }

@@ -1881,6 +1881,12 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
     has_reduction_ = hasReduction(leaf_domain_);
   }
 
+  void resetLeafDomain() {
+    leaf_domain_.clear();
+    leaf_domain_ = root_domain_;
+    resetDomains();
+  }
+
   // i here is int, as we want to accept negative value and ::size_type can be a
   // uint.
   IterDomain* axis(int i) const;
