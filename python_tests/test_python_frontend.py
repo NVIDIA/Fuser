@@ -2069,7 +2069,23 @@ class TestNvFuserFrontend(TestCase):
         ):
             fd = SchedError()
             _ = fd.execute(inputs)
+    
+    def test_matmuls(self):
+        inputs = [
+            torch.randn(4, 4, device="cuda", dtype=torch.float16),
+            torch.randn(4, 4, device="cuda", dtype=torch.float16),
+        ]
 
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops._matmul_nt(t0, t1)
+            fd.add_output(t2)
+
+        eager_out = torch.matmul(inputs[0], inputs[1]).to(dtype=torch.float32)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(eager_out, nvf_out[0])
 
 if __name__ == "__main__":
     run_tests()

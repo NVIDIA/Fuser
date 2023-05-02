@@ -117,6 +117,7 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
     case 80:
     case 86:
     case 89:
+    case 90:
       return (use_small_n) ? MacroType::Ampere_16_8_16
                            : MacroType::Ampere_16_16_16;
     default:

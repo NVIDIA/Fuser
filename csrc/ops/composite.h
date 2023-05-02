@@ -47,6 +47,11 @@ TORCH_CUDA_CU_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
+TORCH_CUDA_CU_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
+TORCH_CUDA_CU_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
+TORCH_CUDA_CU_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
+TORCH_CUDA_CU_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
+
 TORCH_CUDA_CU_API TensorView* sign(TensorView* x);
 TORCH_CUDA_CU_API Val* sign(Val* x);
 TORCH_CUDA_CU_API TensorView* softplus(
