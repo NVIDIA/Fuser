@@ -1827,6 +1827,23 @@ Args:
         FUSER_PERF_SCOPE("Operators.gather");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
         fd->defineRecord(new TorchGatherOpRecord(
@@ -1838,6 +1855,27 @@ Args:
             dim));
         return output;
       },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        The dimension of arg1 and index must match. For all axes other than dim
+        the extent of index in that axis need not be equal to its counterpart
+        in arg1 but must not be greater than it.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Mi...,J,Mk...)` where all the extents other than `J` are less
+                than or equal to their counterparts in `arg1`; for example `Mk
+                <= Nk`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Mi...,J,Mk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
       py::arg("dim"),
@@ -1868,6 +1906,65 @@ Args:
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "take_along_axis",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.take_along_axis");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+        fd->defineRecord(new TakeAlongAxisOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        This operation is very similar to :meth:'gather' but enforces that all
+        dimensions other than dim must be equal between arg1 and index.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Ni...,J,Nk...)`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Ni...,J,Nk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "permute",
