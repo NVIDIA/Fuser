@@ -510,12 +510,7 @@ int setSplitKFactor(
   const int iter_k = ceilDiv(MNK[2], cta_tile.k);
   if (num_blocks < sm_count && iter_k > 32) {
     split_k_factor = std::min(iter_k, sm_count / num_blocks);
-    std::cout << "m_blocks= " << m_blocks << ", n_blocks= " << n_blocks << ", sm_count / num_blocks= " << sm_count / num_blocks << ", iter_k= " << iter_k << std::endl;  
   }
-  //   while(num_blocks*split_k_factor*2 <= sm_count && iter_k > 32) {
-  //   split_k_factor *= 2;
-  //   iter_k = ceilDiv(MNK[2], cta_tile.k / split_k_factor);
-  // }
   return split_k_factor;
 }
 

@@ -3416,18 +3416,20 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
-    // kernel1 run in 0.077824 ms, achieved: 184.421 GB/s
-    // kernel2 run in 0.086016 ms, achieved: 166.857 GB/s
-    // kernel3 run in 0.074752 ms, achieved: 192 GB/s
-    // kernel4 run in 0.065536 ms, achieved: 219 GB/s
-    // kernel5 run in 0.082944 ms, achieved: 173.037 GB/s
-    // kernel6 run in 0.073728 ms, achieved: 194.667 GB/s
-    // kernel7 run in 0.07168 ms, achieved: 200.229 GB/s
-    // kernel8 run in 0.088064 ms, achieved: 162.977 GB/s
-    // kernel9 run in 0.0768 ms, achieved: 186.88 GB/s
+  // kernel1 run in 0.077824 ms, achieved: 184.421 GB/s
+  // kernel2 run in 0.086016 ms, achieved: 166.857 GB/s
+  // kernel3 run in 0.074752 ms, achieved: 192 GB/s
+
+  // kernel4 run in 0.065536 ms, achieved: 219 GB/s
+  // kernel5 run in 0.082944 ms, achieved: 173.037 GB/s
+  // kernel6 run in 0.073728 ms, achieved: 194.667 GB/s
+
+  // kernel7 run in 0.07168 ms, achieved: 200.229 GB/s
+  // kernel8 run in 0.088064 ms, achieved: 162.977 GB/s
+  // kernel9 run in 0.0768 ms, achieved: 186.88 GB/s
   int M = 128 * 3, N = 128 * 9, K = 4096;
-  for (auto layout : {MatmulLayout::TT}) {
-    for (int k_factor : {1,4}) {
+  for (auto layout : kAllSupportedMatmulLayout) {
+    for (int k_factor : {1, 2, 4}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3473,30 +3475,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionAmpereMatmulSplitKAutoSchedule_CUDA) {
-  int M = 128 * 3, N = 128 * 9, K = 4096;
-  for (auto layout : kAllSupportedMatmulLayout) {
-    auto fusion = std::make_unique<Fusion>();
-    FusionGuard fg(fusion.get());
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
-    auto tv2 = matmul(tv0, tv1, layout, true);
-    fusion->addInput(tv0);
-    fusion->addInput(tv1);
-    fusion->addOutput(tv2);
-
-    at::manual_seed(0);
-    at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
-    at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-    at::Tensor tref = atMatmul(t0, t1, layout);
-
-    FusionExecutorCache executor_cache(std::move(fusion));
-    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
-
-    testValidate(
-        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
-  }
-}
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

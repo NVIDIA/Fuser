@@ -455,19 +455,18 @@ void scheduleSplitKReduction(
   // Mw = warp_tile_m / instruction_tile_m
   // Nw = warp_tile_n / instruction_tile_n
   // Mist = instruction_tile_m
-  // Nist = instruction_tile_n 
-  std::cout << "tv= " << tv->toString() << std::endl;
+  // Nist = instruction_tile_n
   for (int i = 0; i < 3; i++) {
     tv->merge(5);
   }
   // step-2, move reduction domain to last
   // id=  0   1  2   3   4   5
-  // tv= [Mo  No SKo Mwo Nwo MNMN]  
+  // tv= [Mo  No SKo Mwo Nwo MNMN]
   tv->reorder({{2, -1}});
 
   // step-3, parallelize first 4 domains same as the first part
   // id=  0   1  2   3   4    5
-  // tv= [Mo  No Mwo Nwo MNMN SKo]    
+  // tv= [Mo  No Mwo Nwo MNMN SKo]
   int axis = 0;
   tv->axis(axis++)->parallelize(ParallelType::BIDx);
   tv->axis(axis++)->parallelize(ParallelType::BIDy);
@@ -477,23 +476,25 @@ void scheduleSplitKReduction(
   // step-4, schedule last two domains {warp_tile_m*warp_tile_n} and
   // {split_k_factor} with {TIDx(32), BIDz(split_k_factor), Vectorize}
   // id=  0   1  2   3   4    5
-  // tv= [Mo  No Mwo Nwo MNMN SKo]  
+  // tv= [Mo  No Mwo Nwo MNMN SKo]
   constexpr int warp_size = 32;
   tv->split(4, warp_size);
   // id=  0   1  2   3   4        5   6
-  // tv= [Mo  No Mwo Nwo MNMN/Ws, Ws, SKo]   
+  // tv= [Mo  No Mwo Nwo MNMN/Ws, Ws, SKo]
   tv->axis(5)->parallelize(ParallelType::TIDx);
- 
+
   tv->split(4, split_k_factor);
   // id=  0   1  2   3   4           5   6   7
-  // tv= [Mo  No Mwo Nwo MNMN/Ws/Kf, Kf, Ws, SKo]   
+  // tv= [Mo  No Mwo Nwo MNMN/Ws/Kf, Kf, Ws, SKo]
   tv->axis(5)->parallelize(ParallelType::BIDz);
   //{..., {warp_tile_m*warp_tile_n/warp_size/split_k_factor}, {split_k_factor},
   //{warp_size}, {split_k_factor}}
 
   // step-5, set vectorization_factor
-  const int max_vectorization_factor = 16 / dataTypeSize(tv->getDataType().value());
-  const int vectorization_factor = std::gcd(split_k_factor, max_vectorization_factor);
+  const int max_vectorization_factor =
+      16 / dataTypeSize(tv->getDataType().value());
+  const int vectorization_factor =
+      std::gcd(split_k_factor, max_vectorization_factor);
   if (vectorization_factor > 1) {
     tv->split(-1, vectorization_factor);
     tv->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -670,10 +671,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         "via ldmatrix.trans for fp16 or explicitly for other types.");
     if (!acr->hasRFactor() && !bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::TN);
-      std::cout << "llu MmaOptions::MmaLayout::TN" << std::endl;
     } else if (!acr->hasRFactor() && bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::TT);
-      std::cout << "llu MmaOptions::MmaLayout::TT" << std::endl;
     } else if (acr->hasRFactor() && !bcr->hasRFactor()) {
       mma_builder.layout(MmaOptions::MmaLayout::NN);
     } else if (acr->hasRFactor() && bcr->hasRFactor()) {
@@ -746,8 +745,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // 7 Mw = warp_tile_m / instruction_tile_m
     // 8 Nw = warp_tile_n / instruction_tile_n
     // 9 Mist = instruction_tile_m
-    // 10 Nist = instruction_tile_n     
-    // 11 Kist = instruction_tile_k     
+    // 10 Nist = instruction_tile_n
+    // 11 Kist = instruction_tile_k
     tmp_gmem = cc->rFactor({3, 4, 11});
     mma_result = tmp_gmem->cacheBefore();
     tmp_gmem->setMemoryType(MemoryType::Global);
@@ -759,7 +758,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         mma_result, -1, {acw_smem, bcw_smem});
   } else {
     // Set accumulation tv for mma op.
-    mma_builder.accumulatorTv(cc);    
+    mma_builder.accumulatorTv(cc);
     // Propagate warp tile to main loop and epilog/output tvs
     scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
         cc, -1, {acw_smem, bcw_smem}, {c});
