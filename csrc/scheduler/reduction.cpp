@@ -516,6 +516,25 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
+  if (total_reduction_numel + total_iteration_numel == 0) {
+    // Number of elements is zero
+
+    if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+      auto rparams = std::make_unique<ReductionParams>();
+      std::cerr << "\nNumber of elements in reduction input buffer is zero\n"
+                << std::endl;
+      std::cerr << "\n===== Reduction Stats ========\n"
+                << "total_reduction_numel: " << total_reduction_numel << "\n"
+                << "total_iteration_numel: " << total_iteration_numel << "\n"
+                << "vectorize_factor: " << vectorize_factor << "\n"
+                << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+                << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+                << "block(" << rparams->lparams.bdimx() << ", "
+                << rparams->lparams.bdimy() << ", 1)" << std::endl;
+      std::cerr << rparams->toString() << std::endl;
+      return std::move(rparams);
+    }
+  }
   // WARNING: Current device for codegen may not be the target device
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
