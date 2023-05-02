@@ -188,8 +188,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
-  //! tensor. The is_dry_run flag determines if the ArgAbstract value maps to a
-  //! real PyTorch tensor or a fake MetaData tensor.
+  //! tensor.
   std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
