@@ -121,7 +121,8 @@ class TORCH_CUDA_CU_API WelfordResult {
   explicit WelfordResult(
       TensorView* in_avg,
       TensorView* in_var_sum,
-      TensorView* in_n);
+      TensorView* in_n,
+      const bool check_definition = true);
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
@@ -146,8 +147,6 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
     Int* init_N = nullptr);
-
-TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
 
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
@@ -517,6 +516,12 @@ TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ne(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, TensorView* v2);
 
+// complex
+TORCH_CUDA_CU_API Val* complex(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* complex(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, TensorView* v2);
+
 // REDUCTION OPERATIONS
 TORCH_CUDA_CU_API TensorView* sum(
     TensorView* v1,
@@ -574,28 +579,6 @@ TORCH_CUDA_CU_API TensorView* lerp(
     TensorView* start,
     TensorView* end,
     TensorView* weight);
-// index_select
-TORCH_CUDA_CU_API TensorView* index_select(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.gather
-TORCH_CUDA_CU_API TensorView* torch_gather(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.scatter
-TORCH_CUDA_CU_API TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
-TORCH_CUDA_CU_API TensorView* scatter(
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
 
 // addcmul
 TORCH_CUDA_CU_API Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);

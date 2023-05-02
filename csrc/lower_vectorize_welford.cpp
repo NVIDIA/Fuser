@@ -408,7 +408,8 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& original_index = out_N->index();
     std::unordered_map<Val*, Val*> index_replacement_map;
     index_replacement_map.emplace(
-        innermost_loop->index(), GpuLower::current()->kernel()->zeroVal());
+        innermost_loop->indexOrStartIfTrivial(),
+        GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
         ir_utils::replaceValInIndexVal(original_index, index_replacement_map);
@@ -535,10 +536,10 @@ class WelfordVectorizer : public kir::ExprMutator {
       // mean the expr predicate is different, but likely not
       // worthwhile to consider.
       auto wop_out = ir_utils::getTvOutput(wop);
-      for (auto tv_leaf_id : tv->domain()->domain()) {
+      for (auto tv_leaf_id : tv->domain()->leaf()) {
         if (std::none_of(
-                wop_out->domain()->domain().begin(),
-                wop_out->domain()->domain().end(),
+                wop_out->domain()->leaf().begin(),
+                wop_out->domain()->leaf().end(),
                 [&](auto wop_leaf_id) {
                   return GpuLower::current()->caMap()->areMapped(
                       tv_leaf_id, wop_leaf_id, IdMappingMode::LOOP);

@@ -110,189 +110,6 @@ TensorView* unaryOp(
   return unaryOp(type, cast_v1)->as<TensorView>();
 }
 
-TensorView* select(TensorView* tv, int dim, Val* index) {
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  TORCH_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
-
-  std::vector<IterDomain*> new_root;
-  new_root.reserve(dom.size() - 1);
-
-  if (dim < 0) {
-    dim += (int)dom.size();
-  }
-
-  TORCH_CHECK(
-      dim >= 0 && dim < (int)dom.size(),
-      "Select on invalid axis, received: ",
-      dim,
-      " however tensor view only has ",
-      dom.size(),
-      " non-reduction dims.");
-
-  for (auto i : c10::irange(dom.size())) {
-    if ((int)i != dim) {
-      new_root.emplace_back(dom[i]->cloneWithoutRFactor());
-    }
-  }
-
-  auto td = IrBuilder::create<TensorDomain>(
-      new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-  auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
-  IrBuilder::create<SelectOp>(out, tv, dom.at(dim), index);
-  return out;
-}
-
-// index_select
-TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
-  DataType dtype = lookup_tv->getDataType().value();
-  TORCH_CHECK(
-      dtype != DataType::Null, "Invalid datatype provided for new value.");
-  auto lookup_dom =
-      TensorDomain::noReductions(lookup_tv->getMaybeRFactorDomain());
-  auto index_dom =
-      TensorDomain::noReductions(index_tv->getMaybeRFactorDomain());
-  size_t n_dims = lookup_dom.size();
-  TORCH_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
-  TORCH_CHECK(
-      index_dom.size() <= 1, "index array must be 1d or scalar tensor.");
-
-  if (index_dom.empty()) {
-    auto select_tv = select(lookup_tv, dim, index_tv);
-    return unsqueeze(select_tv, dim);
-  }
-
-  if (dim < 0) {
-    dim += (int)lookup_dom.size();
-  }
-
-  std::vector<IterDomain*> new_root;
-  new_root.reserve(lookup_dom.size() - 1);
-  TORCH_CHECK(
-      dim >= 0 && dim < (int)lookup_dom.size(),
-      "index_select on invalid axis, received: ",
-      dim,
-      " however tensor view only has ",
-      lookup_dom.size(),
-      " non-reduction dims.");
-
-  for (auto i : c10::irange(lookup_dom.size())) {
-    if ((int)i != dim) {
-      new_root.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
-    } else {
-      new_root.emplace_back(index_dom[0]->cloneWithoutRFactor());
-    }
-  }
-
-  auto td = IrBuilder::create<TensorDomain>(
-      new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-  auto out = IrBuilder::create<TensorView>(td, dtype);
-
-  // broadcast index to lookup's rank.
-  index_tv =
-      ops::maybe_broadcast_index_tv(index_tv->as<TensorView>(), dim, n_dims);
-  IrBuilder::create<IndexSelectOp>(
-      out, lookup_tv, dim, lookup_dom[dim], index_tv);
-  return out;
-}
-
-// torch.gather
-TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
-  auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  auto idx_domain = TensorDomain::noReductions(index->getMaybeRFactorDomain());
-  TORCH_CHECK(
-      !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
-  TORCH_CHECK(
-      idx_domain.size() == inp_domain.size(),
-      "the input and index tensor must have the same dimensions for torch.gather");
-
-  if (dim < 0) {
-    dim += (int)idx_domain.size();
-  }
-  TORCH_CHECK(
-      dim >= 0 && dim < (int)inp_domain.size(),
-      "torch.gather on invalid axis, received: ",
-      dim,
-      " however tensor view only has ",
-      inp_domain.size(),
-      " non-reduction dims.");
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(idx_domain.size());
-  for (auto idx_domain_ptr : idx_domain) {
-    out_domain.push_back(
-        IterDomainBuilder(idx_domain_ptr)
-            .iter_type(
-                idx_domain_ptr->getIterType() == IterType::Iteration
-                    ? IterType::GatherScatter
-                    : idx_domain_ptr->getIterType())
-            .build());
-  }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-
-  IrBuilder::create<TorchGatherOp>(
-      out_tensor, inp, dim, inp_domain[dim], index);
-  return out_tensor->as<TensorView>();
-}
-
-// torch.scatter torch.scatter_add
-TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src) {
-  auto self_dom = TensorDomain::noReductions(self->getMaybeRFactorDomain());
-  auto idx_dom = TensorDomain::noReductions(index->getMaybeRFactorDomain());
-  auto src_dom = TensorDomain::noReductions(src->getMaybeRFactorDomain());
-
-  TORCH_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
-  TORCH_CHECK(
-      self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
-      "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
-  if (dim < 0) {
-    dim += (int)self_dom.size();
-  }
-  TORCH_CHECK(
-      dim >= 0 && dim < (int)self_dom.size(),
-      "Scatter on invalid axis, received: ",
-      dim,
-      " however tensor view only has ",
-      self_dom.size(),
-      " non-reduction dims.");
-
-  // The shape of output tensor is same as self tensor.
-  std::vector<IterDomain*> out_domain;
-  for (const auto i : c10::irange(self_dom.size())) {
-    out_domain.push_back(
-        IterDomainBuilder(self_dom[i])
-            .iter_type(
-                self_dom[i]->getIterType() == IterType::Iteration
-                    ? IterType::GatherScatter
-                    : self_dom[i]->getIterType())
-            .build());
-  }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      self->getDataType().value());
-
-  IrBuilder::create<ScatterOp>(
-      type, out_tensor, self, dim, index, src, out_domain[dim]);
-  return out_tensor->as<TensorView>();
-}
-
-TensorView* scatter(
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src) {
-  return scatterOp(ScatterOpType::Set, self, dim, index, src);
-}
-
 // TENSOR FACTORIES
 TensorView* rand(const std::vector<Val*>& shape, DataType dtype) {
   auto n = shape.size();
@@ -657,6 +474,20 @@ TensorView* imag(TensorView* tv) {
   return imag(tv->as<Val>())->as<TensorView>();
 }
 
+// construct complex tensor from real and imag tensors
+Val* complex(Val* r, Val* i) {
+  DataType dtype = r->getDataType().value();
+  TORCH_CHECK(
+      dtype == i->getDataType().value(),
+      "real and imag data type should be same in complex().");
+  Val* out = ops::newValLike(r, getComplexTypeFromType(dtype));
+  IrBuilder::create<BinaryOp>(BinaryOpType::Complex, out, r, i);
+  return out;
+}
+
+TensorView* complex(TensorView* tv_r, TensorView* tv_i) {
+  return complex(tv_r->as<Val>(), tv_i->as<Val>())->as<TensorView>();
+}
 // UNARY FLOAT CAST OPERATIONS
 
 #define NVFUSER_DEFINE_UNARY_FLOAT_OP(op_name, op_type)                       \
@@ -1186,7 +1017,7 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1288,7 +1119,7 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1623,7 +1454,7 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Int* init_N) {
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1664,7 +1495,6 @@ WelfordResult WelfordRaw(
   // Check and collect reduction axes
   std::vector<unsigned int> uint_axes =
       canonicalizeAxes(axes, tv->domain()->noReductions().size());
-
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
@@ -1680,7 +1510,6 @@ WelfordResult WelfordRaw(
       init_avg_val,
       init_var_val,
       init_N); /*init avg/var/count */
-
   return WelfordResult(out_avg, out_var, out_N);
 }
 
@@ -1691,7 +1520,7 @@ WelfordResult Welford(
     TensorView* init_var,
     Int* init_N) {
   TORCH_CHECK(
-      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->domain()),
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->domain()->leaf()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
       tv->getMaybeRFactorDomain(),
@@ -1728,7 +1557,21 @@ WelfordResult Welford(
   }
 
   if (!reduction_axes.empty()) {
-    return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    DataType dtype = tv->getDataType().value();
+    if (isComplexType(dtype)) {
+      // var of complex number is a real number, calculate real part and image
+      // part
+      WelfordResult real_part =
+          Welford(real(squeezed), reduction_axes, init_avg, init_var, init_N);
+      WelfordResult imag_part =
+          Welford(imag(squeezed), reduction_axes, init_avg, init_var, init_N);
+      TensorView* out_avg = complex(real_part.avg, imag_part.avg);
+      TensorView* out_var = add(real_part.var_sum, imag_part.var_sum);
+      TensorView* out_N = real_part.n;
+      return WelfordResult(out_avg, out_var, out_N, false);
+    } else {
+      return WelfordRaw(squeezed, reduction_axes, init_avg, init_var, init_N);
+    }
   }
 
   // if squeeze only
@@ -1750,21 +1593,25 @@ WelfordResult Welford(
     TORCH_CHECK(
         squeezed->getRootDomain().size() == init_var->getRootDomain().size(),
         "welford op: initial tensor mismatch");
-    return WelfordResult(squeezed, init_var, out_N);
+    return WelfordResult(squeezed, init_var, out_N, false);
   } else {
     return WelfordResult(
-        squeezed, full_like(squeezed, IrBuilder::create<Double>(0)), out_N);
+        squeezed,
+        full_like(squeezed, IrBuilder::create<Double>(0)),
+        out_N,
+        false);
   }
 }
 
 WelfordResult::WelfordResult(
     TensorView* in_avg,
     TensorView* in_var_sum,
-    TensorView* in_n)
+    TensorView* in_n,
+    const bool check_definition)
     : avg(in_avg), var_sum(in_var_sum), n(in_n) {
-  if (avg->definition()->isA<SqueezeOp>()) {
-    // For a squeeze-only welford, the definition of outputs does not have to be
-    // the same.
+  if (!check_definition) {
+    // For squeeze-only and complex welford, the definition of outputs does not
+    // have to be the same.
     return;
   }
   TORCH_INTERNAL_ASSERT(avg->definition()->sameAs(var_sum->definition()));
@@ -2511,8 +2358,10 @@ TensorView* fusedMultiplySum(
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
-  TORCH_CHECK(tv_a->getDataType().value() == DataType::Half);
-  TORCH_CHECK(tv_b->getDataType().value() == DataType::Half);
+  TORCH_CHECK(
+      tv_a->getDataType().value() == DataType::Half ||
+      tv_a->getDataType().value() == DataType::BFloat16);
+  TORCH_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
   TORCH_CHECK(!axes.empty(), "No reduction axis specified");
 

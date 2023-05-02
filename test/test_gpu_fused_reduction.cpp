@@ -31,8 +31,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -1322,10 +1322,10 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->domain()[axis]->extent());
+            castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
+            mul(num_features, input->domain()->leaf()[axis]->extent());
       }
     }
   }
@@ -1860,7 +1860,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->domain()->leaf()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1941,7 +1941,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->domain()->leaf()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2024,7 +2024,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->domain()->leaf()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2117,7 +2117,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->domain()->leaf()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2356,20 +2356,20 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     MaxRootDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
 
     int vec_id = std::distance(
-        transform_ref_rf->domain()->domain().begin(),
+        transform_ref_rf->domain()->leaf().begin(),
         std::find_if(
-            transform_ref_rf->domain()->domain().begin(),
-            transform_ref_rf->domain()->domain().end(),
+            transform_ref_rf->domain()->leaf().begin(),
+            transform_ref_rf->domain()->leaf().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
     transform_ref_rf->axis(vec_id)->parallelize(ParallelType::Serial);
 
     int unswitch_id = std::distance(
-        transform_ref_rf->domain()->domain().begin(),
+        transform_ref_rf->domain()->leaf().begin(),
         std::find_if(
-            transform_ref_rf->domain()->domain().begin(),
-            transform_ref_rf->domain()->domain().end(),
+            transform_ref_rf->domain()->leaf().begin(),
+            transform_ref_rf->domain()->leaf().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Unswitch;
             }));
@@ -2525,6 +2525,55 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
       __FILE__,
       "",
       reduction_params->lparams);
+}
+
+// Test gathering for lookup as is done in the cross_entropy pattern
+// See https://github.com/NVIDIA/Fuser/issues/151
+TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
+  const int batch_size = 16384;
+  const int num_classes = 60;
+  const int tidx = 128;
+  const int bidx = 1;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto log_probs = makeSymbolicTensor(2);
+  auto labels = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(log_probs);
+  fusion.addInput(labels);
+
+  auto tv2 = broadcast(labels, {false, true});
+  auto tv3 = torch_gather(log_probs, 1, tv2);
+  auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
+
+  fusion.addOutput(tv4);
+
+  tv4->split(0, tidx);
+  tv4->split(0, bidx);
+  tv4->split(0, 1); // unswitch
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDy);
+  tv4->axis(2)->parallelize(ParallelType::BIDx);
+  tv4->axis(3)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto at_log_probs = at::randn({batch_size, num_classes}, options);
+  auto at_labels =
+      at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
+  std::vector<c10::IValue> inputs = {at_log_probs, at_labels};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  auto ref = at::gather(at_log_probs, 1, at_labels.unsqueeze(1)).squeeze();
+
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -337,7 +337,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
-      Val* index = loop->index();
+      Val* index = loop->indexOrStartIfTrivial();
       pushBack(
           IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
       GpuLower::current()->propagateExprInfo(uop, back());
@@ -379,7 +379,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -444,7 +444,7 @@ Val* getGridSyncBufferSize(
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
-    if (std::any_of(td->domain().begin(), td->domain().end(), [&](auto out_id) {
+    if (std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -509,7 +509,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
     linear_index = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(
             linear_index, loop->iter_domain()->extent()),
-        loop->index());
+        loop->indexOrStartIfTrivial());
   }
   return linear_index;
 }
@@ -573,8 +573,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -723,8 +723,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -814,8 +814,8 @@ void IndexLowering::handle(const WelfordOp* wop) {
   if (has_grid_reduce) {
     TORCH_INTERNAL_ASSERT(
         std::none_of(
-            out_domain->domain().begin(),
-            out_domain->domain().end(),
+            out_domain->leaf().begin(),
+            out_domain->leaf().end(),
             [](IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -1047,7 +1047,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   // TIDx and BIDx must be used for non-reduction domains. TIDy and
   // BIDy must be used for reduction domains.
   ParallelTypeBitmap used_pts;
-  for (auto leaf_id : out_domain->domain()) {
+  for (auto leaf_id : out_domain->leaf()) {
     auto pt = leaf_id->getParallelType();
     if (isParallelTypeThread(pt)) {
       used_pts.set(pt);
@@ -1104,7 +1104,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   int num_grouped_iterations = 1;
-  for (auto axis : out_domain->domain()) {
+  for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
       TORCH_INTERNAL_ASSERT(
           axis->extent()->isConstInt(),
@@ -1160,8 +1160,8 @@ void IndexLowering::handleGroupedGridWelford(
   // to a grid or block dim.
   TORCH_INTERNAL_ASSERT(
       std::none_of(
-          out_domain->domain().begin(),
-          out_domain->domain().end(),
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -1258,8 +1258,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   const auto a = lowerSrcIndex(mma->inA(), mma->out());
   const auto b = lowerSrcIndex(mma->inB(), mma->out());
   const auto out = lowerDstIndex(mma->out());
-  auto mma_indexed =
-      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->options());
+  auto mma_indexed = IrBuilder::create<MmaOp>(
+      out, a, b, mma->init(), mma->options(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }

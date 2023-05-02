@@ -20,10 +20,17 @@
 #   --no-ninja
 #     In case you want to use make instead of ninja for build
 #
+#   --debug
+#     Building nvfuser in debug mode
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
 #     nvfuser-VERSION+TAG+gitSHA1-....-whl
+#
+#   -install_requires=pkg0[,pkg1...]
+#     this is used for pip wheel build to specify package required for install
+#     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
 #
 
 import multiprocessing
@@ -46,6 +53,8 @@ NO_NINJA = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
+BUILD_TYPE = "Release"
+INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -62,6 +71,12 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg == "--debug":
+        BUILD_TYPE = "Debug"
+        continue
+    if arg.startswith("-install_requires="):
+        INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
@@ -221,12 +236,23 @@ def cmake():
 
     from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
 
+    # this is used to suppress import error.
+    # so we can get the right pytorch prefix for cmake
+    import logging
+
+    logger = logging.getLogger("nvfuser")
+    logger_level = logger.getEffectiveLevel()
+    logger.setLevel(logging.CRITICAL)
+
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
+
+    logger.setLevel(logger_level)
 
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
+        "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         "-B",
         build_dir_name,
     ]
@@ -238,6 +264,7 @@ def cmake():
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
         cmd_str.append("-DBUILD_PYTHON=ON")
+        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
 
@@ -279,6 +306,14 @@ def main():
         nvfuser_package_data = [
             "*.so",
             "lib/*.so",
+            "include/nvfuser/*.h",
+            "include/nvfuser/kernel_db/*.h",
+            "include/nvfuser/multidevice/*.h",
+            "include/nvfuser/ops/*.h",
+            "include/nvfuser/python_frontend/*.h",
+            "include/nvfuser/scheduler/*.h",
+            "include/nvfuser/serde*.h",
+            "share/cmake/nvfuser/NvfuserConfig*",
         ]
 
         setup(
@@ -297,6 +332,7 @@ def main():
             package_data={
                 "nvfuser": nvfuser_package_data,
             },
+            install_requires=INSTALL_REQUIRES,
             entry_points={
                 "console_scripts": [
                     "patch-nvfuser = nvfuser_python_utils:patch_installation",

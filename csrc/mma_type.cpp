@@ -47,8 +47,8 @@ MmaBuilder::MmaBuilder(
   }
 }
 
-MmaBuilder& MmaBuilder::layout(MmaOptions::MmaInputLayout layout) {
-  option_.operand_layout = layout;
+MmaBuilder& MmaBuilder::layout(MmaOptions::MmaLayout layout) {
+  option_.layout = layout;
   return *this;
 }
 
@@ -182,11 +182,11 @@ int getInputBRegisterSize(MmaOptions::MacroType macro) {
 bool isOperandTransposed(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::A:
-      return options.operand_layout == MmaOptions::MmaInputLayout::TT ||
-          options.operand_layout == MmaOptions::MmaInputLayout::TN;
+      return options.layout == MmaOptions::MmaLayout::TT ||
+          options.layout == MmaOptions::MmaLayout::TN;
     case MmaOptions::Operand::B:
-      return options.operand_layout == MmaOptions::MmaInputLayout::TT ||
-          options.operand_layout == MmaOptions::MmaInputLayout::NT;
+      return options.layout == MmaOptions::MmaLayout::TT ||
+          options.layout == MmaOptions::MmaLayout::NT;
     default:
       TORCH_CHECK(false, "isOperandTransposed: please specify operand");
   }
@@ -212,16 +212,16 @@ GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
   TORCH_INTERNAL_ASSERT(false, "unknown MMA macro");
 }
 
-std::string toString(MmaOptions::MmaInputLayout input_layout) {
+std::string toString(MmaOptions::MmaLayout input_layout) {
   std::stringstream ss;
   switch (input_layout) {
-    case MmaOptions::MmaInputLayout::TT:
+    case MmaOptions::MmaLayout::TT:
       ss << "TT";
       break;
-    case MmaOptions::MmaInputLayout::TN:
+    case MmaOptions::MmaLayout::TN:
       ss << "TN";
       break;
-    case MmaOptions::MmaInputLayout::NT:
+    case MmaOptions::MmaLayout::NT:
       ss << "NT";
       break;
     default:
@@ -294,7 +294,7 @@ size_t hash(MmaOptions::MacroType macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }
 
-size_t hash(MmaOptions::MmaInputLayout input_layout) {
+size_t hash(MmaOptions::MmaLayout input_layout) {
   return std::hash<size_t>{}(static_cast<size_t>(input_layout));
 }
 

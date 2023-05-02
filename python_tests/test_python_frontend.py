@@ -327,14 +327,14 @@ class TestNvFuserFrontend(TestCase):
         ) -> None:
             inputs = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1],
-                contiguous=[True, True, True],
+                contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float
+                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             bias = fd.define_tensor(
-                symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float
+                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             sum0 = fd.ops.sum(inputs, axes=[normalization_axis], keepdim=keepDim)
             norm_const = fd.define_constant(norm_size)
@@ -369,14 +369,14 @@ class TestNvFuserFrontend(TestCase):
         ) -> None:
             inputs = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1],
-                contiguous=[True, True, True],
+                contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float
+                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             bias = fd.define_tensor(
-                symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float
+                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             var, mean = fd.ops.var_mean(
                 inputs, axes=[normalization_axis], correction=0, keepdim=keepDim
@@ -453,11 +453,11 @@ class TestNvFuserFrontend(TestCase):
         ) -> None:
             inputs = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1],
-                contiguous=[True, True, True],
+                contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float
+                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             inputs_sq = fd.ops.mul(inputs, inputs)
             sum0 = fd.ops.sum(inputs_sq, axes=[normalization_axis], keepdim=keepDim)
@@ -579,9 +579,9 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_1(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True]
+                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
             )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True])
+            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
 
             t0_sizes = fd.ops.tensor_sizes(t0)
 
@@ -592,9 +592,9 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_2(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True]
+                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
             )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True])
+            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_1[0].size(), [2])
             t2 = fd.ops.add(t0, t1_b)
@@ -603,9 +603,9 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_3(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True]
+                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
             )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True])
+            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_2[0].size(), [2])
             t2 = fd.ops.add(t0, t1_b)
@@ -657,7 +657,7 @@ class TestNvFuserFrontend(TestCase):
     def test_tensor_sizes_with_output_bcast(self):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True]
+                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
             )
             t0_sizes = fd.ops.tensor_sizes(t0)
 
@@ -693,13 +693,13 @@ class TestNvFuserFrontend(TestCase):
     def test_tensor_sizes_expand_bcast(self):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguous=[True, True, True]
+                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
             )
             t1 = fd.define_tensor(
-                symbolic_sizes=[-1, 1, -1], contiguous=[True, None, True]
+                symbolic_sizes=[-1, 1, -1], contiguity=[True, None, True]
             )
             t2 = fd.define_tensor(
-                symbolic_sizes=[-1, 1, -1], contiguous=[True, None, True]
+                symbolic_sizes=[-1, 1, -1], contiguity=[True, None, True]
             )
             t0_sizes = fd.ops.tensor_sizes(t0)
 
@@ -770,6 +770,30 @@ class TestNvFuserFrontend(TestCase):
         test_fn(0)
         test_fn(1)
 
+    def test_take_along_axis(self):
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+            torch.randn(8, 16, device="cuda"),
+            torch.randint(0, 8, (8, 16), device="cuda").to(dtype=torch.long),
+        ]
+
+        def test_fn(dim):
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(inputs[0])
+                t1 = fd.from_pytorch(inputs[1])
+                t2 = fd.from_pytorch(inputs[2])
+                t3 = fd.ops.add(t0, t1)
+                t4 = fd.ops.take_along_axis(t3, t2, dim)
+                fd.add_output(t4)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            self.assertEqual(eager_out, nvf_out[0])
+
+        test_fn(0)
+        test_fn(1)
+
     def test_index_select(self):
         inputs = [
             torch.randn(8, 16, device="cuda"),
@@ -826,7 +850,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True])
+            t0 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
             t1 = fd.define_tensor(sizes=t1_sizes, strides=[4, 1, 1])
             t2 = fd.define_tensor(sizes=t2_sizes, strides=[4, 4, 1])
             t3 = fd.ops.squeeze(t1, t1_sizes, [0, -1])
@@ -905,60 +929,37 @@ class TestNvFuserFrontend(TestCase):
         self.assertTrue(version() > "0.0.0")
         self.assertTrue(version() > Version("0.0.0"))
 
-    def test_def_and_sched_func_errors(self):
+    def test_zero_size_dim(self):
         inputs = [
-            torch.randn(4, 4, 4, device="cuda"),
+            torch.ones(0, 0, device="cuda"),
         ]
 
-        class DefError(FusionDefinition):
-            def definition(self):
-                t0 = self.from_pytorch(inputs[0])
-                t1 = self.ops.tanh(t0)
-                self.add_output(t1)
-                self.sched.merge(t1, 1)
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.define_tensor(
+                symbolic_sizes=[0, 0], contiguity=[True, True], dtype=DataType.Float
+            )
+            t1 = fd.ops.relu(t0)
+            fd.add_output(t1)
 
-        try:
-            fd = DefError()
-            out = fd.execute(inputs)
-        except RuntimeError:
-            pass
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.relu(inputs[0])
+        self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
-        class SchedError(FusionDefinition):
-            def definition(self):
-                self.t0 = self.from_pytorch(inputs[0])
-                self.t1 = self.ops.tanh(self.t0)
-                self.add_output(self.t1)
-
-            def schedule(self):
-                self.t2 = self.ops.relu(self.t1)
-
-        try:
-            fd = SchedError()
-            out = fd.execute(inputs)
-        except RuntimeError:
-            pass
-
-    def test_basic_user_schedule(self):
+    def test_static_tensor_sizes(self):
         inputs = [
-            torch.randn(4, 4, 4, device="cuda"),
-            torch.randn(4, 4, 4, device="cuda"),
+            torch.randn(4, 5, 1, device="cuda"),
+            torch.randn(1, 5, 6, device="cuda"),
         ]
 
-        class UserDefSched(FusionDefinition):
-            def definition(self):
-                self.t0 = self.from_pytorch(inputs[0])
-                self.t1 = self.from_pytorch(inputs[1])
-                self.t2 = self.ops.add(self.t0, self.t1)
-                self.add_output(self.t2)
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0], static_sizes=True)
+            t1 = fd.from_pytorch(inputs[1], static_sizes=True)
+            t2 = fd.ops.mul(t0, t1)
+            fd.add_output(t2)
 
-            def schedule(self):
-                self.sched.split(self.t2, 1, 2)
-                self.sched.merge(self.t2, -2)
-
-        fd = UserDefSched()
-        nvf_user_out = fd.execute(inputs)
-        nvf_out = fd.execute(inputs, override_user_schedule=True)
-        self.assertEqual(nvf_user_out, nvf_out)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.mul(inputs[0], inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
 
     def test_normal(self):
         input_size = [64, 128, 1024]
@@ -1306,71 +1307,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(at_out1, nvf_out[1])
         self.assertEqual(at_out2, nvf_out[2])
 
-    def test_op_methods(self):
-        inputs = [
-            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
-        ]
-
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(0.5)
-
-            c1 = c0.neg()
-            c2 = c0.abs()
-
-            o0 = t0.neg()
-            o1 = t0.abs()
-            o2 = t0.sum([0])
-            o3 = (t0 > c0).where(t0, c0)
-            o4 = t0.relu()
-            o5 = o0.addcmul(o1, o4, c1)
-            o6 = o2.cast(DataType.Double)
-            o7 = o1.add_alpha(o2, c0)
-            o8 = o1.var([1], correction=1)
-            _, o9 = o1.var_mean([1], correction=1)
-            o10 = t0.reshape([3, 4, 5], [3 * 4, 1, 5])
-            o11 = o10.squeeze([3 * 4, 1, 5], [1])
-
-            fd.add_output(o0)
-            fd.add_output(o1)
-            fd.add_output(o2)
-            fd.add_output(o3)
-            fd.add_output(o4)
-            fd.add_output(o5)
-            fd.add_output(o6)
-            fd.add_output(o7)
-            fd.add_output(o8)
-            fd.add_output(o9)
-            fd.add_output(o10)
-            fd.add_output(o11)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
-        torch_out = [
-            -inputs[0],
-            abs(inputs[0]),
-            inputs[0].sum([0]),
-            torch.where(inputs[0] > 0.5, inputs[0], torch.tensor(0.5)),
-            inputs[0].relu(),
-            torch.addcmul(
-                -inputs[0],
-                abs(inputs[0]),
-                inputs[0].relu(),
-                value=-0.5,
-            ),
-            inputs[0].sum([0]).type(torch.float64),
-            torch.add(abs(inputs[0]), inputs[0].sum([0]), alpha=0.5),
-            abs(inputs[0]).var([1], unbiased=True),
-            abs(inputs[0]).mean([1]),
-            inputs[0].reshape([3 * 4, 1, 5]),
-            inputs[0].reshape([3 * 4, 5]),
-        ]
-
-        assert len(nvf_out) == len(torch_out)
-
-        for n, t in zip(nvf_out, torch_out):
-            self.assertEqual(n, t)
-
     def test_all_dim_var_mean(self):
         inputs = [torch.randn(2, 2, 2, device="cuda")]
 
@@ -1547,8 +1483,8 @@ class TestNvFuserFrontend(TestCase):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
-                fd.add_output(t0.real())
-                fd.add_output(t0.imag())
+                fd.add_output(fd.ops.real(t0))
+                fd.add_output(fd.ops.imag(t0))
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
@@ -1652,40 +1588,30 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1, 1, 1])
             fd.add_output(t1)
 
-            # tensor method version
-            t2 = t0.pad([1, 1, 1, 1])
+            # zero padding in some dims
+            t2 = fd.ops.pad(t0, [0, 0, 2, 3])
             fd.add_output(t2)
 
-            # zero padding in some dims
-            t3 = fd.ops.pad(t0, [0, 0, 2, 3])
+            # zero padding in all dims
+            t3 = fd.ops.pad(t0, [0, 0, 0, 0])
             fd.add_output(t3)
 
-            # zero padding in all dims
-            t4 = fd.ops.pad(t0, [0, 0, 0, 0])
-            fd.add_output(t4)
-
             # no padding provided in first dim
-            t5 = fd.ops.pad(t0, [2, 3])
-            fd.add_output(t5)
+            t4 = fd.ops.pad(t0, [2, 3])
+            fd.add_output(t4)
 
             # test padding with a value other than 0
             fill_val = fd.define_constant(2.0)
-            t6 = fd.ops.pad(t0, [2, 3], fill_val)
-            fd.add_output(t6)
-
-            # test padding with a value other than 0 with tensor method
-            t7 = t0.pad([2, 3], fill_val)
-            fd.add_output(t7)
+            t5 = fd.ops.pad(t0, [2, 3], fill_val)
+            fd.add_output(t5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
-        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[1])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[2])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[3])
-        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[4])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[5])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[6])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
+        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
+        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
+        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
@@ -1813,13 +1739,13 @@ class TestNvFuserFrontend(TestCase):
         def nvfuser_fusion(fd: FusionDefinition, prob) -> None:
             T0 = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1, -1],
-                contiguous=[True, True, True, True],
+                contiguity=[True, True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
             T1 = fd.define_tensor(
                 symbolic_sizes=[1, 1, -1, -1],
-                contiguous=[None, None, True, True],
+                contiguity=[None, None, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
@@ -1937,7 +1863,7 @@ class TestNvFuserFrontend(TestCase):
         def nvfuser_fusion_1(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 symbolic_sizes=[-1, -1, -1],
-                contiguous=[True, True, True],
+                contiguity=[True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
@@ -2120,6 +2046,29 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
+
+    def test_def_op_in_schedule(self):
+        """
+        Tests for an error when a definition op is used in a schedule
+        """
+        inputs = [
+            torch.randn(4, 4, 4, device="cuda"),
+        ]
+
+        class SchedError(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.ops.tanh(self.t0)
+                self.add_output(self.t1)
+
+            def schedule(self):
+                self.t2 = self.ops.relu(self.t1)
+
+        with self.assertRaisesRegex(
+            RuntimeError, "Attempting to add to a completed definition!"
+        ):
+            fd = SchedError()
+            _ = fd.execute(inputs)
 
 
 if __name__ == "__main__":

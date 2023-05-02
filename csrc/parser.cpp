@@ -2736,7 +2736,7 @@ class IrParser {
                 axis += int(self->nDims());
               }
               num_features =
-                  mul(num_features, self->domain()->domain()[axis]->extent());
+                  mul(num_features, self->domain()->leaf()[axis]->extent());
             }
             auto out = div(o_sum, num_features);
             value_map.emplace(node->output()->unique(), out);

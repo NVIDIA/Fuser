@@ -66,13 +66,13 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
     domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
         tv->getRootDomain(),
         tv->getRFactorDomain(),
-        tv->domain()->domain(),
+        tv->domain()->leaf(),
         TensorDomain::getContiguityFilledWith(
             tv->getRFactorDomain(), contiguity));
   } else {
     domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
         tv->getRootDomain(),
-        tv->domain()->domain(),
+        tv->domain()->leaf(),
         TensorDomain::getContiguityFilledWith(tv->getRootDomain(), contiguity));
   }
 
@@ -267,7 +267,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->domain()->domain()) {
+  for (auto id : tv_out->domain()->leaf()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -313,7 +313,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
-  for (auto d : tv->domain()->domain()) {
+  for (auto d : tv->domain()->leaf()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
@@ -556,7 +556,8 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options());
+          node->options(),
+          node->layout());
       registerReplaceWithPredicate(node, replacement);
     }
   }

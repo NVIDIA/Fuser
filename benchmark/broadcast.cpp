@@ -20,6 +20,9 @@
 #include <sstream>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // Return broadcast tensor view and output of broadcast
 static void setupBroadcast(Fusion* fusion, DataType dtype, int bcast_axis) {

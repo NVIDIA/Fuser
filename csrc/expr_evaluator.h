@@ -60,10 +60,23 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
     return precomputed_values_;
   }
 
+  //! Augment the evaluator with the exact root-domain map such that
+  //! if the extent of a root ID is known, the extents of all other
+  //! root IDs that are exactly mapped also get bound to the same
+  //! value. This is currently just done with ExactRootDomainMap, but
+  //! can be similarly done with the Exact CA map as well.
+  void propagateBoundValuesThroughExactMaps(Fusion* fusion);
+
  private:
   c10::optional<EvaluatorValue> getValue(const Val* value);
 
  private:
+  // TODO: Consider make this const. It can't be const as bind() of
+  // this class calls
+  // PrecomputedValuess::bindConcreteParallelTypeValue, but it's
+  // unclear why the precompute values cannot be kept constant and
+  // binding a value to ExpressionEvaluator just updates
+  // known_named_scalars_.
   PrecomputedValues* precomputed_values_ = nullptr;
   std::unordered_map<const Val*, EvaluatorValue> known_values_;
   std::unordered_map<std::string, EvaluatorValue> known_named_scalars_;

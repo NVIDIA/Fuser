@@ -19,7 +19,7 @@ Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
   Val* num_features = IrBuilder::create<Double>(x->container(), 1);
   for (const auto dim : dims) {
     const int axis = nonNegativeAxis(dim, ndims);
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
   }
   return num_features;
 }
@@ -92,19 +92,14 @@ VarMeanResult variance_mean(
       " please upcast to float");
 
   if (isComplexType(x->getDataType().value())) {
-    // There are compilation errors:
-    // __tmp_kernel1.cu(6727): error: namespace "CudaCodeGen::std" has no member
-    // "imagf"
-    // __tmp_kernel1.cu(6753): error: namespace "CudaCodeGen::std" has no member
-    // "realf"
-    TORCH_CHECK(false, "var_mean is not supported for complex types.");
+    // The variance of a complex tensor is a real number its value equals the
+    // sum of real and imaginary variances. The mean of a complex tensor is a
+    // complex number its real and image parts equals the mean of real and
+    // imaginary parts of the original tensor, separately.
     auto out_real = variance_mean(real(x), dims, correction, keepdim);
     auto out_imag = variance_mean(imag(x), dims, correction, keepdim);
-    // variance of a complex tensor is the sum of real and imaginary variances
-    // and is real mean of a complex tensor is complex complex(out_real.mean,
-    // out_imag.mean) It seems construction of a complex tensor from two real
-    // tensors is not supported yet
-    return {add(out_real.var, out_imag.var), nullptr};
+    return {
+        add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
   const size_t kNumberOfDims =
@@ -262,7 +257,7 @@ auto norm_properties_from_num_dims(
     const size_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = (int)axis;
     inner_broadcast_mask[axis] = true;
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
   }
   struct result {
     std::vector<int> outer_reduction_axes;
@@ -509,7 +504,7 @@ ForwardNormResult batch_norm(
     if (axis != c_axis) {
       reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
-      num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+      num_features = mul(num_features, x->domain()->leaf()[axis]->extent());
     }
   }
 
@@ -654,10 +649,10 @@ BackwardNormResult batch_norm_backward(
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->domain()[axis]->extent());
+            castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
+            mul(num_features, input->domain()->leaf()[axis]->extent());
       }
     }
   }
@@ -759,11 +754,11 @@ ForwardNormResult instance_norm(
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back((int)axis);
       x_broadcast_mask[axis] = true;
-      N = mul(N, x->domain()->domain()[axis]->extent());
+      N = mul(N, x->domain()->leaf()[axis]->extent());
     }
   }
   Val* B = IrBuilder::create<Double>(x->container(), 1);
-  B = mul(B, x->domain()->domain()[kBatchDim]->extent());
+  B = mul(B, x->domain()->leaf()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -914,11 +909,11 @@ BackwardNormResult instance_norm_backward(
         reduction_axes.push_back((int)axis);
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
-          num_features = castOp(
-              DataType::Double, input->domain()->domain()[axis]->extent());
+          num_features =
+              castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
         } else {
           num_features =
-              mul(num_features, input->domain()->domain()[axis]->extent());
+              mul(num_features, input->domain()->leaf()[axis]->extent());
         }
       }
     }
