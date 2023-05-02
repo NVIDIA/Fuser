@@ -5,12 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/registry.h>
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-
+#include <queue>
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -63,7 +65,7 @@ void PreferredLaunchConfig::initValidGdims() {
       static_cast<int>(std::sqrt(static_cast<float>(num_sms)));
   for (int gdimy = 2; gdimy <= max_first_half; ++gdimy) {
     int gdimx = num_sms / gdimy;
-    grid_dims.push_back(std::make_pair(gdimx, gdimy));
+    grid_dims.emplace_back(gdimx, gdimy);
   }
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
@@ -74,7 +76,7 @@ void PreferredLaunchConfig::initValidGdims() {
       // This is already in the first half
       continue;
     }
-    grid_dims.push_back(std::make_pair(gdimx_gdimy.second, gdimx_gdimy.first));
+    grid_dims.emplace_back(gdimx_gdimy.second, gdimx_gdimy.first);
   }
   valid_grid_dims_ = grid_dims;
 }
@@ -258,14 +260,14 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Start with the current gdimy and buffer size. Gradually increase
   // the buffer size and in turn decrease gdimy with the bounds set as
   // below.
-  auto current_gdimy = launch_cfg.gdimy();
+  int64_t current_gdimy = launch_cfg.gdimy();
   auto current_buffer_size =
       getMinPersistentBufferSize(total_reduction_numel, bdimy, current_gdimy);
 
   log("reduceWorkOfLastBlock: ", current_gdimy, ", ", current_buffer_size);
 
   // Threshold to stop decreasing gdimy
-  const auto min_gdimy = current_gdimy * 0.9;
+  const auto min_gdimy = static_cast<int64_t>((double)current_gdimy * 0.9);
 
   // Keep track of the best gdimy and buffer size configuration
   auto optimal_size = current_buffer_size;
@@ -499,6 +501,164 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
   // as invalid
   TORCH_INTERNAL_ASSERT(launch_cfg.isInvalid());
   return std::nullopt;
+}
+
+bool checkIfReductionsAreInnerOuter(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool pass_combined_heck = true;
+  // inner reduction must be [I,I,...R,R]
+  auto innerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastIter = -1;
+    while (lastIter < ndim - 1 && tv->axis(lastIter + 1)->isIteration()) {
+      lastIter++;
+    }
+    int firstRedu = ndim;
+    while (firstRedu > 0 && tv->axis(firstRedu - 1)->isReduction()) {
+      firstRedu--;
+    }
+    return lastIter >= 0 && firstRedu < ndim && lastIter == firstRedu - 1;
+  };
+  // outer reduction must be [R,R,..I,I]
+  auto outerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastRedu = -1;
+    while (lastRedu < ndim - 1 && tv->axis(lastRedu + 1)->isReduction()) {
+      lastRedu++;
+    }
+    int firstIter = ndim;
+    while (firstIter > 0 && tv->axis(firstIter - 1)->isIteration()) {
+      firstIter--;
+    }
+    return lastRedu >= 0 && firstIter < ndim && lastRedu == firstIter - 1;
+  };
+  for (auto itv : inner_reduction_tvs) {
+    if (!innerReductionCheck(itv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  for (auto otv : outer_reduction_tvs) {
+    if (!outerReductionCheck(otv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  return pass_combined_heck;
+}
+
+bool hasSharedInput(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool has_shared_input = false;
+  std::unordered_set<TensorView*> input_inner_reduction_tvs;
+  for (auto tv : inner_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      input_inner_reduction_tvs.emplace(input_tv);
+    }
+  }
+  for (auto tv : outer_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      if (input_inner_reduction_tvs.find(input_tv) !=
+          input_inner_reduction_tvs.end()) {
+        has_shared_input = true;
+        break;
+      }
+    }
+    if (has_shared_input) {
+      break;
+    }
+  }
+  return has_shared_input;
+}
+
+std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set) {
+  std::unordered_set<TensorView*> tv_group;
+  std::queue<TensorView*> tensors_to_visit;
+  auto addIfNotVisited = [&](TensorView* tv) {
+    if (tv_group.find(tv) == tv_group.end() &&
+        cutoff_tv_set.find(tv) == cutoff_tv_set.end()) {
+      tv_group.emplace(tv);
+      tensors_to_visit.push(tv);
+    }
+  };
+
+  for (auto tv : from_tvs) {
+    tensors_to_visit.push(tv);
+  }
+  while (!tensors_to_visit.empty()) {
+    auto next_tv = tensors_to_visit.front();
+    tensors_to_visit.pop();
+    // visit consumers
+    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit siblings
+    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit producer
+    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+  }
+  return tv_group;
+}
+
+bool isConnectedOnlyThroughReductionProducer(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  const std::unordered_set<TensorView*> outer_tv_set{
+      outer_reduction_tvs.begin(), outer_reduction_tvs.end()};
+  // initialize disjoint sets with tvs connected to inner reduction tvs
+  std::unordered_set<TensorView*> disjoint_tvs =
+      getAllTvsFrom(inner_reduction_tvs, outer_tv_set);
+  // get disjoint sets with tvs connected to outer reduction tvs
+  // check if there is any intersection
+  for (auto otv : outer_reduction_tvs) {
+    const auto& producers = ir_utils::producerTvsOf(otv);
+    // cutoff at producers of outer reduction tvs as they are computed with
+    // inner reducitons
+    const auto& connected_tv_set =
+        getAllTvsFrom({otv}, {producers.begin(), producers.end()});
+    for (auto tv : connected_tv_set) {
+      if (!disjoint_tvs.emplace(tv).second) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+int64_t partialReductionBufferSize(
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t partial_reduction_buffer_size = 0;
+  for (auto buffer : outer_reduction_tvs) {
+    int64_t buffer_size = -1;
+    for (auto id : buffer->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          id_size.has_value(), "Could not infer persistent buffer size.");
+      if (buffer_size == -1) {
+        buffer_size = id_size->as<int64_t>();
+      } else {
+        buffer_size *= id_size->as<int64_t>();
+      }
+    }
+    buffer_size = (buffer_size == -1) ? 0
+                                      : buffer_size *
+            (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                  runtime_info.getIndexType());
+    partial_reduction_buffer_size += buffer_size;
+  }
+  return partial_reduction_buffer_size;
 }
 
 } // namespace normalization_scheduler_utils

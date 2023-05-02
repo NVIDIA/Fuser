@@ -9,7 +9,7 @@
 
 #include <c10/util/Exception.h>
 
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 
 #include <sstream>
 #include <string_view>
@@ -257,7 +257,7 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
+TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
@@ -283,6 +283,54 @@ TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
   return tv2;
 }
 
+TensorView* matmulTuringOrLater(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
+             *tv1b = nullptr;
+  switch (layout) {
+      // Canonicalize all inputs to [M, K] and [N, K]
+    case MatmulLayout::TT:
+      tv0t = a;
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::TN:
+      tv0t = a;
+      tv1t = b;
+      break;
+    case MatmulLayout::NT:
+      tv0t = transpose(a, 0, 1);
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::NN:
+      tv0t = transpose(a, 0, 1);
+      tv1t = b;
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  tv0b = broadcast(tv0t, {false, true, false});
+  tv1b = broadcast(tv1t, {true, false, false});
+  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+) {
+  if (turing_or_later) {
+    return matmulTuringOrLater(a, b, layout);
+  } else {
+    return matmulVolta(a, b, layout);
+  }
+}
+
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   switch (layout) {
     case MatmulLayout::TT:
@@ -291,18 +339,21 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       return a.matmul(b.t());
     case MatmulLayout::NT:
       return a.t().matmul(b);
+    case MatmulLayout::NN:
+      return a.t().matmul(b.t());
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    MatmulLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
     case MatmulLayout::TT:
@@ -314,6 +365,9 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     case MatmulLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
+    case MatmulLayout::NN:
+      return std::make_pair(
+          at::randn({K, M}, options), at::randn({N, K}, options));
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
@@ -326,10 +380,10 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType,
+    const c10::ScalarType dtype,
     const int device) {
   const auto options =
-      at::TensorOptions().dtype(dType).device(at::kCUDA, device);
+      at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
 
   // handle C and D tensors, layout does not impact shape
   switch (tensor) {
@@ -367,6 +421,16 @@ at::Tensor matmulAtInput(
           return at::randn({K, M}, options);
         case TensorMatmulPos::B:
           return at::randn({K, N}, options);
+        default:
+          break;
+      }
+      break;
+    case MatmulLayout::NN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
         default:
           break;
       }

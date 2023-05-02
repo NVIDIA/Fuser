@@ -477,7 +477,7 @@ unsigned int getConsumerPosAlignedToProducerCA(
   unsigned int consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->domain()->domain();
+    auto p_dom = producer->domain()->leaf();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -1024,7 +1024,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inB(),
         this_mma->init(),
         this_mma->options(),
-        this_mma->inputLayout());
+        this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
@@ -1059,11 +1059,11 @@ TensorView* TensorView::multiOutputRfactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(domain()->domain(), id_map);
+    ReplayTransformations replay(domain()->leaf(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : domain()->domain()) {
+    for (auto id : domain()->leaf()) {
       TORCH_INTERNAL_ASSERT(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
@@ -1233,7 +1233,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
           container(),
           domain()->getRootDomain(),
           domain()->getRFactorDomain(),
-          domain()->domain(),
+          domain()->leaf(),
           domain()->contiguity()),
       getDataType().value());
 
@@ -1414,7 +1414,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   TORCH_INTERNAL_ASSERT(
-      domain()->domain() == getRootDomain(),
+      domain()->leaf() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
@@ -1474,6 +1474,21 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
       TORCH_INTERNAL_ASSERT(false, "unknown operand flag");
       break;
   }
+}
+
+void TensorView::commitLeafToRFactor() {
+  TORCH_CHECK(
+      ir_utils::consumerTvsOf(this).empty(),
+      "Changing the rFactor domain of an intermediate tensor is not supported yet");
+  setDomain(IrBuilder::create<TensorDomain>(
+      container(),
+      domain_->getRootDomain(),
+      domain_->leaf(),
+      domain_->leaf(),
+      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
+      // allow customizing contiguity. But there is no such need now, so I will
+      // just fill the contiguity with true.
+      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

@@ -98,7 +98,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->domain()->domain();
+  auto dom = tv->domain()->leaf();
   auto iter = std::find_if(dom.begin(), dom.end(), [=](IterDomain* id) {
     return !isAllowedID(
         id,
