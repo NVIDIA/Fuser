@@ -1537,7 +1537,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   // producer to reference.
   std::unordered_map<IterDomain*, IterDomain*> index_map_ref_to_producer;
   std::unordered_map<IterDomain*, IterDomain*> c2p_index_map;
-  std::unordered_map<IterDomain*, IterDomain*> p2c_index_map;
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
@@ -1883,7 +1882,7 @@ std::vector<Val*> Index::getProducerRootIndices(
   // I1 and I2 are not mapped. For this case, we should allow the root unmapped,
   // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
   // is not what we want.
-  const auto p2c_map_ = invertOneToOneMap(c2p_map);
+  const auto p2c_map = invertOneToOneMap(c2p_map);
   for (const auto& kv :
        PairwiseRootDomainMap(producer_tv, consumer_tv, true, false)
            .mapConsumerToProducer(
@@ -1891,7 +1890,7 @@ std::vector<Val*> Index::getProducerRootIndices(
     auto consumer_root_id = kv.first;
     auto producer_root_id = kv.second;
     if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
-        p2c_map_.find(producer_root_id) == p2c_map_.end()) {
+        p2c_map.find(producer_root_id) == p2c_map.end()) {
       c2p_map.emplace(consumer_root_id, producer_root_id);
     }
   }
