@@ -265,7 +265,7 @@ c10::optional<ProblemShape> getProblemShape(
   const auto getShape = [&runtime_info](const TensorView* tv) {
     TensorShape tv_shape;
     const auto concrete_domains = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(tv->domain()->domain()));
+        TensorDomain::noBroadcasts(tv->domain()->leaf()));
     for (const auto* domain : concrete_domains) {
       const auto domain_extend =
           runtime_info.expressionEvaluator().evaluate(domain->extent());
@@ -390,10 +390,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (tv->hasBroadcast()) {
         return "Fusion input TV has broadcast domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion input TV has unsupported number of domains";
       }
@@ -410,10 +409,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (!tv->hasReduction()) {
         return "Fusion output TV has no reduction domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion output TV has unsupported number of domains";
       }

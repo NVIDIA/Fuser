@@ -1058,7 +1058,7 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   // GroupCount
 
   int group_count = 1;
-  for (auto axis : out_tv->domain()->domain()) {
+  for (auto axis : out_tv->domain()->leaf()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->getInt();

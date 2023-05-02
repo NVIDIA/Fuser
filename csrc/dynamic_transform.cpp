@@ -7,6 +7,7 @@
 // clang-format on
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
+#include <ir_cloner.h>
 #include <ir_utils.h>
 #include <lower_utils.h>
 #include <ops/utils.h>
@@ -77,6 +78,21 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   return true;
+}
+
+DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
+    IrCloner& ir_cloner) const {
+  DynamicTransformConcretizationInfo cloned_info(
+      (Fusion*)ir_cloner.container());
+  for (auto& pair : reshape_transforms_) {
+    cloned_info.reshape_transforms_.emplace_back(
+        ir_cloner.clone(pair.first),
+        // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
+        // AnalyzeViewResult can be copied directly as it holds no references to
+        // Statements that would need cloning, only integer indices of axes.
+        pair.second);
+  }
+  return cloned_info;
 }
 
 std::string DynamicTransformConcretizationInfo::toString() const {
@@ -264,7 +280,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
-      tv->domain()->domain() == tv->getMaybeRFactorDomain(),
+      tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
 
@@ -360,7 +376,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
       ? updateIdVec(td->getMaybeRFactorDomain())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->domain());
+  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
   if (!mutated) {
     return;
@@ -462,6 +478,52 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     ExpressionEvaluator* expr_eval) {
   DynamicTransformInfoBuilder builder(fusion, expr_eval);
   return builder.getInfo();
+}
+
+DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
+    Fusion* fusion,
+    const KernelArgumentHolder* args) {
+  ExpressionEvaluator expr_eval;
+
+  // Bind input scalars and tensor metadata to symbolic scalars
+  // Here we bind only the inputs that are needed to concretize dynamic
+  // transforms.
+  TORCH_CHECK(
+      args->size() == fusion->inputs().size(),
+      "Received ",
+      args->size(),
+      " inputs but expected ",
+      fusion->inputs().size());
+  for (auto i : c10::irange(args->size())) {
+    const auto& inpi = fusion->inputs()[i];
+    const auto argi = (*args)[i];
+    if (inpi->isIntegralScalar()) {
+      TORCH_CHECK(
+          argi->isType(ArgType::Long),
+          "Expected integer input at position ",
+          i,
+          " but found ",
+          argTypeToString(argi->type()));
+
+      const int64_t arg_val = *reinterpret_cast<const int64_t*>(argi->arg());
+      expr_eval.bind(inpi, arg_val);
+    } else if (inpi->isA<TensorView>()) {
+      const auto& tv = inpi->as<TensorView>();
+      const auto& dom = tv->domain()->getMaybeRFactorDomain();
+      TORCH_CHECK(
+          argi->isType(ArgType::Tensor),
+          "Expected CUDA tensor at position ",
+          i,
+          " but found ",
+          argTypeToString(argi->type()));
+      const TensorArgAbstract* targ =
+          reinterpret_cast<const TensorArgAbstract*>(argi);
+      for (auto j : c10::irange(dom.size())) {
+        expr_eval.bind(dom[j]->extent(), targ->getSize((int64_t)j));
+      }
+    }
+  }
+  return DynamicTransform::getConcretizationInfo(fusion, &expr_eval);
 }
 
 void DynamicTransform::concretizeFusion(

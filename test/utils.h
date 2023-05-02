@@ -54,6 +54,20 @@ inline TensorView* makeSymbolicTensor(
   return TensorViewBuilder().ndims(ndims).dtype(dtype).build();
 }
 
+// Similar to the other overload but uses shape only to create
+// broadcast IterDomains for size-1 axes. The extents of other axes
+// remain symbolic.
+inline TensorView* makeSymbolicTensor(
+    std::vector<int64_t> shape,
+    DataType dtype = DataType::Float) {
+  for (auto& s : shape) {
+    if (s != 1) {
+      s = -1;
+    }
+  }
+  return TensorViewBuilder().shape(shape).dtype(dtype).build();
+}
+
 // Make a non-contiguous tensor of compile-time known sizes
 inline TensorView* makeConcreteTensor(
     std::vector<int64_t> shape,
