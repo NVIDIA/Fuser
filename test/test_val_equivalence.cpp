@@ -9,8 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
 #include <union_find.h>
 #include <val_equivalence.h>
 
