@@ -115,17 +115,24 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
+
+  //! Parameter exact_sizes indicates whether the non-indexed domains
+  //! of the index tensor have the same extents of those of the input
+  //! tensor. It's true in the case of torch.take_along_dim and
+  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
+  //! they are the same.
   TorchGatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
       int dim,
       IterDomain* select_id,
-      Val* index);
+      Val* index,
+      bool exact_sizes);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "TorchGatherOp";
   }
 
@@ -146,6 +153,10 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
 
   IterDomain* getSelectAxis() const {
     return attribute(0)->as<IterDomain>();
+  }
+
+  bool exactSizes() const {
+    return attribute(2)->as<Attribute<bool>>()->value;
   }
 };
 
@@ -1035,15 +1046,16 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   //  after additional cleaning ups.
   struct OptionsInMma {
     MmaOptions::MacroType macro = MmaOptions::MacroType::NoMMA;
-    MmaOptions::MmaInputLayout operand_layout = MmaOptions::MmaInputLayout::TT;
     int accumulator_stride = 0;
 
     bool operator==(const OptionsInMma& other) const {
-      return macro == other.macro && operand_layout == other.operand_layout &&
+      return macro == other.macro &&
           accumulator_stride == other.accumulator_stride;
     }
   };
 
+  using AxesData = std::vector<int>;
+  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1054,7 +1066,8 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      OptionsInMma options);
+      const OptionsInMma& options,
+      const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1082,7 +1095,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   const auto& options() const {
-    return attribute(1)->as<Attribute<OptionsInMma>>()->value;
+    return attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
   }
 
   auto accStride() const {
@@ -1090,40 +1103,40 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   void configureOptions(MmaOptions options);
-};
 
-class TORCH_CUDA_CU_API TransposeOp : public Expr {
- public:
-  using Expr::Expr;
-
-  TransposeOp(
-      IrBuilderPasskey,
-      TensorView* out,
-      TensorView* in,
-      std::vector<int64_t> new2old);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "TransposeOp";
+  auto layout() const {
+    return attribute(ATTR_POS_INPUT_LAYOUT)
+        ->as<Attribute<MmaLayoutOpt>>()
+        ->value;
   }
 
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
+  const auto& mAxes() const {
+    return attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
+  const auto& nAxes() const {
+    return attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  const std::vector<int64_t>& new2old() const {
-    return attribute(0)->as<Attribute<std::vector<int64_t>>>()->value;
+  const auto& kAxes() const {
+    return attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value;
   }
 
-  std::vector<int64_t> old2new() const;
+  const auto& batchAxes() const {
+    return attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value;
+  }
+
+ private:
+  // Predefined idexes of attributes stored for this IR node, to avoid
+  //  magic numbers, based on order in which attributes are initialized
+  //  in constructor
+  static constexpr size_t ATTR_POS_INIT = 0;
+  static constexpr size_t ATTR_POS_OPTS = 1;
+  static constexpr size_t ATTR_POS_M_AXES = 2;
+  static constexpr size_t ATTR_POS_N_AXES = 3;
+  static constexpr size_t ATTR_POS_K_AXES = 4;
+  static constexpr size_t ATTR_POS_BATCH_AXES = 5;
+  static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
@@ -1339,6 +1352,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
+  virtual std::vector<EvaluatorValue> evaluate(
+      const std::vector<EvaluatorValue>& inputs) const override;
+
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
@@ -1352,6 +1368,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   LoadStoreOpType opType() const {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
+  }
+
+  bool hasTranspose() const;
+
+  void setOpType(LoadStoreOpType op) {
+    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
   }
 };
 
@@ -1491,6 +1513,10 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
+  }
+
+  bool isIteration() const {
+    return getIterType() == IterType::Iteration;
   }
 
   bool isRFactorProduct() const {
@@ -1745,14 +1771,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> leaf_domain,
       std::vector<c10::optional<bool>> contiguity = {});
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -1765,7 +1791,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   std::vector<IterDomain*>::size_type nDims() const {
-    return domain_.size();
+    return leaf_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -1778,8 +1804,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  const std::vector<IterDomain*>& domain() const {
-    return domain_;
+  const std::vector<IterDomain*>& leaf() const {
+    return leaf_domain_;
   }
 
   // Note: [Contiguity]
@@ -1823,6 +1849,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   bool hasVectorize() const;
 
+  bool hasSymbolicAxis() const;
+
   c10::optional<unsigned int> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {
@@ -1848,9 +1876,9 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(domain_);
-    no_bcast_domain_ = noBroadcasts(domain_);
-    has_reduction_ = hasReduction(domain_);
+    no_reduction_domain_ = noReductions(leaf_domain_);
+    no_bcast_domain_ = noBroadcasts(leaf_domain_);
+    has_reduction_ = hasReduction(leaf_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -1918,7 +1946,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  std::vector<IterDomain*> domain_;
+  std::vector<IterDomain*> leaf_domain_;
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   const std::vector<IterDomain*> rfactor_domain_;
@@ -2195,6 +2223,38 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Check if this is something like T0.stride[1]
   bool isTensorStride() const;
+
+  //! Check if this is threadIdx.{x,y,z}
+  bool isThreadIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is blockIdx.{x,y,z}
+  bool isBlockIdx() const {
+    auto p = getParallelIndex();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
+
+  //! Check if this is blockDim.{x,y,z}
+  bool isBlockDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::TIDx || p == ParallelType::TIDy ||
+        p == ParallelType::TIDz);
+  }
+
+  //! Check if this is gridDim.{x,y,z}
+  bool isGridDim() const {
+    auto p = getParallelDim();
+    return (
+        p == ParallelType::BIDx || p == ParallelType::BIDy ||
+        p == ParallelType::BIDz);
+  }
 
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   //! WARNING: Only works with Fusion container at the moment

@@ -477,7 +477,7 @@ unsigned int getConsumerPosAlignedToProducerCA(
   unsigned int consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->domain()->domain();
+    auto p_dom = producer->domain()->leaf();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -939,8 +939,7 @@ TensorView* TensorView::swizzle(
     int in_y_size = (int)y_id->extent()->evaluateInt();
 
     // Check size constraints based on swizzle type
-    if (swizzle_type == Swizzle2DType::Transpose ||
-        swizzle_type == Swizzle2DType::XOR ||
+    if (swizzle_type == Swizzle2DType::XOR ||
         swizzle_type == Swizzle2DType::CyclicShift) {
       TORCH_INTERNAL_ASSERT(
           in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
@@ -951,15 +950,6 @@ TensorView* TensorView::swizzle(
       bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
       TORCH_INTERNAL_ASSERT(
           is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
-    }
-
-    if (swizzle_type == Swizzle2DType::Scatter) {
-      TORCH_INTERNAL_ASSERT(
-          in_y_size == 4, "Swizzle: unsupported id size must be 4 ", in_y_size);
-      TORCH_INTERNAL_ASSERT(
-          in_x_size == 8 || in_x_size == 16 || in_x_size == 32,
-          "Swizzle: unsupported id size must be 8, 16, or 32 ",
-          in_x_size);
     }
   }
 
@@ -1033,7 +1023,8 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options());
+        this_mma->options(),
+        this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
@@ -1068,11 +1059,11 @@ TensorView* TensorView::multiOutputRfactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(domain()->domain(), id_map);
+    ReplayTransformations replay(domain()->leaf(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : domain()->domain()) {
+    for (auto id : domain()->leaf()) {
       TORCH_INTERNAL_ASSERT(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
@@ -1203,7 +1194,7 @@ std::vector<TensorView*> TensorView::rFactor(
   return rf_tvs;
 }
 
-TensorView* TensorView::cacheBefore(c10::optional<LoadStoreOpType> cache_op) {
+TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1242,7 +1233,7 @@ TensorView* TensorView::cacheBefore(c10::optional<LoadStoreOpType> cache_op) {
           container(),
           domain()->getRootDomain(),
           domain()->getRFactorDomain(),
-          domain()->domain(),
+          domain()->leaf(),
           domain()->contiguity()),
       getDataType().value());
 
@@ -1272,13 +1263,7 @@ TensorView* TensorView::cacheBefore(c10::optional<LoadStoreOpType> cache_op) {
   ir_utils::replaceValInExpr(definition(), this, producer);
 
   // Expr* producer_uses =
-  if (cache_op.has_value()) {
-    IrBuilder::create<LoadStoreOp>(
-        container(), cache_op.value(), consumer, producer);
-  } else {
-    IrBuilder::create<UnaryOp>(
-        container(), UnaryOpType::Set, consumer, producer);
-  }
+  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1324,7 +1309,8 @@ TensorView* TensorView::cacheFork() {
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<UnaryOp>(container(), UnaryOpType::Set, new_output, this);
+  IrBuilder::create<LoadStoreOp>(
+      container(), LoadStoreOpType::Set, new_output, this);
 
   // The new TV becomes an output.
   // New TV has global memory type.
@@ -1338,7 +1324,7 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(c10::optional<LoadStoreOpType> cache_op) {
+TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1408,13 +1394,7 @@ TensorView* TensorView::cacheAfter(c10::optional<LoadStoreOpType> cache_op) {
   }
 
   // Expr* consumer_definition =
-  if (cache_op.has_value()) {
-    IrBuilder::create<LoadStoreOp>(
-        container(), cache_op.value(), consumer, producer);
-  } else {
-    IrBuilder::create<UnaryOp>(
-        container(), UnaryOpType::Set, consumer, producer);
-  }
+  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   return consumer;
 }
@@ -1434,7 +1414,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   TORCH_INTERNAL_ASSERT(
-      domain()->domain() == getRootDomain(),
+      domain()->leaf() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
@@ -1484,16 +1464,31 @@ bool TensorView::isEmptyTensor() const {
 void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
-      mma_util::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
-      mma_util::WarpMmaSwizzler::scheduleOperandRead(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
       break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unknown operand flag");
       break;
   }
+}
+
+void TensorView::commitLeafToRFactor() {
+  TORCH_CHECK(
+      ir_utils::consumerTvsOf(this).empty(),
+      "Changing the rFactor domain of an intermediate tensor is not supported yet");
+  setDomain(IrBuilder::create<TensorDomain>(
+      container(),
+      domain_->getRootDomain(),
+      domain_->leaf(),
+      domain_->leaf(),
+      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
+      // allow customizing contiguity. But there is no such need now, so I will
+      // just fill the contiguity with true.
+      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

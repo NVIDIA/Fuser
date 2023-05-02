@@ -34,8 +34,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -1411,7 +1411,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto tk0 = kernel->inputs()[0]->as<TensorView>();
   auto tki0 = IrBuilder::create<kir::TensorIndex>(tk0, ks0);
   auto tki1 = IrBuilder::create<kir::TensorIndex>(tk0, ks1);
-  auto tk0_expr = IrBuilder::create<UnaryOp>(UnaryOpType::Set, tki0, tki1);
+  auto tk0_expr =
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tki0, tki1);
 
   // Insert the scalar expression and the allocation of the
   // output directly to the kernel
@@ -2641,8 +2642,8 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
     using kir::IrVisitor::handle;
 
    private:
-    void handle(UnaryOp* uop) final {
-      // Record number of unary ops that modifies shared memory.
+    void handle(LoadStoreOp* uop) final {
+      // Record number of load-store ops that modifies shared memory.
       if (uop->out()->isA<kir::TensorIndex>() &&
           uop->out()->as<kir::TensorIndex>()->view()->getMemoryType() ==
               MemoryType::Shared &&
@@ -4254,16 +4255,11 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
 
-  auto tv2_def = dynamic_cast<UnaryOp*>(tv2->definition());
+  auto tv2_def = dynamic_cast<LoadStoreOp*>(tv2->definition());
   TORCH_CHECK(
       tv2_def != nullptr,
-      "Expected UnaryOp but found ",
+      "Expected LoadStoreOp but found ",
       tv2->definition()->toString());
-
-  TORCH_CHECK(
-      tv2_def->getUnaryOpType() == UnaryOpType::Set,
-      "Expected UnaryOpType::Set but found ",
-      tv2_def->getUnaryOpType());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({12345}, options);
@@ -6760,57 +6756,55 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
 
     using kir::IrVisitor::handle;
 
-    void handle(UnaryOp* uop) final {
-      if (uop->getUnaryOpType() == UnaryOpType::Set) {
-        if (uop->out()->as<kir::TensorIndex>()->view()->name() == 2) {
-          // Make sure the index of the inner loop isn't used in the
-          // predicate of the tv2 expression
-          TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
-          TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
-          auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
-          auto cond = ite->predicate()->value();
-          // Make sure the index of the inner loop isn't used in the predicate
-          TORCH_INTERNAL_ASSERT(!for_loops_.empty());
-          auto loop_index = for_loops_.back()->index();
-          auto cond_inputs = InputsOf::output(cond->fusion(), cond);
-          auto index_it =
-              std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
-          auto vec_factor_it = std::find_if(
-              cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-                auto int_val = inp->getInt();
-                return int_val.has_value() &&
-                    (int_val.value() == vec_factor - 1 ||
-                     int_val.value() == -(vec_factor - 1));
-              });
-          // If vectorized, the predicate should use (vec_factor - 1) or
-          // -(vec_factor - 1) rather than the loop index.
-          if (vectorized_) {
-            TORCH_CHECK(
-                index_it == cond_inputs.end(),
-                "Not expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it != cond_inputs.end(),
-                "Expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          } else {
-            TORCH_CHECK(
-                index_it != cond_inputs.end(),
-                "Expected to have ",
-                loop_index->toInlineString(),
-                " in ",
-                cond->toInlineString());
-            TORCH_CHECK(
-                vec_factor_it == cond_inputs.end(),
-                "Not expected to have ",
-                vec_factor - 1,
-                " in ",
-                cond->toInlineString());
-          }
+    void handle(LoadStoreOp* ldst) final {
+      if (ldst->out()->as<kir::TensorIndex>()->view()->name() == 2) {
+        // Make sure the index of the inner loop isn't used in the
+        // predicate of the tv2 expression
+        TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+        TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
+        auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
+        auto cond = ite->predicate()->value();
+        // Make sure the index of the inner loop isn't used in the predicate
+        TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+        auto loop_index = for_loops_.back()->index();
+        auto cond_inputs = InputsOf::output(cond->fusion(), cond);
+        auto index_it =
+            std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
+        auto vec_factor_it =
+            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
+              auto int_val = inp->getInt();
+              return int_val.has_value() &&
+                  (int_val.value() == vec_factor - 1 ||
+                   int_val.value() == -(vec_factor - 1));
+            });
+        // If vectorized, the predicate should use (vec_factor - 1) or
+        // -(vec_factor - 1) rather than the loop index.
+        if (vectorized_) {
+          TORCH_CHECK(
+              index_it == cond_inputs.end(),
+              "Not expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it != cond_inputs.end(),
+              "Expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
+        } else {
+          TORCH_CHECK(
+              index_it != cond_inputs.end(),
+              "Expected to have ",
+              loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          TORCH_CHECK(
+              vec_factor_it == cond_inputs.end(),
+              "Not expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
         }
       }
     }
@@ -7592,9 +7586,7 @@ class ThreadPredChecker : public kir::IrVisitor {
     for (auto expr : ite->thenBody().exprs()) {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
-          expr->isA<UnaryOp>() &&
-          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set &&
-          ite->predicate()->hasValue()) {
+          expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
         handle(ite->predicate()->value());
       }
     }
@@ -7807,10 +7799,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getIndexMode() == KernelIndexMode::INT64);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getIndexMode() == KernelIndexMode::INT32);
+            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
     {
       FusionExecutor fe;
@@ -7848,7 +7840,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
     {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, small_inputs);
+      LaunchParams launch_params;
+      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
+      fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
+
       TORCH_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
@@ -7860,31 +7855,13 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
 
       // This should fail as the Kernel is already compiled for Int32, but
       // the arguments are too large
+      CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
       EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
+          [&]() {
+            fe.runFusion(large_inputs, launch_params, compile_opts_large);
+          },
           testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
-    }
-
-    {
-      FusionExecutor fe;
-      // Lower the kernel with int32 index type.
-      CompileParams compile_opts = {.index_type = PrimDataType::Int32};
-
-      fe.compileFusion(&fusion, {}, LaunchParams(), compile_opts);
-      TORCH_CHECK(
-          fe.kernel()->indexType() == PrimDataType::Int32,
-          "Unexpected kernel index type: ",
-          fe.kernel()->indexType());
-
-      fe.runFusion(small_inputs);
-
-      // This should fail as the Kernel is already compiled for Int32, but
-      // the arguments are too large
-      EXPECT_THAT(
-          [&]() { fe.runFusion(large_inputs); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
-              "Given index mode and argument index mode don't match")));
+              "Kernel index type and compilation index type don't match")));
     }
 
     {
@@ -7903,6 +7880,87 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
   }
 
   c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is determined both fusion inputs and outputs
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = castOp(DataType::Float, tv1);
+  auto tv4 = broadcast(tv2, {false, true, false});
+  auto tv5 = broadcast(tv3, {true, false, false});
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = castOp(DataType::Half, tv6);
+
+  fusion.addOutput(tv7);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+
+  // Inputs are small enough to use 32-bit indexing, but the output is
+  // not
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  c10::cuda::CUDACachingAllocator::emptyCache();
+}
+
+// Make sure the index type is also determined by intermediate
+// tensors. This is not ideal but just tests if the logic produces
+// what is expected at this moment
+TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Half);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true, false});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = add(tv2, tv3);
+  auto tv5 = sum(tv4, {-1});
+
+  fusion.addOutput(tv5);
+
+  // Inputs and outputs are small enough to use 32-bit indexing,
+  // however the intermediate, tv4, should cause the kernel to use
+  // 64-bit indexing. This is not ideal as tv4 should be inlined, and
+  // its allocation size should be small enough to use 32-bit
+  // indexing. However, the current logic should result in forcing
+  // 64-bit indexing. This would need to be fixed for matmul for
+  // example.
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2024, 1024}, options);
+  at::Tensor t1 = at::randn({2024, 1024}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  executor_cache.runFusionWithInputs(aten_inputs);
+  auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+
+  // Running again with forced type of Int32
+  executor_cache.runFusionWithInputs(aten_inputs, PrimDataType::Int32);
+  kernel_runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
 
 //! Test whether we can create and use float16 scalars
@@ -8034,6 +8092,181 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
+// Test for ir_utils::validateDomainEquivalence. We could consider
+// it well tested as it's always used when TensorDomain is created, but
+// here's some corner cases.
+TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1]
+  tv1->split(0, 4);
+  // [I0/4, 4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: [4, I1]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  tv1->merge(0);
+  // [I0/4*4, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf domain
+  // Should succeed.
+  ir_utils::validateDomainEquivalence(
+      tv1->getRootDomain(), tv1->domain()->leaf());
+
+  auto tv1_intermediate_id = tv1->axis(0);
+
+  tv1->split(0, 3);
+  // [I0/4*4/3, 3, I1]
+
+  // Initial domain: root domain
+  // Derived domain: leaf + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two leaves are redundant
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv1->getRootDomain(),
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+
+  // Testing symbolic domains
+  auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
+
+  ir_utils::validateDomainEquivalence(
+      tv2->getRootDomain(), tv2->domain()->leaf());
+
+  // create a 2D tensor with one symbolid and another non-symbolic
+  auto tv4 = broadcast(sum(tv2, {1}), {false, true});
+  fusion.addOutput(tv4);
+
+  // [S0, B0]
+  tv4->split(1, 4);
+  // [S0, B0/4, 4]
+
+  ir_utils::validateDomainEquivalence(
+      tv4->getRootDomain(), tv4->domain()->leaf());
+
+  // Initial domain: root domain
+  // Derived domain: [S0, B0/4]
+  // Should fail as the derived domain only partially covers the
+  // root domain
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+      },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Invalid derived domain")));
+}
+
+// Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
+TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dt = DataType::Float;
+
+  auto tv0 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, dt);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true});
+  auto tv4 = sub(tv1, tv3);
+  auto tv5 = mul(tv4, tv0);
+  fusion->addOutput(tv5);
+
+  // The persistent scheduler with this problem size resulted in an
+  // error as reported in #236
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dt)).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({11}, options);
+  at::Tensor t1 = at::randn({11}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  t1 = t1.to(at::kDouble);
+  auto ref = (t1 - t1.sum().unsqueeze(0)) * t0;
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
+}
+
+// delete intermediate tensors between segments to reduce memory usage of large
+// segmented graphs
+TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> input_shape{32, 64, 8, 128};
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = sum(tv1, {0}); // Group 0
+  auto tv3 = sum(tv2, {-1}); // Group 1
+  auto output = sum(tv3, {0}); // Group 2
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({0});
+  auto t3 = t2.sum({-1});
+  auto t4 = t3.sum({0});
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
+
+  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      optimized_fusion->fusionSegments()->groups().size() == 3,
+      "segmentation didn't happen as expected");
+  // group-0: tv1 -> tv2
+  // group-1: tv2 -> tv3
+  // group-2: tv3 -> tv4
+  // -----------without args erase------------------------
+  // after group-0, args: {t0, 32, 64, 8, 128, t2}
+  // after group-1, args: {t0, 32, 64, 8, 128, t2, t3}
+  // after group-2, args: {t0, 32, 64, 8, 128, t2, t3, t4}
+  // -----------with args erase---------------------------
+  // after group-0, args: {t0, 32, 64, 8, 128, t2}
+  // after group-1, args: {t0, 32, 64, 8, 128, t3} (t2 is erased)
+  // after group-2, args: {t0, 32, 64, 8, 128, t4} (t3 is erased)
+  TORCH_CHECK(
+      args_num[1] == args_num[0] && args_num[2] == args_num[0],
+      "unused intermediate args should be deleted");
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t4}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

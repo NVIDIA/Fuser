@@ -76,11 +76,10 @@ class ValidateSiblings : public IterVisitor {
         id_map[ref_root[i]] = sibling->getRootDomain().at(i);
       }
 
-      auto replay = BestEffortReplay(
-                        sibling->domain()->domain(),
-                        ref_output->domain()->domain(),
-                        id_map)
-                        .getIterDomainEquivalence();
+      auto replay =
+          BestEffortReplay(
+              sibling->domain()->leaf(), ref_output->domain()->leaf(), id_map)
+              .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
         TORCH_INTERNAL_ASSERT(
@@ -149,8 +148,8 @@ void validateIterDomainUsage(Fusion* fusion) {
 
     std::vector<Val*> leaf_domains;
     std::copy(
-        tv->domain()->domain().begin(),
-        tv->domain()->domain().end(),
+        tv->domain()->leaf().begin(),
+        tv->domain()->leaf().end(),
         std::back_inserter(leaf_domains));
 
     auto all_domain_vals =
@@ -185,6 +184,12 @@ void validateIr(Fusion* fusion) {
   ValidateSiblings::validate(fusion);
 
   validateIterDomainUsage(fusion);
+
+  auto dynamic_tvs = ir_utils::getTVsWithDynamicTransform(fusion);
+  TORCH_INTERNAL_ASSERT(
+      dynamic_tvs.empty(),
+      "Tensor with dynamic transform must be concretized before lowering: ",
+      toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 }
 
 namespace {
@@ -344,7 +349,7 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (id->getParallelType() == ParallelType::Vectorize ||
           id->getParallelType() == ParallelType::MisalignedVectorize) {
         TORCH_INTERNAL_ASSERT(
@@ -408,10 +413,7 @@ class VectorizeValidator : public OptInDispatch {
     if (misaligned_vectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
         checkContiguity(validator.domains_, tv);
-      } else if (
-          tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-              UnaryOpType::Set) {
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
@@ -440,12 +442,19 @@ class VectorizeValidator : public OptInDispatch {
       return;
     }
 
-    TORCH_CHECK(
-        last_root_dim == validator.vectorized_id_ &&
-            *tv->domain()->contiguity().at(last_root_dim_pos),
-        "Vectorized dim has to be from a contiguous inner most position: ",
-        tv,
-        "\n");
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    bool is_ldmatrix_trans =
+        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    if (!is_ldmatrix_trans) {
+      // ldmatrix.trans is a hardware transpose instruction that can do
+      // "vectorized" read from discontiguous memory
+      TORCH_CHECK(
+          last_root_dim == validator.vectorized_id_ &&
+              *tv->domain()->contiguity().at(last_root_dim_pos),
+          "Vectorized dim has to be from a contiguous inner most position: ",
+          tv,
+          "\n");
+    }
 
     // Save info required to lowering and runtime validation
     auto consumer_word_size_it =
@@ -549,11 +558,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr ||
-              (tv->definition()->isA<UnaryOp>() &&
-               tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                   UnaryOpType::Set) ||
-              tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);
@@ -816,7 +821,7 @@ void validatePartialSplit(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprs(
         tv->fusion(),
-        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to
@@ -851,21 +856,6 @@ void validatePartialSplit(Fusion* fusion) {
 
 namespace {
 
-//! Utility to make sure targeted gpu capability is
-//!  higher than provided major.minor.
-void validateMinimumArch(int major, int minor) {
-  // Skip checking arch if disabled.
-  if (isOptionDisabled(DisableOption::ArchCheck)) {
-    return;
-  }
-
-  auto prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_INTERNAL_ASSERT(prop->major >= major);
-  if (prop->major == major) {
-    TORCH_INTERNAL_ASSERT(prop->minor >= minor);
-  }
-}
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -877,7 +867,7 @@ void validateMmaTensors(MmaOp* mma) {
       mma->out()->as<TensorView>()};
 
   for (auto tv : to_validate) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
         TORCH_INTERNAL_ASSERT(
@@ -909,8 +899,8 @@ void validateMmaTensors(MmaOp* mma) {
 
     TORCH_INTERNAL_ASSERT(
         std::all_of(
-            tv->domain()->domain().begin() + tv->getComputeAtPosition(),
-            tv->domain()->domain().end(),
+            tv->domain()->leaf().begin() + tv->getComputeAtPosition(),
+            tv->domain()->leaf().end(),
             [](IterDomain* id) {
               return id->isMmaSwizzled() ||
                   // MMA instructions can only take inputs from registers,
@@ -920,7 +910,8 @@ void validateMmaTensors(MmaOp* mma) {
                   //  CA axis are constant sized to ensure early detection of
                   //  invalid mma schedules.
                   ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial);
+                   id->getParallelType() == ParallelType::Serial) ||
+                  id->isThread();
             }),
         "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
         tv);
@@ -1005,7 +996,7 @@ void validateLdMatrixOutput(TensorView* tv) {
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->domain()->domain()) {
+  for (auto id : output->domain()->leaf()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = (int)id->extent()->evaluateInt();
       break;
@@ -1031,12 +1022,10 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
   switch (ldst->opType()) {
     case LoadStoreOpType::LdMatrix:
     case LoadStoreOpType::LdMatrixTranspose:
-      validateMinimumArch(7, 5);
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      validateMinimumArch(8, 0);
       return;
     default:
       return;
@@ -1056,12 +1045,9 @@ void validateMma(Fusion* fusion) {
 
       switch (mma->options().macro) {
         case MmaOptions::MacroType::Volta_16_16_4:
-          validateMinimumArch(7, 0);
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          validateMinimumArch(7, 5);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1069,8 +1055,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
-          validateMinimumArch(8, 0);
-
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
@@ -1118,18 +1102,18 @@ void validateSwizzle(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
       std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->domain()->domain().begin(), tv->domain()->domain().end());
+          tv->domain()->leaf().begin(), tv->domain()->leaf().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->domain().begin(),
-           tv->domain()->domain().begin() + tv->getMaxComputePosition()});
+          {tv->domain()->leaf().begin(),
+           tv->domain()->leaf().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->domain().begin() + tv->getMaxComputePosition(),
-           tv->domain()->domain().end()});
+          {tv->domain()->leaf().begin() + tv->getMaxComputePosition(),
+           tv->domain()->leaf().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -1310,7 +1294,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->domain()->domain()) {
+      for (auto axis : out_tv->domain()->leaf()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= (int)axis->extent()->getInt().value();
         }
@@ -1345,7 +1329,7 @@ void validateResize(Fusion* fusion) {
         fusion,
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()},
-        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
 
     TORCH_INTERNAL_ASSERT(
         std::none_of(

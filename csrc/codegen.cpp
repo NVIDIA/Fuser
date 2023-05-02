@@ -563,139 +563,6 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   void handle(const UnaryOp* uop) final {
-    bool is_vector_op = false;
-    size_t vector_word_size = 1;
-
-    if (uop->out()->isA<kir::TensorIndex>()) {
-      auto out_tv = uop->out()->as<kir::TensorIndex>()->view();
-      if (std::any_of(
-              out_tv->domain()->domain().begin(),
-              out_tv->domain()->domain().end(),
-              [&](IterDomain* id) { return id->isMma(); })) {
-        auto mma = dynamic_cast<MmaOp*>(
-            uop->out()->as<kir::TensorIndex>()->view()->definition());
-        TORCH_INTERNAL_ASSERT(
-            mma != nullptr, "CodeGen: mma op not in mma loop");
-        genMmaInitialization(mma, uop);
-        return;
-      }
-    }
-
-    if (vectorize_scope_ && uop->out()->isA<kir::TensorIndex>()) {
-      auto ti = uop->out()->as<kir::TensorIndex>();
-
-      bool vectorize_op = false;
-      bool misaligned_op = false;
-
-      for (auto id : ti->view()->domain()->domain()) {
-        if (!isParallelTypeVectorize(id->getParallelType())) {
-          continue;
-        }
-
-        TORCH_INTERNAL_ASSERT(
-            id->extent()->isConstInt(),
-            "Could not evaluate constant value bound to vectorized dim.");
-
-        vector_word_size = id->extent()->evaluateInt();
-
-        vectorize_op = id->getParallelType() == ParallelType::Vectorize;
-        misaligned_op =
-            id->getParallelType() == ParallelType::MisalignedVectorize;
-        break;
-      }
-
-      if (vectorize_op) {
-        TORCH_INTERNAL_ASSERT(
-            uop->getUnaryOpType() == UnaryOpType::Set,
-            "Cannot vectorize operations that are not sets. ",
-            "Use cacheBefore and cacheAfter to store/load with vectorized reads into buffers.");
-        is_vector_op = true;
-      }
-
-      if (misaligned_op) {
-        is_vector_op = (uop->getUnaryOpType() == UnaryOpType::Set);
-      }
-
-      if (is_vector_op && !uop->in()->isScalar()) {
-        TORCH_INTERNAL_ASSERT(
-            uop->out()->dtype() == uop->in()->dtype(),
-            "Vectorized store/load requires input and output datatypes match.");
-      }
-
-      if (is_vector_op) {
-        auto out_tv = uop->out()->as<kir::TensorIndex>()->view();
-        if (uop->in()->isScalar()) {
-          // Note:
-          //  Double buffered local tensors need indexed initialization,
-          //   so will need to use `arraySet` option.
-          if (out_tv->getMemoryType() == MemoryType::Local &&
-              !(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered())) {
-            // Vectorized initialization, explicit type conversion is needed for
-            // complex numbers
-            indent() << ir_utils::varName(out_tv) << ".set("
-                     << genCall(out_tv->dtype(), gen(uop->in())) << ");\n";
-          } else {
-            // Note: currently arraySet option is not vectorized, so it will
-            //  rely on auto vectorization pass of cuda compiler.
-            indent() << "arraySet<" << out_tv->getDataType().value() << ", "
-                     << vector_word_size << ">(&" << gen(uop->out()) << ", "
-                     << "(" << out_tv->getDataType().value() << ")"
-                     << gen(uop->in()) << ");\n";
-          }
-        } else {
-          // Vectorized load
-          TORCH_INTERNAL_ASSERT(
-              uop->in()->isA<kir::TensorIndex>(),
-              "Invalid input to unary op with tensor output, found: ",
-              uop->in()->toString());
-
-          auto in_tv = uop->in()->as<kir::TensorIndex>()->view();
-          bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-              in_tv->getMemoryType() == MemoryType::Local;
-
-          bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
-              in_tv->getMemoryType() == MemoryType::Global;
-
-          bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
-              in_tv->getMemoryType() == MemoryType::Global;
-
-          bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
-              kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
-
-          bool is_volatile_from =
-              in_tv->getMemoryType() == MemoryType::Global &&
-              kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
-
-          if (localToGlobal) {
-            indent() << "loadLocalToGlobal<" << uop->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_to ? "true" : "false") << ">(";
-            code_ << " &" << gen(uop->out()) << ", &" << gen(uop->in())
-                  << ");\n";
-          } else if (globalToLocal) {
-            indent() << "loadGlobalToLocal<" << uop->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_from ? "true" : "false") << ">(&"
-                     << gen(uop->out()) << ", ";
-            code_ << " &" << gen(uop->in()) << ");\n";
-          } else if (globalToGlobal) {
-            indent() << "loadGlobalToGlobal<" << uop->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_to ? "true" : "false") << ", "
-                     << (is_volatile_from ? "true" : "false") << ">(";
-            code_ << " &" << gen(uop->out()) << ", ";
-            code_ << " &" << gen(uop->in()) << ");\n";
-          } else {
-            indent() << "loadGeneric<" << uop->out()->dtype() << ", "
-                     << vector_word_size << ">(";
-            code_ << " &" << gen(uop->out()) << ", ";
-            code_ << " &" << gen(uop->in()) << ");\n";
-          }
-        }
-        return;
-      }
-    }
-
     const auto op_type = uop->getUnaryOpType();
 
     if (!print_inline_) {
@@ -1068,12 +935,15 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     ss << toString(options.macro);
 
     if (isVolta(options.macro)) {
-      ss << toString(options.operand_layout);
+      TORCH_INTERNAL_ASSERT(
+          mma->layout().has_value(), "mma unknown input layout");
     } else if (isTuring(options.macro) || isAmpere(options.macro)) {
-      // mma's in turing and ampere TN only, transpose is handled either
-      //  via ldmatrix for fp16 or explicitly for other types.
-      ss << "TN";
+      TORCH_INTERNAL_ASSERT(
+          mma->layout() == MmaOptions::MmaLayout::TN,
+          "MMAs in Turing and Ampere are TN only, transpose is handled either "
+          "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
+    ss << toString(mma->layout().value());
     // TODO: additional parameter could be removed by swizzling iterdomain
     auto acc_stride = mma->accStride();
     TORCH_INTERNAL_ASSERT(acc_stride > 0);
@@ -1101,14 +971,14 @@ class CudaKernelGenerator : private OptOutConstDispatch {
              << "])";
   }
 
-  void genMmaInitialization(const MmaOp* mma, const UnaryOp* uop) {
+  void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
     auto options = mma->options();
 
     indent() << genMmaOp(mma, true) << "(reinterpret_cast<Array<"
              << mma->out()->getDataType().value() << ","
              << getOutputRegisterSize(options.macro) << ","
              << getOutputRegisterSize(options.macro) << ">*>"
-             << "(&" << gen(uop->out()) << "));\n";
+             << "(&" << gen(ldst->out()) << "));\n";
   }
 
   void handle(const MmaOp* mma) final {
@@ -1284,46 +1154,161 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   void handle(const LoadStoreOp* ldst) final {
-    // TODO:
-    //  Need to gradually merge the code path of this
-    //   with UnaryOp::Set for vectorization.
-    //  There is quite a bit of possible clean up.
-    bool vectorize_op = false;
-    size_t vector_word_size = 1;
-    auto ti = ldst->out()->as<kir::TensorIndex>();
+    auto optype = ldst->opType();
+    if (ldst->out()->isA<kir::TensorIndex>()) {
+      auto out_ti = ldst->out()->as<kir::TensorIndex>();
+      auto out_tv = out_ti->view();
 
-    // Check vectorization and set vector word size
-    for (auto id : ti->view()->domain()->domain()) {
-      if (!isParallelTypeVectorize(id->getParallelType())) {
-        continue;
+      // dispatch mma initialization
+      if (std::any_of(
+              out_tv->domain()->leaf().begin(),
+              out_tv->domain()->leaf().end(),
+              [&](IterDomain* id) { return id->isMma(); })) {
+        auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
+        TORCH_INTERNAL_ASSERT(
+            mma != nullptr, "CodeGen: mma op not in mma loop");
+        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+        genMmaInitialization(mma, ldst);
+        return;
       }
 
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isConstInt(),
-          "Could not evaluate constant value bound to vectorized dim.");
+      // Get vectorization information
+      bool is_vector_op = false;
+      size_t vector_word_size = 1;
 
-      TORCH_INTERNAL_ASSERT(
-          id->getParallelType() != ParallelType::MisalignedVectorize,
-          "LoadStoreOp: no support yet for mis-aligned vectorization");
-      vector_word_size = id->extent()->evaluateInt();
-      vectorize_op = true;
-      break;
+      if (vectorize_scope_ && ldst->out()->isA<kir::TensorIndex>()) {
+        for (auto id : out_tv->domain()->leaf()) {
+          if (!isParallelTypeVectorize(id->getParallelType())) {
+            continue;
+          }
+
+          TORCH_INTERNAL_ASSERT(
+              id->extent()->isConstInt(),
+              "Could not evaluate constant value bound to vectorized dim.");
+
+          vector_word_size = id->extent()->evaluateInt();
+
+          is_vector_op = true;
+          break;
+        }
+      }
+
+      if (is_vector_op && !ldst->in()->isScalar()) {
+        TORCH_INTERNAL_ASSERT(
+            ldst->out()->dtype() == ldst->in()->dtype(),
+            "Vectorized store/load requires input and output datatypes match.");
+      }
+
+      // dispatch ldmatrix
+      if (optype == LoadStoreOpType::LdMatrix ||
+          optype == LoadStoreOpType::LdMatrixTranspose) {
+        TORCH_INTERNAL_ASSERT(
+            is_vector_op, "LdMatrix: Vectorization required: ", ldst);
+        genLdMatrix(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch cp.async
+      if (optype == LoadStoreOpType::CpAsyncCa ||
+          optype == LoadStoreOpType::CpAsyncCg) {
+        if (optype == LoadStoreOpType::CpAsyncCg) {
+          TORCH_INTERNAL_ASSERT(
+              is_vector_op && vector_word_size == 8,
+              "cp.async.cg only support vectorize 8");
+        }
+        genCpAsync(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch vectorized load/store
+      if (is_vector_op) {
+        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+        if (ldst->in()->isScalar()) {
+          // Note:
+          //  Double buffered local tensors need indexed initialization,
+          //   so will need to use `arraySet` option.
+          if (out_tv->getMemoryType() == MemoryType::Local &&
+              !(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered())) {
+            // Vectorized initialization, explicit type conversion is needed for
+            // complex numbers
+            indent() << ir_utils::varName(out_tv) << ".set("
+                     << genCall(out_tv->dtype(), gen(ldst->in())) << ");\n";
+          } else {
+            // Note: currently arraySet option is not vectorized, so it will
+            //  rely on auto vectorization pass of cuda compiler.
+            indent() << "arraySet<" << out_tv->getDataType().value() << ", "
+                     << vector_word_size << ">(&" << gen(ldst->out()) << ", "
+                     << "(" << out_tv->getDataType().value() << ")"
+                     << gen(ldst->in()) << ");\n";
+          }
+        } else {
+          // Vectorized load
+          TORCH_INTERNAL_ASSERT(
+              ldst->in()->isA<kir::TensorIndex>(),
+              "Invalid input to unary op with tensor output, found: ",
+              ldst->in()->toString());
+
+          auto in_tv = ldst->in()->as<kir::TensorIndex>()->view();
+          bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+              in_tv->getMemoryType() == MemoryType::Local;
+
+          bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
+              in_tv->getMemoryType() == MemoryType::Global;
+
+          bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+              in_tv->getMemoryType() == MemoryType::Global;
+
+          bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
+              kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
+
+          bool is_volatile_from =
+              in_tv->getMemoryType() == MemoryType::Global &&
+              kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
+
+          if (localToGlobal) {
+            indent() << "loadLocalToGlobal<" << ldst->out()->dtype() << ", "
+                     << vector_word_size << ", "
+                     << (is_volatile_to ? "true" : "false") << ">(";
+            code_ << " &" << gen(ldst->out()) << ", &" << gen(ldst->in())
+                  << ");\n";
+          } else if (globalToLocal) {
+            indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
+                     << vector_word_size << ", "
+                     << (is_volatile_from ? "true" : "false") << ">(&"
+                     << gen(ldst->out()) << ", ";
+            code_ << " &" << gen(ldst->in()) << ");\n";
+          } else if (globalToGlobal) {
+            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype() << ", "
+                     << vector_word_size << ", "
+                     << (is_volatile_to ? "true" : "false") << ", "
+                     << (is_volatile_from ? "true" : "false") << ">(";
+            code_ << " &" << gen(ldst->out()) << ", ";
+            code_ << " &" << gen(ldst->in()) << ");\n";
+          } else {
+            indent() << "loadGeneric<" << ldst->out()->dtype() << ", "
+                     << vector_word_size << ">(";
+            code_ << " &" << gen(ldst->out()) << ", ";
+            code_ << " &" << gen(ldst->in()) << ");\n";
+          }
+        }
+        return;
+      }
     }
 
-    // Dispatch instruction generation:
-    switch (ldst->opType()) {
-      case LoadStoreOpType::LdMatrix:
-      case LoadStoreOpType::LdMatrixTranspose:
-        TORCH_INTERNAL_ASSERT(
-            vectorize_op, "LdMatrix: Vectorization required: ", ldst);
-        genLdMatrix(ldst, vector_word_size);
-        break;
-      case LoadStoreOpType::CpAsyncCa:
-      case LoadStoreOpType::CpAsyncCg:
-        genCpAsync(ldst, vector_word_size);
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "LoadStoreOp: Unknown op type");
+    // Generic set op
+    TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+
+    if (!print_inline_) {
+      indent() << gen(ldst->out());
+      if (!ldst->out()->isScalar() && !ldst->in()->isScalar()) {
+        code_ << "\n";
+        indent() << kTab;
+      }
+      code_ << " = ";
+    }
+    code_ << gen(ldst->in());
+    if (!print_inline_) {
+      code_ << ";\n";
     }
   }
 
@@ -2456,7 +2441,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       states[pt] = ReductionParallelTypeState::Iter;
     }
 
-    for (auto id : alloc_fused_reduction->out()->view()->domain()->domain()) {
+    for (auto id : alloc_fused_reduction->out()->view()->domain()->leaf()) {
       auto pt = id->getParallelType();
       if (isParallelTypeThread(pt)) {
         auto state = id->isReduction() ? ReductionParallelTypeState::Reduce

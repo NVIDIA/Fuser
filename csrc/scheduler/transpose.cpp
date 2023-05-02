@@ -107,7 +107,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       }
     }
     // Find the position of the leaf id
-    const auto& dom = tv->domain()->domain();
+    const auto& dom = tv->domain()->leaf();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
         return i;
@@ -571,7 +571,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs, true);
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -584,7 +584,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
-  const auto index_type = indexModeToDtype(runtime_info.getIndexMode());
+  const auto index_type = runtime_info.getIndexType();
 
   auto domain_map_entry = getDomainMap(data_cache, fusion);
   auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
@@ -1013,8 +1013,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->domain().begin(),
-              gin->domain()->domain().end(),
+              gin->domain()->leaf().begin(),
+              gin->domain()->leaf().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-1), IdMappingMode::EXACT);
@@ -1035,8 +1035,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->domain().begin(),
-              gin->domain()->domain().end(),
+              gin->domain()->leaf().begin(),
+              gin->domain()->leaf().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-3), IdMappingMode::EXACT);
@@ -1099,8 +1099,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->domain().begin(),
-              gin->domain()->domain().end(),
+              gin->domain()->leaf().begin(),
+              gin->domain()->leaf().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-1), IdMappingMode::EXACT);
@@ -1121,8 +1121,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->domain().begin(),
-              gin->domain()->domain().end(),
+              gin->domain()->leaf().begin(),
+              gin->domain()->leaf().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-3), IdMappingMode::EXACT);
@@ -1145,7 +1145,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inputs
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
-      for (auto id : tv->domain()->domain()) {
+      for (auto id : tv->domain()->leaf()) {
         id->parallelize(ParallelType::Serial);
       }
     }

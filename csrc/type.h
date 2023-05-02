@@ -23,14 +23,6 @@
 
 namespace nvfuser {
 
-// https://stackoverflow.com/questions/18837857/cant-use-enum-class-as-unordered-map-key
-struct TypeHash {
-  template <typename T>
-  std::size_t operator()(T t) const {
-    return static_cast<std::size_t>(t);
-  }
-};
-
 // Order of strength
 enum class ValType {
   TensorDomain,
@@ -206,33 +198,111 @@ TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
 
 // Return the corresponding scalar of a complex type
 DataType getTypeFromComplexType(DataType dtype);
+// Return the corresponding complex type of a scalar
+DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 
 template <PrimDataType DT>
 struct DataTypeToNativeType;
 
+template <PrimDataType DT>
+struct DataTypeToNativeTypeWithC10Complex;
+
+template <PrimDataType DT>
+struct DataTypeToAtenType;
+
 template <typename NativeType>
 struct NativeTypeToDataType;
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type) \
-  template <>                                                  \
-  struct DataTypeToNativeType<data_type> {                     \
-    using type = native_type;                                  \
-  };                                                           \
-  template <>                                                  \
-  struct NativeTypeToDataType<native_type> {                   \
-    static constexpr PrimDataType type = data_type;            \
+template <typename NativeType>
+struct NativeTypeWithC10ComplexToDataType;
+
+template <at::ScalarType aten_type>
+struct AtenTypeToDataType;
+
+template <at::ScalarType aten_type>
+struct AtenTypeToNativeType;
+
+template <at::ScalarType aten_type>
+struct AtenTypeToNativeTypeWithC10Complex;
+
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(                                     \
+    data_type, at_type, native_type, native_type_with_c10_complex)          \
+  template <>                                                               \
+  struct DataTypeToNativeType<data_type> {                                  \
+    using type = native_type;                                               \
+  };                                                                        \
+  template <>                                                               \
+  struct DataTypeToNativeTypeWithC10Complex<data_type> {                    \
+    using type = native_type_with_c10_complex;                              \
+  };                                                                        \
+  template <>                                                               \
+  struct DataTypeToAtenType<data_type> {                                    \
+    static constexpr at::ScalarType type = at_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct NativeTypeToDataType<native_type> {                                \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct NativeTypeWithC10ComplexToDataType<native_type_with_c10_complex> { \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToDataType<at_type> {                                      \
+    static constexpr PrimDataType type = data_type;                         \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToNativeType<at_type> {                                    \
+    using type = native_type;                                               \
+  };                                                                        \
+  template <>                                                               \
+  struct AtenTypeToNativeTypeWithC10Complex<at_type> {                      \
+    using type = native_type_with_c10_complex;                              \
   };
 
-// TODO: Add more type specializations
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, float);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Double, double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, bool);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexFloat, std::complex<float>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexDouble, std::complex<double>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Float,
+    at::ScalarType::Float,
+    float,
+    float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Double,
+    at::ScalarType::Double,
+    double,
+    double);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Half,
+    at::ScalarType::Half,
+    at::Half,
+    at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::BFloat16,
+    at::ScalarType::BFloat16,
+    at::BFloat16,
+    at::BFloat16);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t,
+    int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Bool,
+    at::ScalarType::Bool,
+    bool,
+    bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::ComplexFloat,
+    at::ScalarType::ComplexFloat,
+    std::complex<float>,
+    c10::complex<float>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::ComplexDouble,
+    at::ScalarType::ComplexDouble,
+    std::complex<double>,
+    c10::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 
@@ -277,7 +347,6 @@ enum class UnaryOpType {
   Relu,
   Rsqrt,
   Round,
-  Set,
   Sigmoid,
   Sin,
   Sinh,
@@ -342,7 +411,10 @@ enum class BinaryOpType {
   // is boolean op. These ops also don't work on floating point inputs.
   And,
   Or,
-  Xor
+  Xor,
+
+  // generate complex from real and imaginary parts
+  Complex
 };
 
 enum class ScatterOpType { Set };
@@ -405,14 +477,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
 
 enum class MemoryType { Local, Shared, Global };
 
-// sometimes broadcasted tensors may be inputed in the kernel with an explicit 1
-// size. If that size is there, we need to account that there's also a stride
-// there, even if the stride = 0. If we don't account for that stride when
-// accessing a tensor like: [b2{1}, i0, i1] we would linearize the access like:
-// [i0*stride[0] + i1*stride[1]] when it should be: [i0*stride[1] +
-// i1*stride[2]]. Broadcasts that translate to a physical memory dim we consider
-// "with stride", Broadcasts only through our broadcast op we consider "without
-// stride"
+// Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
   Iteration,
   Reduction,
@@ -420,7 +485,8 @@ enum class IterType {
   Gather,
   Stride,
   GatherScatter,
-  VectorComponent
+  VectorComponent,
+  Symbolic
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
@@ -442,6 +508,7 @@ static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
 // Used to annotate the special memory intrinsics that a loadstore
 //  op will be lowered to.
 enum class LoadStoreOpType {
+  Set,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,
@@ -458,14 +525,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class Swizzle2DType {
-  NoSwizzle = 0,
-  ZShape,
-  Transpose,
-  XOR,
-  Scatter,
-  CyclicShift
-};
+enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
 enum class SwizzleMode { NoSwizzle = 0, Data, Loop };
@@ -637,6 +697,36 @@ TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
 TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
+
+constexpr inline size_t primDataTypeSize(PrimDataType type) {
+  switch (type) {
+    case DataType::Bool:
+      return sizeof(bool);
+    case DataType::ComplexDouble:
+      return sizeof(std::complex<double>);
+    case DataType::ComplexFloat:
+      return sizeof(std::complex<float>);
+    case DataType::Double:
+      return sizeof(double);
+    case DataType::Float:
+      return sizeof(float);
+    case DataType::Half:
+      return sizeof(at::Half);
+    case DataType::BFloat16:
+      return sizeof(at::BFloat16);
+    case DataType::Index:
+      TORCH_INTERNAL_ASSERT(
+          false, "The actual type of Index is only known at compile time.");
+    case DataType::Int:
+      return sizeof(uint64_t);
+    case DataType::Int32:
+      return sizeof(uint32_t);
+    case DataType::SMemAddress:
+      return sizeof(unsigned);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
+  }
+}
 
 TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
 

@@ -66,13 +66,13 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
     domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
         tv->getRootDomain(),
         tv->getRFactorDomain(),
-        tv->domain()->domain(),
+        tv->domain()->leaf(),
         TensorDomain::getContiguityFilledWith(
             tv->getRFactorDomain(), contiguity));
   } else {
     domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
         tv->getRootDomain(),
-        tv->domain()->domain(),
+        tv->domain()->leaf(),
         TensorDomain::getContiguityFilledWith(tv->getRootDomain(), contiguity));
   }
 
@@ -142,7 +142,6 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           BroadcastOp,
           SqueezeOp,
-          TransposeOp,
           ExpandOp,
           ShiftOp,
           GatherOp,
@@ -187,10 +186,6 @@ bool isTensorScalarFillOp(const Expr* expr) {
     //  into a tensor.
     if (expr->isA<LoadStoreOp>()) {
       return true;
-    }
-    // Unary copy op is also a scalar filling op.
-    if (auto uop = dynamic_cast<const UnaryOp*>(expr)) {
-      return uop->getUnaryOpType() == UnaryOpType::Set;
     }
   }
   // Ideally any scalar expression that outputs
@@ -272,7 +267,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->domain()->domain()) {
+  for (auto id : tv_out->domain()->leaf()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -305,7 +300,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   return c10::nullopt;
 }
 
-std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
+std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
     const Val* val) {
   const TensorView* tv = nullptr;
   if (val->isA<TensorView>()) {
@@ -317,8 +312,8 @@ std::unordered_map<ParallelType, IterDomain*, TypeHash> getParallelDomains(
         false, "Provided val is not TensorIndex or TensorView.");
   }
 
-  std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
-  for (auto d : tv->domain()->domain()) {
+  std::unordered_map<ParallelType, IterDomain*> parallel_domains;
+  for (auto d : tv->domain()->leaf()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
@@ -348,9 +343,7 @@ c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
 
 //! Short-cut for checking if the expression loads from global memory.
 bool isGlobalLoad(const Expr* expr) {
-  if (expr->isA<LoadStoreOp>() ||
-      (expr->isA<UnaryOp>() &&
-       expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Set)) {
+  if (expr->isA<LoadStoreOp>()) {
     if (auto in_tv = getTv(expr->input(0))) {
       return in_tv->getMemoryType() == MemoryType::Global;
     }
@@ -563,7 +556,8 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options());
+          node->options(),
+          node->layout());
       registerReplaceWithPredicate(node, replacement);
     }
   }

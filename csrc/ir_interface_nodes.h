@@ -411,16 +411,14 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!
   //! @param cache_op: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheBefore(
-      c10::optional<LoadStoreOpType> cache_op = c10::nullopt);
+  TensorView* cacheBefore(LoadStoreOpType cache_op = LoadStoreOpType::Set);
 
   //! Create a TensorView after the original tensor. A common use case is to
   //! read tensor into shared memory or registers. Analogous to TVM Cache_Read
   //!
   //! @param cache_op: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheAfter(
-      c10::optional<LoadStoreOpType> cache_op = c10::nullopt);
+  TensorView* cacheAfter(LoadStoreOpType cache_op = LoadStoreOpType::Set);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -545,6 +543,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
+
+  // Commit the current changes in leaf domain into rFactor domain. This
+  // function can be used to do implicit transpose and view, but today, only
+  // implicit transpose is being tested. This function can be dangerous: it
+  // changes the the semantics of the current tensor without updating its
+  // consumers consistently, and there is no reliable way to detect this
+  // inconsistency. It is the responsibility of the caller of this function to
+  // ensure consistency.
+  void commitLeafToRFactor();
 
  protected:
   void setDomain(TensorDomain* td) {

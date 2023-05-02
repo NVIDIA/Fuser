@@ -119,10 +119,7 @@ bool isFullyUnswitched(
 
 } // namespace
 
-std::unordered_map<
-    ParallelType,
-    ParallelizedDomainPredicate::PredicateInfo,
-    TypeHash>
+std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
@@ -135,7 +132,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   }
 
   // Initialize a map with empty predicate info
-  std::unordered_map<ParallelType, PredicateInfo, TypeHash> map;
+  std::unordered_map<ParallelType, PredicateInfo> map;
   for (auto pt : kParallelTypeThreads) {
     map.insert({pt, PredicateInfo(pt)});
   }
@@ -176,13 +173,13 @@ ParallelizedDomainPredicate::getPredicateMap(
     for (auto tv : output_tvs) {
       // Check if the loop domain is used by the output tensor
       auto it = std::find_if(
-          tv->domain()->domain().begin(),
-          tv->domain()->domain().end(),
+          tv->domain()->leaf().begin(),
+          tv->domain()->leaf().end(),
           [&](auto tv_id) {
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
-      if (it == tv->domain()->domain().end()) {
+      if (it == tv->domain()->leaf().end()) {
         continue;
       }
 
@@ -263,8 +260,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
 
   std::vector<Val*> all_parallelized_consumer_leaf_ids;
   std::copy_if(
-      consumer_tv->domain()->domain().begin(),
-      consumer_tv->domain()->domain().end(),
+      consumer_tv->domain()->leaf().begin(),
+      consumer_tv->domain()->leaf().end(),
       std::back_inserter(all_parallelized_consumer_leaf_ids),
       [](IterDomain* x) { return isParallelTypeThread(x->getParallelType()); });
 
@@ -280,8 +277,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   // Just pick leaf domains
   std::vector<IterDomain*> parallelized_consumer_leaf_ids;
   std::copy_if(
-      consumer_tv->domain()->domain().begin(),
-      consumer_tv->domain()->domain().end(),
+      consumer_tv->domain()->leaf().begin(),
+      consumer_tv->domain()->leaf().end(),
       std::back_inserter(parallelized_consumer_leaf_ids),
       [&](IterDomain* x) {
         return std::find(

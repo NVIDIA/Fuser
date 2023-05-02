@@ -2,6 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import subprocess
+import sys
 from pathlib import Path
 
 UNKNOWN = "Unknown"
@@ -33,7 +34,7 @@ def get_pytorch_cmake_prefix():
     # need to do this in a separate process so we are not going to delete nvfuser library while it's loaded by torch
     process_torch_prefix = Popen(
         [
-            "python",
+            sys.executable,
             "-c",
             "import torch.utils; print(torch.utils.cmake_prefix_path)",
         ],

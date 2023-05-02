@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <dynamic_transform.h>
 #include <evaluator_common.h>
 #include <executor.h>
 #include <fusion.h>
@@ -33,6 +34,26 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
+struct RuntimeWorkSpace {
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order;
+
+  //! Pre-determined order to bind tensor input meta data
+  std::vector<Val*> group_extent_binding_order;
+};
+//! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
+//! there are a lot of options how to combine hashes. In a case where one
+//! element of the pair is unlikely to change much, the following hash is fast
+//! and effective.
+struct SimplePairHash {
+  template <typename T, typename U>
+  size_t operator()(const std::pair<T, U>& p) const {
+    auto hT = std::hash<T>{}(p.first);
+    auto hU = std::hash<U>{}(p.second);
+    return hT ^ hU;
+  }
+};
+
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
 //!
@@ -45,8 +66,9 @@ struct ExecutorLog {
 class TORCH_CUDA_CU_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
-      Fusion* fusion,
-      const KernelArgumentHolder& inputs);
+      std::unique_ptr<Fusion> fusion,
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -74,16 +96,35 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
+  //! Note that all heuristics use the same index type.
+  PrimDataType getIndexType() const {
+    // No scheduler means nothing to run. It may still be unsafe to
+    // save tensor sizes and strides in Int32
+    if (schedulers().empty()) {
+      return PrimDataType::Int;
+    }
+    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
+    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    return index_type.value();
+  }
+
   //! Unified interface to run the managed kernels with given input
   std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
   void compileFusionParallel(KernelArgumentHolder args);
+  const std::vector<int>& getArgsNumAfterSegmentRuns() {
+    return num_live_args_after_segment_runs_;
+  }
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
     profiling_ = to_profile;
+  }
+
+  void setMeasureKernelTime(bool val = true) {
+    measure_kernel_time_ = val;
   }
 
   //! Internal knob for profiling shape inference
@@ -128,9 +169,12 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   // Try to compute heuristics based on the SegmentedFusion managed
   //  in this kernel runtime, and will return a nullopt if either
   //  any segment cannot be scheduled or the parameters don't match
+  //
+  // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
   c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
-      const KernelArgumentHolder& args);
+      const KernelArgumentHolder& args,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
@@ -156,13 +200,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
-  //! Maps entries in `args` to fusion inputs.
-  //! Note that this function also pushes extra bits like dimension extent into
-  //! `args` for expression evaluator binding. So consider your `args` polluted
-  //! after this function and use it with caution.
-  std::unordered_map<Val*, const ArgAbstract*> mapFusionInputsToArgs(
-      KernelArgumentHolder& args);
-
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
@@ -173,7 +210,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  const std::vector<SchedulerEntryPtr>& schedulers();
+  const std::vector<SchedulerEntryPtr>& schedulers() const;
 
   void prepareRuntimeOrder();
 
@@ -193,19 +230,22 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   std::unique_ptr<SegmentedFusion> segmented_fusion_ = nullptr;
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
-  struct RuntimeWorkSpace {
-    //! Pre-determined order to run the segmented groups
-    std::vector<SegmentedGroup*> group_run_order;
-
-    //! Pre-determined order to bind tensor input meta data
-    std::vector<Val*> group_extent_binding_order;
-  } runtime_workspace_;
+  RuntimeWorkSpace runtime_workspace_;
 
   //! Utility to speed up value evaluation at runtime
   std::unique_ptr<PrecomputedValues> precomputed_values_;
 
+  //! Cache of all tensors in the complete fusion
+  std::vector<TensorView*> all_tvs_;
+
+  //! store number of arguments in KernelArgumentHolder after each segment
+  //! used to check if arguments are erased if not being used in the following
+  //! segments
+  std::vector<int> num_live_args_after_segment_runs_;
+
   // States for profiling support
   bool profiling_ = false;
+  bool measure_kernel_time_ = false;
 
   std::mutex mutex_;
 
@@ -243,7 +283,12 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! within the lookup cache. This is needed because lookup shortcut is also
   //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- 2 level cache implementation ]
-  IdLookupReturn lookupId(const at::ArrayRef<c10::IValue>& inputs);
+  //! If hash_scalars is true, this unique id also contains the values of input
+  //! integer scalars. This is used for dynamic reshapes, since they might
+  //! depend on those inputs and omitting them would lead to a collision.
+  IdLookupReturn lookupId(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool hash_scalars = false);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
@@ -344,8 +389,15 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
+  //!
+  //! If given, the index type of forced_index_type is used no matter
+  //! what inputs and the fusion look like. This may be useful in some
+  //! cases as our analysis of index type may be overly conservative
+  //! for intermediate tensors.
+  //! WARING: Correctness is not guaranteed.
   std::vector<at::Tensor> runFusionWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
@@ -399,6 +451,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
+  //! Get all cached runtimes
+  auto& getKernelRuntimes() {
+    return kernel_runtimes_;
+  }
+
   void profile(bool to_profile) {
     profiling_ = to_profile;
     for (auto& it : kernel_runtimes_) {
@@ -431,17 +488,31 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! entry in `FusionExecutor`
   void evictCache(size_t cache_id);
 
-  FusionKernelRuntime* getKernelRuntimeFor(const KernelArgumentHolder& inputs);
+  //! The index type of forced_index_type is used to get a kernel
+  //! runtime no matter what sizes inputs have
+  FusionKernelRuntime* getKernelRuntimeFor(
+      const KernelArgumentHolder& inputs,
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
  private:
-  //! original un-scheduled `Fusion`;
+  //! original un-scheduled `Fusion`. This may contain dynamic transforms and
+  //! Symbolic IterDomains.
   std::unique_ptr<Fusion> fusion_;
 
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
-  //! Graphs after input dependent transfoms
-  std::unordered_map<size_t, std::vector<std::unique_ptr<FusionKernelRuntime>>>
+  //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
+  //! map is a (device, concretization info) pair. In case fusion_ contains
+  //! no dynamic transforms, the second part of the key is null. When a new set
+  //! of inputs is received, we extract the corresponding value from this map,
+  //! which is a vector of FusionKernelRuntime objects representing scheduled
+  //! Fusions. We then check each of these to see if we can re-use any of those
+  //! kernels and if not, we create a new one.
+  std::unordered_map<
+      std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
+      std::vector<std::unique_ptr<FusionKernelRuntime>>,
+      SimplePairHash>
       kernel_runtimes_;
 
   //! Logging state for most recent compilation
@@ -457,6 +528,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! TODO: this can be largely expanded to look at complete
   //!   caching profiles. Currently it just makes it easier to test
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
+
+  //! Whether fusion_ contains dynamic reshapes
+  bool has_dynamic_reshape_ = false;
 };
 
 class GraphCache {

@@ -51,6 +51,14 @@ struct TORCH_CUDA_CU_API CompileOptions {
 
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
+  struct GlobalBufferInfo {
+    std::vector<int64_t> sizes;
+    std::vector<int64_t> strides;
+    at::ScalarType type = at::ScalarType::Undefined;
+    bool zero_init = false;
+    bool is_profile_buffer = false;
+  };
+
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
   void debugCompileFusionFromStr(
@@ -66,6 +74,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args);
 
+  //! To compile a fusion with the 32-bit index type, CompileParams
+  //! must be passed in. There used to be an index type associated
+  //! with KernelArgumentHolder, but it is no longer the case.
   void compileFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args,
@@ -89,7 +100,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const std::vector<at::Tensor>& outputs = {});
+      std::vector<at::Tensor> outputs = {});
 
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
@@ -98,8 +109,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const c10::optional<size_t>& opt_code = c10::nullopt) {
     KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(
-            inputs, indexTypeToMode(kernel()->indexType()));
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
@@ -130,18 +140,15 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // TODO: strides would also be important when we handle permutations in
   //       codegen.
   //
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
-    std::vector<std::pair<int, int>> io_alias_indices;
-    std::vector<std::vector<int64_t>> output_sizes;
-    std::vector<std::vector<int64_t>> output_strides;
-    std::vector<at::ScalarType> output_types;
-    std::vector<std::vector<int64_t>> buffer_sizes;
-    std::vector<at::ScalarType> buffer_types;
-    std::vector<bool> buffer_zero_init;
-    uint64_t rand_offset;
+    // Aliased output and input mappings
+    std::vector<std::pair<int, int>> output_to_input_aliases;
+    std::vector<GlobalBufferInfo> outputs;
+    // Temporary work buffers and intemediate global-memory tensors
+    std::vector<GlobalBufferInfo> intermediates;
+    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -188,6 +195,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the string of the compiled kernel
   std::string kernelString() const {
+    TORCH_INTERNAL_ASSERT(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
@@ -195,6 +203,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::string getStructuredCode(
       const std::string& kernel,
       PrimDataType index_type) const;
+
+  std::string getStructuredCode() const;
 
   //! Returns the latest compile log
   std::string compilerLog() const {
@@ -216,6 +226,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
         last_compiled_binary_, "-fun 1 -c");
+  }
+
+  std::string getCanonicalKernelName() const {
+    return kernelNamespace() + "::" + kernelName();
   }
 
   std::string kernelName() const {
@@ -254,13 +268,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs);
 
  private:
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  struct GlobalBuffers {
-    std::vector<at::Tensor> buffers;
-    std::vector<bool> zero_init;
-    at::Tensor profile_buffer;
-  };
-
   static std::string kernelNamespace() {
     return "CudaCodeGen";
   }
@@ -276,17 +283,19 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       bool align_padding = false,
       uint64_t total = 0);
 
-  // return a pair of vector of tensors, where tensors in the first vector are
-  // not initialized, while the second vector contains zero-initiliazed tensors
-  GlobalBuffers allocGlobalVals(ExpressionEvaluator& expr_eval);
+  //! Return information necessay for allocating intermediate tensors,
+  //! including temporary work buffers as well as intermediate
+  //! global-memory tensors
+  std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
+      ExpressionEvaluator& expr_eval);
 
-  // alias_index: index of outputs that are aliases to inputs, hence we should
-  // skip allocating real storage for those, but still maintain its spot to
-  // maintain the indexing from output aliases to inputs
-  std::vector<at::Tensor> allocOutputs(
+  //! Return information necessay for allocating output tensors. Input
+  //! and output tensors are allowed to alias each other, which is
+  //! specified by the list of int pairs of input and output indices
+  std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::unordered_set<int>& alias_indices = {});
+      const std::vector<std::pair<int, int>>& input_to_output_aliases);
 
   void setUsedTVs();
 
@@ -307,6 +316,22 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
       const std::unordered_set<int>& alias_indices = {});
+
+  //! TODO: Consider changing this to a constructor of ExecutorEntry
+  void initializeExecutorEntry(
+      ExecutorEntry& executor_entry,
+      const KernelArgumentHolder& args,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const std::vector<at::Tensor>& outputs);
+
+  std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
+
+  // Recompile the kernel if the number of threads in the block has increased
+  // or maxrregcount has changed
+  void recompileKernel(
+      const LaunchParams& new_launch_params,
+      const CompileParams& new_compile_params);
 
  private:
   CompileOptions options_;
@@ -343,8 +368,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
-  int64_t block_size_high_water_mark = 1;
-  int maxrregcount_high_water_mark = 255;
+  int64_t block_size_high_water_mark_ = 1;
+  int maxrregcount_high_water_mark_ = 255;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.

@@ -47,11 +47,11 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
   std::vector<bool> bcast_dims(rank, false);
   // broadcast outter on inp to match rank with other.
   if (dim + 1 < rank) {
-    std::fill(bcast_dims.begin() + dim + 1, bcast_dims.end(), true);
+    std::fill(bcast_dims.begin() + (int64_t)dim + 1, bcast_dims.end(), true);
   }
   // broadcast inner on inp to match rank with other.
   if (dim > 0) {
-    std::fill(bcast_dims.begin(), bcast_dims.begin() + dim, true);
+    std::fill(bcast_dims.begin(), bcast_dims.begin() + (int64_t)dim, true);
   }
   if (dim + 1 < rank || dim > 0) {
     t = broadcast(t, bcast_dims);
@@ -174,24 +174,33 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 
   // At this point, type1 and type2 must be either Iteration or
-  // Broadcast
+  // Broadcast. Note Symbolic is either Iteration or Broadcast
   TORCH_INTERNAL_ASSERT(
-      type1 == IterType::Iteration || type1 == IterType::Broadcast,
+      type1 == IterType::Iteration || type1 == IterType::Broadcast ||
+          type1 == IterType::Symbolic,
       "Unexpected IterType: ",
       type1);
   TORCH_INTERNAL_ASSERT(
-      type2 == IterType::Iteration || type2 == IterType::Broadcast,
+      type2 == IterType::Iteration || type2 == IterType::Broadcast ||
+          type2 == IterType::Symbolic,
       "Unexpected IterType: ",
       type2);
 
-  if (type1 == IterType::Broadcast) {
-    return type2;
+  // If either is Iteration, the output type is also Iteration. If
+  // none of them is Iteration and either of them is Symbolic, the
+  // output is also Symbolic.
+  if (type1 == IterType::Iteration || type2 == IterType::Iteration) {
+    return IterType::Iteration;
+  } else if (type1 == IterType::Symbolic || type2 == IterType::Symbolic) {
+    return IterType::Symbolic;
   } else {
-    return type1;
+    return IterType::Broadcast;
   }
 }
 
-TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    DataType dtype) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (val->getValType() == ValType::TensorView) {
@@ -279,6 +288,11 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
     }
   }
 
+  return out_domain;
+}
+
+TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
+  auto out_domain = newOutputDomain(vals, dtype);
   return IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),

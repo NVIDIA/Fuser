@@ -589,6 +589,15 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
 
+  auto deserializeTakeAlongAxisRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::TakeAlongAxisOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(
+      serde::RecordType_TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
+
   auto deserializeIndexSelectRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::IndexSelectOpRecord(
         parseStateArgs(buffer->args()),
@@ -683,17 +692,17 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeTensorRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
-    std::vector<c10::optional<bool>> contiguous_info;
+    std::vector<c10::optional<bool>> contiguity;
     std::transform(
         data->contiguity()->cbegin(),
         data->contiguity()->cend(),
-        std::back_inserter(contiguous_info),
+        std::back_inserter(contiguity),
         mapContiguityEnumToOptional);
 
     return new python_frontend::TensorRecord(
         parseStateArgs(buffer->outputs()),
         parseVector(data->sizes()),
-        contiguous_info,
+        contiguity,
         mapToNvfuserDtype(data->dtype()),
         data->is_cpu());
   };

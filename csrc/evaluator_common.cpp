@@ -92,7 +92,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       ret.push_back(id->extent());
     }
     for (auto id : tv->getMaybeRFactorDomain()) {
@@ -158,7 +158,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   TORCH_INTERNAL_ASSERT(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     const ArgAbstract* arg = args[i];
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
@@ -216,7 +216,7 @@ void PrecomputedValues::initializeValueList(
 }
 
 c10::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
-    const Val* val) {
+    const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
     return c10::nullopt;
@@ -308,11 +308,12 @@ void PrecomputedValues::bindTensorMetaData(
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(
-      tensor_arg_abstract->getRank() == static_cast<int>(root_domain.size()),
+      tensor_arg_abstract->getRank() ==
+          static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = tensor_arg_abstract->getSize((int)dim);
+    auto value = tensor_arg_abstract->getSize(static_cast<int64_t>(dim));
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
@@ -400,6 +401,10 @@ int NaiveValueMachine::makeInstructionEntry() {
 
 void NaiveValueMachine::runInstruction(int index) {
   switch (inst_type_[index]) {
+    case InstructionType::SET_OP:
+      precomputed_values_.values_[dest_[index]] =
+          precomputed_values_.values_[src0_[index]];
+      break;
     case InstructionType::UNARY_OP:
       runUnaryOp(index);
       break;
@@ -426,9 +431,6 @@ void NaiveValueMachine::runUnaryOp(int index) {
   switch (uop_type_[index]) {
     case UnaryOpType::Neg:
       dest = -src;
-      break;
-    case UnaryOpType::Set:
-      dest = src;
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {

@@ -11,6 +11,7 @@
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_iostream.h>
+#include <root_domain_map.h>
 
 #include <iostream>
 
@@ -133,6 +134,14 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
+c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(ParallelType pt) {
+  auto it = known_named_scalars_.find(stringifyThreadSize(pt));
+  if (it != known_named_scalars_.end()) {
+    return it->second;
+  }
+  return c10::nullopt;
+}
+
 c10::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
   TORCH_INTERNAL_ASSERT(
       value->isIntegralScalar() || value->isFloatingPointScalar() ||
@@ -184,6 +193,43 @@ void ExpressionEvaluator::print() const {
     precomputed_values_->print();
   }
   std::cout << "--------------------\n\n";
+}
+
+void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
+  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+
+  for (const auto& set : mapped_sets.disjointSets()) {
+    int64_t known_size = -1;
+    std::vector<Val*> unknown_vals;
+    for (const auto id : *set) {
+      auto eval_val = evaluate(id->extent());
+      if (eval_val.has_value()) {
+        TORCH_INTERNAL_ASSERT(eval_val->isInt(), "Invalid extent value");
+        int64_t this_size = eval_val->as<int64_t>();
+        if (known_size != -1) {
+          TORCH_INTERNAL_ASSERT(
+              known_size == this_size,
+              "Conflicting sizes: ",
+              known_size,
+              ", ",
+              this_size);
+        } else {
+          known_size = this_size;
+        }
+      } else {
+        unknown_vals.push_back(id->extent());
+      }
+    }
+
+    if (known_size == -1 || unknown_vals.empty()) {
+      continue;
+    }
+
+    // Binding unknown vals to known_val
+    for (auto unknown_val : unknown_vals) {
+      bind(unknown_val, known_size);
+    }
+  }
 }
 
 } // namespace nvfuser
