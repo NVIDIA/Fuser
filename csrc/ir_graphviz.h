@@ -46,6 +46,38 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
     Verbose, // Includes all values and dead definitions
   };
 
+  struct Config {
+    //! Whether to show the compute definition, i.e. dataflow of Fusion
+    bool showComputeDef = true;
+
+    //! Whether to show scheduling, i.e. transforms between leaf and root or
+    //! rfactor domains.
+    bool showSchedule = false;
+
+    //! If true, for TensorViews with rfactor domains, show them separate from
+    //! their root domains, and trace the transforms relating their IterDomains.
+    bool showRFactorTransformsInCompute = true;
+
+    //! Whether to show nodes that are unused due to dead code elimination.
+    bool showUnreachableNodes = false; // true for Explicit
+
+    //! Whether to show definitions of constant Scalars
+    bool showDefsOfConstants = false; // true for Explicit
+
+    //! Print to string, prepending line_prefix to each line of output
+    std::string toString(std::string line_prefix = "") {
+      std::stringstream ss;
+      ss << line_prefix << "showComputeDef: " << showComputeDef << std::endl;
+      ss << line_prefix << "showSchedule: " << showSchedule << std::endl;
+      ss << line_prefix
+         << "showRFactorTransformsInCompute: " << showRFactorTransformsInCompute
+         << std::endl;
+      ss << line_prefix << "showUnreachableNodes: " << showUnreachableNodes
+         << std::endl;
+      return ss.str();
+    }
+  };
+
   using ExprColorMap = std::unordered_map<const Expr*, size_t>;
 
  public:
@@ -59,6 +91,11 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
       const Fusion* fusion,
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);
+
+  //! L-value reference to enable setting config options manually.
+  Config& config() {
+    return config_;
+  }
 
  private:
   IrGraphGenerator(
@@ -103,6 +140,7 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
 
  private:
   const DetailLevel detail_level_;
+  Config config_;
   const Fusion* const fusion_;
   std::stringstream graph_def_;
   std::unordered_map<const Statement*, std::string> id_map_;

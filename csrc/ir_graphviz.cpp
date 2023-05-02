@@ -25,15 +25,18 @@ class IrNodeLabel final : private OptInConstDispatch {
  public:
   static std::string gen(
       const Statement* node,
+      const IrGraphGenerator::Config& config,
       DetailLevel detail_level = DetailLevel::Basic) {
-    IrNodeLabel generator(detail_level);
+    IrNodeLabel generator(config, detail_level);
     generator.OptInConstDispatch::handle(node);
     return generator.label_.str();
   }
 
  private:
-  explicit IrNodeLabel(DetailLevel detail_level)
-      : detail_level_(detail_level) {}
+  explicit IrNodeLabel(
+      const IrGraphGenerator::Config& config,
+      IrGraphGenerator::DetailLevel detail_level)
+      : config_(config), detail_level_(detail_level) {}
 
   ~IrNodeLabel() final = default;
 
@@ -41,7 +44,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (b->isSymbolic()) {
       label_ << "b" << b->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showDefsOfConstants) {
         label_ << "b" << b->name() << "=";
       }
       label_ << *b->value();
@@ -52,7 +55,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (d->isSymbolic()) {
       label_ << typePrefix(d->getDataType().value()) << d->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showDefsOfConstants) {
         label_ << typePrefix(d->getDataType().value()) << d->name() << "=";
       }
       label_ << *d->value();
@@ -63,7 +66,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (i->isSymbolic()) {
       label_ << "i" << i->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showDefsOfConstants) {
         label_ << "i" << i->name() << "=";
       }
       label_ << *i->value();
@@ -81,15 +84,16 @@ class IrNodeLabel final : private OptInConstDispatch {
 
     label_ << "(";
     if (!id->start()->isZeroInt()) {
-      label_ << IrNodeLabel::gen(id->start()) << " : ";
+      label_ << IrNodeLabel::gen(id->start(), config_, detail_level_) << " : ";
     }
-    label_ << IrNodeLabel::gen(id->extent());
+    label_ << IrNodeLabel::gen(id->extent(), config_, detail_level_);
     label_ << ")";
   }
 
   void handle(const Split* split) override {
     label_ << "Split(inner=" << (split->innerSplit() ? "true" : "false")
-           << ", factor=" << IrNodeLabel::gen(split->factor()) << ")";
+           << ", factor="
+           << IrNodeLabel::gen(split->factor(), config_, detail_level_) << ")";
   }
 
   void handle(const Merge* merge) override {
@@ -98,6 +102,7 @@ class IrNodeLabel final : private OptInConstDispatch {
 
  private:
   std::stringstream label_;
+  const IrGraphGenerator::Config& config_;
   const DetailLevel detail_level_;
 };
 
@@ -220,40 +225,27 @@ std::string IrGraphGenerator::generate() {
   TORCH_CHECK(graph_def_.str().empty());
   TORCH_CHECK(visited_.empty());
 
-  // record detail level
-  graph_def_ << "// detail level: ";
-  switch (detail_level_) {
-    case DetailLevel::ComputeOnly:
-      graph_def_ << "compute only\n";
-      break;
-    case DetailLevel::Basic:
-      graph_def_ << "minimal\n";
-      break;
-    case DetailLevel::Explicit:
-      graph_def_ << "explicit\n";
-      break;
-    case DetailLevel::Verbose:
-      graph_def_ << "verbose\n";
-      break;
-    default:
-      TORCH_CHECK(!"Unexpected detail level");
-  }
+  // Record config
+  graph_def_ << "// config:" << std::endl;
+  graph_def_ << config_.toString(/*line_prefix*/ "//   ");
 
   graph_def_ << "digraph fusion_ir {\n"
              << "  node [shape=circle, color=gray];\n"
              << "  edge [color=black];\n";
 
   // Compute graph
-  generateComputeGraph();
+  if (config_.showComputeDef) {
+    generateComputeGraph();
+  }
 
   // Schedule graph
-  if (detail_level_ > DetailLevel::ComputeOnly) {
+  if (config_.showSchedule) {
     generateScheduleGraph();
   }
 
   // All expressions & values
   // (These are otherwise unreacheable (dead) nodes)
-  if (detail_level_ >= DetailLevel::Verbose) {
+  if (config_.showUnreachableNodes) {
     for (const auto* expr : fusion_->unordered_exprs()) {
       handle(expr);
     }
@@ -363,8 +355,7 @@ void IrGraphGenerator::handle(const Expr* e) {
 
     // inputs & outputs
     for (auto v : e->inputs()) {
-      if (detail_level_ == DetailLevel::ComputeOnly && is_id_expr &&
-          !v->isA<IterDomain>()) {
+      if (!config_.showSchedule && is_id_expr && !v->isA<IterDomain>()) {
         continue;
       }
       addArc(v, e, arc_style);
@@ -393,11 +384,12 @@ void IrGraphGenerator::handle(const TensorDomain* td) {
 }
 
 void IrGraphGenerator::handle(const IterDomain* id) {
-  graph_def_ << "    " << getid(id) << " [label=\"" << IrNodeLabel::gen(id)
+  graph_def_ << "    " << getid(id) << " [label=\""
+             << IrNodeLabel::gen(id, config_, detail_level_)
              << "\", shape=cds, color=gray, fontsize=10];\n";
 
   // Don't show starts or extents as nodes in high-level modes
-  if (detail_level_ != DetailLevel::ComputeOnly) {
+  if (config_.showSchedule) {
     if (!id->start()->isZeroInt()) {
       addArc(id->start(), id, "[color=gray]");
     }
@@ -408,35 +400,36 @@ void IrGraphGenerator::handle(const IterDomain* id) {
 }
 
 void IrGraphGenerator::handle(const Bool* b) {
-  printValue(b, IrNodeLabel::gen(b, detail_level_));
+  printValue(b, IrNodeLabel::gen(b, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const Double* d) {
-  printValue(d, IrNodeLabel::gen(d, detail_level_));
+  printValue(d, IrNodeLabel::gen(d, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const Int* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const ComplexDouble* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const NamedScalar* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const TensorView* tv) {
   auto has_rfactor = tv->domain()->hasRFactor();
   std::stringstream label;
-  label << "{T" << tv->name() << (has_rfactor ? " (r-factor)" : "") << ")|{";
+  label << "{T" << tv->name() << (has_rfactor ? " (r-factor)" : "") << "|{";
   int axis = 0;
   for (auto iter_domain : tv->domain()->getMaybeRFactorDomain()) {
     if (axis != 0) {
       label << "|";
     }
-    label << "<" << axis++ << "> " << IrNodeLabel::gen(iter_domain);
+    label << "<" << axis++ << "> "
+          << IrNodeLabel::gen(iter_domain, config_, detail_level_);
   }
   label << "}}";
 
@@ -480,7 +473,8 @@ void IrGraphGenerator::handle(const TensorView* tv) {
       if (axis != 0) {
         rootd_label << "|";
       }
-      rootd_label << "<" << axis << "> " << IrNodeLabel::gen(iter_domain);
+      rootd_label << "<" << axis << "> "
+                  << IrNodeLabel::gen(iter_domain, config_, detail_level_);
 
       std::stringstream arc_def;
       arc_def << rootd_id << ":" << axis << " -> " << getid(iter_domain) << " "
