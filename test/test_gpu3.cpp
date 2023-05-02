@@ -8277,7 +8277,7 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
 
 // Test that 0-dimensional tensors do not break reduction scheduler
 TEST_F(NVFuserTest, FusionReduceZeroElementTensor_CUDA) {
-  for (int reduction_dim : {1, 2}) {
+  for (int reduction_dim : {0, 1, 2, 3}) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
