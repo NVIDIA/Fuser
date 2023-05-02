@@ -8277,27 +8277,30 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
 
 // Test that 0-dimensional tensors do not break reduction scheduler
 TEST_F(NVFuserTest, FusionReduceZeroElementTensor_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  for (int reduction_dim : {1, 2}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> input_shape{3, 4, 0, 5};
-  auto tv0 = makeSymbolicTensor(4);
-  fusion->addInput(tv0);
-  auto tv1 = sum(tv0, {1});
-  fusion->addOutput(tv1);
+    std::vector<int64_t> input_shape{3, 4, 0, 5};
+    auto tv0 = makeSymbolicTensor(4);
+    fusion->addInput(tv0);
+    auto tv1 = sum(tv0, {reduction_dim});
+    fusion->addOutput(tv1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(input_shape, options);
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({at_x});
-  auto t2 = at_x.sum({2});
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor at_x = at::randn(input_shape, options);
+    auto t2 = at_x.sum({reduction_dim});
 
-  auto reduction_params = getReductionHeuristics(fusion.get(), {at_x});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(fusion.get(), *reduction_params);
+    auto reduction_params = getReductionHeuristics(fusion.get(), {at_x});
+    TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+    scheduleReduction(fusion.get(), *reduction_params);
 
-  testValidate(
-      executor_cache.fusion(), outputs, {at_x}, {t2}, __LINE__, __FILE__);
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), {at_x});
+    auto cg_outputs = fe.runFusion({at_x});
+
+    testValidate(fusion.get(), cg_outputs, {at_x}, {t2}, __LINE__, __FILE__);
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
