@@ -53,6 +53,7 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
+  swap(a.io_initialize_, b.io_initialize_);
   swap(a.permuted_input_map_, b.permuted_input_map_);
   swap(a.permuted_output_map_, b.permuted_output_map_);
 }
@@ -86,6 +87,12 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     Val* copied_output = ir_cloner.clone(entry.first);
     Val* copied_input = ir_cloner.clone(entry.second);
     to->io_alias_[copied_output] = copied_input;
+  }
+
+  for (const auto& entry : from->io_initialize_) {
+    Val* copied_output = ir_cloner.clone(entry.first);
+    Val* copied_input = ir_cloner.clone(entry.second);
+    to->io_initialize_[copied_output] = copied_input;
   }
 
   to->permuted_input_map_ = from->permuted_input_map_;
@@ -159,6 +166,7 @@ void Fusion::clear() noexcept {
   outputs_.clear();
 
   io_alias_.clear();
+  io_initialize_.clear();
 
   permuted_input_map_.clear();
   permuted_output_map_.clear();
@@ -826,6 +834,64 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   // outputs are present
 
   return alias_indices;
+}
+
+void Fusion::initializeOutputUsingInput(Val* output, Val* input) {
+  TORCH_INTERNAL_ASSERT(
+      !output->isFusionOutput(),
+      "Do NOT add input initialized output to fusion output outside of `initializeOutputUsingInput");
+  TORCH_INTERNAL_ASSERT(
+      !output->isFusionInput(),
+      "The input to initialize output must be fusion input);");
+  io_initialize_[output] = input;
+}
+
+Val* Fusion::getOutputInputInitialized(Val* output) {
+  auto search = io_initialize_.find(output);
+  if (search != io_initialize_.end()) {
+    return search->second;
+  }
+  return nullptr;
+}
+
+std::unordered_set<int> Fusion::getIndicesOfInputInitializedOutputs() const {
+  if (io_initialize_.empty()) {
+    return {};
+  }
+
+  std::unordered_set<int> initialize_indices;
+
+  for (const auto i : c10::irange(outputs_.size())) {
+    if (io_initialize_.count(outputs_[i]) != 0) {
+      initialize_indices.insert((int)i);
+    }
+  }
+  return initialize_indices;
+}
+
+std::vector<std::pair<int, int>> Fusion::getOutputToInputInitializedIndices() const {
+  if (io_initialize_.empty()) {
+    return {};
+  }
+
+  std::vector<std::pair<int, int>> initialized_indices;
+  for (const auto output_idx : c10::irange(outputs_.size())) {
+    
+    if (io_initialize_.count(outputs_[output_idx]) != 0) {
+      bool found = false;
+      for (const auto input_idx : c10::irange(inputs_.size())) {
+        if (io_initialize_.at(outputs_[output_idx]) == inputs_[input_idx]) {
+          initialized_indices.emplace_back(output_idx, input_idx);
+          found = true;
+          break;
+        }
+      }
+      TORCH_INTERNAL_ASSERT(
+          found,
+          "io_initialize_ mapping failure, output is not present in inputs");
+    }
+  }
+  return initialized_indices;
 }
 
 bool Fusion::hasDynamicTransform() {

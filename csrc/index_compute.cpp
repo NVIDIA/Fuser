@@ -2728,16 +2728,18 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
 
   // These adjustments are not required when predicating non-divisible splits
   if (!intermediate_domain_pred) {
-    if (consumer_def->isA<ShiftOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
-          consumer_tv, consumer_id, padding_predicate);
-    } else if (consumer_def->isA<GatherOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForGather(
-          consumer_tv,
-          consumer_id,
-          consumer_start_index_map,
-          consumer_stop_index_map,
-          padding_predicate);
+    if(consumer_def) {
+      if (consumer_def->isA<ShiftOp>()) {
+        std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
+            consumer_tv, consumer_id, padding_predicate);
+      } else if (consumer_def->isA<GatherOp>()) {
+        std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForGather(
+            consumer_tv,
+            consumer_id,
+            consumer_start_index_map,
+            consumer_stop_index_map,
+            padding_predicate);
+      }
     }
 
     // Adjustment for partial split

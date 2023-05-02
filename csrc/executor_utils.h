@@ -116,7 +116,8 @@ enum class CompileTimeEntryType {
   WARP_PADDED_PARALLEL_EXTENTS,
   VECTORIZED_TENSOR_VALIDATION,
   INPUT_ALIAS_INDICES,
-  OUTPUT_ALIAS_INDICES
+  OUTPUT_ALIAS_INDICES,
+  INPUT_INITIALIZE_INDICES
 };
 
 //! Entry class definitions for each entry type:
@@ -183,6 +184,17 @@ class InputAliasIndices {
   using DataType = std::vector<std::pair<int, int>>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::INPUT_ALIAS_INDICES;
+};
+
+
+//! Compile-time info to be cached in each FusionExecutor:
+//!  InputInitializeIndices
+//!    Stores position info of initialized input tensors
+class InputInitializeIndices {
+ public:
+  using DataType = std::vector<std::pair<int, int>>;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::INPUT_INITIALIZE_INDICES;
 };
 
 //! Compile-time info to be cached in each FusionExecutor:

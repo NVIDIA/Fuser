@@ -41,34 +41,6 @@ bool shouldFillAllocationWithNan() {
   return fill_allocation_with_nan_;
 }
 
-// For scatter operator, the outputTv is also the FusionOutput, and we need
-// initialize the output tensor using the self tensor.
-TensorView* getOutputTensorForFillWithInputTensor(Val* output) {
-  if (output->definition() && output->definition()->isA<ScatterOp>()) {
-    return output->definition()->as<ScatterOp>()->selfTv();
-  }
-  return nullptr;
-}
-
-// This function return the `copy` for the srcTv.
-at::Tensor getTensorForFillAnotherTensor(
-    TensorView* srcTv,
-    const KernelArgumentHolder& arg,
-    kir::Kernel* kernel) {
-  for (const auto i : c10::irange(kernel->inputs().size())) {
-    // we want to get the position of need_clone_tv in the arg. 
-    if (kernel->inputs()[i] == kernel->inputsOf(srcTv)[0]) {
-      // return the copy of srcTv
-      return dynamic_cast<const TensorArgAbstract*>(arg[i])
-          ->getTensor()
-          .clone()
-          .detach();
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "can't fill output tensor using another tensor");
-}
-
 void setFillAllocationWithNan(bool value) {
   fill_allocation_with_nan_ = value;
 }
@@ -691,6 +663,7 @@ std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
+    const std::vector<std::pair<int, int>>& output_to_input_initialize,
     const KernelArgumentHolder& inputs,
     const c10::Device& device) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
@@ -706,6 +679,12 @@ std::vector<at::Tensor> allocOutputs(
         [&](const auto output_to_input) {
           return output_to_input.first == (int)output_idx;
         });
+    auto init_it = std::find_if(
+        output_to_input_initialize.begin(),
+        output_to_input_initialize.end(),
+        [&](const auto output_to_input) {
+          return output_to_input.first == (int)output_idx;
+        });
 
     // Note: aliased output is not returned as output. But we still need it
     // for kernel execution, so would need to push them to args
@@ -716,6 +695,14 @@ std::vector<at::Tensor> allocOutputs(
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract, "alias io only supports tensor");
       outputs.emplace_back(tensor_arg_abstract->getTensor());
+    } else if (init_it != output_to_input_initialize.end()) {
+      auto initialized_input_index = init_it->second;
+
+      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(
+          inputs.at(initialized_input_index));
+      TORCH_INTERNAL_ASSERT(
+          tensor_arg_abstract, "initilized io only supports tensor");
+      outputs.emplace_back(tensor_arg_abstract->getTensor().clone().detach());
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
@@ -993,8 +980,16 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
             return std::make_unique<std::vector<std::pair<int, int>>>(
                 fusion_->getOutputToInputAliasIndices());
           });
+  auto input_initialize_indices_entry =
+    executor_utils::caching::ExecutorCompileTimeEntry<
+        executor_utils::caching::InputInitializeIndices>(
+        compileTimeDataCache(), [&]() {
+          return std::make_unique<std::vector<std::pair<int, int>>>(
+              fusion_->getOutputToInputInitializedIndices());
+        });
 
   const auto& output_to_input_aliases = input_alias_indices_entry.get();
+  const auto& output_to_input_initialize = input_initialize_indices_entry.get();
 
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
@@ -1003,6 +998,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
       kernel(),
       output_info,
       output_to_input_aliases,
+      output_to_input_initialize,
       kernel_inputs,
       options_.device);
 }
@@ -1030,14 +1026,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
           kernel->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (auto need_fill =
-              getOutputTensorForFillWithInputTensor(kernel->outputs()[out_i])) {
-        outputs.push_back(
-            getTensorForFillAnotherTensor(need_fill, args, kernel));
-      } else if (alias_indices.count(out_i) != 0) {
-        // aliasing to inputs, no need to allocate real output, just push empty
-        // tensor here.
-        outputs.emplace_back();
       auto alias_it = std::find_if(
           output_to_input_aliases.begin(),
           output_to_input_aliases.end(),
@@ -1328,7 +1316,16 @@ void FusionExecutor::initializeExecutorEntry(
                 fusion_->getOutputToInputAliasIndices());
           });
 
+  auto input_initialize_indices_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::InputInitializeIndices>(
+          compileTimeDataCache(), [&]() {
+            return std::make_unique<std::vector<std::pair<int, int>>>(
+                fusion_->getOutputToInputInitializedIndices());
+          });
+
   const auto& output_to_input_aliases = input_alias_indices_entry.get();
+  const auto& output_to_input_initialize = input_initialize_indices_entry.get();
 
   std::vector<GlobalBufferInfo> output_info;
 
@@ -1359,6 +1356,7 @@ void FusionExecutor::initializeExecutorEntry(
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.output_to_input_aliases = output_to_input_aliases;
+  executor_entry.output_to_input_initialize = output_to_input_initialize;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
   executor_entry.rand_offset = rand_offset;
@@ -1448,6 +1446,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
+        executor_entry->output_to_input_initialize,
         args,
         options_.device);
   } else {

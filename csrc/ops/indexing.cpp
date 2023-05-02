@@ -155,6 +155,8 @@ TensorView* scatterOp(
     int dim,
     TensorView* index,
     TensorView* src) {
+  auto fusion = FusionGuard::getCurFusion();
+
   auto self_dom = TensorDomain::noReductions(self->getMaybeRFactorDomain());
   auto idx_dom = TensorDomain::noReductions(index->getMaybeRFactorDomain());
   auto src_dom = TensorDomain::noReductions(src->getMaybeRFactorDomain());
@@ -193,6 +195,9 @@ TensorView* scatterOp(
 
   IrBuilder::create<ScatterOp>(
       type, out_tensor, self, dim, index, src, out_domain[dim]);
+
+  fusion->initializeOutputUsingInput(out_tensor, self);
+
   return out_tensor->as<TensorView>();
 }
 
