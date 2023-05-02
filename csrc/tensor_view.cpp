@@ -1476,6 +1476,21 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
   }
 }
 
+void TensorView::commitLeafToRFactor() {
+  TORCH_CHECK(
+      ir_utils::consumerTvsOf(this).empty(),
+      "Changing the rFactor domain of an intermediate tensor is not supported yet");
+  setDomain(IrBuilder::create<TensorDomain>(
+      container(),
+      domain_->getRootDomain(),
+      domain_->leaf(),
+      domain_->leaf(),
+      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
+      // allow customizing contiguity. But there is no such need now, so I will
+      // just fill the contiguity with true.
+      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
+}
+
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
   TORCH_CHECK(shape_.empty() || shape_.size() == ndims);
   TORCH_CHECK(contiguity_.empty() || contiguity_.size() == ndims);
