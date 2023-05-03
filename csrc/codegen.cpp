@@ -209,7 +209,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
         } else {
           code_
               << "Tensor<" << params[i]->dtype() << ", "
-              << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
+              << TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()
               << "> " << var_name_ss.str();
         }
       } else {
@@ -227,10 +227,10 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& maybe_rfactor_domain = tv->getMaybeRFactorDomain();
+      const auto& alloc_domain = tv->getMaybeAllocationDomain();
       const auto nDims = std::count_if(
-          maybe_rfactor_domain.begin(),
-          maybe_rfactor_domain.end(),
+          alloc_domain.begin(),
+          alloc_domain.end(),
           [](const IterDomain* id) { return !id->isReduction(); });
       code_ << ", Tensor<" << tv->dtype() << ", " << nDims << "> "
             << ir_utils::varName(tv);
