@@ -53,12 +53,13 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
-// Matmul functions are temporary internal functions for testing purposes only
 TensorView* _matmul_nn(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  bool is_turing_or_later =
+      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
+      (device_prop->major >= 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
   if (is_turing_or_later) {
     auto tv0t = transpose(a, 0, 1);
@@ -77,7 +78,9 @@ TensorView* _matmul_nt(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  bool is_turing_or_later =
+      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
+      (device_prop->major >= 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
   if (is_turing_or_later) {
     auto tv0t = transpose(a, 0, 1);
@@ -104,7 +107,9 @@ TensorView* _matmul_tt(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later = ((device_prop->major == 7) && (device_prop->minor >= 5)) || (device_prop->major >= 8);
+  bool is_turing_or_later =
+      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
+      (device_prop->major >= 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
   if (is_turing_or_later) {
     auto tv1t = transpose(b, 0, 1);

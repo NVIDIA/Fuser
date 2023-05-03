@@ -2069,7 +2069,7 @@ class TestNvFuserFrontend(TestCase):
         ):
             fd = SchedError()
             _ = fd.execute(inputs)
-    
+
     def test_matmuls(self):
         # Matmul Constraints:
         # 1. Inputs shapes need to be a multiple of 8
@@ -2110,18 +2110,23 @@ class TestNvFuserFrontend(TestCase):
             t2 = eval(matmul_fn)(t0, t1)
             fd.add_output(t2)
 
-        tests = [("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
-                 ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
-                 ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
-                 ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
-                ]
+        tests = [
+            ("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
+            ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
+            ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
+            ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
+        ]
 
         for mm_str, nvf_test_inputs, eager_test_inputs in tests:
             eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
-            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str), nvf_test_inputs)
-         
+            nvf_out, _ = self.exec_nvfuser(
+                partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
+                nvf_test_inputs,
+            )
+
             fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
             self.assertEqual(eager_out, fp16_nvf_out)
+
 
 if __name__ == "__main__":
     run_tests()
