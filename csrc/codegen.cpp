@@ -227,8 +227,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& maybe_rfactor_domain =
-          tv->hasRFactor() ? tv->getRFactorDomain() : tv->getRootDomain();
+      const auto& maybe_rfactor_domain = tv->getMaybeRFactorDomain();
       const auto nDims = std::count_if(
           maybe_rfactor_domain.begin(),
           maybe_rfactor_domain.end(),
