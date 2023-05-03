@@ -141,14 +141,14 @@ SelectOp::SelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* select_id,
+    int64_t dim,
     Val* index)
     : Expr(passkey) {
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(index);
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -156,7 +156,7 @@ std::string SelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
-                          << ", axis = " << getSelectAxis()
+                          << ", axis = " << getIndexedID()
                           << ", index = " << input(1)->toString() << " )\n";
   return ss.str();
 }
@@ -165,21 +165,26 @@ std::string SelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+IterDomain* SelectOp::getIndexedID() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
-    IterDomain* select_id,
+    int64_t dim,
     Val* indices)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string IndexSelectOp::toString(int indent_size) const {
@@ -187,17 +192,23 @@ std::string IndexSelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = index_select( ";
-  if (input(0)->isA<kir::TensorIndex>()) {
-    ss << input(0)->as<kir::TensorIndex>()->view()->toString();
-  } else {
-    ss << input(0)->toString();
-  }
-  ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
+  ss << input(0)->toString() << ", dim = " << dim() << ", "
+     << input(1)->toString() << " )\n";
   return ss.str();
 }
 
 std::string IndexSelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexSelectOp::getIndexedID() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -206,16 +217,15 @@ TorchGatherOp::TorchGatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
-    IterDomain* select_id,
+    int64_t dim,
     Val* indices,
     bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
@@ -226,22 +236,26 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent_size++;
   indent(ss, indent_size) << " = "
                           << (exactSizes() ? "take_along_axis" : "torch_gather")
-                          << "( ";
-  if (lookupTv()->isA<kir::TensorIndex>()) {
-    ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
-  } else {
-    ss << lookupTv()->toString();
-  }
+                          << "( " << input(0)->toString();
   if (exactSizes()) {
-    ss << ", " << indexTv()->toString() << ", dim = " << dim() << " )\n";
+    ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
   } else {
-    ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
+    ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
   }
   return ss.str();
 }
 
 std::string TorchGatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* TorchGatherOp::getIndexedID() const {
+  return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
@@ -251,19 +265,16 @@ ScatterOp::ScatterOp(
     ScatterOpType type,
     Val* out,
     Val* self,
-    int dim,
+    int64_t dim,
     Val* index,
-    Val* src,
-    IterDomain* select_out_id)
+    Val* src)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
-  // we need to generate code like T_out[T_index[...]] = T_src[...], so we need
-  // select_out_id as an attribute.
-  addAttribute(select_out_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
 }
@@ -281,6 +292,10 @@ std::string ScatterOp::toString(int indent_size) const {
 
 std::string ScatterOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Scatter op can not be printed inline");
+}
+
+IterDomain* ScatterOp::getIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -2499,6 +2514,20 @@ void IterDomain::parallelize(ParallelType t) {
   if (parallel_type_ == t) {
     // No op, don't do any more checks, it was already set to this value.
     return;
+  }
+
+  // assert check that we only parallelize a leaf domain.
+  // leaf domains are domains that are not used by any other domains.
+  if (t != ParallelType::Serial) {
+    TORCH_CHECK(
+        uses().empty(),
+        "Only allowed to parallelize a leaf domain.",
+        " Domain: ",
+        toString(),
+        ", Parallel type: ",
+        t,
+        definition() != nullptr ? ", Definition: " + definition()->toString()
+                                : "");
   }
 
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||

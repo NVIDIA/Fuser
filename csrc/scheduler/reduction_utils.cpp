@@ -445,12 +445,11 @@ void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::unordered_set<TensorView*>& unselected_tvs) {
+    const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
-  auto selected_tvs =
-      ir_utils::allTvsExcept(reference_tv->fusion(), unselected_tvs);
   scheduler_utils::parallelizeAllLike(
       reference_tv,
+      -1,
       selected_tvs,
       allParallelTypesExcept(
           {ParallelType::Unroll,
