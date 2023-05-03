@@ -159,9 +159,7 @@ class AllocationInserter : public kir::ExprMutator {
 
   std::vector<Val*> getGlobalAllocationSizes(AllocationInformation& info) {
     const auto& domain = info.buffer->domain();
-    const auto& maybe_rfactor_domain = domain->hasRFactor()
-        ? domain->getRFactorDomain()
-        : domain->getRootDomain();
+    const auto& maybe_rfactor_domain = domain->getMaybeRFactorDomain();
 
     std::vector<Val*> alloc_dims;
 

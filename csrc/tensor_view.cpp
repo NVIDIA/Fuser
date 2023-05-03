@@ -342,11 +342,11 @@ c10::optional<unsigned int> TensorView::getReductionAxis() const {
 }
 
 const std::vector<IterDomain*>& TensorView::getRootDomain() const {
-  return domain()->getRootDomain();
+  return domain()->root();
 };
 
 const std::vector<IterDomain*>& TensorView::getRFactorDomain() const {
-  return domain()->getRFactorDomain();
+  return domain()->rfactor();
 };
 
 const std::vector<IterDomain*>& TensorView::getMaybeRFactorDomain() const {
@@ -1231,8 +1231,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
       container(),
       IrBuilder::create<TensorDomain>(
           container(),
-          domain()->getRootDomain(),
-          domain()->getRFactorDomain(),
+          domain()->root(),
+          domain()->rfactor(),
           domain()->leaf(),
           domain()->contiguity()),
       getDataType().value());
@@ -1482,7 +1482,7 @@ void TensorView::commitLeafToRFactor() {
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
   setDomain(IrBuilder::create<TensorDomain>(
       container(),
-      domain_->getRootDomain(),
+      domain_->root(),
       domain_->leaf(),
       domain_->leaf(),
       // TODO: If needed, we can let commitLeafToRFactor to take a parameter to

@@ -2654,8 +2654,8 @@ TensorDomain::TensorDomain(
     std::vector<c10::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      leaf_domain_(std::move(leaf_domain)),
       rfactor_domain_(std::move(rfactor_domain)),
+      leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
                              : std::move(contiguity)) {
@@ -2690,10 +2690,11 @@ TensorDomain::TensorDomain(
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),
+      rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
+      allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
       leaf_domain_(ir_cloner->clone(src->leaf_domain_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
-      rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
       contiguity_(src->contiguity()),
       has_reduction_(src->has_reduction_) {}
 
@@ -2720,6 +2721,7 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
   return root_domain_ == other.root_domain_ &&
       leaf_domain_ == other.leaf_domain_ &&
       rfactor_domain_ == other.rfactor_domain_ &&
+      allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
 }
 
@@ -2737,10 +2739,13 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   if (nDims() != other_td->nDims()) {
     return false;
   }
-  if (getRootDomain().size() != other_td->getRootDomain().size()) {
+  if (root().size() != other_td->root().size()) {
     return false;
   }
-  if (getRFactorDomain().size() != other_td->getRFactorDomain().size()) {
+  if (rfactor().size() != other_td->rfactor().size()) {
+    return false;
+  }
+  if (allocation().size() != other_td->allocation().size()) {
     return false;
   }
 
@@ -2750,14 +2755,26 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     }
   }
 
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    if (!(getRootDomain()[i]->sameAs(other_td->getRootDomain()[i]))) {
+  for (const auto i : c10::irange(root().size())) {
+    if (!(root()[i]->sameAs(other_td->root()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(getRFactorDomain().size())) {
-    if (!(getRFactorDomain()[i]->sameAs(other_td->getRFactorDomain()[i]))) {
+  for (const auto i : c10::irange(rfactor().size())) {
+    if (!(rfactor()[i]->sameAs(other_td->rfactor()[i]))) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(allocation().size())) {
+    if (!(allocation()[i]->sameAs(other_td->allocation()[i]))) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(leaf().size())) {
+    if (!(leaf()[i]->sameAs(other_td->leaf()[i]))) {
       return false;
     }
   }
@@ -2808,10 +2825,6 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
-bool TensorDomain::hasReduction() const {
-  return has_reduction_;
-}
-
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
       leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
@@ -2826,20 +2839,12 @@ bool TensorDomain::hasGridReduction() const {
       });
 }
 
-bool TensorDomain::hasBroadcast() const {
-  return no_bcast_domain_.size() != leaf_domain_.size();
-}
-
-bool TensorDomain::hasRFactor() const {
-  return !rfactor_domain_.empty();
-}
-
 bool TensorDomain::hasSymbolicAxis() const {
   // If there's any Symbolic axis, there must be one at the root or
   // rfactor domain.
   return std::any_of(
-             getRootDomain().begin(),
-             getRootDomain().end(),
+             root().begin(),
+             root().end(),
              [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
       (hasRFactor() &&
        std::any_of(
@@ -2939,8 +2944,7 @@ void TensorDomain::split(
   // partial split is only allowed with root domains
   if (trim_out_of_bounds) {
     TORCH_INTERNAL_ASSERT(
-        std::find(getRootDomain().begin(), getRootDomain().end(), id) !=
-            getRootDomain().end(),
+        std::find(root().begin(), root().end(), id) != root().end(),
         "Partial split is only allowed with root domains");
   }
 
@@ -3191,6 +3195,24 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
     const std::vector<int>& axes_) {
   return TransformRFactor::runReplay(this, axes_);
+}
+
+void TensorDomain::setAllocationDomain(
+    std::vector<IterDomain*> new_allocation_domain) {
+  TORCH_CHECK(false, "setAllocationDomain build-out is not finished yet");
+
+  ir_utils::validateDomainEquivalence(root_domain_, new_allocation_domain);
+  ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
+
+  // TODO: lift this restriction
+  TORCH_CHECK(
+      std::unordered_set<IterDomain*>(
+          new_allocation_domain.begin(), new_allocation_domain.end()) ==
+          std::unordered_set<IterDomain*>(
+              getMaybeRFactorDomain().begin(), getMaybeRFactorDomain().end()),
+      "Currently, allocation domain can only be a reorder of rFactor domain");
+
+  allocation_domain_ = std::move(new_allocation_domain);
 }
 
 Split::Split(

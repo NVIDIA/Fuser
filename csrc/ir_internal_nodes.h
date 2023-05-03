@@ -1800,10 +1800,6 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  const std::vector<IterDomain*>& leaf() const {
-    return leaf_domain_;
-  }
-
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of
   // elements as rfactor_domain_. The contiguity of a broadcast dimension is
@@ -1832,13 +1828,26 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
     return ss.str();
   }
 
-  bool hasReduction() const;
+  bool hasReduction() const {
+    return has_reduction_;
+  }
+
   bool hasBlockReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;
-  bool hasBroadcast() const;
-  bool hasRFactor() const;
+
+  bool hasBroadcast() const {
+    return no_bcast_domain_.size() != leaf_domain_.size();
+  }
+
+  bool hasRFactor() const {
+    return !rfactor_domain_.empty();
+  }
+
+  bool hasAllocation() const {
+    return !allocation_domain_.empty();
+  }
 
   // Returns if rfactor domain only consists of id's of iter type.
   bool hasViewLikeRFactor() const;
@@ -1857,19 +1866,33 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
     return no_bcast_domain_;
   }
 
-  const std::vector<IterDomain*>& getRootDomain() const {
+  const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
+  const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
+
+  const std::vector<IterDomain*>& allocation() const {
+    return allocation_domain_;
+  }
+
+  const std::vector<IterDomain*>& leaf() const {
+    return leaf_domain_;
+  }
 
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
   const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
-    return hasRFactor() ? getRFactorDomain() : getRootDomain();
+    return hasRFactor() ? rfactor() : root();
   }
+
+  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
+    return hasAllocation() ? allocation_domain_ : getMaybeRFactorDomain();
+  };
+
+  void setAllocationDomain(std::vector<IterDomain*>);
 
   void resetDomains() {
     no_reduction_domain_ = noReductions(leaf_domain_);
@@ -1943,8 +1966,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
  private:
   const std::vector<IterDomain*> root_domain_;
   const std::vector<IterDomain*> rfactor_domain_;
-  std::vector<IterDomain*> leaf_domain_;
   std::vector<IterDomain*> allocation_domain_;
+  std::vector<IterDomain*> leaf_domain_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

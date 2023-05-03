@@ -189,27 +189,25 @@ TensorDomain* TransformReplay::fullSelfReplay(
   FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
   TORCH_INTERNAL_ASSERT(
-      new_self_root->getRootDomain().size() == self->getRootDomain().size(),
+      new_self_root->root().size() == self->root().size(),
       "Invalid number of IterDomains provided.");
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
   {
     size_t i = 0;
-    for (auto id : self->getRootDomain()) {
+    for (auto id : self->root()) {
       TORCH_INTERNAL_ASSERT(
-          new_self_root->getRootDomain()[i]->isReduction() ==
-                  id->isReduction() &&
-              new_self_root->getRootDomain()[i]->isRFactorProduct() ==
+          new_self_root->root()[i]->isReduction() == id->isReduction() &&
+              new_self_root->root()[i]->isRFactorProduct() ==
                   id->isRFactorProduct() &&
-              new_self_root->getRootDomain()[i]->isBroadcast() ==
-                  id->isBroadcast(),
+              new_self_root->root()[i]->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
           " and ",
-          new_self_root->getRootDomain()[i],
+          new_self_root->root()[i],
           " do not match for self replay.");
-      axis_map[id] = new_self_root->getRootDomain()[i];
+      axis_map[id] = new_self_root->root()[i];
       i++;
     }
   }
@@ -241,7 +239,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
       }
       return IrBuilder::create<TensorDomain>(
           self->container(),
-          new_self_root->getRootDomain(),
+          new_self_root->root(),
           new_rfactor_domain,
           new_domain,
           self->contiguity());
@@ -250,7 +248,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
   return IrBuilder::create<TensorDomain>(
       self->container(),
-      new_self_root->getRootDomain(),
+      new_self_root->root(),
       new_domain,
       new_self_root->contiguity());
 }

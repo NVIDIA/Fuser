@@ -307,7 +307,7 @@ void HaloInfo::insertToInheritanceMap(
   // Check each root domain to see if its set includes the parent. If
   // so, adds the child to the same set.
   bool inserted = false;
-  for (auto root_axis : td->getRootDomain()) {
+  for (auto root_axis : td->root()) {
     auto it = inheritance_map_.find(root_axis);
     if (it == inheritance_map_.end()) {
       continue;
@@ -730,8 +730,8 @@ bool HaloInfo::needsShiftPredicate(Expr* expr) const {
   auto consumer_td = tv_out->domain();
   auto shift_expr = dynamic_cast<ShiftOp*>(tv_out->definition());
   auto gather_expr = dynamic_cast<GatherOp*>(tv_out->definition());
-  for (const auto i : c10::irange(consumer_td->getRootDomain().size())) {
-    auto consumer_id = consumer_td->getRootDomain()[i];
+  for (const auto i : c10::irange(consumer_td->root().size())) {
+    auto consumer_id = consumer_td->root()[i];
     const auto consumer_halo_info = getRootAxisInfo(consumer_id);
     if (consumer_halo_info.hasHalo() ||
         (shift_expr != nullptr && shift_expr->offset(i) != 0 &&

@@ -94,7 +94,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->getRootDomain());
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
       ? updateIdVec(td->getMaybeRFactorDomain())
       : std::vector<IterDomain*>();
