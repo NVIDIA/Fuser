@@ -8301,6 +8301,61 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t4}, __LINE__, __FILE__);
 }
+
+// Test that 0-dimensional tensors do not break reduction scheduler
+TEST_F(NVFuserTest, FusionScheduleReduceZeroElementTensor_CUDA) {
+  for (auto input_shape : std::vector<std::vector<int>>{
+           {3, 4, 0, 5}, // Warp-reduce in all dim pairs (ignoring zero)
+           {33, 40, 0, 50}, // Require block reduction (ignoring zero)
+           {300, 400, 0, 500}, // Require grid reduction (ignoring zero)
+       }) {
+    for (auto reduction_dims : std::vector<std::vector<int>>{
+             {0}, // outermost only
+             {3}, // innermost only
+             {2}, // only zero-dim
+             {1, 2}, // zero-dim and non-zero
+             {2, 3}, // zero-dim and non-zero (innermost)
+         }) {
+      auto fusion = std::make_unique<Fusion>();
+      FusionGuard fg(fusion.get());
+
+      auto tv0 = makeSymbolicTensor(4);
+      fusion->addInput(tv0);
+      auto tv1 = sum(tv0, reduction_dims);
+      fusion->addOutput(tv1);
+
+      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+      at::Tensor at_x = at::randn(
+          std::vector<int64_t>(input_shape.begin(), input_shape.end()),
+          options);
+      auto t2 = at_x.sum(
+          std::vector<int64_t>(reduction_dims.begin(), reduction_dims.end()));
+
+      auto reduction_params = getReductionHeuristics(fusion.get(), {at_x});
+      TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+      scheduleReduction(fusion.get(), *reduction_params);
+
+      FusionExecutor fe;
+      fe.compileFusion(fusion.get(), {at_x});
+      auto cg_outputs = fe.runFusion({at_x});
+
+      testValidate(fusion.get(), cg_outputs, {at_x}, {t2}, __LINE__, __FILE__);
+
+      // verify that the scheduler does not parallelize any IterDomains
+      for (auto tv : ir_utils::allTvs(fusion.get())) {
+        for (auto id : tv->domain()->leaf()) {
+          TORCH_CHECK(
+              id->getParallelType() == ParallelType::Serial ||
+                  id->getParallelType() == ParallelType::Unswitch ||
+                  id->getParallelType() == ParallelType::Unroll,
+              "No IterDomains should be parallelized in zero-element reduction but found ",
+              id->toString());
+        }
+      }
+    }
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
