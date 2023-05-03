@@ -877,7 +877,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
 // pattern as cross entropy.
 TEST_F(
     IndexingOpTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction_CUDA) {
+    TakeAlongAxisIntermediateTensorNormalizationAndReduction1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -915,6 +915,54 @@ TEST_F(
   auto t0_d = t0.to(at::kDouble);
   auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
   auto ref = t5.sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// Similar to
+// TakeAlongAxisIntermediateTensorNormalizationAndReduction1, but the
+// final reduction pattern is compatible with the first reduction, so
+// no segmentation should be done
+TEST_F(
+    IndexingOpTest,
+    TakeAlongAxisIntermediateTensorNormalizationAndReduction2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({32, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv0, tv3);
+  auto tv5 = broadcast(tv1, {false, true});
+  auto tv6 = take_along_axis(tv4, tv5, 1);
+  auto tv7 = add(tv0, tv6);
+  auto tv8 = sum(tv7, {1});
+  fusion.addOutput(tv8);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
+
+  auto t0_d = t0.to(at::kDouble);
+  auto t6 = at::take_along_dim(
+      t0_d / t0_d.sum({1}).unsqueeze(-1), t1.unsqueeze(-1), 1);
+  auto ref = (t0_d + t6).sum({1});
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
