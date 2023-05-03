@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-template <typename T, int N>
+template <typename T, int Dims, int AllocDims=Dims>
 struct Tensor {
   __device__ T& operator[](nvfuser_index_t ind) {
     return data[ind];
   };
 
   T* data;
-  nvfuser_index_t size[N];
-  nvfuser_index_t stride[N];
+  nvfuser_index_t size[Dims];
+  nvfuser_index_t stride[AllocDims];
 };
 
 // Specialization for 0-dim case as it does not need size and stride arrays.
