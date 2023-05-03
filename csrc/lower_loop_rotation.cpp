@@ -23,6 +23,7 @@ namespace {
 // Clone an expr, if this expr is a container (ForLoop, IfThenElse), then
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
+  TORCH_INTERNAL_ASSERT(expr != nullptr);
   if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
     auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
@@ -129,6 +130,7 @@ class RotateLoop : kir::ExprMutator {
   //   then the container is automatically selected.
   // This function modifies selection_ to implement this strategy
   void expandSelection(Expr* expr) {
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     for (auto fl : for_loops_) {
       if (fl->iter_domain() != loop_concrete_id_) {
         continue;
