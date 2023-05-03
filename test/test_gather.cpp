@@ -610,10 +610,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   // All of the tensors should have the split by 2, except for tv1.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
-    if (tv == tv1) {
-      continue;
-    }
+  for (auto tv : ir_utils::allTvsExcept(&fusion, {tv1})) {
     TORCH_CHECK(tv->nDims() == 3, "Unexpected tensor: ", tv->toString());
     TORCH_CHECK(
         tv->axis(-1)->definition() &&
