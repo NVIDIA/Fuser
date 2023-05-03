@@ -1672,6 +1672,7 @@ MmaOp::MmaOp(
   const auto input_layout_ =
       attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
   if (input_layout_.has_value()) {
+    TORCH_INTERNAL_ASSERT(input_layout.has_value());
     TORCH_INTERNAL_ASSERT(
         input_layout_.value() == input_layout.value(),
         "Input layout mismatch, infered attribute (",

@@ -541,7 +541,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (int id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : c10::irange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -1191,7 +1191,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
-  auto ndims = tv->nDims();
+  int ndims = (int)tv->nDims();
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
@@ -1241,8 +1241,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Id not completely categorized");
+  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);
