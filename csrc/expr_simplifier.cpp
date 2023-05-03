@@ -362,6 +362,7 @@ inline RegisterType promoteRegisterType(RegisterType t1, RegisterType t2) {
 }
 
 RegisterType getRegisterType(Val* value, const Context& context) {
+  TORCH_INTERNAL_ASSERT(value != nullptr);
   if (auto ns = dynamic_cast<NamedScalar*>(value)) {
     if (ns->getParallelIndex() == ParallelType::TIDx ||
         ns->getParallelIndex() == ParallelType::TIDy ||

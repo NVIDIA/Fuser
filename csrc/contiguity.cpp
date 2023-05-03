@@ -545,6 +545,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
         resize_deps_.insert(resize->out());
       } else {
+        TORCH_INTERNAL_ASSERT(expr != nullptr);
         if (std::any_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
                   return inp->isA<IterDomain>() &&

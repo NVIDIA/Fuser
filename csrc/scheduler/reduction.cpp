@@ -94,7 +94,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32l * 1024;
+  constexpr int64_t l1_cache = 32 * 1024;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;
@@ -665,12 +665,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // Purely empirically found switch to start vectorization, tuned on v100,
   // should check it's validity on other hardware or if we need to switch to
   // size not n_elems
-  if (n_elems * max_input_dtype_size > 64l * 1024 * 1024) {
+  if (n_elems * max_input_dtype_size > 64l * 1024l * 1024l) {
     // Do some unrolling on the iter dimension
     iter_unroll_factor =
         vectorize_factor > 1 ? (int64_t)vectorize_factor : max_unroll;
     iter_unroll_factor =
-        std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024 * 1024));
+        std::min(iter_unroll_factor, ceilDiv(n_elems, 32l * 1024l * 1024l));
     iter_unroll_factor = std::min(iter_unroll_factor, iDimAvail());
     iter_unroll_factor = std::min(iter_unroll_factor, target_unroll);
     iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
@@ -737,7 +737,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     int64_t bytes_stride_remainder = max_input_dtype_size * bdimx * bdimy *
         iter_unroll_factor * inner_reduction_unroll_factor;
     // Empiercally found stride shouldn't exceed 256kiB boundaries in a block
-    int64_t kMaxStride = 128l * 1024;
+    int64_t kMaxStride = 128l * 1024l;
 
     int64_t max_remainder_size =
         scheduler_utils::safeDiv(kMaxStride, bytes_stride_remainder);
@@ -863,16 +863,16 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         inner_most_dimension_numel,
-        n_tensor_inputs,
-        max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         vectorize_factor);
   } else {
     // 3D schedules not enabled for outer reductions
     return outerReductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
-        n_tensor_inputs,
-        max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         vectorize_factor);
   }
 }
