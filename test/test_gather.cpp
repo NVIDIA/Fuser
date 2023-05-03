@@ -788,6 +788,44 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// take_along_axis then reduction. Should not be segmented.
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape_before_gather({100, 100});
+  std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = take_along_axis(tv2, tv1, 1);
+  auto tv4 = sum(tv3, {1});
+  fusion.addOutput(tv4);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape_before_gather, options);
+  auto t1 =
+      at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
+
+  auto ref = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1).sum({1});
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Normalization then take_along_axis
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -869,6 +907,47 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
   auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
                 .squeeze(1);
   auto ref = t5 / t5.sum({0}).unsqueeze(0);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// take_along_axis then normalization. Should not be segmented.
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape_before_gather({100, 100});
+  std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = take_along_axis(tv2, tv1, 1);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = div(tv3, tv5);
+  fusion.addOutput(tv6);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape_before_gather, options);
+  auto t1 =
+      at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
+
+  auto t3 = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1);
+  auto ref = t3 / t3.sum({1}).unsqueeze(-1);
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
