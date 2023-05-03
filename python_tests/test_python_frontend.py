@@ -6,6 +6,7 @@
 from copy import deepcopy
 from functools import partial
 import math
+import os
 import re
 from typing import List, Callable
 import unittest
@@ -60,6 +61,10 @@ def serde_check(test_fn: Callable):
 
         # Run test to populate FusionCache
         test_fn(*args, **kwargs)
+
+        # Delete previous file
+        if os.path.isfile("foo.bin"):
+            os.remove("foo.bin")
 
         # Serialize FusionCache
         fc = FusionCache.get()
@@ -2121,6 +2126,7 @@ class TestNvFuserFrontend(TestCase):
 
         for mm_str, nvf_test_inputs, eager_test_inputs in tests:
             if prop.major == 8:
+                print("Uh Oh!")
                 nvf_out, _ = self.exec_nvfuser(
                     partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
                     nvf_test_inputs,
@@ -2133,10 +2139,14 @@ class TestNvFuserFrontend(TestCase):
                 with self.assertRaisesRegex(
                     RuntimeError, "Only the Ampere MMA Op is currently supported!"
                 ):
-                    nvf_out, _ = self.exec_nvfuser(
-                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
-                        nvf_test_inputs,
-                    )
+                    with FusionDefinition() as fd:
+                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str)(fd)
+                    nvf_out = fd.execute(nvf_test_inputs)
+                # It is necessary to reset the Fusion Cache so
+                # serialization/deserialization does not exhibit the same error
+                # across tests
+                fc = FusionCache.get()
+                fc.reset()
 
 
 if __name__ == "__main__":
