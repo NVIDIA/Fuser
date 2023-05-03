@@ -1942,10 +1942,12 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
+  const std::vector<IterDomain*> rfactor_domain_;
   std::vector<IterDomain*> leaf_domain_;
+  std::vector<IterDomain*> allocation_domain_;
+
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
-  const std::vector<IterDomain*> rfactor_domain_;
   std::vector<c10::optional<bool>> contiguity_;
   bool has_reduction_;
 };
