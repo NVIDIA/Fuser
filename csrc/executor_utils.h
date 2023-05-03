@@ -99,8 +99,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const std::string& code,
     const std::string& func_name,
     int id,
-    c10::optional<int> opt_block_size = c10::nullopt,
-    const int max_register_heuristic = 255,
+    std::optional<int64_t> opt_block_size = std::nullopt,
+    const int64_t max_register_heuristic = 255,
     bool return_compiled_binary = false);
 
 namespace caching {

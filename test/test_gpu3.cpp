@@ -1750,21 +1750,21 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
-  int64_t i201;
-  i201 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i75;
+  i75 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
   i7 = T0.size[0] * T0.size[1];
-  bool b347;
-  b347 = i201 < i7;
+  bool b149;
+  b149 = i75 < i7;
   float f8;
   f8 = (float)(i7);
   float T1[1];
-  if (b347) {
+  if (b149) {
     T1[0]
-       = sinf(T0[i201]);
+       = sinf(T0[i75]);
   }
-  if (b347) {
-    T2[i201]
+  if (b149) {
+    T2[i75]
       = T1[0]
       + f8;
   }
@@ -8216,6 +8216,33 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
       {ref},
       __LINE__,
       __FILE__);
+}
+
+// Test for void IterDomain::parallelize(ParallelType t)
+// Only allowed to parallelize a leaf domain.
+TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1]
+  tv1->split(1, 4);
+  // [I0, I1/4, 4]
+
+  const auto& root_domain = tv1->getRootDomain();
+
+  // legal, as I0 is also a leaf domain
+  root_domain[0]->parallelize(ParallelType::BIDx);
+
+  // llegal, as I1 is not a leaf domain
+  EXPECT_THAT(
+      [&]() { root_domain[1]->parallelize(ParallelType::BIDy); },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
 
 // delete intermediate tensors between segments to reduce memory usage of large
