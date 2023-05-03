@@ -801,8 +801,10 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
   auto ceilDiv = [](const int a, const int b) { return (a + b - 1) / b; };
   constexpr bool verbose = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // avoid future architecture with too many SMs
+  // then we don't have enough parallelism to split out.
   const int64_t device_multiprocessor_count =
-      (int64_t)dev_prop->multiProcessorCount;
+      std::min(dev_prop->multiProcessorCount, 128);
   const int dim0 = 216;
   const int dim1 = 1024;
   const int bidy = 2 * device_multiprocessor_count;
@@ -903,6 +905,8 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 
   reduction_scheduler_utils::propagateTransformation(
       reference_tv_inner, {partialResultReload});
+  const auto& selected_tvs_inner = scheduler_utils::getAllTvsFrom(
+      inner_reduction_tvs, {partialResultReload});
   reduction_scheduler_utils::propagateParallelization(
       &fusion,
       inner_reduction_tv,
@@ -912,8 +916,11 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       false,
       inner_reduction_tvs,
       cached_inputs,
-      cached_outputs);
+      cached_outputs,
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
+  const auto& selected_tvs_outer =
+      scheduler_utils::getAllTvsFrom(outer_reduction_tvs, {partialResult});
   reduction_scheduler_utils::propagateTransformation(
       reference_tv_outer, {partialResultReload});
   reduction_scheduler_utils::propagateParallelization(
@@ -925,7 +932,8 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       false,
       outer_reduction_tvs,
       cached_inputs,
-      cached_outputs);
+      cached_outputs,
+      {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};
   for (auto tv : cached_gmem_temp) {
