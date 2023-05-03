@@ -2071,21 +2071,57 @@ class TestNvFuserFrontend(TestCase):
             _ = fd.execute(inputs)
     
     def test_matmuls(self):
-        inputs = [
-            torch.randn(8, 4, device="cuda", dtype=torch.float16),
-            torch.randn(4, 6, device="cuda", dtype=torch.float16),
+        # Matmul Constraints:
+        # 1. Inputs shapes need to be a multiple of 8
+        # 2. Inputs need to be contiguous as the nvFuser matmul does
+        #    not see non-contiguous inputs.
+        nvf_inputs_nn = [
+            torch.randn(8, 24, device="cuda", dtype=torch.float16),
+            torch.randn(16, 8, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_nn = [
+            nvf_inputs_nn[0].clone().transpose(0, 1),
+            nvf_inputs_nn[1].clone().transpose(0, 1),
+        ]
+        nvf_inputs_nt = [
+            torch.randn(8, 24, device="cuda", dtype=torch.float16),
+            torch.randn(8, 16, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_nt = [
+            nvf_inputs_nt[0].clone().transpose(0, 1),
+            nvf_inputs_nt[1].clone(),
+        ]
+        nvf_inputs_tn = [
+            torch.randn(24, 8, device="cuda", dtype=torch.float16),
+            torch.randn(16, 8, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_tn = [
+            nvf_inputs_tn[0].clone(),
+            nvf_inputs_tn[1].clone().transpose(0, 1),
+        ]
+        nvf_inputs_tt = [
+            torch.randn(24, 8, device="cuda", dtype=torch.float16),
+            torch.randn(8, 16, device="cuda", dtype=torch.float16),
         ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.from_pytorch(inputs[1])
-            t2 = fd.ops._matmul_tt(t0, t1)
+        def fusion_func(fd: FusionDefinition, inps, matmul_fn) -> None:
+            t0 = fd.from_pytorch(inps[0])
+            t1 = fd.from_pytorch(inps[1])
+            t2 = eval(matmul_fn)(t0, t1)
             fd.add_output(t2)
 
-        eager_out = torch.matmul(inputs[0], inputs[1]).to(dtype=torch.float32)
+        tests = [("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
+                 ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
+                 ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
+                 ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
+                ]
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        self.assertEqual(eager_out, nvf_out[0])
+        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
+            eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
+            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str), nvf_test_inputs)
+         
+            fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
+            self.assertEqual(eager_out, fp16_nvf_out)
 
 if __name__ == "__main__":
     run_tests()
