@@ -49,7 +49,7 @@ TensorView* select(TensorView* tv, int dim, Val* index) {
   auto td = IrBuilder::create<TensorDomain>(
       new_root, TensorDomain::getContiguityFilledWith(new_root, true));
   auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
-  IrBuilder::create<SelectOp>(out, tv, dom.at(dim), index);
+  IrBuilder::create<SelectOp>(out, tv, dim, index);
   return out;
 }
 
@@ -101,8 +101,7 @@ TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
   // broadcast index to lookup's rank.
   index_tv =
       ops::maybe_broadcast_index_tv(index_tv->as<TensorView>(), dim, n_dims);
-  IrBuilder::create<IndexSelectOp>(
-      out, lookup_tv, dim, lookup_dom[dim], index_tv);
+  IrBuilder::create<IndexSelectOp>(out, lookup_tv, dim, index_tv);
   return out;
 }
 
@@ -143,8 +142,7 @@ TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(
-      out_tensor, inp, dim, inp_domain[dim], index, false);
+  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, false);
   return out_tensor->as<TensorView>();
 }
 
@@ -191,8 +189,7 @@ TensorView* scatterOp(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       self->getDataType().value());
 
-  IrBuilder::create<ScatterOp>(
-      type, out_tensor, self, dim, index, src, out_domain[dim]);
+  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
   return out_tensor->as<TensorView>();
 }
 
@@ -275,8 +272,7 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(
-      out_tensor, inp, dim, inp_domain[dim], index, true);
+  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
 }
