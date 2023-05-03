@@ -2117,15 +2117,26 @@ class TestNvFuserFrontend(TestCase):
             ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
         ]
 
-        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
-            eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
-            nvf_out, _ = self.exec_nvfuser(
-                partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
-                nvf_test_inputs,
-            )
+        prop = torch.cuda.get_device_properties(torch.cuda.current_device())
 
-            fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
-            self.assertEqual(eager_out, fp16_nvf_out)
+        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
+            if prop.major == 8:
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
+                    nvf_test_inputs,
+                )
+                eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
+
+                fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
+                self.assertEqual(eager_out, fp16_nvf_out)
+            else:
+                with self.assertRaisesRegex(
+                    RuntimeError, "Only the Ampere MMA Op is currently supported!"
+                ):
+                    nvf_out, _ = self.exec_nvfuser(
+                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
+                        nvf_test_inputs,
+                    )
 
 
 if __name__ == "__main__":

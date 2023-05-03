@@ -57,17 +57,16 @@ TensorView* _matmul_nn(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later =
-      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
-      (device_prop->major >= 8);
+  bool is_ampere = (device_prop->major == 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
-  if (is_turing_or_later) {
+  if (is_ampere) {
     auto tv0t = transpose(a, 0, 1);
     tv0b = broadcast(tv0t, {false, true, false});
     tv1b = broadcast(b, {true, false, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {2});
     return tv2;
-  } else {
+  } else { // Volta specific code
+    TORCH_CHECK(false, "Only the Ampere MMA Op is currently supported!");
     tv0b = broadcast(b, {false, false, true});
     tv1b = broadcast(a, {true, false, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {1});
@@ -78,17 +77,16 @@ TensorView* _matmul_nt(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later =
-      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
-      (device_prop->major >= 8);
+  bool is_ampere = (device_prop->major == 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
-  if (is_turing_or_later) {
+  if (is_ampere) {
     auto tv0t = transpose(a, 0, 1);
     auto tv1t = transpose(b, 0, 1);
     tv0b = broadcast(tv0t, {false, true, false});
     tv1b = broadcast(tv1t, {true, false, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-  } else {
+  } else { // Volta specific code
+    TORCH_CHECK(false, "Only the Ampere MMA Op is currently supported!");
     tv0b = broadcast(a, {false, false, true});
     tv1b = broadcast(b, {false, true, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {0});
@@ -98,25 +96,31 @@ TensorView* _matmul_nt(TensorView* a, TensorView* b) {
 TensorView* _matmul_tn(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
-  auto tv0b = broadcast(a, {false, true, false});
-  auto tv1b = broadcast(b, {true, false, false});
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-  return tv2;
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  bool is_ampere = (device_prop->major == 8);
+  if (is_ampere) {
+    auto tv0b = broadcast(a, {false, true, false});
+    auto tv1b = broadcast(b, {true, false, false});
+    auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+    return tv2;
+  } else { // Volta specific code
+    TORCH_CHECK(false, "Only the Ampere MMA Op is currently supported!");
+    return nullptr;
+  }
 }
 TensorView* _matmul_tt(TensorView* a, TensorView* b) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  bool is_turing_or_later =
-      ((device_prop->major == 7) && (device_prop->minor >= 5)) ||
-      (device_prop->major >= 8);
+  bool is_ampere = (device_prop->major == 8);
   TensorView *tv0b = nullptr, *tv1b = nullptr, *tv2 = nullptr;
-  if (is_turing_or_later) {
+  if (is_ampere) {
     auto tv1t = transpose(b, 0, 1);
     tv0b = broadcast(a, {false, true, false});
     tv1b = broadcast(tv1t, {true, false, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-  } else {
+  } else { // Volta specific code
+    TORCH_CHECK(false, "Only the Ampere MMA Op is currently supported!");
     tv0b = broadcast(a, {false, false, true});
     tv1b = broadcast(b, {true, false, false});
     tv2 = fusedMultiplySum(tv0b, tv1b, {1});

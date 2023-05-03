@@ -52,6 +52,9 @@ TORCH_CUDA_CU_API LstmResult lstm(
 // 1. M, N, and K dimensions must be multiples of 8
 // 2. Tensors must be contiguously defined.
 // 3. Inputs must be FP16/BF16
+// 4. Heuristic support only exists for Ampere
+// 5. FIXME: Volta does not have an NN op so a TT op is required with post-op
+//    transpose but the transpose triggers a segmentation assert.
 TORCH_CUDA_CU_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
 TORCH_CUDA_CU_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
 TORCH_CUDA_CU_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
