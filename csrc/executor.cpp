@@ -45,17 +45,6 @@ void setFillAllocationWithNan(bool value) {
   fill_allocation_with_nan_ = value;
 }
 
-bool assert_out_of_bound_ = false;
-
-bool shouldAssertOutOfBound() {
-  return isDebugDumpEnabled(DebugDumpOption::AssertMemoryViolation) ||
-      assert_out_of_bound_;
-}
-
-void setAssertOutOfBound(bool value) {
-  assert_out_of_bound_ = value;
-}
-
 namespace {
 
 static const char* defineIndexType(PrimDataType index_type) {
@@ -106,9 +95,6 @@ std::string FusionExecutor::getStructuredCode(
     PrimDataType index_type) const {
   // generating cuda code;
   std::string code = "";
-  if (shouldAssertOutOfBound()) {
-    code += "#define ASSERT_OUT_OF_BOUND 1";
-  }
   code += includeStdComplex();
   code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
       " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
