@@ -62,14 +62,10 @@ struct TensorArgCodegen {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = N;
-
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
-
-  T* data;
+  size_t data_ptr_address = 0;
   std::array<nvfuser_index_t, N> size;
   std::array<nvfuser_index_t, N> stride;
+
   constexpr int nDims() const {
     return N;
   }
@@ -93,12 +89,8 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = 0;
+  size_t data_ptr_address = 0;
 
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
-
-  T* data;
   constexpr int nDims() const {
     return 0;
   }
@@ -201,10 +193,10 @@ struct TensorArgAbstract : ArgAbstract {
   virtual int64_t getRank() const = 0;
   virtual int64_t getSize(int64_t i) const = 0;
   virtual int64_t getStride(int64_t i) const = 0;
-  virtual void* getPointer() const = 0;
+  virtual size_t getPointerAddress() const = 0;
   virtual DataType getDataType() const = 0;
   virtual int64_t numel() const = 0;
-  virtual at::Tensor getTensor() const = 0;
+  virtual std::optional<at::Tensor> getTensor() const = 0;
   virtual bool isIndexTypeResolved() const = 0;
   //! Returns the index type of the tensor. It's an error if the
   //! tensor does not have a resolved index type.
@@ -216,12 +208,12 @@ struct TensorArgAbstract : ArgAbstract {
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
-  at::Tensor tensor_;
+  std::optional<at::Tensor> tensor_;
   bool index_type_resolved_ = false;
 
   TensorArg(const at::Tensor& tensor, bool index_type_resolved)
       : tensor_(tensor), index_type_resolved_(index_type_resolved) {
-    setPointer(tensor.data_ptr());
+    instance_.data_ptr_address = (size_t)tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
       setStride(i, tensor.strides()[i]);
@@ -234,12 +226,6 @@ struct TensorArg : public TensorArgAbstract {
   void setStride(int64_t i, int64_t stride) {
     instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
   }
-  void setPointer(void* ptr) {
-    instance_.data = static_cast<decltype(TENSOR_TYPE::data)>(ptr);
-  }
-  void setTensor(at::Tensor tensor) {
-    tensor_ = tensor;
-  }
 
   int64_t getSize(int64_t i) const override {
     return instance_.getSize(i);
@@ -250,14 +236,14 @@ struct TensorArg : public TensorArgAbstract {
   int64_t getRank() const override {
     return instance_.nDims();
   }
-  void* getPointer() const override {
-    return instance_.data;
+  size_t getPointerAddress() const override {
+    return instance_.data_ptr_address;
   }
   DataType getDataType() const override {
     return NativeTypeWithC10ComplexToDataType<
         typename TENSOR_TYPE::data_type>::type;
   }
-  at::Tensor getTensor() const override {
+  std::optional<at::Tensor> getTensor() const override {
     return tensor_;
   }
   int64_t numel() const override {

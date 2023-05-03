@@ -692,7 +692,9 @@ std::vector<at::Tensor> allocOutputs(
           inputs.at(aliased_input_index));
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract, "alias io only supports tensor");
-      outputs.emplace_back(tensor_arg_abstract->getTensor());
+      auto at_tensor_opt = tensor_arg_abstract->getTensor();
+      TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
+      outputs.emplace_back(at_tensor_opt.value());
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
@@ -1083,11 +1085,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
         // TODO: we are using meta here, which is bad since it doesn't account
         // for devices. Switch to fake tensor instead
         ret.push(inferAndAllocOutput(
-            output,
-            expr_eval,
-            meta_options,
-            false,
-            arg_index_type));
+            output, expr_eval, meta_options, false, arg_index_type));
       }
     }
   }

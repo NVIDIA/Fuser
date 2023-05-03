@@ -72,7 +72,7 @@ class ArgumentManager {
   void updateWithSegmentOutputs(
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs,
-      const int group_id) {
+      const size_t group_id) {
     addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
     deleteUnusedArgs(group_id);
   }
@@ -82,7 +82,7 @@ class ArgumentManager {
   // map from val to args
   std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
-  std::unordered_map<int, std::vector<Val*>> vals_last_used_at_segment_;
+  std::unordered_map<size_t, std::vector<Val*>> vals_last_used_at_segment_;
 
   void mapFusionInputsToArgs(
       const std::vector<Val*>& fusion_inputs,
@@ -118,14 +118,14 @@ class ArgumentManager {
       return val->isFusionInput() || val->isFusionOutput();
     };
     // map val to segment_id where arg is lastly used
-    std::unordered_map<Val*, int> last_used_segment_map;
-    const int n_groups = group_run_order.size();
+    std::unordered_map<Val*, size_t> last_used_segment_map;
+    const size_t n_groups = group_run_order.size();
     // only need to set lifetime of vals if there are more than 3 groups
     if (n_groups >= 3) {
       // start from the 2nd group, since the input of the first group is always
       // the global input and its outputs are always used by at least one of the
       // following groups
-      for (int group_id = 1; group_id < n_groups; ++group_id) {
+      for (size_t group_id = 1; group_id < n_groups; ++group_id) {
         auto group_to_run = group_run_order.at(group_id);
         // set/update life of vals in inputs of this group
         for (auto val : group_to_run->inputs()) {
@@ -154,7 +154,7 @@ class ArgumentManager {
       }
     }
   }
-  void deleteUnusedArgs(int group_id) {
+  void deleteUnusedArgs(size_t group_id) {
     // erase args corresponding to vals lastly used in this segment
     if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
       for (auto val : vals_last_used_at_segment_[group_id]) {
@@ -908,8 +908,12 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       // 2) Integration handles the trivial forwarding of inputs. When we put
       // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      auto arg = dynamic_cast<const TensorArgAbstract*>(iter->second);
-      fusion_outputs.push_back(arg->getTensor());
+      auto tensor_arg_abstract =
+          dynamic_cast<const TensorArgAbstract*>(iter->second);
+      TORCH_INTERNAL_ASSERT(tensor_arg_abstract != nullptr);
+      auto at_tensor_opt = tensor_arg_abstract->getTensor();
+      TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
+      fusion_outputs.push_back(at_tensor_opt.value());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;

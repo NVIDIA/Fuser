@@ -25,7 +25,7 @@ std::string TensorArgAbstract::toString() const {
   for (auto i = 0; i < rank; i++) {
     ss << getStride(i) << ", ";
   }
-  ss << ") pointer: " << getPointer();
+  ss << ") pointer: " << getPointerAddress();
   return ss.str();
 }
 
@@ -217,11 +217,13 @@ void** KernelArgumentHolder::getBuffer(PrimDataType index_type) {
     void_ptrs_.resize(arguments_.size());
   }
   for (const auto i : c10::irange(arguments_.size())) {
-    if (auto tensor_arg =
+    if (auto tensor_arg_abstract =
             dynamic_cast<TensorArgAbstract*>(arguments_.at(i).get())) {
-      if (!tensor_arg->isIndexTypeResolved() ||
-          tensor_arg->getIndexType() != index_type) {
-        auto resolved_arg = getTensorArg(tensor_arg->getTensor(), index_type);
+      if (!tensor_arg_abstract->isIndexTypeResolved() ||
+          tensor_arg_abstract->getIndexType() != index_type) {
+        auto at_tensor_opt = tensor_arg_abstract->getTensor();
+        TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
+        auto resolved_arg = getTensorArg(at_tensor_opt.value(), index_type);
         arguments_.at(i) = std::move(resolved_arg);
       }
     }

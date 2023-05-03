@@ -868,8 +868,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     if (auto tensor_arg_abstract =
             dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
       auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      auto data_ptr = tensor_arg_abstract->getPointer();
-      input_ptrs_[fusion_inp] = (size_t)data_ptr;
+      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
 
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
