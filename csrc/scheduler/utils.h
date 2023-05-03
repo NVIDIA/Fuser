@@ -581,5 +581,11 @@ TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
 
+//! Get all tensors that are connected to from_tvs without going through
+//! any tvs in the cutoff_tv_set.
+TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

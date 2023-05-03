@@ -61,7 +61,7 @@ TensorView* scheduleReductionTV(
       !(rparams.unroll_factor_iter_dom > 1 && !has_iter_axis),
       "Unrolling on iter domain requires an iter domain.");
 
-  auto vectorize = [&reduction_tv](int axis, int factor) {
+  auto vectorize = [&reduction_tv](int axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
   };
@@ -71,18 +71,18 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis + 1)->parallelize(ptype);
   };
 
-  auto inner_parallel_static = [&reduction_tv](
-                                   int axis, ParallelType ptype, int factor) {
-    reduction_tv->split(axis, factor);
-    reduction_tv->axis(axis + 1)->parallelize(ptype);
-  };
+  auto inner_parallel_static =
+      [&reduction_tv](int axis, ParallelType ptype, int64_t factor) {
+        reduction_tv->split(axis, factor);
+        reduction_tv->axis(axis + 1)->parallelize(ptype);
+      };
 
   auto inner_unswitch = [&reduction_tv](int axis) {
     reduction_tv->split(axis, 1);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
   };
 
-  auto inner_unroll = [&reduction_tv](int axis, int factor) {
+  auto inner_unroll = [&reduction_tv](int axis, int64_t factor) {
     reduction_tv->split(axis, factor);
     reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
   };
@@ -97,7 +97,7 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis)->parallelize(ParallelType::Unswitch);
   };
 
-  auto outer_unroll = [&reduction_tv](int axis, int factor) {
+  auto outer_unroll = [&reduction_tv](int axis, int64_t factor) {
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
@@ -108,7 +108,7 @@ TensorView* scheduleReductionTV(
     inner_parallel_static(
         reduction_axis,
         rparams.block_dim_inner_reduction,
-        rparams.lparams.bdimy());
+        (int)rparams.lparams.bdimy());
     reduction_tv->split(
         reduction_axis, rparams.batches_per_block_inner_reduction);
     reduction_tv->axis(reduction_axis)
@@ -147,7 +147,7 @@ TensorView* scheduleReductionTV(
 
     if (!rparams.vectorize_inner_reduction &&
         rparams.unroll_factor_inner_reduction > 1) {
-      outer_unroll(outer_i++, rparams.unroll_factor_inner_reduction);
+      outer_unroll(outer_i++, (int)rparams.unroll_factor_inner_reduction);
     }
 
     if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
@@ -275,7 +275,7 @@ TensorView* scheduleReductionTV(
   if (is_outer_grid_persistence) {
     int vec_id_cur_pos = -1;
     std::unordered_map<int, int> vec_reorder_map;
-    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
+    for (const auto i : c10::irange((int)reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -445,12 +445,11 @@ void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::unordered_set<TensorView*>& unselected_tvs) {
+    const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
-  auto selected_tvs =
-      ir_utils::allTvsExcept(reference_tv->fusion(), unselected_tvs);
   scheduler_utils::parallelizeAllLike(
       reference_tv,
+      -1,
       selected_tvs,
       allParallelTypesExcept(
           {ParallelType::Unroll,

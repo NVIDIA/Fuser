@@ -306,6 +306,7 @@ class FusionTransformer {
         fused_expr = IrBuilder::create<GroupedReductionOp>(
             op_types, init_vals, outputs, inputs, true);
       } else {
+        TORCH_INTERNAL_ASSERT(expr != nullptr);
         TORCH_INTERNAL_ASSERT(false, "Invalid expr: ", expr->toString());
       }
 

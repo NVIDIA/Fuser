@@ -68,7 +68,7 @@ TORCH_CUDA_CU_API void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::unordered_set<TensorView*>& unselected_tvs = {});
+    const std::vector<TensorView*>& selected_tvs = {});
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
