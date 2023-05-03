@@ -554,6 +554,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   void commitLeafToRFactor();
 
   // [rFactor movement around the fusion]
+  // TODO: revisit this after implementation
   //
   // Assume we have the following fusion: T0 --set--> T1 --set--> T2 where
   // T0: root = [I0, I1], no rfactor

@@ -24,6 +24,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <unordered_map>
+
 namespace nvfuser {
 
 namespace {
@@ -1480,6 +1482,13 @@ void TensorView::commitLeafToRFactor() {
   TORCH_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
+  TORCH_INTERNAL_ASSERT(
+      std::find_if(
+          domain_->contiguity().begin(),
+          domain_->contiguity().end(),
+          [](c10::optional<bool> c) { c == false; }) !=
+          domain_->contiguity().end(),
+      "Discontiguous tensors are not supported yet.");
   setDomain(IrBuilder::create<TensorDomain>(
       container(),
       domain_->getRootDomain(),
@@ -1490,6 +1499,123 @@ void TensorView::commitLeafToRFactor() {
       // just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
 }
+
+void TensorView::pushRFactorForward(
+    std::optional<std::vector<IterDomain*>> intermediate_state) {
+  TORCH_INTERNAL_ASSERT(
+      hasRFactor(),
+      "pushRFactorForward must be called on tensors with rFactor domain");
+
+  auto checkProducer = [](TensorView* tv) {
+    auto dom = tv->domain();
+    TORCH_INTERNAL_ASSERT(
+        dom->leaf() == dom->getMaybeRFactorDomain() &&
+            tv->getMaxComputePosition() == 0,
+        "Can not change definition on producer tensors that is already scheduled.");
+    // TODO: right now we are assuming contiguous tensors, in the future we can
+    // consider supporting discongituous tensors if needed.
+    TORCH_INTERNAL_ASSERT(
+        std::find_if(
+            dom->contiguity().begin(),
+            dom->contiguity().end(),
+            [](c10::optional<bool> c) { c == false; }) !=
+            dom->contiguity().end(),
+        "Discontiguous tensors are not supported yet.");
+  };
+  checkProducer(this);
+
+  auto consumer_tvs = ir_utils::consumerTvsOf(this);
+  std::unordered_map<TensorView*, std::unordered_set<TensorView*>> c2p;
+  std::unordered_map<TensorView*, TensorDomain*> new_tds;
+  // Assume the DAG around this is:
+  // tv0 this tv3
+  //   \ /  \ /
+  //   tv1  tv2
+  // Then this function will need to update the rFactor domain of all of tv0,
+  // tv1, tv2, tv3. The rule to update consumers (tv1, tv2) is different from
+  // the rule for producers (tv0, tv3). The root domain of producers (including
+  // this) will not change, the rFactor domain of consumers will not change.
+  for (auto consumer_tv : consumer_tvs) {
+    for (auto producer_tv : ir_utils::producerTvsOf(consumer_tv)) {
+      if (producer_tv == this) {
+        continue;
+      }
+      if (c2p[consumer_tv].emplace(producer_tv).second) {
+        checkProducer(producer_tv);
+      }
+    }
+  }
+  // Step 1: compute the new tensor domain for this tensor
+  TensorDomain* split_out;
+  if (!intermediate_state.has_value()) {
+    // Beginning state:
+    // root -> transforms -> rFactor
+    // End state:
+    // root
+    // Split out:
+    // root -> transforms -> original rFactor
+    auto dom = domain();
+    new_tds.emplace(
+        this,
+        IrBuilder::create<TensorDomain>(
+            dom->getRootDomain(),
+            dom->getRootDomain(),
+            TensorDomain::getContiguityFilledWith(dom->getRootDomain(), true)));
+    split_out = dom;
+  } else {
+    // Beginning state:
+    // root -> transform set 1 -> intermediate -> transform set 2 -> rFactor
+    // End state:
+    // root -> transform set 1 -> new rFactor(intermediate)
+    // Split out:
+    // intermediate -> transform set 2 -> original rFactor
+    auto dom = domain();
+    ir_utils::validateDomainEquivalence(
+        dom->getRootDomain(), *intermediate_state);
+    ir_utils::validateDomainEquivalence(
+        *intermediate_state, dom->getRFactorDomain());
+    new_tds.emplace(
+        this,
+        IrBuilder::create<TensorDomain>(
+            dom->getRootDomain(),
+            *intermediate_state,
+            *intermediate_state,
+            TensorDomain::getContiguityFilledWith(*intermediate_state, true)));
+    split_out = IrBuilder::create<TensorDomain>(
+        *intermediate_state,
+        dom->getRFactorDomain(),
+        dom->getRFactorDomain(),
+        TensorDomain::getContiguityFilledWith(dom->getRFactorDomain(), true));
+  }
+  // Step 2: compute the new tensor domain for consumers
+  for (auto consumer_tv : consumer_tvs) {
+    // Before: root -> transforms -> rFactor
+    // After: new root (split-out) -> original root  -> transforms -> rFactor
+    // Needs to replay split-out on the bottom of the root domain of consumer
+    std::vector<IterDomain*> frontier = consumer_tv->getRootDomain();
+    std::unordered_map<IterDomain*, IterDomain*> replay_map =
+        PairwiseRootDomainMap(this, consumer_tv)
+            .mapBroadcast(true)
+            .mapDifferentExtents(true)
+            .mapIndexedDomains(true)
+            .mapConsumerToProducer(consumer_tv->domain(), split_out);
+    // For the push of transpose, we of course want to map everything. But for the push of view, we need to think more about
+  }
+  // Step 3: compute new tensor domain for producers
+  for (auto [consumer_tv, producer_tvs] : c2p) {
+    for (auto producer_tv : producer_tvs) {
+      // If there are multiple paths reaching the same producer, make sure all
+      // paths produces the same result.
+      auto existing_entry = new_tds.find(producer_tv);
+      if (existing_entry != new_tds.end()) {
+        // assert match
+      }
+    }
+  }
+}
+
+void TensorView::pushRFactorBackward(
+    std::optional<std::vector<IterDomain*>> intermediate_state) {}
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
   TORCH_CHECK(shape_.empty() || shape_.size() == ndims);
