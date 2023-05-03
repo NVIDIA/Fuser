@@ -23,10 +23,11 @@
 #include <complex>
 #include <iostream>
 #include <tuple>
+#include <optional>
 
 namespace nvfuser::python_frontend {
 
-std::vector<c10::optional<bool>> computeContiguity(
+std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
   TORCH_CHECK(
@@ -36,7 +37,7 @@ std::vector<c10::optional<bool>> computeContiguity(
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   // Contiguity defaults to vector of all None's
-  std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
   if (contiguity.empty()) { // zero-dim tensor
     return contiguity;
   }
@@ -371,7 +372,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguity,
+             std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");

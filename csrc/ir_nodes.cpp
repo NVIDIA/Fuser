@@ -2585,7 +2585,7 @@ Val* IterDomain::stop() const {
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       contiguity_(
@@ -2615,7 +2615,7 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       leaf_domain_(std::move(leaf_domain)),
@@ -2651,7 +2651,7 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       leaf_domain_(std::move(leaf_domain)),
@@ -2793,7 +2793,7 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 }
 
 void TensorDomain::setContiguity(
-    const std::vector<c10::optional<bool>>& contig) {
+    const std::vector<std::optional<bool>>& contig) {
   TORCH_INTERNAL_ASSERT(
       getMaybeRFactorDomain().size() == contig.size(),
       "Invalid size of contiguity vector");
@@ -3079,14 +3079,14 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
+std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
     const std::vector<IterDomain*>& rfactor_domain,
     bool fill_value) {
-  std::vector<c10::optional<bool>> contiguity;
+  std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.emplace_back(c10::nullopt);
+      contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }

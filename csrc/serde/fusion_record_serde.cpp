@@ -94,17 +94,17 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   return PrimDataType::Null;
 }
 
-c10::optional<bool> mapContiguityEnumToOptional(int v) {
+std::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:
-      return c10::optional<bool>(false);
+      return std::optional<bool>(false);
     case serde::Contiguity_Contiguous:
-      return c10::optional<bool>(true);
+      return std::optional<bool>(true);
     case serde::Contiguity_None:
-      return c10::nullopt;
+      return std::nullopt;
   }
   TORCH_INTERNAL_ASSERT(false, "Invalid contiguity type.");
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 template <class fn_type, class... Signature>
@@ -692,7 +692,7 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeTensorRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
-    std::vector<c10::optional<bool>> contiguity;
+    std::vector<std::optional<bool>> contiguity;
     std::transform(
         data->contiguity()->cbegin(),
         data->contiguity()->cend(),
