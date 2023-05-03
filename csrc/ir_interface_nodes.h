@@ -240,11 +240,25 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
-  bool hasReduction() const;
-  bool hasBlockReduction() const;
-  bool hasGridReduction() const;
-  bool hasBroadcast() const;
-  bool hasRFactor() const;
+  bool hasReduction() const {
+    return domain()->hasReduction();
+  }
+
+  bool hasBlockReduction() const {
+    return domain()->hasBlockReduction();
+  }
+
+  bool hasGridReduction() const {
+    return domain()->hasGridReduction();
+  }
+
+  bool hasBroadcast() const {
+    return domain()->hasBroadcast();
+  }
+
+  bool hasRFactor() const {
+    return domain()->hasRFactor();
+  }
 
   //! Returns true if this tensor is zero dimensional,
   //!  i.e. a wrapped scalar or an empty placeholder.
@@ -256,15 +270,29 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  c10::optional<unsigned int> getReductionAxis() const;
+  c10::optional<unsigned int> getReductionAxis() const {
+    return domain()->getReductionAxis();
+  }
 
-  const std::vector<IterDomain*>& getRootDomain() const;
+  const std::vector<IterDomain*>& getRootDomain() const {
+    return domain()->root();
+  };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const;
+  const std::vector<IterDomain*>& getRFactorDomain() const {
+    return domain()->rfactor();
+  };
 
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const;
+  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
+    return domain()->getMaybeRFactorDomain();
+  };
+
+  // If allocation domain exists in domain() return it, otherwise return
+  // getMaybeRFactorDomain()
+  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
+    return domain()->getMaybeAllocationDomain();
+  };
 
   IterDomain* axis(int pos) const;
 
@@ -277,7 +305,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return max_producer_pos_ > 0;
   }
 
-  size_t nDims() const;
+  size_t nDims() const {
+    return domain()->nDims();
+  }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
   // tensors (i.e. CPU Tensors that only have one value). This is only used if
