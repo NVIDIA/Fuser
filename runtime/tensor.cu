@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-template <typename T, int Dims, int AllocDims=Dims>
+template <typename T, int Dims, int AllocDims = Dims>
 struct Tensor {
   __device__ T& operator[](nvfuser_index_t ind) {
     return data[ind];
