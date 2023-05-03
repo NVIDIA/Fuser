@@ -14,7 +14,7 @@ namespace nvfuser {
 
 struct TORCH_CUDA_CU_API CompileParams {
   std::optional<PrimDataType> index_type = std::nullopt;
-  int maxrregcount = 255;
+  int64_t maxrregcount = 255;
   bool enable_magic_zero = true;
 
   bool operator==(const CompileParams& other) const {
