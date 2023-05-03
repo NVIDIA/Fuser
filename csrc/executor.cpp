@@ -520,8 +520,7 @@ at::Tensor inferAndAllocOutput(
     const CompileOptions& options,
     bool zero_init = false) {
   const auto domain = tv->domain();
-  const auto maybe_rfactor_domain =
-      domain->hasRFactor() ? domain->rfactor() : domain->root();
+  const auto maybe_rfactor_domain = domain->getMaybeRFactorDomain();
 
   std::vector<Val*> sizes;
   std::unordered_map<int, Val*> expand_map;
