@@ -1051,7 +1051,7 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == of_tv_root.size() &&
       contiguity.size() != of_tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(of_tv_root.size())) {
       if (!of_tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
