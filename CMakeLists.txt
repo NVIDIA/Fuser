@@ -217,6 +217,7 @@ if (PROJECT_IS_TOP_LEVEL)
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
+  # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
   add_custom_target(build_flatbuffer_config
       COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
       DEPENDS flatc
