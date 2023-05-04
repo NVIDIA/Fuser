@@ -1416,7 +1416,7 @@ struct TensorRecord : RecordFunctor {
   TensorRecord(
       std::vector<State> _outputs,
       std::vector<int64_t> _symbolic_sizes,
-      std::vector<c10::optional<bool>> _contiguity,
+      std::vector<std::optional<bool>> _contiguity,
       PrimDataType _dtype,
       bool _is_cpu = false)
       : RecordFunctor(
@@ -1558,7 +1558,7 @@ struct TensorRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_sizes = builder.CreateVector(symbolic_sizes_);
 
-    auto mapOptionalToEnum = [](c10::optional<bool> v) -> int {
+    auto mapOptionalToEnum = [](std::optional<bool> v) -> int {
       if (!v.has_value()) {
         return serde::Contiguity_None;
       } else if (v.value()) {
@@ -1591,7 +1591,7 @@ struct TensorRecord : RecordFunctor {
   std::vector<int64_t> symbolic_sizes_;
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
-  std::vector<c10::optional<bool>> contiguity_;
+  std::vector<std::optional<bool>> contiguity_;
   //! Tensor data type.
   PrimDataType dtype_;
   //! Notes a scalar CPU Tensor

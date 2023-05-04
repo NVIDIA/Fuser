@@ -400,7 +400,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
-      contig.at(i) = c10::nullopt;
+      contig.at(i) = std::nullopt;
     }
   }
 

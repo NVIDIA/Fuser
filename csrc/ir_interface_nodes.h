@@ -231,7 +231,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! expressions that use this TensorView are also updated.
   void convertRfactorToRootDomain();
 
-  void setContiguity(const std::vector<c10::optional<bool>>& contig) {
+  void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);
   }
 
@@ -666,7 +666,7 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   TensorViewBuilder& dtype(DataType dtype);
 
   //! Set the contiguity information (default non-contiguous)
-  TensorViewBuilder& contiguity(std::vector<c10::optional<bool>> contiguity);
+  TensorViewBuilder& contiguity(std::vector<std::optional<bool>> contiguity);
   TensorViewBuilder& contiguity(bool contiguity);
 
   //! Set the shape (default 0 dimensional, ie. scalar)
@@ -692,8 +692,8 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   // contiguity with the value of uniform_contiguity_ where it is not required
   // to be nullopt. Note that you can only set one of contiguity_ or
   // uniform_contiguity_.
-  std::vector<c10::optional<bool>> contiguity_;
-  c10::optional<bool> uniform_contiguity_ = c10::nullopt;
+  std::vector<std::optional<bool>> contiguity_;
+  std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
   std::vector<bool> expanded_;
