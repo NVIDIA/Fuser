@@ -364,8 +364,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // These will mark which iter domains must be preserved as static
   // transformations to preserve compute semantics.
   auto all_deps_of_rfactor = DependencyCheck::getAllValsBetween(
-      {original_td->maybeRFactor().begin(),
-       original_td->maybeRFactor().end()},
+      {original_td->maybeRFactor().begin(), original_td->maybeRFactor().end()},
       {rfactor_axes.begin(), rfactor_axes.end()});
 
   auto all_id_deps_of_rfactor =
