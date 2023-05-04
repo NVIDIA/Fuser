@@ -13,8 +13,7 @@
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
+#include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
@@ -22,11 +21,12 @@
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <complex>
 #include <iostream>
+#include <optional>
 #include <tuple>
 
 namespace nvfuser::python_frontend {
 
-std::vector<c10::optional<bool>> computeContiguity(
+std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
   TORCH_CHECK(
@@ -36,7 +36,7 @@ std::vector<c10::optional<bool>> computeContiguity(
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   // Contiguity defaults to vector of all None's
-  std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
   if (contiguity.empty()) { // zero-dim tensor
     return contiguity;
   }
@@ -371,7 +371,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguity,
+             std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
@@ -698,6 +698,33 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
+
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+  nvf_ops.def(                                                                 \
+      op_str,                                                                  \
+      [](FusionDefinition::Operators& self,                                    \
+         Tensor arg1,                                                          \
+         Tensor arg2) -> Tensor {                                              \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        TORCH_CHECK(                                                           \
+            self.validUse(), "Attempting to add to a completed definition!");  \
+        FusionDefinition* fd = self.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Binary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
