@@ -497,98 +497,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   return "";
 }
 
-bool setSplitKParams(
-    std::shared_ptr<MatmulParams> params,
-    const ProblemShape& MNK,
-    const cudaDeviceProp* device_prop) {
-  int split_k_factor = 1;
-  const int reg_per_thread = 255;
-  const int sm_count = device_prop->multiProcessorCount;
-  const auto& cta_tile = params->tile_sizes.cta_tile;
-  const auto& warp_tile = params->tile_sizes.warp_tile;
-  auto getBlocksPerSM = [&](int reg_per_thread) {
-    const int m_warps = cta_tile.m / warp_tile.m;
-    const int n_warps = cta_tile.n / warp_tile.n;
-    const int k_warps = cta_tile.k / warp_tile.k;
-    const int warps_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread) /
-        device_prop->warpSize;
-    return warps_per_sm / (m_warps * n_warps * k_warps);
-  };
-  const int block_count = sm_count * getBlocksPerSM(reg_per_thread);
-  const int m_tiles = ceilDiv(MNK[0], cta_tile.m); // 15
-  const int n_tiles = ceilDiv(MNK[1], cta_tile.n); // 9
-  const int k_iters = ceilDiv(MNK[2], cta_tile.k); // 128
-  // step-1, check if we want to split k
-  const int tail_blocks_allowed = block_count / 2;
-  const int tail_blocks_actual = m_tiles * n_tiles % block_count;
-  const int max_k_iters = 32;
-  std::cout << "k_iters= " << k_iters << " block_count= " << block_count
-            << " tail_blocks_actual= " << tail_blocks_actual << std::endl;
-  if (k_iters > max_k_iters && tail_blocks_actual > 0 &&
-      tail_blocks_actual < tail_blocks_allowed) {
-    // step-2, decide how to split k
-    // criteria-1, removing tailing blocks
-    // criteria-2, can't exceed k_iters
-    // criteria-3, can't exceed block_count/dim_mn, to leave at least dim_mn
-    // blocks for M and N dimension
-    const int dim_mn =
-        std::gcd(block_count, m_tiles) * std::gcd(block_count, n_tiles);
-    const int split_factor_1 = block_count / tail_blocks_actual;
-    const int split_factor_2 = k_iters;
-    const int split_factor_3 = block_count / dim_mn;
-    split_k_factor =
-        std::max(split_factor_1, std::min(split_factor_2, split_factor_3));
-    // get factors of block_count except 1 and block_count
-    auto roundDownToFactorOfSM = [&block_count](int k) {
-      while (block_count % k != 0) {
-        k--;
-      }
-      return k;
-    };
-    split_k_factor = roundDownToFactorOfSM(split_k_factor);
-    std::cout << "split_k_factor= " << split_k_factor
-              << " block_count= " << block_count
-              << " tail_blocks_actual= " << tail_blocks_actual << std::endl;
-
-    // step-3, only support persistent version of split k,
-    // divide SMs among two gridDim dimensions and dim_k is fixed
-    const int grid_dim_k = split_k_factor;
-    int grid_dim_m = 1, grid_dim_n = 1;
-    const int gcd_m = std::gcd(dim_mn, m_tiles);
-    const int gcd_n = std::gcd(dim_mn, n_tiles);
-    if (gcd_m >= gcd_n) {
-      grid_dim_m = gcd_m;
-      grid_dim_n = dim_mn / grid_dim_m;
-    } else {
-      grid_dim_n = gcd_n;
-      grid_dim_m = dim_mn / grid_dim_n;
-    }
-    std::cout << "gridDim= " << grid_dim_m << ", " << grid_dim_n << ", "
-              << grid_dim_k << " dim_mn= " << dim_mn << std::endl;
-    std::cout << "m_tiles= " << m_tiles << ", n_tiles= " << n_tiles
-              << ", k_iters= " << k_iters << std::endl;
-
-    TORCH_INTERNAL_ASSERT(
-        grid_dim_m * grid_dim_n * grid_dim_k == block_count,
-        "Bad gridDim setup!",
-        "\ngrid_dim_m= ",
-        grid_dim_m,
-        ", grid_dim_n= ",
-        grid_dim_n,
-        ", grid_dim_k= ",
-        grid_dim_k,
-        ", block_count= ",
-        block_count);
-
-    // params changed in this function
-    params->split_k_factor = split_k_factor;
-    params->grid_dim_m = grid_dim_m;
-    params->grid_dim_n = grid_dim_n;
-    params->grid_dim_k = grid_dim_k;
-  }
-  return true;
-}
-
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -629,11 +537,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Set kernel index mode
   params->cparams.index_type = getIndexType(problem_shape.value());
-
-  // Set split k factor
-  status = setSplitKParams(params, problem_shape.value(), device_prop);
-  TORCH_INTERNAL_ASSERT(
-      status, "setSplitKParams in getMatmulHeuristics failed.");
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks) ||
       isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
