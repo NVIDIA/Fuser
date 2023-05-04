@@ -1447,8 +1447,7 @@ MmaOptions::MmaLayout getInputLayout(
   // B = [N, K, b]
   // C = [N, r, M] (root domain)
   if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) &&
-      (n_axes.front() < k_axes.front()) &&
+      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
       (k_axes.front() < in_b.bcasts.front())) {
     return MmaOptions::MmaLayout::NN;
   }
