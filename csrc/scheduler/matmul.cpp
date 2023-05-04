@@ -504,6 +504,11 @@ void scheduleSplitKReduction(
   const int gdimx = params.grid_dim_m;
   int axis = 0;
   // [I, R]
+  const int max_vectorization_factor =
+      16 / dataTypeSize(tv->getDataType().value());
+  splitAndParallelize(
+      tv, axis, max_vectorization_factor, ParallelType::Vectorize);
+  // [I, V8, R]
   splitAndParallelize(tv, axis, bdimx, ParallelType::TIDx);
   // [I, bdimx, R]
   splitAndParallelize(tv, axis, bdimy, ParallelType::TIDy);
@@ -516,16 +521,6 @@ void scheduleSplitKReduction(
   // [I, gdimy, gdimx, bdimz, bdimy, bdimx, R]
   splitAndParallelize(tv, axis, gdimz, ParallelType::BIDz);
   // [I, gdimz, gdimy, gdimx, bdimz, bdimy, bdimx, R]
-
-  // step-5, set vectorize, after NN branch, the root domain
-  // is always [M, N, K], reduction over K
-  // const int max_vectorization_factor =
-  //     16 / dataTypeSize(tv->getDataType().value());
-  // const int vectorization_factor = std::gcd(params.split_k_factor,
-  // max_vectorization_factor); if (vectorization_factor > 1) {
-  //   tv->split(-1, vectorization_factor);
-  //   tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  // }
 }
 } // namespace
 
@@ -763,7 +758,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c
   TensorView* mma_result = cc; // mma results
   TensorView* transposed = nullptr; // output
-  TensorView* reverse_transpose = nullptr;
+  TensorView* transposed_reload = nullptr;
+  TensorView* transposed_cc = cc;
   if (params.split_k_factor > 1) {
     // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c[output]
     // id=  0   1   2   3   4   5   6   7   8   9  10 11   12   13
@@ -789,12 +785,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // mma_result -> transposed -> cc
     transposed->setMemoryType(MemoryType::Global);
     // mma_result -> transposed[g] -> cc
-    auto transposed_reload = transposed->cacheAfter();
+    transposed_reload = transposed->cacheAfter();
     // mma_result -> transposed[g] -> transposed_reload -> cc
-    // transpose again, so cc is good
-    reverse_transpose = permute(transposed_reload, {1, 2, 0});
-    replaceWith(transposed_reload, reverse_transpose);
-    // mma_result -> transposed[g] -> reverse_transpose -> cc
+    transposed_cc = sum(transposed_reload, {0});
+    replaceWith(cc, transposed_cc);
+    // mma_result -> transposed[g] -> transposed_reload -> transposed_cc
 
     mma_builder.accumulatorTv(mma_result);
     // Propagate warp tile to main loop
@@ -902,13 +897,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Up to here, first part transformation and parallelization is done.
   if (params.split_k_factor > 1) {
-    scheduleSplitKReduction(cc, layout, gemm_tile, params);
+    scheduleSplitKReduction(transposed_cc, layout, gemm_tile, params);
 
     // allows propagte to tmp_gmem_reload but can't propage from tmp_gmem_reload
-    reduction_scheduler_utils::propagateTransformation(cc, {reverse_transpose});
+    reduction_scheduler_utils::propagateTransformation(
+        transposed_cc, {transposed_reload});
 
-    scheduler_utils::parallelizeAllLike(cc, {reverse_transpose, c});
-    cc->axis(-1)->parallelize(ParallelType::Serial);
+    scheduler_utils::parallelizeAllLike(transposed_cc, {transposed_reload, c});
+    transposed_cc->axis(-2)->parallelize(ParallelType::Serial);
 
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
@@ -953,7 +949,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    scheduler_utils::rotateLoop(cc, 2, {acr, bcr});
+    scheduler_utils::rotateLoop(transposed_cc, 2, {acr, bcr});
   }
 }
 

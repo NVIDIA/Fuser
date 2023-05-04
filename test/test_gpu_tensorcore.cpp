@@ -3462,7 +3462,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   // kernel8 run in 0.083968 ms, achieved: 170.927 GB/s
   // kernel9 run in 0.075776 ms, achieved: 189.405 GB/s
 
-  // nvFuser, checkpoint-3, with transpose
+  // nvFuser, checkpoint-3, with two transposes, inner reduction
   // kernel1 run in 0.082944 ms, achieved: 173.037 GB/s
   // kernel2 run in 0.086016 ms, achieved: 166.857 GB/s
   // kernel3 run in 0.060416 ms, achieved: 237.559 GB/s
@@ -3472,6 +3472,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   // kernel7 run in 0.070656 ms, achieved: 203.13 GB/s
   // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
   // kernel9 run in 0.060416 ms, achieved: 237.559 GB/s
+
+  // nvFuser, checkpoint-4, with one transpose, outer reduction
+  //   kernel1 run in 0.073728 ms, achieved: 194.667 GB/s
+  // kernel2 run in 0.073728 ms, achieved: 194.667 GB/s
+  // kernel3 run in 0.055296 ms, achieved: 259.556 GB/s
+  // kernel4 run in 0.06656 ms, achieved: 215.631 GB/s
+  // kernel5 run in 0.068608 ms, achieved: 209.194 GB/s
+  // kernel6 run in 0.052224 ms, achieved: 274.824 GB/s
+  // kernel7 run in 0.07168 ms, achieved: 200.229 GB/s
+  // kernel8 run in 0.070656 ms, achieved: 203.13 GB/s
+  // kernel9 run in 0.058368 ms, achieved: 245.895 GB/s
   int M = 128 * 3, N = 128 * 9, K = 4096;
   for (auto layout : kAllSupportedMatmulLayout) {
     for (int k_factor : {1, 2, 4}) {
@@ -3544,6 +3555,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTATailing_CUDA) {
   // kernel1 run in 0.135168 ms, achieved: 251.636 GB/s
   // kernel2 run in 0.413696 ms, achieved: 82.2178 GB/s
   // kernel3 run in 0.34816 ms, achieved: 97.6941 GB/s
+
+  // nvFuser, checkpoint-4, with one transpose, outer reduction
+  // kernel1 run in 0.134144 ms, achieved: 253.557 GB/s
+  // kernel2 run in 0.3072 ms, achieved: 110.72 GB/s
+  // kernel3 run in 0.211968 ms, achieved: 160.464 GB/s
+  // kernel4 run in 0.2304 ms, achieved: 147.627 GB/s
   int M = 128 * 15, N = 128 * 9, K = 4096;
   for (auto layout : {MatmulLayout::TT}) {
     for (int k_factor : {1, 2, 4, 8}) {
