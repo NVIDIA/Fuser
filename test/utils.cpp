@@ -261,7 +261,7 @@ TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
   // Here, we canonicalize the mma output as M, N, K, but the position of K does
-  // not really matter. So the implicitly transpose is only required for NN.
+  // not really matter. So the implicit transpose is only required for NN.
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
   switch (layout) {
     case MatmulLayout::TT:
