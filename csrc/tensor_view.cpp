@@ -316,46 +316,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_) {}
 
-bool TensorView::hasReduction() const {
-  return domain()->hasReduction();
-}
-
-bool TensorView::hasBlockReduction() const {
-  return domain()->hasBlockReduction();
-}
-
-bool TensorView::hasGridReduction() const {
-  return domain()->hasGridReduction();
-}
-
-bool TensorView::hasBroadcast() const {
-  return domain()->hasBroadcast();
-}
-
-bool TensorView::hasRFactor() const {
-  return domain()->hasRFactor();
-}
-
-c10::optional<unsigned int> TensorView::getReductionAxis() const {
-  return domain()->getReductionAxis();
-}
-
-const std::vector<IterDomain*>& TensorView::getRootDomain() const {
-  return domain()->getRootDomain();
-};
-
-const std::vector<IterDomain*>& TensorView::getRFactorDomain() const {
-  return domain()->getRFactorDomain();
-};
-
-const std::vector<IterDomain*>& TensorView::getMaybeRFactorDomain() const {
-  return domain()->getMaybeRFactorDomain();
-};
-
-std::vector<IterDomain*>::size_type TensorView::nDims() const {
-  return domain()->nDims();
-}
-
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
 // on an input value, otherwise ignored. This is important as special handling
@@ -1230,8 +1190,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
       container(),
       IrBuilder::create<TensorDomain>(
           container(),
-          domain()->getRootDomain(),
-          domain()->getRFactorDomain(),
+          domain()->root(),
+          domain()->rfactor(),
           domain()->leaf(),
           domain()->contiguity()),
       getDataType().value());
@@ -1481,7 +1441,7 @@ void TensorView::commitLeafToRFactor() {
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
   setDomain(IrBuilder::create<TensorDomain>(
       container(),
-      domain_->getRootDomain(),
+      domain_->root(),
       domain_->leaf(),
       domain_->leaf(),
       // TODO: If needed, we can let commitLeafToRFactor to take a parameter to

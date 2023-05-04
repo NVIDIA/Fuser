@@ -89,11 +89,11 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(TensorView* tv) {
-  auto root_domain = tv->domain()->getRootDomain();
+  auto root_domain = tv->getRootDomain();
   os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
   if (tv->hasRFactor()) {
-    auto rfactor_domain = tv->domain()->getRFactorDomain();
+    auto rfactor_domain = tv->getRFactorDomain();
 
     auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
