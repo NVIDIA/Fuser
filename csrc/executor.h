@@ -314,8 +314,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   KernelArgumentHolder evaluateOutputSizes(
       Fusion* fusion,
       const KernelArgumentHolder& args,
-      ExpressionEvaluator& expr_eval,
-      const std::unordered_set<int>& alias_indices = {});
+      ExpressionEvaluator& expr_eval);
 
   //! TODO: Consider changing this to a constructor of ExecutorEntry
   void initializeExecutorEntry(

@@ -220,6 +220,17 @@ struct TensorArg : public TensorArgAbstract {
     }
   }
 
+  TensorArg(
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      bool index_type_resolved)
+      : index_type_resolved_(index_type_resolved) {
+    for (const auto i : c10::irange(sizes.size())) {
+      setSize(i, sizes.at(i));
+      setStride(i, strides.at(i));
+    }
+  }
+
   void setSize(int64_t i, int64_t size) {
     instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
   }
@@ -337,6 +348,13 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
+
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      at::ScalarType dtype,
+      std::optional<PrimDataType> index_type);
 
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
