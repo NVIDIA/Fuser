@@ -596,13 +596,16 @@ void replaceReductionWithFull(Expr* expr) {
   if (expr->isA<ReductionOp>()) {
     // Fill value is reduction starting value
     auto rop = expr->as<ReductionOp>();
-    auto out_root = rop->out()->as<TensorView>()->domain()->root();
+    auto old_out = rop->out();
+    auto out_root = old_out->as<TensorView>()->domain()->root();
     auto out_shape = std::vector<Val*>(out_root.size());
     for (auto i : c10::irange(out_root.size())) {
       out_shape[i] = out_root[i]->extent();
     }
-    auto new_out = full(out_shape, rop->init(), rop->out()->dtype());
-    ir_utils::replaceValInExpr(expr, rop->out(), new_out);
+    auto new_out = full(out_shape, rop->init(), old_out->dtype());
+    auto fusion = expr->container()->as<Fusion>();
+    ir_utils::replaceValue(fusion, {{old_out, new_out}});
+    ir_utils::pruneProducerBranches(fusion, {old_out});
   } else if (expr->isA<WelfordOp>()) {
     // Fill value is nan for both mean and variance, since these are equivalent
     // to sum()/numel=0/0.
@@ -610,6 +613,50 @@ void replaceReductionWithFull(Expr* expr) {
   } else {
     TORCH_INTERNAL_ASSERT(
         false, "Expression cannot be replaced with full: ", expr->toString());
+  }
+}
+
+void pruneProducerBranches(
+    Fusion* fusion,
+    std::unordered_set<Val*> vals_to_remove) {
+  std::vector<Val*> stack(vals_to_remove.begin(), vals_to_remove.end());
+
+  while (!stack.empty()) {
+    auto val = stack.back();
+    stack.pop_back();
+
+    // should have removed any uses before checking whether to remove vals
+    if (!val->uses().empty()) {
+      continue;
+    }
+
+    if (val->definition()) {
+      auto expr = val->definition();
+      bool remove_expr = true;
+      for (auto outp : expr->outputs()) {
+        if (vals_to_remove.find(outp) == vals_to_remove.end()) {
+          // an output is not marked to be removed, so don't remove this input
+          remove_expr = false;
+          break;
+        }
+      }
+      if (remove_expr) {
+        // remove this expression and mark its vals for checking
+        for (auto inp : expr->inputs()) {
+          stack.push_back(inp);
+        }
+        fusion->removeExpr(expr);
+      }
+    }
+
+    vals_to_remove.insert(val);
+  }
+
+  for (auto val : vals_to_remove) {
+    if (val->isFusionInput() || val->isFusionOutput()) {
+      continue; // Don't remove inputs or outputs
+    }
+    fusion->removeVal(val);
   }
 }
 

@@ -351,6 +351,12 @@ TORCH_CUDA_CU_API bool isReductionOverSizeZero(
 //! elements would in fact have been reduced.
 TORCH_CUDA_CU_API void replaceReductionWithFull(Expr*);
 
+//! Given a set of Vals, recursively remove them until we find an input or an
+//! expression with outputs that are used outside the provided set.
+TORCH_CUDA_CU_API void pruneProducerBranches(
+    Fusion* fusion,
+    std::unordered_set<Val*> vals_to_remove);
+
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 TORCH_CUDA_CU_API bool isPointwiseTvOp(const Expr* expr);
 
