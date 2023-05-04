@@ -1046,6 +1046,122 @@ TEST_F(
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// take_along_axis then transpose
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 100, 101});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = take_along_axis(tv2, tv3, 0);
+  auto tv5 = transpose(tv4, 1, 2);
+  fusion.addOutput(tv5);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[0], {shape[1], shape[2]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Transpose});
+
+  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(0), 0).transpose(1, 2);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// transpose then take_along_axis. Currently failed to pick the
+// Transpose scheduler due to a limitation of the analysis for the
+// scheduler. See DomainMap::findReferenceFor in transpose.cpp for
+// more details.
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 100, 101});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(3, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = transpose(tv0, 1, 2);
+  auto tv4 = take_along_axis(tv2, tv1, 0);
+  fusion.addOutput(tv4);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(0, shape[0], {10, shape[2], shape[1]}, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+
+  auto ref = at::take_along_dim(t0.transpose(1, 2), t1, 0);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// transpose the dimension produced by take_along_axis. Currently not
+// supported by the transpose scheduler
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape_before({11, 100, 101});
+  std::vector<int64_t> shape_after({shape_before[1], 99});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = take_along_axis(tv2, tv3, 2);
+  auto tv5 = transpose(tv4, 1, 2);
+  fusion.addOutput(tv5);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape_before, options);
+  auto t1 = at::randint(0, shape_before[2], shape_after, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // Transpose scheduler should work for this case but not currently
+  // supported
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+
+  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(0), 2).transpose(1, 2);
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
