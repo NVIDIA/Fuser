@@ -473,10 +473,10 @@ void scheduleSplitKReduction(
   // Mist = instruction_tile_m
   // Nist = instruction_tile_n
 
-  // reset leaf domain leads to simple index
-  // for (int i = 0; i < 3; i++) {
-  //   tv->merge(7);
-  // }
+  // TODO:    resetting the domain is a dangerous op
+  // Can we create this tensor before splitting M and N domains?
+  // without reset. All the split/mege histories will be tracked in the
+  // indexing and lead to perf drop
   tv->domain()->resetLeafDomain();
   constexpr int warp_size = 32;
   auto dim_analysis =
@@ -764,18 +764,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // mma_result -> tmp_gmem[g] -> tmp_gmem_reload -> cc -> c[output]
     // id=  0   1   2   3   4   5   6   7   8   9  10 11   12   13
     // cc= [Moo Moi Noo Noi SKo SKi Kw  Mwo Nwo Mw Nw Mist Nist Kist]
-    // 0 Mo = M / cta_tile_m
-    // 1 No = N / cta_tile_n
-    // 2 SKo = split_k_factor
-    // 3 SKi = K / split_k_factor
-    // 4 Kw = warp_tile_k / instruction_tile_k
-    // 5 Mwo = cta_tile_m / warp_tile_m
-    // 6 Nwo = cta_tile_n / warp_tile_n
-    // 7 Mw = warp_tile_m / instruction_tile_m
-    // 8 Nw = warp_tile_n / instruction_tile_n
-    // 9 Mist = instruction_tile_m
-    // 10 Nist = instruction_tile_n
-    // 11 Kist = instruction_tile_k
+    // 0 Moo = m / cta_tile_m / grid_dim_m
+    // 1 Moi = grid_dim_m
+    // 2 Noo = n / cta_tile_n / grid_dim_n
+    // 3 Noi = grid_dim_n
+    // 4 SKo = split_k_factor
+    // 5 SKi = K / split_k_factor
+    // 6 Kw = warp_tile_k / instruction_tile_k
+    // 7 Mwo = cta_tile_m / warp_tile_m
+    // 8 Nwo = cta_tile_n / warp_tile_n
+    // 9 Mw = warp_tile_m / instruction_tile_m
+    // 10 Nw = warp_tile_n / instruction_tile_n
+    // 11 Mist = instruction_tile_m
+    // 12 Nist = instruction_tile_n
+    // 13 Kist = instruction_tile_k
 
     auto tmp_gmem = cc->rFactor({5, 6, 13});
     mma_result = tmp_gmem->cacheBefore();
@@ -899,7 +901,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.split_k_factor > 1) {
     scheduleSplitKReduction(transposed_cc, layout, gemm_tile, params);
 
-    // allows propagte to tmp_gmem_reload but can't propage from tmp_gmem_reload
+    // allows propagation to transposed_reload but can't propagate from
+    // transposed_reload
     reduction_scheduler_utils::propagateTransformation(
         transposed_cc, {transposed_reload});
 
