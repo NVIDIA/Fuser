@@ -599,8 +599,7 @@ TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
   auto replayed_domain = TransformReplay::replayPasC(tv1, tv2, -1).first;
 
   auto id_ops = DependencyCheck::getAllExprsBetween(
-      {replayed_domain->getRootDomain().begin(),
-       replayed_domain->getRootDomain().end()},
+      {replayed_domain->root().begin(), replayed_domain->root().end()},
       {replayed_domain->leaf().begin(), replayed_domain->leaf().end()});
 
   TORCH_INTERNAL_ASSERT(
