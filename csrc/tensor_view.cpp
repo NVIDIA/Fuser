@@ -117,8 +117,7 @@ TensorView::TensorView(
   }
 
   // default to non_contiguous;
-  std::vector<c10::optional<bool>> contig_info =
-      TensorDomain::getContiguityFilledWith(sizes, false);
+  auto contig_info = TensorDomain::getContiguityFilledWith(sizes, false);
 
   int64_t inner_most_non_broadcast = (int64_t)tensor_type->dim().value() - 1;
   while (inner_most_non_broadcast >= 0) {
@@ -1029,7 +1028,7 @@ TensorView* TensorView::multiOutputRfactorHelper(
       new_id.push_back(replay.getReplay().at(id));
     }
 
-    std::vector<c10::optional<bool>> new_contig(tv->domain()->contiguity());
+    std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
         tv->getRootDomain(), new_id, new_contig));
@@ -1378,7 +1377,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
-  std::vector<c10::optional<bool>> new_contig;
+  std::vector<std::optional<bool>> new_contig;
   for (const auto i : c10::irange(getRootDomain().size())) {
     auto root_i = getRootDomain().at(i);
     if (!root_i->isReduction()) {
@@ -1464,7 +1463,7 @@ TensorViewBuilder& TensorViewBuilder::dtype(DataType dtype) {
 }
 
 TensorViewBuilder& TensorViewBuilder::contiguity(
-    std::vector<c10::optional<bool>> contiguity) {
+    std::vector<std::optional<bool>> contiguity) {
   TORCH_CHECK(
       contiguity_.empty() && !uniform_contiguity_.has_value(),
       "Attempting to reset contiguity");

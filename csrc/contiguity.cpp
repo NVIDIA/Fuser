@@ -435,7 +435,7 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
 ContigIDs::ContigIDs(
     const std::vector<IterDomain*>& ids,
     const std::vector<IterDomain*>& root_domain,
-    const std::vector<c10::optional<bool>>& root_contiguity,
+    const std::vector<std::optional<bool>>& root_contiguity,
     const std::unordered_set<IterDomain*>& final_ids,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,
@@ -468,7 +468,7 @@ ContigIDs::ContigIDs(
 ContigIDs::ContigIDs(
     const std::vector<IterDomain*>& ids,
     const std::vector<IterDomain*>& root_domain,
-    const std::vector<c10::optional<bool>>& root_contiguity,
+    const std::vector<std::optional<bool>>& root_contiguity,
     const std::unordered_set<IterDomain*>& final_ids,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,

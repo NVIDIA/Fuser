@@ -2585,22 +2585,21 @@ Val* IterDomain::stop() const {
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
-      getMaybeRFactorDomain().size());
+      maybeRFactor().size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -2615,7 +2614,7 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       leaf_domain_(std::move(leaf_domain)),
@@ -2623,15 +2622,14 @@ TensorDomain::TensorDomain(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
       root_domain_.size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -2651,7 +2649,7 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       rfactor_domain_(std::move(rfactor_domain)),
@@ -2660,15 +2658,14 @@ TensorDomain::TensorDomain(
           contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
-      getMaybeRFactorDomain().size());
+      maybeRFactor().size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -2810,14 +2807,13 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 }
 
 void TensorDomain::setContiguity(
-    const std::vector<c10::optional<bool>>& contig) {
+    const std::vector<std::optional<bool>>& contig) {
   TORCH_INTERNAL_ASSERT(
-      getMaybeRFactorDomain().size() == contig.size(),
+      maybeRFactor().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : c10::irange(contig.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contig.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -2847,10 +2843,9 @@ bool TensorDomain::hasSymbolicAxis() const {
              root().end(),
              [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
       (hasRFactor() &&
-       std::any_of(
-           getMaybeRFactorDomain().begin(),
-           getMaybeRFactorDomain().end(),
-           [](auto id) { return id->getIterType() == IterType::Symbolic; }));
+       std::any_of(maybeRFactor().begin(), maybeRFactor().end(), [](auto id) {
+         return id->getIterType() == IterType::Symbolic;
+       }));
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {
@@ -2862,9 +2857,7 @@ bool TensorDomain::hasViewLikeRFactor() const {
   // If there's an rfactor domain and no rfactor product is a reduction, this is
   // a view like rfactor
   return std::none_of(
-      getMaybeRFactorDomain().begin(),
-      getMaybeRFactorDomain().end(),
-      [](IterDomain* id) {
+      maybeRFactor().begin(), maybeRFactor().end(), [](IterDomain* id) {
         return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
       });
 }
@@ -3083,14 +3076,14 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
+std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
     const std::vector<IterDomain*>& rfactor_domain,
     bool fill_value) {
-  std::vector<c10::optional<bool>> contiguity;
+  std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.emplace_back(c10::nullopt);
+      contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }
@@ -3122,7 +3115,7 @@ TensorDomain* TensorDomain::view(const AnalyzeViewResult& view_analysis) {
 }
 
 TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
-  auto inp_domain = noReductions(getMaybeRFactorDomain());
+  auto inp_domain = noReductions(maybeRFactor());
 
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
@@ -3209,7 +3202,7 @@ void TensorDomain::setAllocationDomain(
       std::unordered_set<IterDomain*>(
           new_allocation_domain.begin(), new_allocation_domain.end()) ==
           std::unordered_set<IterDomain*>(
-              getMaybeRFactorDomain().begin(), getMaybeRFactorDomain().end()),
+              maybeRFactor().begin(), maybeRFactor().end()),
       "Currently, allocation domain can only be a reorder of rFactor domain");
 
   allocation_domain_ = std::move(new_allocation_domain);

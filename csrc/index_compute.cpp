@@ -427,7 +427,7 @@ void IndexCompute::handle(Merge* merge) {
   if (!hasZeroMerged(out_id) && contig_ids_.find(out_id) != contig_ids_.end()) {
     // Contiguous indexing path
     auto input_ids = ir_utils::iterDomainInputsOfOrderedAs(
-        {merge->out()}, td_->getMaybeRFactorDomain());
+        {merge->out()}, td_->maybeRFactor());
 
     // Shouldn't hit this, but don't want to segfault if somehow we do.
     TORCH_INTERNAL_ASSERT(!input_ids.empty());

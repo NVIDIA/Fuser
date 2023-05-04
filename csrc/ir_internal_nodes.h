@@ -1762,20 +1762,20 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   explicit TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<c10::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> leaf_domain,
-      std::vector<c10::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
       std::vector<IterDomain*> leaf_domain,
-      std::vector<c10::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
@@ -1809,11 +1809,11 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   // For example, if I have a tensor torch.zeros(4, 1, 3).expand(-1, 10, -1),
   // the contiguity will be (true, nullopt, true), which means 4 is memory dense
   // with 3.
-  const std::vector<c10::optional<bool>>& contiguity() const {
+  const std::vector<std::optional<bool>>& contiguity() const {
     return contiguity_;
   }
 
-  void setContiguity(const std::vector<c10::optional<bool>>& contig);
+  void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
     std::stringstream ss;
@@ -1884,12 +1884,12 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
+  const std::vector<IterDomain*>& maybeRFactor() const {
     return hasRFactor() ? rfactor() : root();
   }
 
-  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
-    return hasAllocation() ? allocation_domain_ : getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& maybeAllocation() const {
+    return hasAllocation() ? allocation_domain_ : maybeRFactor();
   };
 
   void setAllocationDomain(std::vector<IterDomain*>);
@@ -1956,7 +1956,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given rfactor_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<c10::optional<bool>> getContiguityFilledWith(
+  static std::vector<std::optional<bool>> getContiguityFilledWith(
       const std::vector<IterDomain*>& rfactor_domain,
       bool fill_value);
 
@@ -1971,7 +1971,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
-  std::vector<c10::optional<bool>> contiguity_;
+  std::vector<std::optional<bool>> contiguity_;
   bool has_reduction_;
 };
 
