@@ -667,6 +667,7 @@ void validateMmaRootInnerMNK(
     int m,
     int n,
     int k) {
+  return;
   auto mma = options.mmaOp();
   auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);

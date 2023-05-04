@@ -260,22 +260,39 @@ Container parse(const std::string& nvdisasm_output) {
 TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  // Here, we canonicalize the mma output as M, N, K, but the position of K does
+  // not really matter. So the implicitly transpose is only required for NN.
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
   switch (layout) {
     case MatmulLayout::TT:
       tv0b = broadcast(a, {false, false, true});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+      // M, K, N -> M, N, K
+      tv2->reorder({{1, -1}});
+      tv2->commitLeafToRFactor();
       break;
     case MatmulLayout::TN:
       tv0b = broadcast(a, {false, true, false});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+      // M, N, K
       break;
     case MatmulLayout::NT:
       tv0b = broadcast(a, {false, false, true});
       tv1b = broadcast(b, {false, true, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+      // K, M, N -> M, N, K
+      tv2->reorder({{0, -1}});
+      tv2->commitLeafToRFactor();
+      break;
+    case MatmulLayout::NN:
+      tv0b = broadcast(a, {true, false, false});
+      tv1b = broadcast(b, {false, false, true});
+      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+      // N, K, M -> M, N, K
+      tv2->reorder({{-1, 0}});
+      tv2->commitLeafToRFactor();
       break;
     default:
       TORCH_CHECK(false, "unsupported data layout.");

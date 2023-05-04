@@ -223,6 +223,9 @@ std::string toString(MmaOptions::MmaLayout input_layout) {
     case MmaOptions::MmaLayout::NT:
       ss << "NT";
       break;
+    case MmaOptions::MmaLayout::NN:
+      ss << "NN";
+      break;
     default:
       TORCH_INTERNAL_ASSERT(false, "unsupported operand layout");
   }
