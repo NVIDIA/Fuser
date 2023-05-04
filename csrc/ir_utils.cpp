@@ -605,6 +605,9 @@ void replaceReductionWithFull(Expr* expr) {
     auto new_out = full(out_shape, rop->init(), old_out->dtype());
     auto fusion = expr->container()->as<Fusion>();
     ir_utils::replaceValue(fusion, {{old_out, new_out}});
+    if (old_out->isFusionOutput()) {
+      fusion->replaceOutput(old_out, new_out);
+    }
     ir_utils::pruneProducerBranches(fusion, {old_out});
   } else if (expr->isA<WelfordOp>()) {
     // Fill value is nan for both mean and variance, since these are equivalent
