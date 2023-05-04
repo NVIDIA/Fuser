@@ -31,53 +31,52 @@ std::string TensorArgAbstract::toString() const {
 
 namespace {
 
-template <typename T, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides,
-    bool index_type_resolved) {
-  switch (sizes.size()) {
+template <typename T, typename nvfuser_index_t, typename... Args>
+std::unique_ptr<TensorArgAbstract> getTensorArgDispatch(
+    int num_dimensions,
+    Args&&... args) {
+  switch (num_dimensions) {
     case (0):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (1):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (2):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (3):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (4):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (5):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (6):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (7):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     case (8):
       return std::make_unique<
           TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(
-          sizes, strides, index_type_resolved);
+          std::forward<Args>(args)...);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
           "Tried to generate a tensor to run a generated kernel with ",
-          sizes.size(),
+          num_dimensions,
           " dimensions, however only 0 to 8 dimensional tensor are supported.");
   }
   return nullptr;
@@ -90,13 +89,13 @@ struct GetTensorProxyArgWithNativeType {
       const std::vector<int64_t>& sizes,
       const std::vector<int64_t>& strides,
       bool index_type_resolved) {
-    return getTensorArg<T, nvfuser_index_t>(
-        sizes, strides, index_type_resolved);
+    return getTensorArgDispatch<T, nvfuser_index_t>(
+        sizes.size(), sizes, strides, index_type_resolved);
   };
 };
 
 template <typename INDEX_TYPE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
+std::unique_ptr<TensorArgAbstract> getTensorProxyArg(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides,
     at::ScalarType dtype,
@@ -109,7 +108,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
       index_type_resolved);
 }
 
-std::unique_ptr<TensorArgAbstract> getTensorArg(
+std::unique_ptr<TensorArgAbstract> getTensorProxyArg(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides,
     at::ScalarType dtype,
@@ -117,68 +116,17 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
   if (index_type.has_value()) {
     switch (index_type.value()) {
       case PrimDataType::Int32:
-        return getTensorArg<int>(sizes, strides, dtype, true);
+        return getTensorProxyArg<int>(sizes, strides, dtype, true);
       case PrimDataType::Int:
-        return getTensorArg<int64_t>(sizes, strides, dtype, true);
+        return getTensorProxyArg<int64_t>(sizes, strides, dtype, true);
       default:
         TORCH_INTERNAL_ASSERT(false, "unknown index mode");
         break;
     }
   } else {
     // Tentatively create TensorArgAbstract with int64_t
-    return getTensorArg<int64_t>(sizes, strides, dtype, false);
+    return getTensorProxyArg<int64_t>(sizes, strides, dtype, false);
   }
-}
-
-template <typename T, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
-    bool index_type_resolved) {
-  switch (tensor.ndimension()) {
-    case (0):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (1):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (2):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (3):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (4):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (5):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (6):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (7):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    case (8):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
-    default:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to generate a tensor to run a generated kernel with ",
-          tensor.ndimension(),
-          " dimensions, however only 0 to 8 dimensional tensor are supported.");
-  }
-  return nullptr;
 }
 
 template <typename nvfuser_index_t>
@@ -187,7 +135,8 @@ struct GetTensorArgWithNativeType {
   std::unique_ptr<TensorArgAbstract> operator()(
       const at::Tensor& tensor,
       bool index_type_resolved) {
-    return getTensorArg<T, nvfuser_index_t>(tensor, index_type_resolved);
+    return getTensorArgDispatch<T, nvfuser_index_t>(
+        tensor.ndimension(), tensor, index_type_resolved);
   };
 };
 
@@ -275,7 +224,7 @@ void KernelArgumentHolder::pushTensorProxy(
     const std::vector<int64_t>& strides,
     at::ScalarType dtype,
     std::optional<PrimDataType> index_type) {
-  arguments_.push_back(getTensorArg(sizes, strides, dtype, index_type));
+  arguments_.push_back(getTensorProxyArg(sizes, strides, dtype, index_type));
 }
 
 // Push a scalar or integer to the arguments

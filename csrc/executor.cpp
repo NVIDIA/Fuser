@@ -936,25 +936,23 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
   ret.setDeviceIndex(args.getDeviceIndex());
 
   for (const auto out_i : c10::irange(fusion->outputs().size())) {
-    // If the output is just trivially the input, just "copy" it over, see note
-    // [trivial forwarding]
+    // If the output is just trivially the input, just "copy" it over.
+    // See note [trivial forwarding]
     if (fusion->outputs()[out_i]->isFusionInput()) {
-      // TODO: replace with std::find
-      for (auto inp_i : c10::irange(fusion->inputs().size())) {
-        if (fusion->inputs()[inp_i] == fusion->outputs()[out_i]) {
-          TORCH_INTERNAL_ASSERT(
-              inp_i < args.size(),
-              "Issue with an input showing up as output, couldn't find input.");
-
-          auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_abstract,
-              "Cannot register a scalar as an output in a fusion.");
-          ret.push(tensor_arg_abstract);
-          break;
-        }
-      }
+      auto input_it = std::find(
+          fusion->inputs().begin(),
+          fusion->inputs().end(),
+          fusion->outputs()[out_i]);
+      TORCH_INTERNAL_ASSERT(
+          input_it != fusion->inputs().end(),
+          "Issue with an input showing up as output but could not find input.");
+      auto inp_i = std::distance(fusion->inputs().begin(), input_it);
+      auto tensor_arg_abstract =
+          dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
+      TORCH_INTERNAL_ASSERT(
+          tensor_arg_abstract,
+          "Cannot register a scalar as an output in a fusion.");
+      ret.push(tensor_arg_abstract);
     } else {
       TORCH_INTERNAL_ASSERT(
           fusion->outputs()[out_i]->isA<TensorView>(),
@@ -964,7 +962,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
       auto alias_it = std::find_if(
           output_to_input_aliases.begin(),
           output_to_input_aliases.end(),
-          [&](const auto output_to_input) {
+          [&](const auto& output_to_input) {
             return output_to_input.first == (int)out_i;
           });
 
