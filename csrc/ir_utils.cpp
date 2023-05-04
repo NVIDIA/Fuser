@@ -396,7 +396,7 @@ std::vector<Expr*> getReductionOps(Fusion* fusion) {
 
   for (auto expr : fusion->exprs()) {
     if (expr->isA<ReductionOp>() || expr->isA<GroupedReductionOp>() ||
-        expr->isA<WelfordOp>()) {
+        expr->isA<WelfordOp>() || expr->isA<GroupedWelfordOp>()) {
       red_ops.push_back(expr);
     }
   }
