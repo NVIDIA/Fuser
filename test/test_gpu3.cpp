@@ -8303,6 +8303,10 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
 }
 
 // Test that 0-dimensional tensors do not break reduction scheduler
+// During segmentation, the no-op scheduler will accept reductions having
+// zero-size concrete (non-reduction) dimensions. Currently, we do not fuse
+// multiple reductions when the sizes vary, but we might in the future so we
+// test all these cases here.
 TEST_F(NVFuserTest, FusionScheduleReduceZeroElementTensor_CUDA) {
   for (auto input_shape : std::vector<std::vector<int>>{
            {3, 4, 0, 5}, // Warp-reduce in all dim pairs (ignoring zero)
@@ -8354,6 +8358,38 @@ TEST_F(NVFuserTest, FusionScheduleReduceZeroElementTensor_CUDA) {
       }
     }
   }
+}
+
+// Test that Pointwise scheduler accepts Fusion with reduction that may have
+// zero reduced elements, which it can schedule by translating the reduction
+// into a full() op using the reduction starting value (or 0/0=nan for Welford
+// ops since they are sums normalized by number of elements).
+TEST_F(NVFuserTest, FusionSegmentReduceZeroElementTensor_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv2 = sum(tv0, {1});
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 0}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  fec.runFusionWithInputs(inputs);
+  // Check that this actually fires the Pointwise scheduler instead of Reduction
+  auto fkr = fec.getMostRecentKernelRuntime();
+  TORCH_CHECK(
+      !fkr->isSegmented(), "Expected to schedule Fusion in a single segment");
+  auto heur =
+      fkr->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heur == ScheduleHeuristic::PointWise,
+      "Expected pointwise scheduler but found ",
+      heur);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
