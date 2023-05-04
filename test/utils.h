@@ -395,17 +395,6 @@ class NVFuserTest : public ::testing::Test {
   }
 };
 
-// Please see note [Limitation of boundary assert]
-class EnableOutOfBoundAssert {
- public:
-  EnableOutOfBoundAssert() {
-    setAssertOutOfBound(true);
-  }
-  ~EnableOutOfBoundAssert() {
-    setAssertOutOfBound(false);
-  }
-};
-
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
 
