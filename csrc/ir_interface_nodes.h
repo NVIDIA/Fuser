@@ -285,13 +285,13 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
   const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
-    return domain()->getMaybeRFactorDomain();
+    return domain()->maybeRFactor();
   };
 
   // If allocation domain exists in domain() return it, otherwise return
   // getMaybeRFactorDomain()
-  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
-    return domain()->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& maybeAllocation() const {
+    return domain()->maybeAllocation();
   };
 
   IterDomain* axis(int pos) const;

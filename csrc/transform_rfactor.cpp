@@ -254,7 +254,7 @@ class ReplayRFactor : public ReplayTransformations {
       : ReplayTransformations(original_domain->leaf(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
         static_rfactor_ids_(std::move(static_rfactor_ids)),
-        rfactor_domain_(original_domain->getMaybeRFactorDomain()) {
+        rfactor_domain_(original_domain->maybeRFactor()) {
     setErrorOnFailure(false);
   }
 };
@@ -331,7 +331,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
           [](IterDomain* id) { return id->maybePartial(); }),
       "rFactor of partial domains not allowed, but at least one found.");
 
-  auto original_td_root = original_td->getMaybeRFactorDomain();
+  auto original_td_root = original_td->maybeRFactor();
 
   // Generate a new TensorDomain and set up map from one root to this one.
   std::vector<IterDomain*> new_producer_root(original_td_root.size(), nullptr);
@@ -364,8 +364,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // These will mark which iter domains must be preserved as static
   // transformations to preserve compute semantics.
   auto all_deps_of_rfactor = DependencyCheck::getAllValsBetween(
-      {original_td->getMaybeRFactorDomain().begin(),
-       original_td->getMaybeRFactorDomain().end()},
+      {original_td->maybeRFactor().begin(),
+       original_td->maybeRFactor().end()},
       {rfactor_axes.begin(), rfactor_axes.end()});
 
   auto all_id_deps_of_rfactor =

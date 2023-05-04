@@ -27,8 +27,7 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
         const TensorDomain* producer,
         const TensorDomain* consumer) const {
   std::unordered_set<IterDomain*> root_dims_to_map(
-      producer->getMaybeRFactorDomain().begin(),
-      producer->getMaybeRFactorDomain().end());
+      producer->maybeRFactor().begin(), producer->maybeRFactor().end());
   return mapProducerToConsumer(producer, consumer, root_dims_to_map);
 }
 
@@ -125,7 +124,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
@@ -257,7 +256,7 @@ std::string DomainKey::toString() const {
     TORCH_INTERNAL_ASSERT(tv != nullptr, "No TV found for ", td()->toString());
     ss << "T" << tv->name() << "[ " << td()->root() << " ]";
     if (td()->hasRFactor()) {
-      ss << " (Rfactor: [ " << td()->getMaybeRFactorDomain() << " ])";
+      ss << " (Rfactor: [ " << td()->maybeRFactor() << " ])";
     }
   } else {
     ss << "null";
@@ -655,7 +654,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
   const auto& producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
   const TensorDomain* from_td = producer_to_consumer ? producer : consumer;
   const TensorDomain* to_td = producer_to_consumer ? consumer : producer;
@@ -713,7 +712,7 @@ std::unordered_set<IterDomain*> ComputeAtRootDomainMap::getMappableDims(
   //! views. Since we only need to find mappable domains, just
   //! grab any domain that is mapped in a pairwise way.
 
-  const auto& producer_root = producer->getMaybeRFactorDomain();
+  const auto& producer_root = producer->maybeRFactor();
   const auto& consumer_root = consumer->root();
 
   std::unordered_set<IterDomain*> mappable_ids;
@@ -957,8 +956,7 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
 void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root =
-      TensorDomain::noReductions(in_td->getMaybeRFactorDomain());
+  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
   const auto& out_root = out_td->root();
   const auto& bcast_dim_flags = op->getBroadcastDimFlags();
   TORCH_INTERNAL_ASSERT(
@@ -1005,8 +1003,7 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
 void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root =
-      TensorDomain::noReductions(in_td->getMaybeRFactorDomain());
+  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
   const auto& out_root = out_td->root();
   const auto& squeeze_dim_flags = op->getSqueezeDimFlags();
   TORCH_INTERNAL_ASSERT(
@@ -1083,8 +1080,7 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
 void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root =
-      TensorDomain::noReductions(in_td->getMaybeRFactorDomain());
+  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
   const auto& out_root = out_td->root();
 
   // Only maps the input root axes. Do not map the new window axes.
@@ -1104,9 +1100,8 @@ void ComputeAtRootDomainMapBuilder::handle(TorchGatherOp* op) {
   const TensorDomain* idx_td = op->indexTv()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->output(0)->as<TensorView>()->domain();
   const auto lookup_root =
-      TensorDomain::noReductions(lookup_td->getMaybeRFactorDomain());
-  const auto idx_root =
-      TensorDomain::noReductions(idx_td->getMaybeRFactorDomain());
+      TensorDomain::noReductions(lookup_td->maybeRFactor());
+  const auto idx_root = TensorDomain::noReductions(idx_td->maybeRFactor());
   const auto& out_root = out_td->root();
 
   TORCH_INTERNAL_ASSERT(
@@ -1174,7 +1169,7 @@ void ComputeAtRootDomainMapBuilder::handle(RNGOp* rop) {
 
 void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
   const TensorDomain* td = tv->domain();
-  const auto rfactor = TensorDomain::noReductions(td->getMaybeRFactorDomain());
+  const auto rfactor = TensorDomain::noReductions(td->maybeRFactor());
   for (auto id : rfactor) {
     if (id->isBroadcast()) {
       initializeBcastMap(tv, id);
@@ -1291,7 +1286,7 @@ std::unordered_map<IterDomain*, IterDomain*> ExactRootDomainMap::map(
     const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
   const auto& producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer->maybeRFactor());
   const auto& consumer_root = consumer->root();
   const auto& from_ids = producer_to_consumer ? producer_root : consumer_root;
   const auto& to_ids = producer_to_consumer ? consumer_root : producer_root;

@@ -374,7 +374,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->getMaybeRFactorDomain())
+      ? updateIdVec(td->maybeRFactor())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
@@ -385,8 +385,8 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : c10::irange(td->getMaybeRFactorDomain().size())) {
-    auto original_id = td->getMaybeRFactorDomain().at(i);
+  for (const auto i : c10::irange(td->maybeRFactor().size())) {
+    auto original_id = td->maybeRFactor().at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -509,7 +509,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       expr_eval.bind(inpi, arg_val);
     } else if (inpi->isA<TensorView>()) {
       const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->getMaybeRFactorDomain();
+      const auto& dom = tv->domain()->maybeRFactor();
       TORCH_CHECK(
           argi->isType(ArgType::Tensor),
           "Expected CUDA tensor at position ",

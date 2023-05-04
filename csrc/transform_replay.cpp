@@ -228,9 +228,9 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
     if (self->hasRFactor()) {
       std::vector<IterDomain*> new_rfactor_domain(
-          self->getMaybeRFactorDomain().size(), nullptr);
+          self->maybeRFactor().size(), nullptr);
       size_t i = 0;
-      for (auto id : self->getMaybeRFactorDomain()) {
+      for (auto id : self->maybeRFactor()) {
         auto it = replay.getReplay().find(id);
         TORCH_INTERNAL_ASSERT(
             it != replay.getReplay().end(),

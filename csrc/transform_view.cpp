@@ -697,7 +697,7 @@ TensorDomain* createViewDomain(
 
   std::vector<IterDomain*> new_root_domain;
   auto orig_root_domain =
-      TensorDomain::noReductions(original_domain->getMaybeRFactorDomain());
+      TensorDomain::noReductions(original_domain->maybeRFactor());
 
   // Apply squeeze.
   for (auto id_i : c10::irange(orig_root_domain.size())) {
