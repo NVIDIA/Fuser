@@ -522,9 +522,8 @@ bool setSplitKParams(
   const int tail_blocks_allowed = block_count / 2;
   const int tail_blocks_actual = m_tiles * n_tiles % block_count;
   const int max_k_iters = 32;
-  std::cout << "k_iters= " << k_iters
-              << " block_count= " << block_count
-            << " tail_blocks_actual= " << tail_blocks_actual << std::endl;  
+  std::cout << "k_iters= " << k_iters << " block_count= " << block_count
+            << " tail_blocks_actual= " << tail_blocks_actual << std::endl;
   if (k_iters > max_k_iters && tail_blocks_actual > 0 &&
       tail_blocks_actual < tail_blocks_allowed) {
     // step-2, decide how to split k

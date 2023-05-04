@@ -3416,14 +3416,15 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
-    // 47_ampere_gemm_universal_streamk
-    // using ThreadblockShape    = cutlass::gemm::GemmShape<128, 128, 32>;
-    // using WarpShape           = cutlass::gemm::GemmShape<64, 64, 32>;
-    // using InstructionShape    = cutlass::gemm::GemmShape<16, 8, 16>;
-    // constexpr int NumStages   = 4;
-    // cutlass Basic data-parallel GEMM, grid: (3, 9, 1), block: (128, 1, 1), 0.062432 ms
-    // cutlass Basic split-K factor 2, grid: (3, 9, 2), block: (128, 1, 1), 0.042464 ms
-    // cutlass Stream K, grid: (432, 1, 1), block: (128, 1, 1), 0.027264 ms
+  // 47_ampere_gemm_universal_streamk
+  // using ThreadblockShape    = cutlass::gemm::GemmShape<128, 128, 32>;
+  // using WarpShape           = cutlass::gemm::GemmShape<64, 64, 32>;
+  // using InstructionShape    = cutlass::gemm::GemmShape<16, 8, 16>;
+  // constexpr int NumStages   = 4;
+  // cutlass Basic data-parallel GEMM, grid: (3, 9, 1), block: (128, 1, 1),
+  // 0.062432 ms cutlass Basic split-K factor 2, grid: (3, 9, 2), block: (128,
+  // 1, 1), 0.042464 ms cutlass Stream K, grid: (432, 1, 1), block: (128, 1, 1),
+  // 0.027264 ms
 
   // nvFuser, before NN branch
   // MatmulLayout::TT, k = 1, 2, 4
@@ -3461,6 +3462,16 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTA_CUDA) {
   // kernel8 run in 0.083968 ms, achieved: 170.927 GB/s
   // kernel9 run in 0.075776 ms, achieved: 189.405 GB/s
 
+  // nvFuser, checkpoint-3, with transpose
+  // kernel1 run in 0.082944 ms, achieved: 173.037 GB/s
+  // kernel2 run in 0.086016 ms, achieved: 166.857 GB/s
+  // kernel3 run in 0.060416 ms, achieved: 237.559 GB/s
+  // kernel4 run in 0.06656 ms, achieved: 215.631 GB/s
+  // kernel5 run in 0.082944 ms, achieved: 173.037 GB/s
+  // kernel6 run in 0.060416 ms, achieved: 237.559 GB/s
+  // kernel7 run in 0.070656 ms, achieved: 203.13 GB/s
+  // kernel8 run in 0.082944 ms, achieved: 173.037 GB/s
+  // kernel9 run in 0.060416 ms, achieved: 237.559 GB/s
   int M = 128 * 3, N = 128 * 9, K = 4096;
   for (auto layout : kAllSupportedMatmulLayout) {
     for (int k_factor : {1, 2, 4}) {
@@ -3535,7 +3546,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKCrossCTATailing_CUDA) {
   // kernel3 run in 0.34816 ms, achieved: 97.6941 GB/s
   int M = 128 * 15, N = 128 * 9, K = 4096;
   for (auto layout : {MatmulLayout::TT}) {
-    for (int k_factor : {1, 2, 4}) {
+    for (int k_factor : {1, 2, 4, 8}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
