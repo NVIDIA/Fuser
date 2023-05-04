@@ -193,9 +193,8 @@ ParallelizedDomainPredicate::getPredicateMap(
       // If it's a root domain, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->domain()->getRootDomain().begin(),
-              tv->domain()->getRootDomain().end(),
-              tv_id) != tv->domain()->getRootDomain().end()) {
+              tv->getRootDomain().begin(), tv->getRootDomain().end(), tv_id) !=
+          tv->getRootDomain().end()) {
         continue;
       }
 

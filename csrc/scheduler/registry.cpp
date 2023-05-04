@@ -1053,7 +1053,7 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == tv_root.size() &&
       contiguity.size() != tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(tv_root.size())) {
       if (!tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
@@ -1148,7 +1148,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == tv_root.size() &&
       contiguity.size() != tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(tv_root.size())) {
       if (!tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
