@@ -401,9 +401,6 @@ TORCH_CUDA_CU_API bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of index_select(lookup, dim, indices)
 TORCH_CUDA_CU_API bool isIndexSelectIndicesTv(const TensorView* tv);
 
-// Check if the given tv is first/third argment of torch_gather(lookup, dim,
-// indices)
-TORCH_CUDA_CU_API bool isTorchGatherIndicesTv(const Val* tv);
 TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);
 
 TORCH_CUDA_CU_API std::string varName(const Val* val);

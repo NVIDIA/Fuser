@@ -838,18 +838,6 @@ bool isTorchGatherLookupTv(const Val* tv) {
   return false;
 }
 
-bool isTorchGatherIndicesTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<TorchGatherOp>()) {
-      auto idx_sel = expr->as<TorchGatherOp>();
-      if (idx_sel->indexTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 std::string varName(const Val* val) {
   if (val->isA<kir::TensorIndex>()) {
     return varName(val->as<kir::TensorIndex>()->view());
