@@ -68,8 +68,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       int id,
       CompileOptions options = CompileOptions());
 
-  //! infers output sizes via returning non-allocated KernelArgumentHolder.
-  //! this function is useful for parallel compilation for segmented fusion
+  //! This function is useful for parallel compilation of segmented fusions.
+  //! It returns non-allocated KernelArgumentHolder, representing the output
+  //! sizes from kernel execution.
+  //! Notes: 1. This API should ignore aliased outputs instead of
+  //! pushing scalar int 0 as a place-holder.
+  //! 2. This API does not allocate output in memory, but only returns the
+  //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
       const KernelArgumentHolder& args);
@@ -306,15 +311,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   ExecutorCompileTimeInfoCache* compileTimeDataCache() {
     return &compile_time_info_cache_;
   }
-
-  //! returns KernelArgumentHolder representing the output sizes from kernel
-  //! execution. Note: 1. this API would ignoring aliased outputs and instead
-  //! pushing scalar int 0 as a place holder; 2. this API doesn't actually
-  //! allocate output in memory, but rather is used just to infer output sizes.
-  KernelArgumentHolder evaluateOutputSizes(
-      Fusion* fusion,
-      const KernelArgumentHolder& args,
-      ExpressionEvaluator& expr_eval);
 
   //! TODO: Consider changing this to a constructor of ExecutorEntry
   void initializeExecutorEntry(

@@ -924,11 +924,18 @@ void FusionExecutor::setUsedTVs() {
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
 }
 
-KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
+KernelArgumentHolder FusionExecutor::inferOutputSizes(
     Fusion* fusion,
-    const KernelArgumentHolder& args,
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+      std::make_unique<PrecomputedValues>(fusion);
+  evaluator_precomputed_values->bindInputs(args);
+  evaluator_precomputed_values->evaluate();
+
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
   const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();
 
@@ -987,23 +994,7 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
         "alias io only supports tensor");
     ret.swap(aliased_output_index, args[aliased_input_index]);
   }
-
   return ret;
-}
-
-KernelArgumentHolder FusionExecutor::inferOutputSizes(
-    Fusion* fusion,
-    const KernelArgumentHolder& args) {
-  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
-  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
-      std::make_unique<PrecomputedValues>(fusion);
-  evaluator_precomputed_values->bindInputs(args);
-  evaluator_precomputed_values->evaluate();
-
-  ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
-
-  return evaluateOutputSizes(fusion, args, expr_eval);
 }
 
 namespace {
