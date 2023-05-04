@@ -23,27 +23,6 @@ namespace nvfuser {
 TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
 TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
 
-// Note [Limitation of boundary assert]:
-// When set to true we will add boundary check to the generated kernel's
-// Tensor::operator[]. However, this does not always work and can have false
-// positives and false negatives.
-//
-// False positive:
-// For some cases, such as reduction, we generate code like
-//  int index = 1025;
-//  blockReduce(/*reference*/T0[index], ..., index < 1024);
-// In the above example, we do not really read from T0[index], thanks to the
-// predicate, however, the boundary check in operator[] is still executed.
-// As a result, this would causes false alarm.
-//
-// False negative:
-// Not all global memory accesses use operator[], for example, vectorized access
-// uses loadGeneric on pointers. And this might miss cases like
-//   int index = 1024;
-//   loadGeneric<dtype, 4>(dest, &T0[index]); // T0.size[0] == 1026
-TORCH_CUDA_CU_API bool shouldAssertOutOfBound();
-TORCH_CUDA_CU_API void setAssertOutOfBound(bool value);
-
 // TODO: Should this actually be in launch params?
 struct TORCH_CUDA_CU_API CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
