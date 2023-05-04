@@ -314,7 +314,7 @@ void IrGraphGenerator::generateScheduleGraph() {
       if (tv->domain()->hasRFactor())
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->domain()->getRFactorDomain()),
+            IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
             "[style=dashed, color=green, arrowhead=none]");
     }
   }
