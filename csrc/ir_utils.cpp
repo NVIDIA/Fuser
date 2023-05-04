@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir_builder.h>
 #include <ir_iostream.h>
@@ -12,6 +13,7 @@
 #include <iter_visitor.h>
 #include <lower_utils.h>
 #include <ops/arith.h>
+#include <scheduler/registry.h>
 
 #include <limits>
 #include <set>
@@ -570,6 +572,45 @@ bool isReductionOp(const Expr* expr) {
 
 bool isReductionTvOp(const Expr* expr) {
   return ir_utils::isTvOp(expr) && isReductionOp(expr);
+}
+
+bool isReductionOverSizeZero(
+    const Expr* expr,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!isReductionOp(expr)) {
+    return false;
+  }
+  auto expr_eval = runtime_info.expressionEvaluator();
+  for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (auto id : output->getRootDomain()) {
+      if (id->isReduction() &&
+          expr_eval.evaluate(id->extent())->as<int64_t>() == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void replaceReductionWithFull(Expr* expr) {
+  if (expr->isA<ReductionOp>()) {
+    // Fill value is reduction starting value
+    auto rop = expr->as<ReductionOp>();
+    auto out_root = rop->out()->as<TensorView>()->domain()->root();
+    auto out_shape = std::vector<Val*>(out_root.size());
+    for (auto i : c10::irange(out_root.size())) {
+      out_shape[i] = out_root[i]->extent();
+    }
+    auto new_out = full(out_shape, rop->init(), rop->out()->dtype());
+    ir_utils::replaceValInExpr(expr, rop->out(), new_out);
+  } else if (expr->isA<WelfordOp>()) {
+    // Fill value is nan for both mean and variance, since these are equivalent
+    // to sum()/numel=0/0.
+    TORCH_INTERNAL_ASSERT(false, "WelfordOp replacement not yet implemented");
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        false, "Expression cannot be replaced with full: ", expr->toString());
+  }
 }
 
 bool isPointwiseTvOp(const Expr* expr) {

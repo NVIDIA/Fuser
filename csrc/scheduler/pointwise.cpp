@@ -434,11 +434,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  // maybe has_reduction for scheduling should be done on a per output tensor
-  // basis.
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::getReductionOps(fusion).empty(),
-      "This scheduler only handles pointwise ops.");
+  // Replace each reduction with a call to full(). Assumes we have already
+  // verified that this is safe to do.
+  for (auto rop : ir_utils::getReductionOps(fusion)) {
+    ir_utils::replaceReductionWithFull(rop);
+  }
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);

@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+class SchedulerRuntimeInfo;
+
 namespace ir_utils {
 
 // Replace values in fusion using ValReplacementMutator
@@ -337,6 +339,17 @@ TORCH_CUDA_CU_API bool isReductionOp(const Expr*);
 
 // Returns if Expr is a reduction op with TensorView or TensorIndex
 TORCH_CUDA_CU_API bool isReductionTvOp(const Expr*);
+
+//! Returns if Expr is a reduction over at least one size-0 dimension
+TORCH_CUDA_CU_API bool isReductionOverSizeZero(
+    const Expr*,
+    SchedulerRuntimeInfo& runtime_info);
+
+//! Replaces a reduction with full() using the appropriate value, assuming no
+//! actual reduction would take place. Note that since no runtime information
+//! or ExpressionEvaluator is given, this function cannot verify that zero
+//! elements would in fact have been reduced.
+TORCH_CUDA_CU_API void replaceReductionWithFull(Expr*);
 
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 TORCH_CUDA_CU_API bool isPointwiseTvOp(const Expr* expr);

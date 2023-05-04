@@ -1504,6 +1504,12 @@ class ReductionScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
+    // Reject if there are any zero-size reductions, since these would prefer
+    for (auto rop : ir_utils::getReductionOps(fusion)) {
+      if (ir_utils::isReductionOverSizeZero(rop, runtime_info)) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -1686,14 +1692,6 @@ class PointWiseScheduler : public SchedulerEntry {
       }
     }
 
-    auto reduction_ops = ir_utils::getReductionOps(fusion);
-
-    if (!reduction_ops.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise, "no support for reduction ops");
-      return false;
-    }
-
     if (hasNonUniqueBcast(fusion)) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::PointWise,
@@ -1718,6 +1716,11 @@ class PointWiseScheduler : public SchedulerEntry {
       auto reason =
           getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
       return !reason.empty();
+    }
+
+    // Replace every reduction with a full op
+    for (auto rop : ir_utils::getReductionOps(fusion)) {
+      ir_utils::replaceReductionWithFull(rop);
     }
 
     return true;
