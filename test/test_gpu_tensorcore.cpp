@@ -315,7 +315,6 @@ TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
 
   fusion.addOutput(tv2);
 
-
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(16, 16, 4);
   gemm_tile.warp_tile = GemmTile(16, 16, 4);
