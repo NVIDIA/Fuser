@@ -33,7 +33,7 @@ namespace {
 
 template <typename T, typename nvfuser_index_t, typename... Args>
 std::unique_ptr<TensorArgAbstract> getTensorArgDispatch(
-    int num_dimensions,
+    int64_t num_dimensions,
     Args&&... args) {
   switch (num_dimensions) {
     case (0):
@@ -83,91 +83,58 @@ std::unique_ptr<TensorArgAbstract> getTensorArgDispatch(
 }
 
 template <typename nvfuser_index_t>
-struct GetTensorProxyArgWithNativeType {
-  template <typename T>
+struct GetTensorArgWithNativeType {
+  template <typename T, typename... Args>
   std::unique_ptr<TensorArgAbstract> operator()(
-      const std::vector<int64_t>& sizes,
-      const std::vector<int64_t>& strides,
-      bool index_type_resolved) {
+      int64_t num_dimensions,
+      Args&&... args) {
     return getTensorArgDispatch<T, nvfuser_index_t>(
-        sizes.size(), sizes, strides, index_type_resolved);
+        num_dimensions, std::forward<Args>(args)...);
   };
 };
 
-template <typename INDEX_TYPE>
-std::unique_ptr<TensorArgAbstract> getTensorProxyArg(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides,
+template <typename nvfuser_index_t, typename... Args>
+std::unique_ptr<TensorArgAbstract> getTensorArg(
     at::ScalarType dtype,
-    bool index_type_resolved) {
+    int64_t num_dimensions,
+    Args&&... args) {
   return atenTypeDispatchWithC10Complex(
       dtype,
-      GetTensorProxyArgWithNativeType<INDEX_TYPE>(),
-      sizes,
-      strides,
-      index_type_resolved);
+      GetTensorArgWithNativeType<nvfuser_index_t>(),
+      num_dimensions,
+      std::forward<Args>(args)...);
 }
 
-std::unique_ptr<TensorArgAbstract> getTensorProxyArg(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides,
+template <typename... Args>
+std::unique_ptr<TensorArgAbstract> getTensorArg(
     at::ScalarType dtype,
-    std::optional<PrimDataType> index_type) {
+    int64_t num_dimensions,
+    std::optional<PrimDataType> index_type,
+    Args&&... args) {
   if (index_type.has_value()) {
     switch (index_type.value()) {
       case PrimDataType::Int32:
-        return getTensorProxyArg<int>(sizes, strides, dtype, true);
+        return getTensorArg<int>(
+            dtype, num_dimensions, std::forward<Args>(args)..., true);
       case PrimDataType::Int:
-        return getTensorProxyArg<int64_t>(sizes, strides, dtype, true);
+        return getTensorArg<int64_t>(
+            dtype, num_dimensions, std::forward<Args>(args)..., true);
       default:
         TORCH_INTERNAL_ASSERT(false, "unknown index mode");
         break;
     }
   } else {
     // Tentatively create TensorArgAbstract with int64_t
-    return getTensorProxyArg<int64_t>(sizes, strides, dtype, false);
+    return getTensorArg<int64_t>(
+        dtype, num_dimensions, std::forward<Args>(args)..., false);
   }
-}
-
-template <typename nvfuser_index_t>
-struct GetTensorArgWithNativeType {
-  template <typename T>
-  std::unique_ptr<TensorArgAbstract> operator()(
-      const at::Tensor& tensor,
-      bool index_type_resolved) {
-    return getTensorArgDispatch<T, nvfuser_index_t>(
-        tensor.ndimension(), tensor, index_type_resolved);
-  };
-};
-
-template <typename INDEX_TYPE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
-    bool index_type_resolved) {
-  return atenTypeDispatchWithC10Complex(
-      tensor.scalar_type(),
-      GetTensorArgWithNativeType<INDEX_TYPE>(),
-      tensor,
-      index_type_resolved);
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     const at::Tensor& tensor,
     std::optional<PrimDataType> index_type) {
-  if (index_type.has_value()) {
-    switch (index_type.value()) {
-      case PrimDataType::Int32:
-        return getTensorArg<int>(tensor, true);
-      case PrimDataType::Int:
-        return getTensorArg<int64_t>(tensor, true);
-      default:
-        TORCH_INTERNAL_ASSERT(false, "unknown index mode");
-        break;
-    }
-  } else {
-    // Tentatively create TensorArgAbstract with int64_t
-    return getTensorArg<int64_t>(tensor, false);
-  }
+  return getTensorArg(
+      tensor.scalar_type(), tensor.ndimension(), index_type, tensor);
 }
 
 } // namespace
@@ -224,7 +191,10 @@ void KernelArgumentHolder::pushTensorProxy(
     const std::vector<int64_t>& strides,
     at::ScalarType dtype,
     std::optional<PrimDataType> index_type) {
-  arguments_.push_back(getTensorProxyArg(sizes, strides, dtype, index_type));
+  TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
+  auto ndimension = (int64_t)sizes.size();
+  arguments_.push_back(
+      getTensorArg(dtype, ndimension, index_type, sizes, strides));
 }
 
 // Push a scalar or integer to the arguments
