@@ -349,15 +349,12 @@ class CudaCompiler {
         } while (read_bytes > 0);
         output = builder.str();
       }
-      std::cout << output << std::endl;
+      //std::cout << output << std::endl;
 
       int status;
       int corpse = wait(&status);
+      (void) corpse;
       if (WIFEXITED(status))
-        printf(
-            "Compiler call %d exited with status %d\n",
-            corpse,
-            WEXITSTATUS(status));
       if (WEXITSTATUS(status) != 0) {
         throw std::runtime_error(
             std::string("Compiler exited with status ") +

@@ -18,7 +18,12 @@
     nvfuser_zero <<= 1;           \
   } while (0);
 
-#if defined __NVCC__ || defined __clang__
+#if defined __NVCC__
+#include <assert.h>
+#elif defined __clang__
+#ifndef NDEBUG
+#define NDEBUG 1
+#endif
 #include <assert.h>
 #endif // __NVCC__
 
@@ -405,7 +410,7 @@ TypelessData<sizeof(T), alignof(T)> erase_type(T x) {
 }
 
 template <typename T>
-bool isfinite(T x) {
+__device__ bool isfinite(T x) {
   return ::isfinite(x);
 }
 
@@ -426,7 +431,7 @@ bool isfinite<__half>(__half x) {
 }
 
 template <typename T>
-bool isinf(T x) {
+__device__ bool isinf(T x) {
   return ::isinf(x);
 }
 
@@ -435,51 +440,51 @@ bool isinf(T x) {
 // 10.2 Please remove when CUDA 10.2 support is dropped   //
 ////////////////////////////////////////////////////////////
 
-bool isinf(int64_t x) {
+__device__ bool isinf(int64_t x) {
   return false;
 }
 
-bool isinf(int x) {
+__device__ bool isinf(int x) {
   return false;
 }
 
-bool isinf(short x) {
+__device__ bool isinf(short x) {
   return false;
 }
 
-bool isinf(char x) {
+__device__ bool isinf(char x) {
   return false;
 }
 
-bool isinf(unsigned char x) {
+__device__ bool isinf(unsigned char x) {
   return false;
 }
 
-bool isinf(bool x) {
+__device__ bool isinf(bool x) {
   return false;
 }
 
-bool isfinite(int64_t x) {
+__device__ bool isfinite(int64_t x) {
   return true;
 }
 
-bool isfinite(int x) {
+__device__ bool isfinite(int x) {
   return true;
 }
 
-bool isfinite(short x) {
+__device__ bool isfinite(short x) {
   return true;
 }
 
-bool isfinite(char x) {
+__device__ bool isfinite(char x) {
   return true;
 }
 
-bool isfinite(unsigned char x) {
+__device__ bool isfinite(unsigned char x) {
   return true;
 }
 
-bool isfinite(bool x) {
+__device__ bool isfinite(bool x) {
   return true;
 }
 
@@ -488,22 +493,22 @@ bool isfinite(bool x) {
 ////////////////////////////////////////////////////////////
 
 template <typename T>
-bool isnan(T x) {
+__device__ bool isnan(T x) {
   return x != x;
 }
 
 template <typename T>
-bool isneginf(T x) {
+__device__ bool isneginf(T x) {
   return x < 0 && isinf(x);
 }
 
 template <typename T>
-bool isposinf(T x) {
+__device__ bool isposinf(T x) {
   return x > 0 && isinf(x);
 }
 
 template <typename T>
-bool isreal(T x) {
+__device__ bool isreal(T x) {
   return true;
 }
 
