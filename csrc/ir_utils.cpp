@@ -750,12 +750,30 @@ bool isIndexedID(const TensorView* tv, const IterDomain* id) {
 
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
   return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
-    return (expr->isA<TorchGatherOp>() &&
-            expr->as<TorchGatherOp>()->getIndexedID() == id) ||
-        (expr->isA<SelectOp>() && expr->as<SelectOp>()->getIndexedID() == id) ||
-        (expr->isA<IndexSelectOp>() &&
-         expr->as<IndexSelectOp>()->getIndexedID() == id);
+    return getIndexedProducerID(expr) == id;
   });
+}
+
+IterDomain* getIndexedProducerID(const Expr* expr) {
+  if (auto select = dynamic_cast<const SelectOp*>(expr)) {
+    return select->getIndexedID();
+  } else if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
+    return index_select->getIndexedID();
+  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+    return gather->getIndexedID();
+  } else {
+    return nullptr;
+  }
+}
+
+IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
+  if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
+    return index_select->getConsumerOfIndexedID();
+  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+    return gather->getConsumerOfIndexedID();
+  } else {
+    return nullptr;
+  }
 }
 
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
@@ -813,18 +831,6 @@ bool isTorchGatherLookupTv(const Val* tv) {
     if (expr->isA<TorchGatherOp>()) {
       auto idx_sel = expr->as<TorchGatherOp>();
       if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-bool isTorchGatherIndicesTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<TorchGatherOp>()) {
-      auto idx_sel = expr->as<TorchGatherOp>();
-      if (idx_sel->indexTv() == tv) {
         return true;
       }
     }

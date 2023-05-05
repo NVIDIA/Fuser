@@ -34,6 +34,13 @@ class DomainMap : public pointwise_utils::DomainMap {
  public:
   using pointwise_utils::DomainMap::DomainMap;
 
+  // Note that this may not be able to find any reference if any
+  // tensor in the group is only connected with an input through
+  // rfactor or gather-like indexing ops. It is because
+  // isValidReference is based a backward traversal, so there may not
+  // be a traversal path to an input. This type of analysis is
+  // expected to be possible much more easily with the new indexing
+  // graph (#32), so we should revisit once it becomes available.
   TensorView* findReferenceFor(const std::vector<TensorView*>& group) const {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
@@ -1155,8 +1162,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Inline
   inlineMost();
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser

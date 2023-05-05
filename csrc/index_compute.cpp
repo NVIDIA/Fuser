@@ -1625,8 +1625,11 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       continue;
     }
 
+    auto override_it = override_index.find(root_dom[i]);
+    const bool is_overriden = override_it != override_index.end();
+
     TORCH_INTERNAL_ASSERT(
-        index_map.find(root_dom[i]) != index_map.end(),
+        is_overriden || index_map.find(root_dom[i]) != index_map.end(),
         "Couldn't find root mapping for ",
         producer_tv->toString(),
         " dim: ",
@@ -1634,8 +1637,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         " id: ",
         root_dom[i]->toString());
 
-    auto override_it = override_index.find(root_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
     auto root_ind_i =
         is_overriden ? override_it->second : index_map.at(root_dom[i]);
 
@@ -1662,15 +1663,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       if (skip_indexing.count(root_dom[j])) {
         continue;
       }
-
-      TORCH_INTERNAL_ASSERT(
-          index_map.find(root_dom[j]) != index_map.end(),
-          "Couldn't find root mapping for ",
-          producer_tv->name(),
-          " dim: ",
-          j,
-          " id: ",
-          root_dom[j]->toString());
 
       auto root_ext_j = extent_map.find(root_dom[j]) == extent_map.end()
           ? root_dom[j]->extent()

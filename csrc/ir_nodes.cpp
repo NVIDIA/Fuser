@@ -1389,11 +1389,10 @@ struct TensorViewDetails {
 };
 
 // A helper for gathering details about TensorView object
-TensorViewDetails getDetailsFor(const TensorView* tv) {
+TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  using DimIdx = int;
-  for (DimIdx pos = 0; pos < static_cast<DimIdx>(tv->nDims()); ++pos) {
-    const auto axis = tv->axis(pos);
+  for (size_t pos = 0; pos < dims.size(); ++pos) {
+    const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
       continue;
@@ -1416,7 +1415,7 @@ MmaOptions::MmaLayout getInputLayout(
   // TT layout (b - broadcast, r - reduction):
   // A = [M, K, b]
   // B = [b, K, N]
-  // C = [M, r, N]
+  // C = [M, r, N] (root domain)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
@@ -1426,7 +1425,7 @@ MmaOptions::MmaLayout getInputLayout(
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
   // B = [b, N, K]
-  // C = [M, N, r]
+  // C = [M, N, r] (root domain)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
@@ -1436,12 +1435,21 @@ MmaOptions::MmaLayout getInputLayout(
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
   // B = [K, b, N]
-  // C = [r, M, N]
+  // C = [r, M, N] (root domain)
   if ((k_axes.front() < in_a.bcasts.front()) &&
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
     return MmaOptions::MmaLayout::NT;
+  }
+  // NN layout (b - broadcast, r - reduction):
+  // A = [b, K, M]
+  // B = [N, K, b]
+  // C = [N, r, M] (root domain)
+  if ((in_a.bcasts.front() < k_axes.front()) &&
+      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
+      (k_axes.front() < in_b.bcasts.front())) {
+    return MmaOptions::MmaLayout::NN;
   }
 
   TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
@@ -1451,9 +1459,9 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a);
-  const auto in_b_details = getDetailsFor(in_b);
-  const auto out_details = getDetailsFor(out);
+  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
+  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  const auto out_details = getDetailsFor(out->getRootDomain());
 
   using AxesData = MmaOp::AxesData;
 

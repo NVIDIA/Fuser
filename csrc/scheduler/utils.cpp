@@ -997,9 +997,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isTorchGatherIndicesTv(tv) ||
-        ir_utils::isTorchGatherLookupTv(tv) || ir_utils::isSelectInput(tv) ||
-        ir_utils::isIndexSelectLookupTv(tv)) {
+    if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
+        ir_utils::isSelectInput(tv) || ir_utils::isIndexSelectLookupTv(tv)) {
       // Right now, tensors that are input to the select op can't be cached as
       // they must be in global memory.
       continue;
@@ -1357,7 +1356,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // for index_select(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
-        ir_utils::isTorchGatherIndicesTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
@@ -2024,28 +2022,48 @@ bool isFastestDimReduction(TensorView* tv) {
 
 namespace {
 
-std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
-  std::vector<TensorView*> resized_tensors;
+// Grab producer and consumer pairs that have non-pointwise
+// access patterns. Those pairs would have inter-thread data
+// dependencies if parallelized.
+std::vector<std::pair<TensorView*, TensorView*>>
+getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
+  std::vector<std::pair<TensorView*, TensorView*>> tvs;
 
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    if (ir_utils::hasResizedRfactor(tv)) {
-      resized_tensors.push_back(tv);
+  for (auto consumer : ir_utils::allTvs(fusion)) {
+    if (consumer->isFusionInput()) {
+      continue;
+    }
+    if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+      tvs.emplace_back(gather->lookupTv(), consumer);
+    } else if (
+        auto index_select =
+            dynamic_cast<IndexSelectOp*>(consumer->definition())) {
+      tvs.emplace_back(index_select->lookupTv(), consumer);
+    } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
+      tvs.emplace_back(select->lookupTv(), consumer);
+    } else if (ir_utils::hasResizedRfactor(consumer)) {
+      // Exprs based on ResizeOp, e.g., slice
+      auto producers = ir_utils::producerTvsOf(consumer);
+      TORCH_INTERNAL_ASSERT(
+          producers.size() == 1,
+          "Unexpected number of inputs of the defining expression: ",
+          consumer->definition()->toString());
+      tvs.emplace_back(producers.at(0), consumer);
     }
   }
 
-  return resized_tensors;
+  return tvs;
 }
 
-// If the producer of a resized tensor is an input cache and we need to promote
-// it to global memory, just do not cache the input but directly read from the
-// global memory input. It doesn't make any sense to cache a global memory input
-// in global memory. Note that a copy of an input cache is inserted by
+// If an input cache is promoted to global memory, just do not cache
+// the input but directly read from the global memory input. It
+// doesn't make any sense to cache a global memory input in global
+// memory. Note that a copy of an input cache is inserted by
 // prepareForMemoryTypePromotion, so grab the producer of the
 // producer and see if it's included in input_caches.
-bool revertUseOfInputCacheInResize(
-    TensorView* resized_tensor,
-    TensorView* producer_of_resize,
+bool revertUseOfInputCache(
+    TensorView* consumer,
+    TensorView* promoted_producer,
     MemoryType promoted_memory_type,
     const std::vector<TensorView*>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
@@ -2062,7 +2080,7 @@ bool revertUseOfInputCacheInResize(
 
   // To see if the producer is a cache of an input, need to look at
   // its producer as a copy is inserted
-  auto producer_of_producer = get_copy_src(producer_of_resize);
+  auto producer_of_producer = get_copy_src(promoted_producer);
   if (producer_of_producer == nullptr) {
     // No copy is detected. This must mean the producer is not a copy
     // of any input cache
@@ -2092,7 +2110,7 @@ bool revertUseOfInputCacheInResize(
   // tv3 = resizeOp(tv0) // some op using resize
 
   ir_utils::replaceValInExpr(
-      resized_tensor->definition(), producer_of_resize, fusion_input);
+      consumer->definition(), promoted_producer, fusion_input);
 
   return true;
 }
@@ -2100,38 +2118,16 @@ bool revertUseOfInputCacheInResize(
 } // namespace
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
-  auto resized_tensors = getResizedTensors(fusion);
+  auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of the producer of each resize op. If a tensor
-  // is used as the producer of multiple resize ops, only insert one
-  // copy and share it with the resize ops.
+  // Inserting a copy of each proucer. If a tensor shows up as a
+  // producer for multiple consumers, only insert one
+  // copy and share it with all the consumers.
 
-  // Map to keep track resize producer and its copy
-  std::unordered_map<TensorView*, TensorView*> resize_producer_copy_map;
+  // Map to keep track producer and its copy
+  std::unordered_map<TensorView*, TensorView*> producer_copy_map;
 
-  for (auto resized_tensor : resized_tensors) {
-    // Resized tensors are those created by operations like pad and
-    // slice. If it has no defining expression, it must be a fusion
-    // input, and no need of the memory type promotion
-    if (resized_tensor->definition() == nullptr) {
-      TORCH_INTERNAL_ASSERT(
-          resized_tensor->isFusionInput(),
-          "Unexpected resized tensor: ",
-          resized_tensor->toString());
-      continue;
-    }
-    // Assume it has only one input tensor, which may need to
-    // be placed on a non-local memory for data dependencies.
-    TORCH_INTERNAL_ASSERT(
-        resized_tensor->definition(),
-        "Unexpected to have an undefined resized tensor: ",
-        resized_tensor->toString());
-    auto producers = ir_utils::producerTvsOf(resized_tensor);
-    TORCH_INTERNAL_ASSERT(
-        producers.size() == 1,
-        "Unexpected number of inputs of the defining expression: ",
-        resized_tensor->definition()->toString());
-    auto producer = producers.at(0);
+  for (auto& [producer, consumer] : non_pwise_pairs) {
     // At this point, all tensors should be either on Global or Local
     TORCH_INTERNAL_ASSERT(
         producer->getMemoryType() == MemoryType::Local ||
@@ -2144,32 +2140,30 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
       continue;
     }
 
-    auto resize_producer_copy_map_it = resize_producer_copy_map.find(producer);
-    if (resize_producer_copy_map_it == resize_producer_copy_map.end()) {
+    auto producer_copy_map_it = producer_copy_map.find(producer);
+    if (producer_copy_map_it == producer_copy_map.end()) {
       // Create a copy of the producer that is to be inserted between
-      // resized_tensor and producer
+      // consumer and producer
       auto copy_of_producer = set(producer);
-      resize_producer_copy_map_it =
-          resize_producer_copy_map.emplace(producer, copy_of_producer).first;
+      producer_copy_map_it =
+          producer_copy_map.emplace(producer, copy_of_producer).first;
     }
 
-    // Insert a copy between resized_tensor and producer
+    // Insert a copy between consumer and producer
     ir_utils::replaceValInExpr(
-        resized_tensor->definition(),
-        producer,
-        resize_producer_copy_map_it->second);
+        consumer->definition(), producer, producer_copy_map_it->second);
   }
 }
 
-void promoteProducerMemoryTypesOfResizedTensors(
+void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches) {
-  auto resized_tensors = getResizedTensors(fusion);
+  auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
   // preferred. Increased as required.
-  auto memoryTypeToInt = [](MemoryType mt1) -> int {
-    switch (mt1) {
+  auto memoryTypeToInt = [](MemoryType m_type) -> int {
+    switch (m_type) {
       case MemoryType::Local:
         return 1;
       case MemoryType::Shared:
@@ -2177,7 +2171,7 @@ void promoteProducerMemoryTypesOfResizedTensors(
       case MemoryType::Global:
         return 3;
       default:
-        TORCH_INTERNAL_ASSERT(false);
+        TORCH_INTERNAL_ASSERT(false, "Unexpected memory type: ", m_type);
     }
   };
 
@@ -2192,70 +2186,70 @@ void promoteProducerMemoryTypesOfResizedTensors(
     }
   };
 
-  for (auto resized_tensor : resized_tensors) {
-    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      auto c2p_map = BestEffortReplay(
-                         producer->domain()->leaf(),
-                         resized_tensor->domain()->leaf(),
-                         PairwiseRootDomainMap(producer, resized_tensor)
-                             .mapBroadcast(false)
-                             .mapConsumerToProducer(
-                                 resized_tensor->domain(), producer->domain()))
-                         .getReplay();
+  // Analyze each produce and consumer if there's inter-thread data
+  // dependencies
+  // TODO: Clean up once the index map refactor is done
+  for (auto& [producer, consumer] : non_pwise_pairs) {
+    auto c2p_exact_map =
+        BestEffortReplay(
+            producer->domain()->leaf(),
+            consumer->domain()->leaf(),
+            PairwiseRootDomainMap(producer, consumer)
+                .mapBroadcast(false)
+                .mapConsumerToProducer(consumer->domain(), producer->domain()))
+            .getReplay();
 
-      for (const auto i :
-           c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
-        auto producer_non_ca_id = producer->axis(
-            static_cast<int>(i + producer->getComputeAtPosition()));
-        auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
-        if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
-          continue;
-        }
+    for (const auto i :
+         c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+      auto producer_non_ca_id =
+          producer->axis(i + producer->getComputeAtPosition());
+      auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
+      if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
+        continue;
+      }
 
-        auto resized_tensor_exact_map_id_it = std::find_if(
-            resized_tensor->domain()->leaf().begin(),
-            resized_tensor->domain()->leaf().end(),
-            [&](IterDomain* resized_tensor_leaf_id) {
-              auto it = c2p_map.find(resized_tensor_leaf_id);
-              return it != c2p_map.end() && it->second == producer_non_ca_id;
-            });
-        if (resized_tensor_exact_map_id_it !=
-                resized_tensor->domain()->leaf().end() &&
-            (*resized_tensor_exact_map_id_it)->getParallelType() ==
-                producer_non_ca_id_ptype) {
-          continue;
-        }
+      auto consumer_exact_map_id_it = std::find_if(
+          consumer->domain()->leaf().begin(),
+          consumer->domain()->leaf().end(),
+          [&](IterDomain* consumer_leaf_id) {
+            auto it = c2p_exact_map.find(consumer_leaf_id);
+            return it != c2p_exact_map.end() &&
+                it->second == producer_non_ca_id;
+          });
+      if (consumer_exact_map_id_it != consumer->domain()->leaf().end() &&
+          (*consumer_exact_map_id_it)->getParallelType() ==
+              producer_non_ca_id_ptype) {
+        continue;
+      }
 
-        // Promotion required
-        if (isParallelTypeThreadDim(producer_non_ca_id_ptype)) {
-          setPromotion(producer, MemoryType::Shared);
-        } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
-          setPromotion(producer, MemoryType::Global);
-        }
+      // Promotion required
+      if (isParallelTypeThreadDim(producer_non_ca_id_ptype)) {
+        setPromotion(producer, MemoryType::Shared);
+      } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
+        setPromotion(producer, MemoryType::Global);
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }
 
-  // Iterate over resized_tensors so that promotion is done in a
+  // Iterate over non_pwise_pairs so that promotion is done in a
   // deterministic order
-  for (auto resized_tensor : resized_tensors) {
-    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      auto it = tvs_to_promote.find(producer);
-      if (it == tvs_to_promote.end() ||
-          it->second == producer->getMemoryType()) {
-        continue;
-      }
-
-      // Required memory type of the producer
-      const auto new_mem_type = it->second;
-
-      if (revertUseOfInputCacheInResize(
-              resized_tensor, producer, new_mem_type, input_caches)) {
-        continue;
-      }
-
-      producer->setMemoryType(new_mem_type);
+  for (auto& [producer, consumer] : non_pwise_pairs) {
+    auto it = tvs_to_promote.find(producer);
+    if (it == tvs_to_promote.end() || it->second == producer->getMemoryType()) {
+      continue;
     }
+
+    // Required memory type of the producer
+    const auto new_mem_type = it->second;
+
+    if (revertUseOfInputCache(consumer, producer, new_mem_type, input_caches)) {
+      continue;
+    }
+
+    producer->setMemoryType(new_mem_type);
   }
 }
 

@@ -69,6 +69,10 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  TensorView* lookupTv() const {
+    return input(0)->as<TensorView>();
+  }
+
   int64_t dim() const {
     return attribute(0)->as<Attribute<int64_t>>()->value;
   }
