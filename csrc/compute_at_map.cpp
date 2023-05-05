@@ -450,13 +450,19 @@ void IterDomainGraph::build(Fusion* fusion) {
                 .getIterDomainEquivalence();
 
         // Permissive-Resize map allows mappings of resize inputs and
-        // outputs
+        // outputs as well as those indirectly accessed domains by
+        // gather-scatter like ops
+        //
+        // TODO: clean this up. Maybe this can be just the PERMISSIVE
+        // map? Revisit after the ID map refactor.
         //
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
+        const auto pairwise_resize_map =
+            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, true)
+                p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
