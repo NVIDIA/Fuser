@@ -547,4 +547,8 @@ bool isSchedulerInUse(
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
 
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics);
+
 } // namespace nvfuser
