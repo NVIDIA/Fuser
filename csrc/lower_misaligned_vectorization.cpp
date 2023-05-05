@@ -539,7 +539,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
       // If it's not contiguous, extending the vectorization domain
       // further is not possible
-      if (!(producer_contig.at(i).value_or(false) &&
+      if (!(*producer_contig.at(i) &&
             consumer_contig.at(consumer_root_idx).value_or(false))) {
         break;
       }
