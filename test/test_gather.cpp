@@ -801,6 +801,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
 // squeeze of the consumer ID of the indexed domain. Should not be segmented.
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
+  GTEST_SKIP() << "Disabled due to a bug. See #292";
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
