@@ -334,12 +334,14 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: pass block_size here;
+  std::optional<size_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
     auto launch_params =
         computeLaunchParams(launch_constraints, expr_eval, warp_size_);
     block_size = launch_params.nThreads();
+    dynamic_smem = launch_params.smem();
     TORCH_INTERNAL_ASSERT(
         block_size > 0, "launch param inferred block size < 0");
   }
@@ -373,6 +375,16 @@ void FusionExecutor::compileFusion(
       CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
       compiled_kernel_.function));
   maybe_available_dynamic_smem_ = max_dynamic_smem;
+
+  if (maybe_available_dynamic_smem_.has_value() && dynamic_smem.has_value() &&
+      dynamic_smem.value() > maybe_available_dynamic_smem_.value()) {
+    CUDA_SAFE_CALL(cuFuncSetAttribute(
+        compiled_kernel_.function,
+        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+        launch_params_.smem()));
+    // Update current max as to avoid redundant calls.
+    maybe_available_dynamic_smem_ = launch_params_.smem();
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     std::cout << disassembledKernelSASS() << std::endl;
@@ -1335,7 +1347,29 @@ void FusionExecutor::recompileKernel(
           maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
+  // Available dynamic smem needs to be re-checked as it depends on the kernel
+  // static shared memory usage.
+  int max_dynamic_smem = 0;
+  CUDA_SAFE_CALL(cuFuncGetAttribute(
+      &max_dynamic_smem,
+      CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+      compiled_kernel_.function));
+  maybe_available_dynamic_smem_ = max_dynamic_smem;
+
   if (kernel()->summary().has_cooperative_grid_reduction) {
+    // We need to increase shared memory before kernel launch, but also before
+    // calling into `validateCooperativeLaunch`!
+    // So we need to do it there before calling into the validation, to avoid
+    // false positives
+    if (maybe_available_dynamic_smem_.has_value() &&
+        size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
+      CUDA_SAFE_CALL(cuFuncSetAttribute(
+          compiled_kernel_.function,
+          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+          launch_params_.smem()));
+      // Update current max as to avoid redundant calls.
+      maybe_available_dynamic_smem_ = launch_params_.smem();
+    }
     validateCooperativeLaunch(
         compiled_kernel_.function, new_launch_params, options_.device.index());
   }
@@ -1479,6 +1513,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           compiled_kernel_.function,
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
+      // Update current max to avoid redundant calls.
+      maybe_available_dynamic_smem_ = launch_params_.smem();
     }
     auto arg_buffer = args.getBuffer(kernel()->indexType());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
