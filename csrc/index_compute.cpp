@@ -1421,7 +1421,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       TORCH_INTERNAL_ASSERT(
           !producer_tv->domain()->contiguity().at(dim).has_value());
-    } else if (*producer_tv->domain()->contiguity().at(dim)) {
+    } else if (producer_tv->domain()->contiguity().at(dim).value_or(false)) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;
@@ -1771,7 +1771,7 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
     if (root_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       TORCH_INTERNAL_ASSERT(!tv->domain()->contiguity().at(dim).has_value());
-    } else if (*tv->domain()->contiguity().at(dim)) {
+    } else if (tv->domain()->contiguity().at(dim).value_or(false)) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;

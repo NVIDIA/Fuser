@@ -527,7 +527,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     // rfactor root domains, which should just return "zero"
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
-    if (*root_contiguity_.at(root_domain_i) &&
+    if (root_contiguity_.at(root_domain_i).value_or(false) &&
         !halo_info_->getRootAxisInfo(root_domain_id).hasHalo() &&
         root_domain_id->getIterType() != IterType::GatherScatter) {
       contig_ids_.emplace(root_domain_id);
@@ -617,7 +617,7 @@ void ContigIDs::handle(Merge* merge) {
       // If we're computing predicates (ignore_consistent_ordering_==true),
       // then we don't have this same constraint, we can just ignore
       // contiguity of the roots all together.
-      if (!*root_contiguity_.at(root_id_i) && is_indexing_pass) {
+      if (!root_contiguity_.at(root_id_i).value_or(false) && is_indexing_pass) {
         if (!root_ids.empty()) {
           return;
         }
