@@ -104,6 +104,8 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   NamedScalar* magicZeroVal();
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
+  // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
+  const std::vector<Bool*>& axioms();
 
   //! Return the current value of the name counter for a given ValType
   StmtNameType getNumVals(ValType vtype) const {
@@ -193,6 +195,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   std::unique_ptr<Int> one_val_;
   std::unique_ptr<Int> zero_val_;
   std::unique_ptr<NamedScalar> magic_zero_val_;
+  std::unique_ptr<std::vector<Bool*>> axioms_;
 };
 
 } // namespace nvfuser

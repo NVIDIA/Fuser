@@ -20,6 +20,7 @@
 #include <transform_replay.h>
 
 #include <algorithm>
+#include <queue>
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -139,16 +140,16 @@ void splitDims(
          const std::pair<size_t, size_t>& p2) { return p1.first < p2.first; });
   size_t dim_offset = 0;
   size_t pending_dim_offset = 0;
-  int64_t prev_dim = -1;
+  size_t prev_dim = 0;
   for (auto entry : to_split) {
     size_t dim = entry.first;
     size_t size = entry.second;
-    if ((int64_t)dim != prev_dim) {
+    if (dim != prev_dim) {
       dim_offset += pending_dim_offset;
       pending_dim_offset = 0;
     }
     size_t actual_dim = dim_offset + dim;
-    tv->split(actual_dim, size);
+    tv->split((int)actual_dim, size);
     pending_dim_offset++;
     for (auto& i : to_update) {
       if (i > actual_dim) {
@@ -174,7 +175,7 @@ c10::optional<size_t> mergeDims(
   int64_t offset = 0;
   for (auto right = to_merge.begin() + 1; right != to_merge.end(); right++) {
     auto actual_right = offset-- + *right;
-    tv->merge(left, actual_right);
+    tv->merge((int)left, (int)actual_right);
     for (auto& i : to_update) {
       if (i == actual_right) {
         i = left;
@@ -242,7 +243,7 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
-    pos += reference_tv->nDims() + 1;
+    pos += (int64_t)reference_tv->nDims() + 1;
   }
   TORCH_CHECK(
       pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
@@ -269,17 +270,17 @@ void parallelizeAllLike(
     }
     for (const auto i : c10::irange(tv->domain()->leaf().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
-          tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
+          tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
         if (selected_parallel_types.empty() ||
             selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
+          tv->axis((int)i)->parallelize(reference_parallel_type);
         }
         if (propagate_padding) {
           if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
+            tv->axis((int)i)->padToMultipleOfWarp(
                 reference_id->getMaybeSizeAfterPadding());
           }
         }
@@ -717,7 +718,7 @@ getScopePersistenceFactors(
       auto input_i = std::distance(projectable_buffer_inputs.begin(), input_it);
 
       // Get the offset in the bool vector for this input
-      input_i += bool_vector_offset;
+      input_i += (int64_t)bool_vector_offset;
 
       // If we project persistence from the persistent buffers to the inputs,
       // then it would have to be active from the resolution points of the
@@ -809,7 +810,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     persistent_buffer_sizes[buffer_i] = persistent_buffer_sizes[buffer_i] == -1
         ? 0
         : persistent_buffer_sizes[buffer_i] *
-            dataTypeSize(
+            (int64_t)dataTypeSize(
                 buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
@@ -1034,7 +1035,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(std::make_pair(cached_output, output));
+      cached_outputs.emplace_back(cached_output, output);
     }
   }
   return cached_outputs;
@@ -1127,9 +1128,7 @@ IterDomain* projectIdToRFactor(
   }
 
   IterDomain* projected_id = reference_id;
-  for (auto expr_it = replay_exprs.begin(); expr_it != replay_exprs.end();
-       ++expr_it) {
-    auto expr = *expr_it;
+  for (auto expr : replay_exprs) {
     if (expr->isA<Merge>()) {
       auto merge = expr->as<Merge>();
       if (merge->inner() == projected_id) {
@@ -1375,7 +1374,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
-  if (rfactor_dom.size() == 0) {
+  if (rfactor_dom.empty()) {
     return {};
   }
 
@@ -1387,7 +1386,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_set_of_id(
       rfactor_dom.size(), nullptr);
   int current_group_id = 0;
-  int ref_dim_i = rfactor_dom.size() - 1;
+  int64_t ref_dim_i = (int64_t)rfactor_dom.size() - 1;
 
   while (ref_dim_i >= 0) {
     if (disjoint_group_ids[ref_dim_i] != -1) {
@@ -1399,7 +1398,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     const auto& ref_group =
         disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[ref_dim_i]);
 
-    int other_dim_i = ref_dim_i;
+    int64_t other_dim_i = ref_dim_i;
     while (other_dim_i >= 0) {
       const auto& other_group =
           disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[other_dim_i]);
@@ -1545,13 +1544,13 @@ BroadcastMultipleInformation getBroadcastMultiples(
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
         if (lhs) {
-          multiples[lhs_i].lhs_multiple += dtype_size;
+          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size;
         } else if (mapped_axes[lhs_i]) {
           lhs = true;
         }
 
         if (rhs || mapped_axes[rhs_i]) {
-          multiples[rhs_i].rhs_multiple += dtype_size;
+          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size;
           rhs = true;
         }
       }
@@ -1824,7 +1823,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
 
 bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
   if (pos < 0) {
-    pos += group_ids.size();
+    pos += (int)group_ids.size();
   }
   TORCH_INTERNAL_ASSERT(
       pos >= 0 && pos <= (int)group_ids.size(),
@@ -1909,7 +1908,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   }
 
   std::unordered_map<int, int> old2new;
-  for (auto id_i : c10::irange(tv->domain()->leaf().size())) {
+  for (auto id_i : c10::irange((int)tv->domain()->leaf().size())) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
@@ -1918,7 +1917,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         "Reordering map creation failed, uninitialized iterdomain,",
         " likely something is wrong with the transformations between the rfactor domain and the leaves.");
     int new_pos = (int)std::distance(reordered_ids.begin(), find_it);
-    int old_pos = (int)id_i;
+    int old_pos = id_i;
     old2new[old_pos] = new_pos;
   }
   return old2new;
@@ -1991,7 +1990,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             " for view propagation.");
         auto old_pos = std::distance(tv->domain()->leaf().begin(), find_it);
 
-        old2new[old_pos] = old2new.size();
+        old2new[(int)old_pos] = (int)old2new.size();
       }
     }
 
@@ -2002,7 +2001,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // Propagate the view transformations
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
-    transformPropagateToAllFrom(tv, old2new.size());
+    transformPropagateToAllFrom(tv, (int)old2new.size());
   }
 }
 
@@ -2198,15 +2197,16 @@ void promoteProducerMemoryTypesOfResizedTensors(
       auto c2p_map = BestEffortReplay(
                          producer->domain()->leaf(),
                          resized_tensor->domain()->leaf(),
-                         PairwiseRootDomainMap(producer, resized_tensor, true)
+                         PairwiseRootDomainMap(producer, resized_tensor)
+                             .mapBroadcast(false)
                              .mapConsumerToProducer(
                                  resized_tensor->domain(), producer->domain()))
                          .getReplay();
 
       for (const auto i :
            c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
-        auto producer_non_ca_id =
-            producer->axis(i + producer->getComputeAtPosition());
+        auto producer_non_ca_id = producer->axis(
+            static_cast<int>(i + producer->getComputeAtPosition()));
         auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
         if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
           continue;
@@ -2257,6 +2257,41 @@ void promoteProducerMemoryTypesOfResizedTensors(
       producer->setMemoryType(new_mem_type);
     }
   }
+}
+
+std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set) {
+  std::unordered_set<TensorView*> tv_group;
+  std::queue<TensorView*> tensors_to_visit;
+  auto addIfNotVisited = [&](TensorView* tv) {
+    if (tv_group.find(tv) == tv_group.end() &&
+        cutoff_tv_set.find(tv) == cutoff_tv_set.end()) {
+      tv_group.emplace(tv);
+      tensors_to_visit.push(tv);
+    }
+  };
+
+  for (auto tv : from_tvs) {
+    tensors_to_visit.push(tv);
+  }
+  while (!tensors_to_visit.empty()) {
+    auto next_tv = tensors_to_visit.front();
+    tensors_to_visit.pop();
+    // visit consumers
+    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit siblings
+    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit producer
+    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+  }
+  return tv_group;
 }
 
 } // namespace scheduler_utils

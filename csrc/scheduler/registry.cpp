@@ -990,7 +990,7 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == tv_root.size() &&
       contiguity.size() != tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(tv_root.size())) {
       if (!tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
@@ -1085,7 +1085,7 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == tv_root.size() &&
       contiguity.size() != tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(tv_root.size())) {
       if (!tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
@@ -1557,7 +1557,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto select : ir_utils::getSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           select->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (select->getSelectAxis() == root[root.size() - 1]) {
+      if (select->getIndexedID() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "SelectOp on inner dim is not supported by transpose scheduler yet."
@@ -1568,7 +1568,7 @@ class TransposeScheduler : public SchedulerEntry {
     for (auto idx_sel : ir_utils::getIndexSelectOps(fusion)) {
       auto root = TensorDomain::noReductions(
           idx_sel->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-      if (idx_sel->getSelectAxis() == root[root.size() - 1]) {
+      if (idx_sel->getIndexedID() == root[root.size() - 1]) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Transpose,
             "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
@@ -1807,8 +1807,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
     bool combined_inner_outer =
         !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
-    if (combined_inner_outer &&
-        !checkReductionPattern(
+    if (!checkReductionPattern(
             fusion, inner_reduction_tvs, outer_reduction_tvs)) {
       return false;
     }

@@ -227,9 +227,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& maybe_rfactor_domain = tv->domain()->hasRFactor()
-          ? tv->domain()->getRFactorDomain()
-          : tv->domain()->getRootDomain();
+      const auto& maybe_rfactor_domain = tv->getMaybeRFactorDomain();
       const auto nDims = std::count_if(
           maybe_rfactor_domain.begin(),
           maybe_rfactor_domain.end(),
@@ -934,16 +932,18 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
     ss << toString(options.macro);
 
-    if (isVolta(options.macro)) {
+    // clang-tidy: bugprone-unchecked-optional-access
+    // clang-tidy assumes that function result is unstable, so we need a copy.
+    auto mma_layout_opt = mma->layout();
+    TORCH_INTERNAL_ASSERT(
+        mma_layout_opt.has_value(), "mma unknown input layout");
+    if (isTuring(options.macro) || isAmpere(options.macro)) {
       TORCH_INTERNAL_ASSERT(
-          mma->layout().has_value(), "mma unknown input layout");
-    } else if (isTuring(options.macro) || isAmpere(options.macro)) {
-      TORCH_INTERNAL_ASSERT(
-          mma->layout() == MmaOptions::MmaLayout::TN,
+          mma_layout_opt == MmaOptions::MmaLayout::TN,
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    ss << toString(mma->layout().value());
+    ss << toString(mma_layout_opt.value());
     // TODO: additional parameter could be removed by swizzling iterdomain
     auto acc_stride = mma->accStride();
     TORCH_INTERNAL_ASSERT(acc_stride > 0);

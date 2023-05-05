@@ -234,7 +234,7 @@ void checkContiguity(
       PairwiseRootDomainMap(producer, consumer)
           .mapConsumerToProducer(consumer->domain(), producer->domain());
 
-  std::unordered_map<IterDomain*, c10::optional<bool>>
+  std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
   for (const auto idx : c10::irange(producer->getMaybeRFactorDomain().size())) {
     auto root = producer->getMaybeRFactorDomain().at(idx);
@@ -309,19 +309,19 @@ class VectorizeValidator : public OptInDispatch {
   // For the producer tensor, it's indexed first by transformed like
   // the consumer. So, to find its contig merged domain, use the
   // consumer TensorDomain with the producer contiguity info.
-  static std::vector<c10::optional<bool>> mapProducerContiguity(
+  static std::vector<std::optional<bool>> mapProducerContiguity(
       TensorView* producer_tv,
       TensorView* consumer_tv) {
     const auto c2p = PairwiseRootDomainMap(producer_tv, consumer_tv)
                          .mapConsumerToProducer(
                              consumer_tv->domain(), producer_tv->domain());
 
-    std::vector<c10::optional<bool>> producer_contiguity;
+    std::vector<std::optional<bool>> producer_contiguity;
 
     for (auto consumer_root_id : consumer_tv->getRootDomain()) {
       auto producer_root_id = c2p.at(consumer_root_id);
       if (producer_root_id->isBroadcast()) {
-        producer_contiguity.emplace_back(c10::nullopt);
+        producer_contiguity.emplace_back(std::nullopt);
         continue;
       }
       auto producer_root_it = std::find(
@@ -1026,7 +1026,6 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      return;
     default:
       return;
   }
@@ -1048,11 +1047,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
           // Check that operands come from ldmatrix, can be

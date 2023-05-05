@@ -224,9 +224,9 @@ TEST_F(NVFuserTest, FusionTVDomainGuard_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::vector<c10::optional<bool>> all_true = {true, true};
-  std::vector<c10::optional<bool>> all_false = {false, false};
-  std::vector<c10::optional<bool>> false_true = {false, true};
+  std::vector<std::optional<bool>> all_true = {true, true};
+  std::vector<std::optional<bool>> all_false = {false, false};
+  std::vector<std::optional<bool>> false_true = {false, true};
   auto tv = TensorViewBuilder().ndims(2).contiguity(false_true).build();
   TORCH_CHECK(tv->domain()->contiguity() == false_true);
   {

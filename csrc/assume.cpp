@@ -12,6 +12,7 @@ Bool* tensorsAreNotEmpty(Val* value) {
   while (!todo.empty()) {
     auto v = todo.back();
     todo.pop_back();
+    TORCH_INTERNAL_ASSERT(v != nullptr);
     if (auto ns = dynamic_cast<NamedScalar*>(v)) {
       if (ns->isTensorSize()) {
         tensor_sizes.emplace_back(v);
