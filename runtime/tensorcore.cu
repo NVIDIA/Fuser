@@ -125,6 +125,37 @@ DEVICE_INLINE void mmaM8n8k4nt(
         "r"(_C[7]));
 }
 
+DEVICE_INLINE void mmaM8n8k4nn(
+    Array<float, 8, 8>* C,
+    Array<__half, 4, 4>* A,
+    Array<__half, 4, 4>* B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
+  unsigned* _C = reinterpret_cast<unsigned*>(C);
+
+  asm("mma.sync.aligned.m8n8k4.col.col.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
+      : "=r"(_C[0]),
+        "=r"(_C[1]),
+        "=r"(_C[2]),
+        "=r"(_C[3]),
+        "=r"(_C[4]),
+        "=r"(_C[5]),
+        "=r"(_C[6]),
+        "=r"(_C[7])
+      : "r"(_A[0]),
+        "r"(_A[1]),
+        "r"(_B[0]),
+        "r"(_B[1]),
+        "r"(_C[0]),
+        "r"(_C[1]),
+        "r"(_C[2]),
+        "r"(_C[3]),
+        "r"(_C[4]),
+        "r"(_C[5]),
+        "r"(_C[6]),
+        "r"(_C[7]));
+}
+
 // TODO: in a follow up,
 //    lift this part onto iterdomain ops, once the
 //    swizzle ops are ready.
@@ -200,6 +231,17 @@ DEVICE_INLINE void M16N16K4NT(
   util::mmaToAcc<acc_stride>(_C, C_data);
 }
 
+template <int acc_stride>
+DEVICE_INLINE void M16N16K4NN(
+    Array<float, 8, 8>* C,
+    Array<__half, 4, 4>* A,
+    Array<__half, 4, 4>* B) {
+  float* _C = reinterpret_cast<float*>(C);
+  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
+  util::mmaM8n8k4nn(&C_data, A, B);
+  util::mmaToAcc<acc_stride>(_C, C_data);
+}
+
 // Same initialization for now, will be different in interleaved
 //   macros
 template <int acc_stride>
@@ -214,6 +256,11 @@ DEVICE_INLINE void initM16N16K4TN(Array<float, 8, 8>* accumulator) {
 
 template <int acc_stride>
 DEVICE_INLINE void initM16N16K4NT(Array<float, 8, 8>* accumulator) {
+  util::initM16N16K4<acc_stride>(*accumulator);
+}
+
+template <int acc_stride>
+DEVICE_INLINE void initM16N16K4NN(Array<float, 8, 8>* accumulator) {
   util::initM16N16K4<acc_stride>(*accumulator);
 }
 
