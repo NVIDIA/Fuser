@@ -826,6 +826,50 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Similar to TakeAlongAxisIntermediateTensorReduction2, but no
+// explicit squeeze of the consumer ID of the indexed domain. Still
+// segmented as a reduction of a broadcast ID is always translated to
+// a squeeze op.
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape_before_gather({100, 100});
+  std::vector<int64_t> shape_after_gather({shape_before_gather[0]});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  auto tv5 = sum(tv4, {0, 1});
+  fusion.addOutput(tv5);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape_before_gather, options);
+  auto t1 =
+      at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
+
+  auto ref =
+      at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Normalization then take_along_axis
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
