@@ -50,12 +50,338 @@
 #include <nvfuser_resources/warp.h>
 #include <nvfuser_resources/welford.h>
 
+#include <nvrtc.h>
 #include <cstdlib>
 #include <fstream>
-#include <variant>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <nvrtc.h>
+#define BUILD_WITH_OFFLINE_COMPILERS
+#ifdef BUILD_WITH_OFFLINE_COMPILERS
+#include <sys/wait.h>
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
+#include <regex>
 
+class CudaCompiler {
+ public:
+  enum class compiler_type { clang, nvcc, nvrtc, ptxas };
+
+  static inline CudaCompiler clang(
+      int gpu_arch,
+      std::string cuda_path,
+      std::string clang_path) {
+    return {
+        compiler_type::clang,
+        gpu_arch,
+        std::move(cuda_path),
+        std::move(clang_path)};
+  }
+
+  static inline CudaCompiler nvcc(int gpu_arch, std::string cuda_path) {
+    return {compiler_type::nvcc, gpu_arch, std::move(cuda_path)};
+  }
+
+  static inline CudaCompiler ptxas(int gpu_arch, std::string cuda_path) {
+    return {compiler_type::ptxas, gpu_arch, std::move(cuda_path)};
+  }
+
+  static inline CudaCompiler nvrtc(int gpu_arch) {
+    return {compiler_type::nvrtc, gpu_arch};
+  }
+
+  static inline std::string extractGlobalName(std::string_view s) {
+    //.visible .entry myname(
+    std::regex rgx(".visible .entry (\\w+)\\(");
+    std::cmatch match;
+    if (std::regex_search(s.data(), s.data() + s.length(), match, rgx)) {
+      return std::string(match[1]);
+    }
+    return "";
+  }
+
+  static inline std::string extractGlobalName(
+      const std::vector<char>& input_program) { //
+    return extractGlobalName(
+        std::string_view(input_program.data(), input_program.size()));
+  }
+
+ private:
+  inline CudaCompiler(
+      compiler_type type,
+      int gpu_arch,
+      std::string cuda_path = {},
+      std::string clang_path = {})
+      : type_(type),
+        cuda_path_(std::move(cuda_path)),
+        clang_path_(std::move(clang_path)),
+        gpuArch_(gpu_arch) {}
+
+ public:
+  inline std::vector<char> compile(
+      const std::vector<char>& input_program,
+      std::vector<std::string> compile_params = {}) {
+    return compile(
+        std::string_view(input_program.data(), input_program.size()),
+        std::move(compile_params));
+  }
+
+  [[nodiscard]] std::string getLastGlobalName() const {
+    return last_global_name_;
+  }
+
+  inline std::vector<char> compile(
+      std::string_view input_program,
+      std::vector<std::string> compile_params = {}) {
+    if (type_ == compiler_type::nvrtc) {
+      auto NVRTC_SAFE_CALL_ = [](auto result) {
+        if (result != NVRTC_SUCCESS) {
+          throw std::runtime_error(
+              std::string("nvrtc failed with error ") +
+              nvrtcGetErrorString(result));
+        }
+      };
+      //            auto slib_path = cuda_path_ + "/lib64/libnvrtc.so";
+      //            auto lib = dlopen(slib_path.c_str(), RTLD_NOW);
+      //            auto createProgram = dlsym(lib, "nvrtcCreateProgram");
+      compile_params.emplace_back(
+          std::string("--gpu-architecture=compute_") +
+          std::to_string(gpuArch_));
+
+      // Opt flags
+      compile_params.emplace_back(
+          std::string("-dopt=") + (opt_level_ != 0 ? "on" : "off"));
+      if (use_fast_math)
+        compile_params.emplace_back("--use_fast_math");
+      compile_params.emplace_back("--extra-device-vectorization");
+
+      compile_params.emplace_back("--std=c++17");
+      std::vector<const char*> args;
+      args.reserve(compile_params.size());
+      for (const auto& arg : compile_params) {
+        args.emplace_back(arg.c_str());
+      }
+
+      nvrtcProgram prog;
+      NVRTC_SAFE_CALL_(nvrtcCreateProgram(
+          &prog, input_program.data(), nullptr, 0, nullptr, nullptr));
+      nvrtcResult compileResult =
+          nvrtcCompileProgram(prog, (int)args.size(), args.data());
+
+      size_t logSize;
+      NVRTC_SAFE_CALL_(nvrtcGetProgramLogSize(prog, &logSize));
+      last_log_.resize(logSize);
+      NVRTC_SAFE_CALL_(nvrtcGetProgramLog(prog, last_log_.data()));
+
+      if (compileResult != NVRTC_SUCCESS) {
+        NVRTC_SAFE_CALL_(nvrtcDestroyProgram(&prog));
+        return {};
+      }
+
+      size_t ptxSize;
+      NVRTC_SAFE_CALL_(nvrtcGetPTXSize(prog, &ptxSize));
+      std::vector<char> ptx;
+      ptx.resize(ptxSize);
+      NVRTC_SAFE_CALL_(nvrtcGetPTX(prog, ptx.data()));
+
+      NVRTC_SAFE_CALL_(nvrtcDestroyProgram(&prog));
+      last_global_name_ = extractGlobalName(ptx);
+      return ptx;
+    } else if (type_ == compiler_type::nvcc) {
+      auto ptx_output_path = std::string("/tmp/cudajittertmp_nvcc_") +
+          std::to_string(getpid()) + ".ptx";
+      compile_params.emplace_back(
+          std::string("--gpu-architecture=compute_") +
+          std::to_string(gpuArch_));
+      compile_params.emplace_back("--expt-relaxed-constexpr");
+      compile_params.emplace_back("--x=cu");
+      compile_params.emplace_back("--ptx");
+
+      // Opt flags
+      compile_params.emplace_back(
+          std::string("-O") + std::to_string(opt_level_));
+      if (use_fast_math)
+        compile_params.emplace_back("--use_fast_math");
+      compile_params.emplace_back("--extra-device-vectorization");
+
+      compile_params.emplace_back("-o");
+      compile_params.emplace_back(ptx_output_path);
+      compile_params.emplace_back("-");
+      std::string nvcc_path =
+          !cuda_path_.empty() ? cuda_path_ + "/bin/nvcc" : "nvcc";
+      call_with_pipes(nvcc_path, compile_params, input_program);
+      //std::cout << "NVCC PTX saved to " << ptx_output_path << std::endl;
+      auto ptx = get_file_contents(ptx_output_path.c_str());
+      last_global_name_ = extractGlobalName(ptx);
+      return ptx;
+    }
+
+    else if (type_ == compiler_type::clang) {
+      auto ptx_output_path = std::string("/tmp/cudajittertmp_clang_") +
+          std::to_string(getpid()) + ".ptx";
+      compile_params.emplace_back(
+          std::string("--cuda-gpu-arch=sm_") + std::to_string(gpuArch_));
+      compile_params.emplace_back("--cuda-device-only");
+      compile_params.emplace_back("-S");
+      // compile_params.emplace_back("-nocudalib"); required to lin against
+      // libdevice
+      compile_params.emplace_back(std::string("--cuda-path=") + cuda_path_);
+      compile_params.emplace_back(
+          std::string("-O") + std::to_string(opt_level_));
+      if (use_fast_math)
+        compile_params.emplace_back("-ffast-math");
+      compile_params.emplace_back("--no-cuda-version-check");
+      compile_params.emplace_back("-Wno-unknown-cuda-version");
+      compile_params.emplace_back("-Wno-user-defined-literals");
+      compile_params.emplace_back("-Wno-c++17-extensions");
+      compile_params.emplace_back("-Wno-format");
+      compile_params.emplace_back("-o");
+      compile_params.emplace_back(ptx_output_path);
+      compile_params.emplace_back("-xcu");
+      compile_params.emplace_back("-");
+
+      std::string clang_path = !clang_path_.empty() ? clang_path_ : "clang++";
+      call_with_pipes(clang_path, compile_params, input_program);
+      //std::cout << "CLANG++ PTX saved to " << ptx_output_path << std::endl;
+      auto ptx = get_file_contents(ptx_output_path.c_str());
+      last_global_name_ = extractGlobalName(ptx);
+      return ptx;
+    } else if (type_ == compiler_type::ptxas) {
+      last_global_name_ = extractGlobalName(input_program);
+      auto cubin_output_path = std::string("/tmp/cudajittertmp_ptxas_") +
+          std::to_string(getpid()) + ".cubin";
+      compile_params.emplace_back(
+          std::string("-arch=sm_") + std::to_string(gpuArch_));
+      compile_params.emplace_back(
+          std::string("-O") + std::to_string(opt_level_));
+      compile_params.emplace_back("-o");
+      compile_params.emplace_back(cubin_output_path);
+      compile_params.emplace_back("-");
+      std::string ptxas_path = cuda_path_ + "/bin/ptxas";
+      auto log = call_with_pipes(ptxas_path, compile_params, input_program);
+     // std::cout << "CUBIN saved to " << cubin_output_path << std::endl;
+      return get_file_contents(cubin_output_path.c_str());
+    }
+    return {};
+  }
+
+  void setOptLevel(int level) {
+    opt_level_ = level;
+  }
+
+ private:
+  static inline std::vector<char> get_file_contents(const char* filename) {
+    std::ifstream in(filename, std::ios::in | std::ios::binary);
+    if (in) {
+      std::vector<char> contents;
+      in.seekg(0, std::ios::end);
+      using pos_type = decltype(in.tellg());
+      contents.resize(in.tellg() + pos_type{1});
+      in.seekg(0, std::ios::beg);
+      in.read(&contents[0], (int64_t)contents.size());
+      in.close();
+      *(contents.end() - 1) = 0;
+      return (contents);
+    }
+    return {};
+  }
+
+  static inline std::string call_with_pipes(
+      const std::string& command,
+      const std::vector<std::string>& args,
+      std::string_view string_to_stdin) {
+    std::vector<const char*> args_as_cstrs;
+    args_as_cstrs.reserve(args.size() + 2);
+    args_as_cstrs.emplace_back(command.c_str());
+    for (const auto& arg : args) {
+      args_as_cstrs.emplace_back(arg.c_str());
+    }
+    args_as_cstrs.emplace_back(nullptr);
+
+    int pipe_stdin[2];
+    int pipe_stdout[2];
+    if (pipe(pipe_stdin) < 0)
+      throw std::runtime_error("pipe() failed");
+    if (pipe(pipe_stdout) < 0)
+      throw std::runtime_error("pipe() failed");
+    if (pid_t pid = fork(); pid < 0)
+      throw std::runtime_error("fork() failed");
+    else if (pid == 0) {
+      dup2(pipe_stdin[0], STDIN_FILENO);
+      dup2(pipe_stdout[1], STDERR_FILENO);
+      dup2(pipe_stdout[1], STDOUT_FILENO);
+
+      close(pipe_stdin[0]);
+      close(pipe_stdin[1]);
+      close(pipe_stdout[0]);
+      close(pipe_stdout[1]);
+      auto error =
+          execvp(command.c_str(), const_cast<char**>(args_as_cstrs.data()));
+      if (error)
+        throw std::runtime_error(
+            std::string("exec failed with: ") + strerror(errno) +
+            ". Does PATH contains nvcc?");
+    } else {
+      close(pipe_stdin[0]);
+      close(pipe_stdout[1]);
+      auto written = write(
+          pipe_stdin[1], string_to_stdin.data(), string_to_stdin.length());
+      if (written < 0 || (size_t)written != string_to_stdin.length()) {
+        throw std::runtime_error("Could not send whole program to compiler.");
+      }
+      close(pipe_stdin[1]);
+
+      std::string output;
+      {
+        const int buf_size = 16384;
+        std::stringstream builder;
+        auto buf = std::make_unique<char[]>(buf_size);
+        int64_t read_bytes;
+        do {
+          read_bytes = read(pipe_stdout[0], buf.get(), buf_size);
+          builder << std::string_view(buf.get(), std::max(read_bytes, 0l));
+        } while (read_bytes > 0);
+        output = builder.str();
+      }
+      std::cout << output << std::endl;
+
+      int status;
+      int corpse = wait(&status);
+      if (WIFEXITED(status))
+        printf(
+            "Compiler call %d exited with status %d\n",
+            corpse,
+            WEXITSTATUS(status));
+      if (WEXITSTATUS(status) != 0) {
+        throw std::runtime_error(
+            std::string("Compiler exited with status ") +
+            std::to_string(WEXITSTATUS(status)) + '\n');
+      };
+      return output;
+    }
+    return "";
+  }
+
+  void setFastMath(bool v) {
+    use_fast_math = v;
+  }
+
+ private:
+  compiler_type type_;
+  std::string cuda_path_, clang_path_;
+  int gpuArch_;
+  std::string last_log_, last_global_name_;
+
+  int opt_level_ = 3;
+  bool use_fast_math = true;
+};
+#endif
 namespace nvfuser {
 namespace executor_utils {
 
@@ -1333,6 +1659,35 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
     int64_t id,
     bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
+#ifdef BUILD_WITH_OFFLINE_COMPILERS
+  auto generator = getenv("PTX_GENERATOR");
+  if (generator && (std::string("nvrtc") != generator)) {
+    auto cuda_path = "/home/mmigdal/nvFuser/cuda12.1";
+    auto clang_path = "/home/mmigdal/llvm_install/bin/clang++";
+    std::vector<char> ptx;
+
+    std::string kernel_entry_point_name;
+    if (std::string("clang") == generator) {
+      auto clang_driver = CudaCompiler::clang(80, cuda_path, clang_path);
+      ptx = clang_driver.compile(full_src_code);
+      kernel_entry_point_name = clang_driver.getLastGlobalName();
+    } else if (std::string("nvcc") == generator) {
+      auto nvcc_driver = CudaCompiler::nvcc(80, cuda_path);
+      ptx = nvcc_driver.compile(full_src_code);
+      kernel_entry_point_name = nvcc_driver.getLastGlobalName();
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "Unknown compiler");
+    }
+
+    if (!compile_to_sass) {
+      return {ptx, kernel_entry_point_name};
+    } else {
+      auto ptxas_driver = CudaCompiler::ptxas(80, cuda_path);
+      return {ptxas_driver.compile(ptx), kernel_entry_point_name};
+    }
+  }
+#endif
+
   std::stringstream log;
 
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
