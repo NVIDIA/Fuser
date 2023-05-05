@@ -2620,7 +2620,7 @@ TensorDomain::TensorDomain(
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity);
+  validateContiguity(maybeAllocation(), contiguity_);
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2639,7 +2639,7 @@ TensorDomain::TensorDomain(
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity);
+  validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
     TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
@@ -2664,7 +2664,7 @@ TensorDomain::TensorDomain(
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
                              : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity);
+  validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
     TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");

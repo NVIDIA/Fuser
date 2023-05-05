@@ -641,7 +641,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-// Allocate output tensos for a given kernel. Outputs may alias inputs, in
+// Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
