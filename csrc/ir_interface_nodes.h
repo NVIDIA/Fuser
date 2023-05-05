@@ -294,6 +294,20 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain()->maybeAllocation();
   };
 
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      std::vector<std::optional<bool>> new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), std::move(new_contiguity));
+  }
+
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      bool new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), new_contiguity);
+  }
+
   IterDomain* axis(int pos) const;
 
   // Does it share outer axes with other tensors?
