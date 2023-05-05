@@ -9,6 +9,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
@@ -422,7 +423,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;
   std::vector<void*> void_ptrs_;
 
-  int8_t device_index_ = 0;
+  int8_t device_index_ = at::cuda::current_device();
   std::optional<size_t> cache_id_ = std::nullopt;
 };
 

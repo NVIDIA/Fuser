@@ -284,8 +284,10 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type) {
 // Check device of TensorType in all inputs ensure all tensors are on cuda
 // devices.
 // return common device index (or -1 if device differs).
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
-  int8_t index = -1;
+int getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool allow_p2p) {
+  int index = -1;
   size_t num_tensors = 0;
   for (const auto& input : inputs) {
     if (!input.isTensor()) {
@@ -298,15 +300,28 @@ int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
     }
     TORCH_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
     auto cur_index = device.index();
-    if (index != -1 && index != cur_index) {
-      return -1;
+
+    if (!allow_p2p) {
+      if (index != -1 && index != cur_index) {
+        return -1;
+      }
+      index = cur_index;
+    } else {
+      if (index == -1) {
+        index = at::cuda::current_device();
+      } else if (!at::cuda::canDeviceAccessPeer(
+                     cur_index /* Device accessing memory */,
+                     index /* device where allocation resides */)) {
+        return -1;
+      }
     }
+
     index = cur_index;
     ++num_tensors;
   }
   // A case where there is only a scalar input should not indicate a failure
   if (num_tensors == 0) {
-    return 0;
+    return at::cuda::current_device();
   } else {
     return index;
   }

@@ -31,7 +31,9 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
 // TODO: merge these two
 // check if input is compatible with 32b index mode
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
+int getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool allow_p2p);
 
 //! Types of debug print-outs
 //!
@@ -46,10 +48,11 @@ enum class DebugDumpOption {
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
-  DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
-             //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
+  DebugInfo, //!< Embed line info and debug info to compiled kernel, and
+             //!< dump the full CUDA C++ code
+  AssertMemoryViolation, //!< Assert in the kernel when accessing global
+                         //!< tensor out of bound. This might hurt
+                         //!< performance.
   LaunchParam, //!< Dump the Launch parameters of kernel
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
@@ -59,7 +62,8 @@ enum class DebugDumpOption {
                       //! bandwidth
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
-  BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
+  BufferReuseInfo, //!< Dump the analysis details of local/shared buffer
+                   //!< re-use
   SchedulerDebug, //! Dump scheduler heuristic parameters
   SchedulerVerbose, //! Dump detailed scheduler logging
   ParallelDimensions, //!< Dump known parallel dimensions
@@ -68,8 +72,8 @@ enum class DebugDumpOption {
                     //! associated with what's running
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonFrontendDebug, //! Python Frontend debug information.
-  TransformPropagator, //! When running TransformPropagator, print propagation
-                       //! path and replay result
+  TransformPropagator, //! When running TransformPropagator, print
+                       //! propagation path and replay result
   Cubin, //! Dump compiled CUBIN
   Sass, // Dump disassembled SASS
   Ptx, //! Dump compiled PTX
@@ -284,9 +288,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;

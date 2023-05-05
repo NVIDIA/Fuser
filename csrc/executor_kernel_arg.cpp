@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/irange.h>
 
 // Extract size and strides
@@ -129,10 +130,13 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
   if (inputs.empty()) {
     // default to device 0
     KernelArgumentHolder args;
-    args.setDeviceIndex(0);
+    args.setDeviceIndex(at::cuda::current_device());
     return args;
   }
-  auto device_index = getCommonDeviceCUDA(inputs);
+  bool allow_p2p = true;
+  auto device_index = getCommonDeviceCUDA(inputs, allow_p2p);
+
+  TORCH_CHECK(device_index > -1, "Inputs are not all on the same device!");
 
   KernelArgumentHolder args;
   args.setDeviceIndex(device_index);
