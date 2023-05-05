@@ -10,6 +10,8 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
+#include <expr_evaluator.h>
+#include <ir_all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
@@ -57,11 +59,12 @@ inline std::string argTypeToString(ArgType type) {
 }
 
 // This should match the tensor used in the code generation (almost exactly)
-template <typename T, int N, typename nvfuser_index_t>
+template <typename T, int N, int NAlloc, typename nvfuser_index_t>
 struct TensorArgCodegen {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = N;
+  static constexpr int n_alloc_dims = NAlloc;
 
   T& operator[](nvfuser_index_t ind) {
     return data[ind];
@@ -69,9 +72,12 @@ struct TensorArgCodegen {
 
   T* data;
   std::array<nvfuser_index_t, N> size;
-  std::array<nvfuser_index_t, N> stride;
+  std::array<nvfuser_index_t, NAlloc> stride;
   constexpr int nDims() const {
     return N;
+  }
+  constexpr int nAllocationDims() const {
+    return NAlloc;
   }
   void setSize(int64_t i, nvfuser_index_t s) {
     size[i] = s;
@@ -89,10 +95,11 @@ struct TensorArgCodegen {
 
 // 0-Dim GPU based tensor
 template <typename T, typename nvfuser_index_t>
-struct TensorArgCodegen<T, 0, nvfuser_index_t> {
+struct TensorArgCodegen<T, 0, 0, nvfuser_index_t> {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = 0;
+  static constexpr int n_alloc_dims = 0;
 
   T& operator[](nvfuser_index_t ind) {
     return data[ind];
@@ -100,6 +107,9 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
 
   T* data;
   constexpr int nDims() const {
+    return 0;
+  }
+  constexpr int nAllocationDims() const {
     return 0;
   }
   void setSize(int64_t, nvfuser_index_t) {
@@ -199,6 +209,7 @@ struct BoolArg : public ArgAbstract {
 
 struct TensorArgAbstract : ArgAbstract {
   virtual int64_t getRank() const = 0;
+  virtual int64_t getAllocationRank() const = 0;
   virtual int64_t getSize(int64_t i) const = 0;
   virtual int64_t getStride(int64_t i) const = 0;
   virtual void* getPointer() const = 0;
@@ -219,20 +230,88 @@ struct TensorArg : public TensorArgAbstract {
   at::Tensor tensor_;
   bool index_type_resolved_ = false;
 
-  TensorArg(const at::Tensor& tensor, bool index_type_resolved)
+  TensorArg(
+      const at::Tensor& tensor,
+      TensorView* tv,
+      ExpressionEvaluator& eval,
+      bool index_type_resolved)
       : tensor_(tensor), index_type_resolved_(index_type_resolved) {
     setPointer(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
-      setStride(i, tensor.strides()[i]);
+    }
+    setStrides(tensor, tv);
+  }
+
+  void setStrides(
+      const at::Tensor& tensor,
+      TensorView* tv,
+      ExpressionEvaluator& eval) {
+    const auto& alloc_dom = tv->getMaybeAllocationDomain();
+    const auto& rfactor_dom = tv->getMaybeRFactorDomain();
+    auto exprs = StmtSort::getStmtsBetween(
+        tv->fusion(),
+        {rfactor_dom.begin(), rfactor_dom.end()},
+        {alloc_dom.begin(), alloc_dom.end()});
+    // active IDs and their shape and stride
+    std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
+    for (auto i : c10::irange((int64_t)rfactor_dom.size())) {
+      auto rf_id = rfactor_dom.at(i);
+      active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+    }
+    for (auto expr : exprs) {
+      if (auto split = dynamic_cast<Split*>(expr)) {
+        auto in = split->in();
+        auto inner = split->inner();
+        auto outer = split->outer();
+        auto [in_size, in_stride] = active_ids.at(in);
+        auto factor = eval.evaluate(split->factor())->as<int64_t>();
+        TORCH_INTERNAL_ASSERT(
+            in_size % factor == 0,
+            "non-divisible split is not allowed in allocation domain");
+        TORCH_INTERNAL_ASSERT(active_ids.erase(in) == 1);
+        TORCH_INTERNAL_ASSERT(
+            active_ids
+                .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+                .second);
+        TORCH_INTERNAL_ASSERT(active_ids
+                                  .emplace(
+                                      outer,
+                                      std::pair<int64_t, int64_t>{
+                                          in_size / factor, in_stride * factor})
+                                  .second);
+      } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+        auto inner = merge->inner();
+        auto outer = merge->outer();
+        auto out = merge->out();
+        auto [inner_size, inner_stride] = active_ids.at(inner);
+        auto [outer_size, outer_stride] = active_ids.at(outer);
+        TORCH_INTERNAL_ASSERT(
+            inner_stride * inner_size == outer_stride,
+            "Merging of discontiguous dimensions is not allowed in allocation domain");
+        TORCH_INTERNAL_ASSERT(active_ids.erase(inner) == 1);
+        TORCH_INTERNAL_ASSERT(active_ids.erase(outer) == 1);
+        TORCH_INTERNAL_ASSERT(
+            active_ids
+                .emplace(
+                    out,
+                    std::pair<int64_t, int64_t>{
+                        inner_size * outer_size, inner_stride})
+                .second);
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "Unsupported transormation in allocation domain");
+      }
+    }
+    for (auto i : c10::irange((int64_t)alloc_dom.size())) {
+      using stride_t = typename TENSOR_TYPE::index_type;
+      auto alloc_id = alloc_dom.at(i);
+      instance_.setStride(i, (stride_t)active_ids.at(alloc_id).second);
     }
   }
 
   void setSize(int64_t i, int64_t size) {
     instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
-  }
-  void setStride(int64_t i, int64_t stride) {
-    instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
   }
   void setPointer(void* ptr) {
     instance_.data = static_cast<decltype(TENSOR_TYPE::data)>(ptr);
@@ -249,6 +328,9 @@ struct TensorArg : public TensorArgAbstract {
   }
   int64_t getRank() const override {
     return instance_.nDims();
+  }
+  int64_t getAllocationRank() const override {
+    return instance_.nAllocationDims();
   }
   void* getPointer() const override {
     return instance_.data;
@@ -353,7 +435,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   PrimDataType getSmallestIndexTypeOfArguments() const;
 
   // Push a tensor to the arguments
-  void push(const at::Tensor& tensor);
+  void push(
+      const at::Tensor& tensor,
+      TensorView* tv,
+      ExpressionEvaluator& eval);
 
   // Push a scalar or integer to the arguments
   void push(const c10::IValue& val);
@@ -363,7 +448,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
-  void** getBuffer(PrimDataType index_type);
+  void** getBuffer(
+      PrimDataType index_type,
+      TensorView* tv,
+      ExpressionEvaluator& eval);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 

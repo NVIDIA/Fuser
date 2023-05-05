@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <dynamic_transform.h>
+#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <ir_cloner.h>
 #include <ir_utils.h>

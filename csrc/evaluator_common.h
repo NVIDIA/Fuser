@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 #include <dynamic_type.h>
-#include <executor_kernel_arg.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
@@ -19,6 +18,8 @@
 namespace nvfuser {
 
 class PrecomputedValues;
+class KernelArgumentHolder;
+class TensorArgAbstract;
 
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a
