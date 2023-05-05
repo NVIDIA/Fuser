@@ -340,7 +340,7 @@ static void Nvfuser_Matmul_8warp4stage(
   run(TT_TIMM, MatmulLayout::TT, TIMMMatmulShapes);     \
   run(TN_TIMM, MatmulLayout::TN, TIMMMatmulShapes);     \
   run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes);     \
-  run(NT_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
+  run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
 
 // Instantiations:
 #define Nvfuser_4warp3stage_test(layout_label, layout, shapes) \
