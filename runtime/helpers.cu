@@ -18,7 +18,7 @@
     nvfuser_zero <<= 1;           \
   } while (0);
 
-#ifdef __NVCC__
+#if defined __NVCC__ || defined __clang__
 #include <assert.h>
 #endif // __NVCC__
 

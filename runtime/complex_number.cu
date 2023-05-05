@@ -5,10 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #ifndef __NVCC__
+
+#ifndef __clang__
 #define POS_INFINITY __int_as_float(0x7f800000)
 #define INFINITY POS_INFINITY
 #define NEG_INFINITY __int_as_float(0xff800000)
 #define NAN __int_as_float(0x7fffffff)
+#else
+#include <cmath>
+#endif
+
+
 //===----------------------------------------------------------------------===//
 // The following namespace std is modified from LLVM, see the following copyright
 // information
