@@ -63,7 +63,7 @@ TEST_F(AllocationDomainTest, NHWC2NHWC_CUDA) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  // TODO: assert vectorized
+  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -107,7 +107,7 @@ TEST_F(AllocationDomainTest, NCHW2NHWC_CUDA) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  // TODO: assert vectorized
+  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -140,7 +140,7 @@ TEST_F(AllocationDomainTest, Unspecified2NHWC_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Transpose});
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  // TODO: assert vectorized
+  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
   testValidate(&fusion, cg_outputs, {t0_nchw}, {t0_nchw}, __LINE__, __FILE__);
 
   // run with nhwc input
@@ -148,7 +148,7 @@ TEST_F(AllocationDomainTest, Unspecified2NHWC_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  // TODO: assert vectorized
+  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
   testValidate(&fusion, cg_outputs, {t0_nhwc}, {t0_nhwc}, __LINE__, __FILE__);
 }
 

@@ -553,4 +553,7 @@ void validateSegmentation(
     FusionKernelRuntime* runtime,
     const std::vector<ScheduleHeuristic>& expected_heuristics);
 
+// Check if any of the fusion segment has vectorized output
+bool hasVectorizeOutput(FusionKernelRuntime* runtime);
+
 } // namespace nvfuser

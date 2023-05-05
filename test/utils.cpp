@@ -507,4 +507,19 @@ void validateSegmentation(
   }
 }
 
+bool hasVectorizeOutput(FusionKernelRuntime* runtime) {
+  const auto& segment_groups = runtime->fusionSegments()->groups();
+  for (auto& group : segment_groups) {
+    auto output_tvs = ir_utils::filterByType<TensorView>(group->output_vals);
+    for (auto tv : output_tvs) {
+      for (auto id : tv->domain()->leaf()) {
+        if (isParallelTypeVectorize(id->getParallelType())) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 } // namespace nvfuser
