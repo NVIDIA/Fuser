@@ -225,7 +225,8 @@ def version_tag():
     if OVERWRITE_VERSION:
         version = version.split("+")[0]
         if len(VERSION_TAG) != 0:
-            version = "+".join([version, VERSION_TAG])
+            # use "." to be pypi friendly
+            version = ".".join([version, VERSION_TAG])
     return version
 
 
