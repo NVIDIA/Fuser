@@ -168,7 +168,7 @@ void scheduleContiguousVectorLoad(
 
 void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
   TORCH_CHECK(
-      tv->domain()->domain().size() >= tile_sizes.size(),
+      tv->domain()->leaf().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
   // Number of inner dimensions we are tiling.
@@ -541,7 +541,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (int id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : c10::irange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -743,8 +743,8 @@ bool checkLdMatrixTv(TensorView* tv) {
   }
   TORCH_CHECK(ir_utils::isLdMatrixOp(tv_def), "ldmatrix : invalid op type");
   TORCH_CHECK(
-      tv->nDims() > 2,
-      "ldmatrix: scheduled tv needs to be more than 2 dimensional");
+      tv->nDims() >= 2,
+      "ldmatrix: scheduled tv needs to be at least 2 dimensional");
   TORCH_CHECK(
       !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
   TORCH_CHECK(
@@ -831,10 +831,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   //   if tv is immediate output of ldmatrix
   bool is_immediate_output = checkLdMatrixTv(tv);
 
-  // Decode transposition requirement for turing mma
-  bool transposed = options.operand == MmaOptions::Operand::A
-      ? !isOperandTransposed(options)
-      : isOperandTransposed(options);
   // Check mma option is supported
   TORCH_CHECK(
       options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
@@ -849,6 +845,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.layout == MmaOptions::MmaLayout::NN ||
+         options.layout == MmaOptions::MmaLayout::NT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
@@ -882,6 +881,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.layout == MmaOptions::MmaLayout::NT ||
+         options.layout == MmaOptions::MmaLayout::TT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
@@ -918,9 +920,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 
       // [Warp, K8]
       tv->axis(-2)->parallelize(ParallelType::TIDx);
-      if (is_immediate_output) {
-        tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
     } else {
       // validation:
       TORCH_INTERNAL_ASSERT(
@@ -1192,7 +1191,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
-  auto ndims = tv->nDims();
+  int ndims = (int)tv->nDims();
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
@@ -1242,8 +1241,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Id not completely categorized");
+  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);

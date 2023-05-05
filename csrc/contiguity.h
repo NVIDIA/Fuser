@@ -166,7 +166,7 @@ class ContigIDs : public OptInDispatch {
   ContigIDs(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& root_domain,
-      const std::vector<c10::optional<bool>>& root_contiguity,
+      const std::vector<std::optional<bool>>& root_contiguity,
       const std::unordered_set<IterDomain*>& final_ids,
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
@@ -197,7 +197,7 @@ class ContigIDs : public OptInDispatch {
   ContigIDs(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& root_domain,
-      const std::vector<c10::optional<bool>>& root_contiguity,
+      const std::vector<std::optional<bool>>& root_contiguity,
       const std::unordered_set<IterDomain*>& final_ids,
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
@@ -275,7 +275,7 @@ class ContigIDs : public OptInDispatch {
   //! Root domains to analyze contiguity
   const std::vector<IterDomain*>& root_domain_;
   //! Contiguity of root_domain_
-  const std::vector<c10::optional<bool>>& root_contiguity_;
+  const std::vector<std::optional<bool>>& root_contiguity_;
   //! Domains where indexing/predicates cannot be done with their
   //! consumers domains
   const std::unordered_set<IterDomain*>& final_ids_;

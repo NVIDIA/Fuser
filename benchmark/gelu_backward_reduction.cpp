@@ -20,6 +20,9 @@
 #include <sstream>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // Return reduction tensor view and output of reduction
 static void setupGeluBackwardReduction(

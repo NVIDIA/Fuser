@@ -314,7 +314,7 @@ void IrGraphGenerator::generateScheduleGraph() {
       if (tv->domain()->hasRFactor())
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->domain()->getRFactorDomain()),
+            IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
             "[style=dashed, color=green, arrowhead=none]");
     }
   }
@@ -357,7 +357,7 @@ void IrGraphGenerator::handle(const TensorDomain* td) {
   graph_def_ << "    " << getid(td) << " [label=\"TensorDomain\", "
              << "shape=note, color=gray, "
              << "style=filled, fillcolor=gray90, fontsize=10];\n";
-  for (auto iter_domain : td->domain()) {
+  for (auto iter_domain : td->leaf()) {
     addArc(iter_domain, td, "[color=gray]");
   }
 }
@@ -398,7 +398,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << "|";
   label << "{";
   bool first_axis = true;
-  for (auto iter_domain : tv->domain()->domain()) {
+  for (auto iter_domain : tv->domain()->leaf()) {
     if (first_axis) {
       first_axis = false;
     } else {

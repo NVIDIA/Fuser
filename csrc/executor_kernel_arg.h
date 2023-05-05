@@ -371,6 +371,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void push(const ArgAbstract* arg);
 
+  void erase(const ArgAbstract* arg);
+
   void swap(int i, const ArgAbstract* arg);
 
   // push int64

@@ -9,7 +9,7 @@
 
 #include <c10/util/Exception.h>
 
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 
 #include <sstream>
 #include <string_view>
@@ -257,30 +257,95 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
+TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   TORCH_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  // Here, we canonicalize the mma output as M, N, K, but the position of K does
+  // not really matter. So the implicit transpose is only required for NN.
   TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
   switch (layout) {
     case MatmulLayout::TT:
       tv0b = broadcast(a, {false, false, true});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+      // M, K, N -> M, N, K
+      tv2->reorder({{1, -1}});
+      tv2->commitLeafToRFactor();
       break;
     case MatmulLayout::TN:
       tv0b = broadcast(a, {false, true, false});
       tv1b = broadcast(b, {true, false, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+      // M, N, K
       break;
     case MatmulLayout::NT:
       tv0b = broadcast(a, {false, false, true});
       tv1b = broadcast(b, {false, true, false});
       tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+      // K, M, N -> M, N, K
+      tv2->reorder({{0, -1}});
+      tv2->commitLeafToRFactor();
+      break;
+    case MatmulLayout::NN:
+      tv0b = broadcast(a, {true, false, false});
+      tv1b = broadcast(b, {false, false, true});
+      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+      // N, K, M -> M, N, K
+      tv2->reorder({{-1, 0}});
+      tv2->commitLeafToRFactor();
       break;
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return tv2;
+}
+
+TensorView* matmulTuringOrLater(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
+             *tv1b = nullptr;
+  switch (layout) {
+      // Canonicalize all inputs to [M, K] and [N, K]
+    case MatmulLayout::TT:
+      tv0t = a;
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::TN:
+      tv0t = a;
+      tv1t = b;
+      break;
+    case MatmulLayout::NT:
+      tv0t = transpose(a, 0, 1);
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::NN:
+      tv0t = transpose(a, 0, 1);
+      tv1t = b;
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  tv0b = broadcast(tv0t, {false, true, false});
+  tv1b = broadcast(tv1t, {true, false, false});
+  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+) {
+  if (turing_or_later) {
+    return matmulTuringOrLater(a, b, layout);
+  } else {
+    return matmulVolta(a, b, layout);
+  }
 }
 
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
@@ -291,18 +356,21 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       return a.matmul(b.t());
     case MatmulLayout::NT:
       return a.t().matmul(b);
+    case MatmulLayout::NN:
+      return a.t().matmul(b.t());
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
   return at::Tensor();
 }
 
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    MatmulLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
     case MatmulLayout::TT:
@@ -314,6 +382,9 @@ std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
     case MatmulLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
+    case MatmulLayout::NN:
+      return std::make_pair(
+          at::randn({K, M}, options), at::randn({N, K}, options));
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
@@ -326,10 +397,10 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType,
+    const c10::ScalarType dtype,
     const int device) {
   const auto options =
-      at::TensorOptions().dtype(dType).device(at::kCUDA, device);
+      at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
 
   // handle C and D tensors, layout does not impact shape
   switch (tensor) {
@@ -371,6 +442,16 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
+    case MatmulLayout::NN:
+      switch (tensor) {
+        case TensorMatmulPos::A:
+          return at::randn({K, M}, options);
+        case TensorMatmulPos::B:
+          return at::randn({N, K}, options);
+        default:
+          break;
+      }
+      break;
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
@@ -396,6 +477,34 @@ bool isSchedulerInUse(
   }
 
   return false;
+}
+
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+  const auto& segment_groups = runtime->fusionSegments()->groups();
+
+  TORCH_CHECK(
+      segment_groups.size() == expected_heuristics.size(),
+      "Unexpected segments. Expected: ",
+      expected_heuristics.size(),
+      ". Actual: ",
+      segment_groups.size());
+
+  // Assumes up to two segments exist for simplicity
+  TORCH_INTERNAL_ASSERT(
+      segment_groups.size() <= 2, "True segment order analysis is required");
+
+  for (auto& group : segment_groups) {
+    int segment_order = group->producer_edges.empty() ? 0 : 1;
+    TORCH_CHECK(
+        group->heuristic() == expected_heuristics.at(segment_order),
+        "Expected to use the ",
+        expected_heuristics.at(segment_order),
+        " scheduler but ",
+        group->heuristic(),
+        " was used");
+  }
 }
 
 } // namespace nvfuser

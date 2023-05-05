@@ -387,6 +387,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
   int64_t pos = -1;
   for (auto i : c10::irange(exprs.size())) {
     auto expr = exprs[i];
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       // Currently this branch is only to handle shared memory address. For
       // shared memory address, we generate code like `toSmem(T7)`, this does

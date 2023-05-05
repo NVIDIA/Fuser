@@ -227,9 +227,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& maybe_rfactor_domain = tv->domain()->hasRFactor()
-          ? tv->domain()->getRFactorDomain()
-          : tv->domain()->getRootDomain();
+      const auto& maybe_rfactor_domain = tv->getMaybeRFactorDomain();
       const auto nDims = std::count_if(
           maybe_rfactor_domain.begin(),
           maybe_rfactor_domain.end(),
@@ -934,15 +932,18 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
     ss << toString(options.macro);
 
-    if (isVolta(options.macro)) {
+    // clang-tidy: bugprone-unchecked-optional-access
+    // clang-tidy assumes that function result is unstable, so we need a copy.
+    auto mma_layout_opt = mma->layout();
+    TORCH_INTERNAL_ASSERT(
+        mma_layout_opt.has_value(), "mma unknown input layout");
+    if (isTuring(options.macro) || isAmpere(options.macro)) {
       TORCH_INTERNAL_ASSERT(
-          mma->inputLayout().has_value(), "mma unknown input layout");
-      ss << toString(mma->inputLayout().value());
-    } else if (isTuring(options.macro) || isAmpere(options.macro)) {
-      // mma's in turing and ampere TN only, transpose is handled either
-      //  via ldmatrix for fp16 or explicitly for other types.
-      ss << "TN";
+          mma_layout_opt == MmaOptions::MmaLayout::TN,
+          "MMAs in Turing and Ampere are TN only, transpose is handled either "
+          "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
+    ss << toString(mma_layout_opt.value());
     // TODO: additional parameter could be removed by swizzling iterdomain
     auto acc_stride = mma->accStride();
     TORCH_INTERNAL_ASSERT(acc_stride > 0);
@@ -1160,8 +1161,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
       // dispatch mma initialization
       if (std::any_of(
-              out_tv->domain()->domain().begin(),
-              out_tv->domain()->domain().end(),
+              out_tv->domain()->leaf().begin(),
+              out_tv->domain()->leaf().end(),
               [&](IterDomain* id) { return id->isMma(); })) {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         TORCH_INTERNAL_ASSERT(
@@ -1176,7 +1177,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       size_t vector_word_size = 1;
 
       if (vectorize_scope_ && ldst->out()->isA<kir::TensorIndex>()) {
-        for (auto id : out_tv->domain()->domain()) {
+        for (auto id : out_tv->domain()->leaf()) {
           if (!isParallelTypeVectorize(id->getParallelType())) {
             continue;
           }
@@ -2440,7 +2441,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       states[pt] = ReductionParallelTypeState::Iter;
     }
 
-    for (auto id : alloc_fused_reduction->out()->view()->domain()->domain()) {
+    for (auto id : alloc_fused_reduction->out()->view()->domain()->leaf()) {
       auto pt = id->getParallelType();
       if (isParallelTypeThread(pt)) {
         auto state = id->isReduction() ? ReductionParallelTypeState::Reduce
