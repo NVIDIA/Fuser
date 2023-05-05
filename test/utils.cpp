@@ -479,4 +479,32 @@ bool isSchedulerInUse(
   return false;
 }
 
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+  const auto& segment_groups = runtime->fusionSegments()->groups();
+
+  TORCH_CHECK(
+      segment_groups.size() == expected_heuristics.size(),
+      "Unexpected segments. Expected: ",
+      expected_heuristics.size(),
+      ". Actual: ",
+      segment_groups.size());
+
+  // Assumes up to two segments exist for simplicity
+  TORCH_INTERNAL_ASSERT(
+      segment_groups.size() <= 2, "True segment order analysis is required");
+
+  for (auto& group : segment_groups) {
+    int segment_order = group->producer_edges.empty() ? 0 : 1;
+    TORCH_CHECK(
+        group->heuristic() == expected_heuristics.at(segment_order),
+        "Expected to use the ",
+        expected_heuristics.at(segment_order),
+        " scheduler but ",
+        group->heuristic(),
+        " was used");
+  }
+}
+
 } // namespace nvfuser

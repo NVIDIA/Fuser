@@ -45,7 +45,7 @@ constexpr size_t M_POS = 0;
 constexpr size_t N_POS = 1;
 //! A constant with position of K value (a number of rows in A tensor for TT
 //!  layout) in problem in ProblemShape type.
-constexpr size_t K_POS = 2;
+// constexpr size_t K_POS = 2;
 //! A constant with expected number of dimensions in ProblemShape type.
 constexpr size_t PROBLEM_DIMS = 3;
 
