@@ -1586,8 +1586,7 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
     }
   }
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 void scheduleReductionCombinedOuter(

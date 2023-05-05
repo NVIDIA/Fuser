@@ -801,8 +801,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   inlineMost(inner_most_tensors);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser
