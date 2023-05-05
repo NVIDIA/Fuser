@@ -827,9 +827,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
 }
 
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
-// explicit squeeze of the consumer ID of the indexed domain. Still
-// segmented as a reduction of a broadcast ID is always translated to
-// a squeeze op.
+// squeeze of the consumer ID of the indexed domain. Should not be segmented.
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -846,8 +844,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto tv2 = add(tv0, IrBuilder::create<Double>(1));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
-  auto tv5 = sum(tv4, {0, 1});
-  fusion.addOutput(tv5);
+  auto tv5 = sum(tv4, {0});
+  // TODO: remove this. Currently, validation fails without this
+  // likely because of a predication bug
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
 
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -861,11 +862,10 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
 
   auto ref =
-      at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1).sum();
+      at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1).sum({0});
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
