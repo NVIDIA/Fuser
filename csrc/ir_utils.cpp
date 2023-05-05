@@ -593,17 +593,12 @@ bool isReductionOverSizeZero(
 }
 
 void replaceReductionWithFull(Expr* expr) {
+  auto fusion = expr->container()->as<Fusion>();
   if (expr->isA<ReductionOp>()) {
     // Fill value is reduction starting value
     auto rop = expr->as<ReductionOp>();
-    auto old_out = rop->out();
-    auto out_root = old_out->as<TensorView>()->domain()->root();
-    auto out_shape = std::vector<Val*>(out_root.size());
-    for (auto i : c10::irange(out_root.size())) {
-      out_shape[i] = out_root[i]->extent();
-    }
-    auto new_out = full(out_shape, rop->init(), old_out->dtype());
-    auto fusion = expr->container()->as<Fusion>();
+    auto old_out = rop->out()->as<TensorView>();
+    auto new_out = full_like(old_out, rop->init());
     ir_utils::replaceValue(fusion, {{old_out, new_out}});
     if (old_out->isFusionOutput()) {
       fusion->replaceOutput(old_out, new_out);
