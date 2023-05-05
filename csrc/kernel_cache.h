@@ -114,6 +114,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
   void compileFusionParallel(KernelArgumentHolder args);
+
   const std::vector<size_t>& getArgsNumAfterSegmentRuns() {
     return num_live_args_after_segment_runs_;
   }
