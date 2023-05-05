@@ -66,6 +66,7 @@ enum RecordType:int {
     IotaOp,
     IndexSelectOp,
     TorchGatherOp,
+    TakeAlongAxisOp,
     Unary_TV,
     Unary_VAL,
     Binary_TV,
@@ -355,7 +356,7 @@ table Dtype {
   dtype: DataType;
 }
 
-// Data for TorchGatherOpRecord and IndexSelectOpRecord
+// Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
 table Dimension {
   dim: long;
 }

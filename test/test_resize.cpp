@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
+  scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
   TORCH_CHECK(
       tv1->getMemoryType() == MemoryType::Shared,
@@ -275,7 +275,7 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
 
   scheduler_utils::parallelizeAllLike(tv3);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
+  scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);

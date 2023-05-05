@@ -9,7 +9,7 @@ Serde is an acronym of serialization and deserialization.
 
 **Command:** Convert flatbuffer binary to human-readable JSON file.
 
-`flatc --json --raw-binary fusion_cache.fbs -- [your_fc_serde_file].bin`
+`flatc --json --raw-binary csrc/serde/fusion_cache.fbs -- [your_fc_serde_file].bin`
 
 References:
 1. https://google.github.io/flatbuffers/flatbuffers_guide_use_cpp.html

@@ -116,8 +116,8 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
       cuda_src_str, "CudaCodeGen::kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
-  MmaOptions::MmaInputLayout layout = MmaOptions::MmaInputLayout::TN;
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  MmaOptions::MmaLayout layout = MmaOptions::MmaLayout::TN;
+  auto inputs = matmulAtInput(M, N, K, layout);
   auto at_output = atMatmul(inputs.first, inputs.second, layout).to(at::kFloat);
 
   LaunchParams lp(16, 27, 1, 32, 2, 2);

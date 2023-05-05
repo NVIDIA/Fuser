@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -34,7 +37,7 @@ static void setupRMSNorm_BWD(Fusion* fusion, DataType dtype) {
   auto input = makeContigTensor(3, dtype);
   auto weight = makeContigTensor(1, dtype);
   auto rstd = TensorViewBuilder()
-                  .contiguity({false, false, c10::nullopt})
+                  .contiguity({false, false, std::nullopt})
                   .shape({-1, -1, 1})
                   .dtype(dtype)
                   .build();

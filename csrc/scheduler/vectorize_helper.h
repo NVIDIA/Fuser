@@ -565,7 +565,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   bool recording_ = false;
 
   std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::unordered_set<Split*> divisible_splits_;
+  const std::unordered_set<Split*>& divisible_splits_;
 
   // Mapped root dimensions for each TensorView as we propogate. These
   // mappings are in the order of the reference.

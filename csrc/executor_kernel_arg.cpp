@@ -254,6 +254,16 @@ void KernelArgumentHolder::push(const ArgAbstract* arg) {
   arguments_.emplace_back(arg->copy_unique_ptr());
 }
 
+void KernelArgumentHolder::erase(const ArgAbstract* arg_to_delete) {
+  auto iter = std::remove_if(
+      arguments_.begin(),
+      arguments_.end(),
+      [&](const std::unique_ptr<ArgAbstract>& ref) {
+        return arg_to_delete == ref.get();
+      });
+  arguments_.erase(iter, arguments_.end());
+}
+
 void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
   auto holder = arg->copy_unique_ptr();
   arguments_[i].swap(holder);

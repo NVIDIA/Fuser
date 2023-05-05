@@ -141,14 +141,14 @@ SelectOp::SelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* select_id,
+    int64_t dim,
     Val* index)
     : Expr(passkey) {
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(index);
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -156,7 +156,7 @@ std::string SelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
-                          << ", axis = " << getSelectAxis()
+                          << ", axis = " << getIndexedID()
                           << ", index = " << input(1)->toString() << " )\n";
   return ss.str();
 }
@@ -165,21 +165,26 @@ std::string SelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+IterDomain* SelectOp::getIndexedID() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
-    IterDomain* select_id,
+    int64_t dim,
     Val* indices)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
 }
 
 std::string IndexSelectOp::toString(int indent_size) const {
@@ -187,17 +192,23 @@ std::string IndexSelectOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = index_select( ";
-  if (input(0)->isA<kir::TensorIndex>()) {
-    ss << input(0)->as<kir::TensorIndex>()->view()->toString();
-  } else {
-    ss << input(0)->toString();
-  }
-  ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
+  ss << input(0)->toString() << ", dim = " << dim() << ", "
+     << input(1)->toString() << " )\n";
   return ss.str();
 }
 
 std::string IndexSelectOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexSelectOp::getIndexedID() const {
+  return TensorDomain::noReductions(
+             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -206,33 +217,45 @@ TorchGatherOp::TorchGatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    int dim,
-    IterDomain* select_id,
-    Val* indices)
+    int64_t dim,
+    Val* indices,
+    bool exact_sizes)
     : Expr(passkey) {
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(select_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = torch_gather( ";
-  if (lookupTv()->isA<kir::TensorIndex>()) {
-    ss << lookupTv()->as<kir::TensorIndex>()->view()->toString();
+  indent(ss, indent_size) << " = "
+                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << "( " << input(0)->toString();
+  if (exactSizes()) {
+    ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
   } else {
-    ss << lookupTv()->toString();
+    ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
   }
-  ss << ", dim = " << dim() << ", " << indexTv()->toString() << " )\n";
   return ss.str();
 }
 
 std::string TorchGatherOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* TorchGatherOp::getIndexedID() const {
+  return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
+      .at(dim());
+}
+
+IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
@@ -242,19 +265,16 @@ ScatterOp::ScatterOp(
     ScatterOpType type,
     Val* out,
     Val* self,
-    int dim,
+    int64_t dim,
     Val* index,
-    Val* src,
-    IterDomain* select_out_id)
+    Val* src)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
-  // we need to generate code like T_out[T_index[...]] = T_src[...], so we need
-  // select_out_id as an attribute.
-  addAttribute(select_out_id);
-  addAttribute(IrBuilder::create<Attribute<int>>(passkey.ir_container_, dim));
+  addAttribute(
+      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
   addAttribute(
       IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
 }
@@ -272,6 +292,10 @@ std::string ScatterOp::toString(int indent_size) const {
 
 std::string ScatterOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Scatter op can not be printed inline");
+}
+
+IterDomain* ScatterOp::getIndexedID() const {
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -1350,7 +1374,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaInputLayout> input_layout = std::nullopt;
+  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1365,11 +1389,10 @@ struct TensorViewDetails {
 };
 
 // A helper for gathering details about TensorView object
-TensorViewDetails getDetailsFor(const TensorView* tv) {
+TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  using DimIdx = int;
-  for (DimIdx pos = 0; pos < static_cast<DimIdx>(tv->nDims()); ++pos) {
-    const auto axis = tv->axis(pos);
+  for (size_t pos = 0; pos < dims.size(); ++pos) {
+    const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
       continue;
@@ -1383,7 +1406,7 @@ TensorViewDetails getDetailsFor(const TensorView* tv) {
   return details;
 }
 
-MmaOptions::MmaInputLayout getInputLayout(
+MmaOptions::MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1392,32 +1415,41 @@ MmaOptions::MmaInputLayout getInputLayout(
   // TT layout (b - broadcast, r - reduction):
   // A = [M, K, b]
   // B = [b, K, N]
-  // C = [M, r, N]
+  // C = [M, r, N] (root domain)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::TT;
+    return MmaOptions::MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
   // B = [b, N, K]
-  // C = [M, N, r]
+  // C = [M, N, r] (root domain)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaInputLayout::TN;
+    return MmaOptions::MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
   // B = [K, b, N]
-  // C = [r, M, N]
+  // C = [r, M, N] (root domain)
   if ((k_axes.front() < in_a.bcasts.front()) &&
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaInputLayout::NT;
+    return MmaOptions::MmaLayout::NT;
+  }
+  // NN layout (b - broadcast, r - reduction):
+  // A = [b, K, M]
+  // B = [N, K, b]
+  // C = [N, r, M] (root domain)
+  if ((in_a.bcasts.front() < k_axes.front()) &&
+      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
+      (k_axes.front() < in_b.bcasts.front())) {
+    return MmaOptions::MmaLayout::NN;
   }
 
   TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
@@ -1427,9 +1459,9 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a);
-  const auto in_b_details = getDetailsFor(in_b);
-  const auto out_details = getDetailsFor(out);
+  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
+  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
+  const auto out_details = getDetailsFor(out->getRootDomain());
 
   using AxesData = MmaOp::AxesData;
 
@@ -1611,7 +1643,7 @@ MmaOp::MmaOp(
   addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
   // ATTR_POS_INPUT_LAYOUT
   addAttribute(
-      IrBuilder::create<Attribute<MmaInputLayoutOpt>>(passkey.ir_container_));
+      IrBuilder::create<Attribute<MmaLayoutOpt>>(passkey.ir_container_));
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -1630,7 +1662,7 @@ MmaOp::MmaOp(
       std::move(mma_details.k_axes);
   attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
       std::move(mma_details.batch_axes);
-  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaInputLayoutOpt>>()->value =
+  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
       mma_details.input_layout;
 }
 
@@ -1641,14 +1673,14 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init,
     const OptionsInMma& options,
-    const MmaInputLayoutOpt& input_layout)
+    const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
 
-  const auto input_layout_ = attribute(ATTR_POS_INPUT_LAYOUT)
-                                 ->as<Attribute<MmaInputLayoutOpt>>()
-                                 ->value;
+  const auto input_layout_ =
+      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
   if (input_layout_.has_value()) {
+    TORCH_INTERNAL_ASSERT(input_layout.has_value());
     TORCH_INTERNAL_ASSERT(
         input_layout_.value() == input_layout.value(),
         "Input layout mismatch, infered attribute (",
@@ -1657,9 +1689,8 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaInputLayoutOpt>>()
-        ->value = input_layout;
+    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
+        input_layout;
   }
 }
 
@@ -1940,6 +1971,13 @@ std::string LoadStoreOp::toString(int indent_size) const {
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool LoadStoreOp::hasTranspose() const {
+  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
+    return out_tv->hasRFactor();
+  }
+  return false;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
@@ -2431,11 +2469,10 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  // Only Inteation is considered for now.
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
-          in->getIterType() == IterType::Broadcast,
-      "Not a valid IterType: ",
+          in->getIterType() == IterType::Broadcast ||
+          in->getIterType() == IterType::Symbolic || "Not a valid IterType: ",
       in->getIterType());
 
   TORCH_CHECK(
@@ -2485,6 +2522,20 @@ void IterDomain::parallelize(ParallelType t) {
   if (parallel_type_ == t) {
     // No op, don't do any more checks, it was already set to this value.
     return;
+  }
+
+  // assert check that we only parallelize a leaf domain.
+  // leaf domains are domains that are not used by any other domains.
+  if (t != ParallelType::Serial) {
+    TORCH_CHECK(
+        uses().empty(),
+        "Only allowed to parallelize a leaf domain.",
+        " Domain: ",
+        toString(),
+        ", Parallel type: ",
+        t,
+        definition() != nullptr ? ", Definition: " + definition()->toString()
+                                : "");
   }
 
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
@@ -2542,71 +2593,59 @@ Val* IterDomain::stop() const {
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
-      getMaybeRFactorDomain().size());
+      maybeRFactor().size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
-  domain_ = root_domain_;
+  leaf_domain_ = root_domain_;
   resetDomains();
 }
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<IterDomain*> domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<IterDomain*> leaf_domain,
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      domain_(std::move(domain)),
+      leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
       root_domain_.size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  std::vector<Val*> domain_vals(domain_.begin(), domain_.end());
-  auto inps = IterVisitor::getInputsTo(domain_vals);
-
-  // Validate that the root domain consists of all inputs to domain
-  // Uncertain if this will hold for RFactor
-
-  std::unordered_set<Val*> root_vals(root_domain_.begin(), root_domain_.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2617,53 +2656,36 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
-    std::vector<IterDomain*> domain,
-    std::vector<c10::optional<bool>> contiguity)
+    std::vector<IterDomain*> leaf_domain,
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      domain_(std::move(domain)),
       rfactor_domain_(std::move(rfactor_domain)),
+      leaf_domain_(std::move(leaf_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
                              : std::move(contiguity)) {
   TORCH_CHECK(
-      contiguity_.size() == getMaybeRFactorDomain().size(),
+      contiguity_.size() == maybeRFactor().size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity_.size(),
       " but needed one of size ",
-      getMaybeRFactorDomain().size());
+      maybeRFactor().size());
   for (auto i : c10::irange(contiguity_.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contiguity_.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
 
-  auto inps = IterVisitor::getInputsTo(
-      std::vector<Val*>(domain_.begin(), domain_.end()));
-
-  // Validate that the root domain consists of all inputs to domain
-  // Uncertain if this will hold for RFactor
-
-  std::unordered_set<Val*> root_vals(root_domain_.begin(), root_domain_.end());
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of domain, but it is not found in the root domain.");
-  });
-
-  inps = IterVisitor::getInputsTo(
-      std::vector<Val*>(rfactor_domain_.begin(), rfactor_domain_.end()));
-  std::for_each(inps.begin(), inps.end(), [root_vals](Val* inp) {
-    TORCH_INTERNAL_ASSERT(
-        root_vals.find(inp) != root_vals.end(),
-        "Invalid tensor domain, ",
-        inp,
-        " is an input of the rfactor domain, but it is not found in the root domain.");
-  });
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+    }
+  }
 
   // Just due to clang-tidy, correct value set in resetDomains
   has_reduction_ = false;
@@ -2673,33 +2695,38 @@ TensorDomain::TensorDomain(
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),
-      domain_(ir_cloner->clone(src->domain_)),
+      rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
+      allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
+      leaf_domain_(ir_cloner->clone(src->leaf_domain_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
-      rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
       contiguity_(src->contiguity()),
       has_reduction_(src->has_reduction_) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
 bool TensorDomain::hasBlockBroadcast() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isBroadcast() && id->isThreadDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast() && id->isThreadDim();
+      });
 }
 
 bool TensorDomain::hasGridBroadcast() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isBroadcast() && id->isBlockDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isBroadcast() && id->isBlockDim();
+      });
 }
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
   // check no_bcast_domain_ and no_reduction_domain_ as they are just
   // derived from domain_.
-  return root_domain_ == other.root_domain_ && domain_ == other.domain_ &&
+  return root_domain_ == other.root_domain_ &&
+      leaf_domain_ == other.leaf_domain_ &&
       rfactor_domain_ == other.rfactor_domain_ &&
+      allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
 }
 
@@ -2717,10 +2744,13 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   if (nDims() != other_td->nDims()) {
     return false;
   }
-  if (getRootDomain().size() != other_td->getRootDomain().size()) {
+  if (root().size() != other_td->root().size()) {
     return false;
   }
-  if (getRFactorDomain().size() != other_td->getRFactorDomain().size()) {
+  if (rfactor().size() != other_td->rfactor().size()) {
+    return false;
+  }
+  if (allocation().size() != other_td->allocation().size()) {
     return false;
   }
 
@@ -2730,14 +2760,26 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     }
   }
 
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    if (!(getRootDomain()[i]->sameAs(other_td->getRootDomain()[i]))) {
+  for (const auto i : c10::irange(root().size())) {
+    if (!(root()[i]->sameAs(other_td->root()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(getRFactorDomain().size())) {
-    if (!(getRFactorDomain()[i]->sameAs(other_td->getRFactorDomain()[i]))) {
+  for (const auto i : c10::irange(rfactor().size())) {
+    if (!(rfactor()[i]->sameAs(other_td->rfactor()[i]))) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(allocation().size())) {
+    if (!(allocation()[i]->sameAs(other_td->allocation()[i]))) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(leaf().size())) {
+    if (!(leaf()[i]->sameAs(other_td->leaf()[i]))) {
       return false;
     }
   }
@@ -2764,7 +2806,7 @@ std::string TensorDomain::toString(int indent_size) const {
     ss << "[ 0 ]";
     return ss.str();
   }
-  ss << "[ " << toDelimitedString(domain()) << " ]";
+  ss << "[ " << toDelimitedString(leaf()) << " ]";
   return ss.str();
 }
 
@@ -2773,14 +2815,13 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 }
 
 void TensorDomain::setContiguity(
-    const std::vector<c10::optional<bool>>& contig) {
+    const std::vector<std::optional<bool>>& contig) {
   TORCH_INTERNAL_ASSERT(
-      getMaybeRFactorDomain().size() == contig.size(),
+      maybeRFactor().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : c10::irange(contig.size())) {
     TORCH_CHECK(
-        getMaybeRFactorDomain().at(i)->isBroadcast() !=
-            contig.at(i).has_value(),
+        maybeRFactor().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -2788,28 +2829,31 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
-bool TensorDomain::hasReduction() const {
-  return has_reduction_;
-}
-
 bool TensorDomain::hasBlockReduction() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isReduction() && id->isThreadDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isThreadDim();
+      });
 }
 
 bool TensorDomain::hasGridReduction() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->isReduction() && id->isBlockDim();
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->isReduction() && id->isBlockDim();
+      });
 }
 
-bool TensorDomain::hasBroadcast() const {
-  return no_bcast_domain_.size() != domain_.size();
-}
-
-bool TensorDomain::hasRFactor() const {
-  return !rfactor_domain_.empty();
+bool TensorDomain::hasSymbolicAxis() const {
+  // If there's any Symbolic axis, there must be one at the root or
+  // rfactor domain.
+  return std::any_of(
+             root().begin(),
+             root().end(),
+             [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
+      (hasRFactor() &&
+       std::any_of(maybeRFactor().begin(), maybeRFactor().end(), [](auto id) {
+         return id->getIterType() == IterType::Symbolic;
+       }));
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {
@@ -2821,28 +2865,28 @@ bool TensorDomain::hasViewLikeRFactor() const {
   // If there's an rfactor domain and no rfactor product is a reduction, this is
   // a view like rfactor
   return std::none_of(
-      getMaybeRFactorDomain().begin(),
-      getMaybeRFactorDomain().end(),
-      [](IterDomain* id) {
+      maybeRFactor().begin(), maybeRFactor().end(), [](IterDomain* id) {
         return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
       });
 }
 
 bool TensorDomain::hasVectorize() const {
-  return std::any_of(domain_.begin(), domain_.end(), [](IterDomain* id) {
-    return id->getParallelType() == ParallelType::Vectorize ||
-        id->getParallelType() == ParallelType::MisalignedVectorize;
-  });
+  return std::any_of(
+      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+        return id->getParallelType() == ParallelType::Vectorize ||
+            id->getParallelType() == ParallelType::MisalignedVectorize;
+      });
 }
 
 c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
-  auto it = std::find_if(domain_.begin(), domain_.end(), [](const auto& id) {
-    return id->isReduction();
-  });
-  if (it == domain_.end()) {
+  auto it = std::find_if(
+      leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
+        return id->isReduction();
+      });
+  if (it == leaf_domain_.end()) {
     return c10::optional<unsigned int>();
   } else {
-    return c10::optional<unsigned int>(std::distance(domain_.begin(), it));
+    return c10::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
   }
 }
 
@@ -2860,14 +2904,14 @@ IterDomain* TensorDomain::axis(int i) const {
       i,
       " in domain ",
       this);
-  return domain_[i];
+  return leaf_domain_[i];
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
-  while (i < (int64_t)domain_.size()) {
-    if (domain_[i] == id)
+  while (i < (int64_t)leaf_domain_.size()) {
+    if (leaf_domain_[i] == id)
       return i;
     i++;
   }
@@ -2901,8 +2945,7 @@ void TensorDomain::split(
   // partial split is only allowed with root domains
   if (trim_out_of_bounds) {
     TORCH_INTERNAL_ASSERT(
-        std::find(getRootDomain().begin(), getRootDomain().end(), id) !=
-            getRootDomain().end(),
+        std::find(root().begin(), root().end(), id) != root().end(),
         "Partial split is only allowed with root domains");
   }
 
@@ -2912,9 +2955,9 @@ void TensorDomain::split(
 
   auto split_ids =
       IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
-  domain_.erase(domain_.begin() + axis_);
-  domain_.insert(domain_.begin() + axis_, split_ids.second);
-  domain_.insert(domain_.begin() + axis_, split_ids.first);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.second);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.first);
   resetDomains();
 }
 
@@ -2951,9 +2994,9 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  domain_.erase(domain_.begin() + axis_i);
-  domain_.erase(domain_.begin() + axis_o);
-  domain_.insert(domain_.begin() + axis_o, merged_id);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
+  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
+  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
   resetDomains();
 }
 
@@ -2961,7 +3004,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
-  domain_ = orderedAs(domain_, old2new_);
+  leaf_domain_ = orderedAs(leaf_domain_, old2new_);
   resetDomains();
 }
 
@@ -3010,11 +3053,11 @@ void TensorDomain::swizzle(
   std::tie(axis_out_x, axis_out_y) =
       IterDomain::swizzle(swizzle_type, axis_x, axis_y, swizzle_mode);
 
-  domain_.erase(domain_.begin() + x);
-  domain_.insert(domain_.begin() + x, axis_out_x);
+  leaf_domain_.erase(leaf_domain_.begin() + x);
+  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
 
-  domain_.erase(domain_.begin() + y);
-  domain_.insert(domain_.begin() + y, axis_out_y);
+  leaf_domain_.erase(leaf_domain_.begin() + y);
+  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
 
   resetDomains();
 }
@@ -3041,14 +3084,14 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<c10::optional<bool>> TensorDomain::getContiguityFilledWith(
+std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
     const std::vector<IterDomain*>& rfactor_domain,
     bool fill_value) {
-  std::vector<c10::optional<bool>> contiguity;
+  std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
     if (id->isBroadcast()) {
-      contiguity.emplace_back(c10::nullopt);
+      contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }
@@ -3080,7 +3123,7 @@ TensorDomain* TensorDomain::view(const AnalyzeViewResult& view_analysis) {
 }
 
 TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
-  auto inp_domain = noReductions(getMaybeRFactorDomain());
+  auto inp_domain = noReductions(maybeRFactor());
 
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
@@ -3153,6 +3196,24 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
     const std::vector<int>& axes_) {
   return TransformRFactor::runReplay(this, axes_);
+}
+
+void TensorDomain::setAllocationDomain(
+    std::vector<IterDomain*> new_allocation_domain) {
+  TORCH_CHECK(false, "setAllocationDomain build-out is not finished yet");
+
+  ir_utils::validateDomainEquivalence(root_domain_, new_allocation_domain);
+  ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
+
+  // TODO: lift this restriction
+  TORCH_CHECK(
+      std::unordered_set<IterDomain*>(
+          new_allocation_domain.begin(), new_allocation_domain.end()) ==
+          std::unordered_set<IterDomain*>(
+              maybeRFactor().begin(), maybeRFactor().end()),
+      "Currently, allocation domain can only be a reorder of rFactor domain");
+
+  allocation_domain_ = std::move(new_allocation_domain);
 }
 
 Split::Split(

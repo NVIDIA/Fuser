@@ -28,7 +28,9 @@ namespace scheduler_utils {
 // with a compile time coonstant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size = 256 * 1024 / 2;
+constexpr int64_t register_file_size_full = 256 * 1024;
+constexpr int64_t register_file_size = register_file_size_full / 2;
+
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
@@ -44,6 +46,29 @@ constexpr int64_t lastPow2(int64_t n) {
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   return std::max((int64_t)1, n - (n >> 1));
+}
+
+// round up to multiple of 8 or pow2 whichever smaller
+constexpr int64_t roundUpPow2Or8(const int64_t x) {
+  auto round_up_pow2 = lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  constexpr int64_t kEight = 8;
+  auto round_up_8 = x % kEight == 0 ? x : x + (kEight - x % kEight);
+  return std::min(round_up_8, round_up_pow2);
+}
+
+constexpr int64_t roundUpPow2(const int64_t x) {
+  auto round_up_pow2 = scheduler_utils::lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  return round_up_pow2;
+}
+
+constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x + (n - x % n);
 }
 
 // Div x by y, but min at 1
@@ -548,13 +573,21 @@ inline void rotateLoop(
 //! tv1 still uses tv1.
 TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
-//! If a resized tensor induces a data dependency between threads,
+//! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
-//! the dependency. A proper RAW sync will be automatically inserted
-//! when the fusion is lowered.
-TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
+//! the dependency. For example, if the domain is parallelized
+//! with blockIdx, the producer memory type will be changed to
+//! Global. A proper RAW sync will be automatically inserted when the
+//! fusion is lowered.
+TORCH_CUDA_CU_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
+
+//! Get all tensors that are connected to from_tvs without going through
+//! any tvs in the cutoff_tv_set.
+TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
