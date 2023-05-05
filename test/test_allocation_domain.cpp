@@ -29,7 +29,7 @@ TEST_F(AllocationDomainTest, NHWC2NHWC) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigSymbolicTensor(4);
+  auto tv0 = makeContigTensor(4);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -49,8 +49,11 @@ TEST_F(AllocationDomainTest, NHWC2NHWC) {
   at::Tensor t0 = at::randn({n, c, h, w}, options)
                       .contiguous(at::MemoryFormat::ChannelsLast);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0});
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
