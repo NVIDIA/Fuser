@@ -395,17 +395,6 @@ class NVFuserTest : public ::testing::Test {
   }
 };
 
-// Please see note [Limitation of boundary assert]
-class EnableOutOfBoundAssert {
- public:
-  EnableOutOfBoundAssert() {
-    setAssertOutOfBound(true);
-  }
-  ~EnableOutOfBoundAssert() {
-    setAssertOutOfBound(false);
-  }
-};
-
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
 
@@ -501,12 +490,7 @@ inline bool cudaArchGuardShouldSkip(
 // util to track support matmul operand layout.
 using MatmulLayout = MmaOptions::MmaLayout;
 
-static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN};
-
-static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayoutAndNN = {
+static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayout = {
     MatmulLayout::TT,
     MatmulLayout::NT,
     MatmulLayout::TN,

@@ -15,11 +15,7 @@
 
 namespace nvfuser {
 
-class LoopRotationTest : public NVFuserTest {
- private:
-  // Please see note [Limitation of boundary assert]
-  EnableOutOfBoundAssert guard;
-};
+class LoopRotationTest : public NVFuserTest {};
 
 TEST_F(LoopRotationTest, RotateInner_CUDA) {
   Fusion fusion;
