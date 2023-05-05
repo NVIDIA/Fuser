@@ -224,7 +224,7 @@ if (PROJECT_IS_TOP_LEVEL)
     DEPENDS
       ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     DEPENDS flatc
-    COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
+    COMMAND ./third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
     VERBATIM
     )
