@@ -76,11 +76,10 @@ class ValidateSiblings : public IterVisitor {
         id_map[ref_root[i]] = sibling->getRootDomain().at(i);
       }
 
-      auto replay = BestEffortReplay(
-                        sibling->domain()->domain(),
-                        ref_output->domain()->domain(),
-                        id_map)
-                        .getIterDomainEquivalence();
+      auto replay =
+          BestEffortReplay(
+              sibling->domain()->leaf(), ref_output->domain()->leaf(), id_map)
+              .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
         TORCH_INTERNAL_ASSERT(
@@ -149,8 +148,8 @@ void validateIterDomainUsage(Fusion* fusion) {
 
     std::vector<Val*> leaf_domains;
     std::copy(
-        tv->domain()->domain().begin(),
-        tv->domain()->domain().end(),
+        tv->domain()->leaf().begin(),
+        tv->domain()->leaf().end(),
         std::back_inserter(leaf_domains));
 
     auto all_domain_vals =
@@ -185,6 +184,12 @@ void validateIr(Fusion* fusion) {
   ValidateSiblings::validate(fusion);
 
   validateIterDomainUsage(fusion);
+
+  auto dynamic_tvs = ir_utils::getTVsWithDynamicTransform(fusion);
+  TORCH_INTERNAL_ASSERT(
+      dynamic_tvs.empty(),
+      "Tensor with dynamic transform must be concretized before lowering: ",
+      toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 }
 
 namespace {
@@ -229,7 +234,7 @@ void checkContiguity(
       PairwiseRootDomainMap(producer, consumer)
           .mapConsumerToProducer(consumer->domain(), producer->domain());
 
-  std::unordered_map<IterDomain*, c10::optional<bool>>
+  std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
   for (const auto idx : c10::irange(producer->getMaybeRFactorDomain().size())) {
     auto root = producer->getMaybeRFactorDomain().at(idx);
@@ -304,19 +309,19 @@ class VectorizeValidator : public OptInDispatch {
   // For the producer tensor, it's indexed first by transformed like
   // the consumer. So, to find its contig merged domain, use the
   // consumer TensorDomain with the producer contiguity info.
-  static std::vector<c10::optional<bool>> mapProducerContiguity(
+  static std::vector<std::optional<bool>> mapProducerContiguity(
       TensorView* producer_tv,
       TensorView* consumer_tv) {
     const auto c2p = PairwiseRootDomainMap(producer_tv, consumer_tv)
                          .mapConsumerToProducer(
                              consumer_tv->domain(), producer_tv->domain());
 
-    std::vector<c10::optional<bool>> producer_contiguity;
+    std::vector<std::optional<bool>> producer_contiguity;
 
     for (auto consumer_root_id : consumer_tv->getRootDomain()) {
       auto producer_root_id = c2p.at(consumer_root_id);
       if (producer_root_id->isBroadcast()) {
-        producer_contiguity.emplace_back(c10::nullopt);
+        producer_contiguity.emplace_back(std::nullopt);
         continue;
       }
       auto producer_root_it = std::find(
@@ -344,7 +349,7 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (id->getParallelType() == ParallelType::Vectorize ||
           id->getParallelType() == ParallelType::MisalignedVectorize) {
         TORCH_INTERNAL_ASSERT(
@@ -437,12 +442,19 @@ class VectorizeValidator : public OptInDispatch {
       return;
     }
 
-    TORCH_CHECK(
-        last_root_dim == validator.vectorized_id_ &&
-            *tv->domain()->contiguity().at(last_root_dim_pos),
-        "Vectorized dim has to be from a contiguous inner most position: ",
-        tv,
-        "\n");
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    bool is_ldmatrix_trans =
+        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    if (!is_ldmatrix_trans) {
+      // ldmatrix.trans is a hardware transpose instruction that can do
+      // "vectorized" read from discontiguous memory
+      TORCH_CHECK(
+          last_root_dim == validator.vectorized_id_ &&
+              *tv->domain()->contiguity().at(last_root_dim_pos),
+          "Vectorized dim has to be from a contiguous inner most position: ",
+          tv,
+          "\n");
+    }
 
     // Save info required to lowering and runtime validation
     auto consumer_word_size_it =
@@ -809,7 +821,7 @@ void validatePartialSplit(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprs(
         tv->fusion(),
-        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to
@@ -855,7 +867,7 @@ void validateMmaTensors(MmaOp* mma) {
       mma->out()->as<TensorView>()};
 
   for (auto tv : to_validate) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
         TORCH_INTERNAL_ASSERT(
@@ -887,8 +899,8 @@ void validateMmaTensors(MmaOp* mma) {
 
     TORCH_INTERNAL_ASSERT(
         std::all_of(
-            tv->domain()->domain().begin() + tv->getComputeAtPosition(),
-            tv->domain()->domain().end(),
+            tv->domain()->leaf().begin() + tv->getComputeAtPosition(),
+            tv->domain()->leaf().end(),
             [](IterDomain* id) {
               return id->isMmaSwizzled() ||
                   // MMA instructions can only take inputs from registers,
@@ -984,7 +996,7 @@ void validateLdMatrixOutput(TensorView* tv) {
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->domain()->domain()) {
+  for (auto id : output->domain()->leaf()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = (int)id->extent()->evaluateInt();
       break;
@@ -1014,7 +1026,6 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
       return;
     case LoadStoreOpType::CpAsyncCg:
     case LoadStoreOpType::CpAsyncCa:
-      return;
     default:
       return;
   }
@@ -1036,11 +1047,6 @@ void validateMma(Fusion* fusion) {
           break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
         case MmaOptions::MacroType::Ampere_16_8_16:
         case MmaOptions::MacroType::Ampere_16_16_16:
           // Check that operands come from ldmatrix, can be
@@ -1090,18 +1096,18 @@ void validateSwizzle(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
       std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->domain()->domain().begin(), tv->domain()->domain().end());
+          tv->domain()->leaf().begin(), tv->domain()->leaf().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->domain().begin(),
-           tv->domain()->domain().begin() + tv->getMaxComputePosition()});
+          {tv->domain()->leaf().begin(),
+           tv->domain()->leaf().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->domain().begin() + tv->getMaxComputePosition(),
-           tv->domain()->domain().end()});
+          {tv->domain()->leaf().begin() + tv->getMaxComputePosition(),
+           tv->domain()->leaf().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -1282,7 +1288,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->domain()->domain()) {
+      for (auto axis : out_tv->domain()->leaf()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= (int)axis->extent()->getInt().value();
         }
@@ -1317,7 +1323,7 @@ void validateResize(Fusion* fusion) {
         fusion,
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()},
-        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
 
     TORCH_INTERNAL_ASSERT(
         std::none_of(

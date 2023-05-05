@@ -35,10 +35,9 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
         ref->getRootDomain().at(i), other->getRootDomain().at(i));
   }
 
-  auto replay =
-      BestEffortReplay(
-          other->domain()->domain(), ref->domain()->domain(), ref_2_other)
-          .getIterDomainEquivalence();
+  auto replay = BestEffortReplay(
+                    other->domain()->leaf(), ref->domain()->leaf(), ref_2_other)
+                    .getIterDomainEquivalence();
 
   for (const auto i : c10::irange(ref->nDims())) {
     if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {

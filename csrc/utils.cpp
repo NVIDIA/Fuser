@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
-#include <utils.h>
-
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
+#include <cuda_occupancy.h>
+#include <utils.h>
 
 #include <cstdlib>
 #include <iostream>
@@ -316,8 +316,8 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   return getDebugDumpOptions().count(option);
 }
 
-ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag) {
-  old_flag_ = overwrite_disable_fma;
+ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
+    : old_flag_{overwrite_disable_fma} {
   overwrite_disable_fma = flag;
 }
 
@@ -367,4 +367,43 @@ std::vector<int64_t> getTensorSizes(at::TensorTypePtr const& tensor_type) {
   return optional_sizes.value();
 }
 
+int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm) {
+  int num_partition = 0;
+  int reg_allocation_granularity = 0;
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+  cudaOccDeviceProp occ_prop(*prop);
+  cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
+  cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
+  int warp_size = prop->warpSize;
+  int num_warps = (int)ceilDiv(threads_per_sm, warp_size);
+
+  // warps could be distributed unevenly across partition
+  int max_warps_per_sm_partition = (int)ceilDiv(num_warps, num_partition);
+  // registers are evenly distributed across partitions, partition with most
+  // wraps determins the maximum register available per warp
+  int max_reg_per_warp =
+      prop->regsPerBlock / num_partition / max_warps_per_sm_partition;
+  // clamp down to register allocation granularity at warp level
+  int effective_max_reg_per_warp = max_reg_per_warp /
+      reg_allocation_granularity * reg_allocation_granularity;
+  return effective_max_reg_per_warp / warp_size;
+}
+
+int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
+  int num_partition = 0;
+  int reg_allocation_granularity = 0;
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+  cudaOccDeviceProp occ_prop(*prop);
+  cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
+  cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
+  int warp_size = prop->warpSize;
+
+  int reg_per_warp =
+      (int)ceilDiv(reg_per_thread * warp_size, reg_allocation_granularity) *
+      reg_allocation_granularity;
+  int warps_per_sm_partition =
+      prop->regsPerBlock / reg_per_warp / num_partition;
+  int num_warps = warps_per_sm_partition * num_partition;
+  return num_warps * static_cast<int64_t>(warp_size);
+}
 } // namespace nvfuser

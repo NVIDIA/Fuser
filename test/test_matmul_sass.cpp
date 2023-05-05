@@ -52,7 +52,7 @@ sass::Container getSASSFor(
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  auto tv2 = matmul(tv0, tv1, layout, true);
 
   fusion.addOutput(tv2);
 
@@ -71,7 +71,7 @@ sass::Container getSASSFor(
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);

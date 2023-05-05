@@ -9,6 +9,7 @@
 
 #include <executor_utils.h>
 #include <grouped_reduction.h>
+#include <inlining.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_iostream.h>
@@ -28,17 +29,268 @@ namespace nvfuser {
 
 namespace {
 
-// round up to multiple of 8 or pow2 whichever smaller
-int64_t roundUpPow2Or8(const int64_t x) {
-  auto round_up_pow2 = scheduler_utils::lastPow2(x);
-  if (round_up_pow2 < x) {
-    round_up_pow2 *= 2;
-  }
-  constexpr int64_t kEight = 8; // clang tidy
-  auto round_up_8 = x % kEight == 0 ? x : x + (kEight - x % kEight);
-  return std::min(round_up_8, round_up_pow2);
-}
+// The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
+// ======= Method if hidden_size > 1024 =======
+// (1) Inner reduction is one reduction per block. Reduction domain is
+// parallelized by TIDx and TIDy, Iteration domain is parallelized by BIDy. (2)
+// Outer reduction is done in two-steps. The first step is partial reduction,
+// reduction domain is parallelized by BIDy, iteration domain is parallelized by
+// TIDx and TIDy. The partial results are written to gmem followed by a grid
+// sync. The second step is block reduction, the reduction domain is
+// parallelized by TIDy, the iteration domain is parallelized by TIDx and BIDy.
+// ======= Method if hidden_size <= 1024 =======
+// (1) Inner reduction is multi-reductions per blocks. Reduction domain is
+// parallelized by TIDx, Iteration domain is parallelized by BIDy and TIDy
+// (2) Outer reduction is same to cases where hidden_size > 1024 except the
+// second step where in this case, the reduction domain is parallelized by TIDx
+// and the iteration domain is parallelized by TIDy and BIDy. This switch
+// between TIDx and TIDy is because (a) We can do warp reduction with TIDx and
+// (b) TIDx*BIDy is usually much larger than hidden_size, e.g. 128*216 = 1024*27
+// this means without switch only 1/27 of the threads is used.
+std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
+    const int64_t outer_dim_numel,
+    const int64_t inner_dim_numel,
+    const int64_t max_persistent_buffer_size,
+    const size_t tmp_gmem_dtype_size,
+    const size_t vectorize_factor) {
+  auto rparams = std::make_shared<ReductionParams>();
+  // Parameters for inner reduction:
+  // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
+  // Iteration dim: gdimy
 
+  // Parameters for outer reduction:
+  // Reduction dim: bdimy
+  // Iteration dim: vectorization_factor_outer, bdimx, gdimy
+  struct InnerOuterParams {
+    int64_t inner_vect = -1;
+    int64_t inner_batch = -1;
+    int64_t bdimx = -1;
+    int64_t bdimy = -1;
+    int64_t gdimy = -1;
+    int64_t tmp_gmem_write_vect = -1;
+    int64_t vectorization_factor_outer = -1;
+
+    void verify() {
+      TORCH_INTERNAL_ASSERT(inner_vect != -1, "inner_vect is not set.");
+      TORCH_INTERNAL_ASSERT(inner_batch != -1, "inner_batch is not set.");
+      TORCH_INTERNAL_ASSERT(bdimx != -1, "bdimx is not set.");
+      TORCH_INTERNAL_ASSERT(bdimy != -1, "bdimy is not set.");
+      TORCH_INTERNAL_ASSERT(gdimy != -1, "gdimy is not set.");
+      TORCH_INTERNAL_ASSERT(
+          tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
+      TORCH_INTERNAL_ASSERT(
+          vectorization_factor_outer != -1,
+          "vectorization_factor_outer is not set.");
+    }
+  };
+
+  InnerOuterParams iop;
+
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072) {
+      if (outer_dim_numel <= 2048 && inner_dim_numel == 3072) {
+        return 3;
+      } else {
+        return 4;
+      }
+    } else if (inner_dim_numel >= 2048) {
+      return 2;
+    }
+    return 1;
+  };
+
+  // Estimate register per thread based on buffer size, since inner reduction
+  // dim is fully parallelized, the buffer size of each thread equals the total
+  // buffer size divide by inner_dim_numel.
+  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
+    constexpr int64_t overhead_register = 40;
+    constexpr int64_t bytes_per_register = 4;
+    const int64_t persistent_buffer_size =
+        max_persistent_buffer_size / inner_dim_numel * batch_mul_vect;
+    const int64_t estimated_register_count =
+        persistent_buffer_size / bytes_per_register + overhead_register;
+    return std::min(estimated_register_count, (int64_t)255);
+  };
+
+  auto getBlocksPerSM = [&](const int64_t threads_per_sm,
+                            const int64_t threads_per_block,
+                            const int64_t warp_size) {
+    constexpr int64_t warp_allocation_granularity = 4;
+    const int64_t allocated_warps_per_block =
+        ceilDiv(
+            ceilDiv(threads_per_block, warp_size),
+            warp_allocation_granularity) *
+        warp_allocation_granularity;
+    return scheduler_utils::safeDiv(
+        threads_per_sm / warp_size, allocated_warps_per_block);
+  };
+
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t device_multiprocessor_count =
+      (int64_t)dev_prop->multiProcessorCount;
+
+  // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
+  // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
+  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
+  // inner_dim_numel is dividable by the multiplication of a quarter warp and
+  // vectorize_factor.
+  int64_t threads_per_block = dev_prop->warpSize / 4;
+  iop.inner_vect = (int64_t)vectorize_factor;
+  iop.inner_batch = inner_dim_numel / iop.inner_vect / threads_per_block;
+  TORCH_INTERNAL_ASSERT(
+      iop.inner_vect * iop.inner_batch * threads_per_block == inner_dim_numel,
+      " inner_dim_numel must be dividable by the multiplication of a quarter warp and vectorize_factor");
+  const int64_t threads_per_block_max = inner_dim_numel >= 20480 ? 512 : 256;
+  const int64_t batch_min = getMinimumBatch();
+  auto tryReduceBatch = [&](auto factor) -> bool {
+    return iop.inner_batch % factor == 0 &&
+        iop.inner_batch / factor >= batch_min &&
+        threads_per_block * factor <= threads_per_block_max;
+  };
+  while (iop.inner_batch > batch_min &&
+         threads_per_block < threads_per_block_max) {
+    bool modified = false;
+    for (auto factor : {2, 3, 5}) {
+      if (tryReduceBatch(factor)) {
+        iop.inner_batch /= factor;
+        threads_per_block *= factor;
+        modified = true;
+        break;
+      }
+    }
+    if (!modified) {
+      break;
+    }
+  }
+
+  // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
+  // from buffer size, then it is used to calculate threads_per_sm and gdimy.
+  // gdimy_max ensures each block processes at least 8 rows to
+  // reduce the workload of the final outer reduction.
+  int64_t reg_per_thread =
+      getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
+  int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
+  int64_t blocks_per_sm =
+      getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
+  iop.gdimy = blocks_per_sm * device_multiprocessor_count;
+  const int64_t outer_iter_min = 8;
+  const int64_t gdimy_max = scheduler_utils::roundUpToN(
+      ceilDiv(outer_dim_numel, outer_iter_min), device_multiprocessor_count);
+  while (iop.gdimy > gdimy_max && blocks_per_sm > 1) {
+    blocks_per_sm -= 1;
+    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
+  }
+
+  // set the vectorization factor for the write to tmp gmem, may be different
+  // from inner_vect due to different data types, e.g. input is half and
+  // tmp_gmem is float
+  constexpr int64_t max_gmem_vect_access_bytes = 16;
+  const int64_t max_tmp_gmem_vect_factor =
+      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size;
+  iop.tmp_gmem_write_vect = std::min(max_tmp_gmem_vect_factor, iop.inner_vect);
+
+  // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
+  // gdimy (already done) The partial outer reduction result is stored in tmp
+  // gmem, set the vectorization factor for write and read
+  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4 : 2;
+  iop.vectorization_factor_outer =
+      std::min(workload_per_thread, max_tmp_gmem_vect_factor);
+  iop.bdimx = scheduler_utils::roundUpPow2(
+      ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
+
+  // Step-4, set OuterParams Reduction dim: bdimy.
+  iop.bdimy = ceilDiv(threads_per_block, iop.bdimx);
+
+  // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
+  // after divide by inner_vect and inner_batch. In this case, bdimy is used to
+  // parallelize outer_dim instead of inner_dim. This pattern is named multi
+  // reductions per block (mrpb).
+  if (inner_dim_numel <= 1024) {
+    rparams->multiple_reds_per_blk = true;
+    rparams->tidx_for_outer_reduction = true;
+    constexpr int64_t threads_per_block_mrpb = 512;
+
+    // Step-1, InnerParams, Reduction dim: inner_vect(reuse), inner_batch, bdimx
+    iop.inner_batch = 1;
+    iop.bdimx = inner_dim_numel / iop.inner_vect;
+
+    // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
+    reg_per_thread =
+        getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
+    threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
+    blocks_per_sm = getBlocksPerSM(
+        threads_per_sm, threads_per_block_mrpb, dev_prop->warpSize);
+    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
+
+    // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
+    // bdimy, gdimy (in previous step). vectorization_factor_outer is set to 2
+    // as a small workload per thread is preferred for small sizes and we only
+    // process vectorized cases.
+    iop.bdimy = std::min(
+        ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy),
+        scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx));
+    iop.bdimy = iop.bdimy;
+
+    // Step-4, OuterParams, Reduction dim: bdimx (already done)
+
+    if (iop.bdimx % dev_prop->warpSize == 0) {
+      rparams->pad_inner_reduction_to_warp = true;
+      rparams->pad_outer_reduction_to_warp = true;
+    }
+    rparams->block_dim_iter_dom = ParallelType::TIDy;
+  } else {
+    rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+  }
+
+  // check all the parameters in InnerOuterParams are set.
+  iop.verify();
+
+  rparams->persistent_kernel = true;
+  rparams->fastest_dim = true;
+  rparams->combined_inner_outer = true;
+  // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
+  // so the maximum vectorization factor is 4.
+  rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
+  rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
+  rparams->cparams.maxrregcount = (int)getRegPerThreadGivenThreadsPerSM(
+      iop.bdimx * iop.bdimy * blocks_per_sm);
+  rparams->unroll_factor_inner_reduction = iop.inner_vect;
+  rparams->batches_per_block_inner_reduction = iop.inner_batch;
+  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->vectorize_inner_reduction = iop.inner_vect > 1;
+  rparams->split_grid_dim_iter_dom_outer = true;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->lparams = LaunchParams(
+      LaunchParams::UNINITIALIZED_VAL,
+      iop.gdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      iop.bdimx,
+      iop.bdimy,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  rparams->tag = "InnerOuter Persistent Heuristic.\n";
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    std::cerr << "\n===== Combined InnerOuter Reduction Stats ========\n"
+              << "outer_dim_numel: " << outer_dim_numel << "\n"
+              << "inner_dim_numel: " << inner_dim_numel << "\n"
+              << "vectorize_factor_input: " << iop.inner_vect << "\n"
+              << "vectorization_factor_tmp_gmem_write: "
+              << iop.tmp_gmem_write_vect << "\n"
+              << "vectorization_factor_outer: "
+              << iop.vectorization_factor_outer << "\n"
+              << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
+              << "\n"
+              << "threads_per_sm: " << threads_per_sm << "\n"
+              << "gdimy: " << iop.gdimy << "\n"
+              << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1
+              << ")";
+    std::cerr << rparams->toString() << std::endl;
+  }
+  return rparams;
+}
 // Copied from reduction scheduler, should generalize. Simply needed to take out
 // grid reductions.
 std::shared_ptr<ReductionParams> innerPersistentHeuristic(
@@ -66,13 +318,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)16 / (int64_t)max_input_dtype_size,
+      16l / max_input_dtype_size,
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(
-          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+      scheduler_utils::lastPow2(std::max(n_tensor_inputs >> 2, 1l)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32 * 1024;
+  constexpr int64_t l1_cache = 32l * 1024l;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;
@@ -87,7 +338,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // minimum warp as 16 threads instead of 32 as if we have a small reduction
   // dim going a bit smaller than 32 usually helps.
   const int64_t warp_size_based_on_l2 =
-      fits_in_l2 ? (int64_t)32 / max_input_dtype_size : 16;
+      fits_in_l2 ? 32l / max_input_dtype_size : 16l;
 
   // Check how many elements it would take per thread to start thrashing l1
   // set that to minimum number we want to reduce per thread.
@@ -97,7 +348,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           scheduler_utils::safeDiv(
               l1_cache,
               n_tensor_inputs * max_input_dtype_size * active_threads)),
-      (int64_t)16);
+      16l);
 
   // Take the smaller, warp_size may be a odd number, e.g. 15
   // Tracked at https://github.com/NVIDIA/Fuser/issues/107
@@ -185,9 +436,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         std::min(max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
   }
   // Compute maximum number of reductions we could do in the same kernel based
-  // on persistent buffer size
-  const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      scheduler_utils::register_file_size, max_persistent_buffer_size);
+  // on persistent buffer size. Bounded by the iteration count as the
+  // factor is split off from the iteration domains.
+  const int64_t max_multi_reduction_factor = std::min(
+      scheduler_utils::safeDiv(
+          scheduler_utils::register_file_size, max_persistent_buffer_size),
+      total_iteration_numel);
 
   // To get to target threads:
   // Prioritize
@@ -259,9 +513,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   }
 
   // start from small block size to minimize expensive inter-threads reduction
-  const int threads_after_vectorize =
+  const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
-  constexpr int scheduler_per_sm = 4;
+  constexpr int64_t scheduler_per_sm = 4;
   if (outer_reduction_numel == 1 && vectorize) {
     bdimx = std::min(
         scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
@@ -297,21 +551,22 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   while (!vectorize && inner_reduction_unroll_factor < max_unroll &&
          batches_per_block_inner_reduction >= 2) {
     inner_reduction_unroll_factor *= 2;
-    batches_per_block_inner_reduction = roundUpPow2Or8(ceilDiv(
+    batches_per_block_inner_reduction = scheduler_utils::roundUpPow2Or8(ceilDiv(
         inner_most_dimension_numel, bdimx * inner_reduction_unroll_factor));
   }
 
   // Set size of persistent per thread buffer on outer reduction buffer
-  int64_t batches_per_block_outer_reduction = roundUpPow2Or8(ceilDiv(
-      ceilDiv(total_reduction_numel, inner_most_dimension_numel),
-      bdimz * outer_reduction_unroll_factor));
+  int64_t batches_per_block_outer_reduction =
+      scheduler_utils::roundUpPow2Or8(ceilDiv(
+          ceilDiv(total_reduction_numel, inner_most_dimension_numel),
+          bdimz * outer_reduction_unroll_factor));
 
   // Prefer putting iterations into unrolling over having a very large
   // persistent buffer.
   while (outer_reduction_unroll_factor < max_unroll &&
          batches_per_block_outer_reduction >= 2) {
     outer_reduction_unroll_factor *= 2;
-    batches_per_block_outer_reduction = roundUpPow2Or8(
+    batches_per_block_outer_reduction = scheduler_utils::roundUpPow2Or8(
         ceilDiv(outer_reduction_numel, bdimz * outer_reduction_unroll_factor));
   }
 
@@ -372,10 +627,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // reduction
     if (batches_per_block_outer_reduction >= 2 &&
         batches_per_block_outer_reduction !=
-            roundUpPow2Or8(batches_per_block_outer_reduction / 2) &&
+            scheduler_utils::roundUpPow2Or8(
+                batches_per_block_outer_reduction / 2) &&
         bdimz * 2 <= scheduler_utils::z_block_limit) {
-      batches_per_block_outer_reduction =
-          roundUpPow2Or8(batches_per_block_outer_reduction / 2);
+      batches_per_block_outer_reduction = scheduler_utils::roundUpPow2Or8(
+          batches_per_block_outer_reduction / 2);
       bdimz = ceilDiv(
           outer_reduction_numel,
           batches_per_block_outer_reduction * outer_reduction_unroll_factor);
@@ -389,9 +645,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // block by a factor of 2
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
-              4 >
-          255 * 3 &&
-      bdimx * bdimy * bdimz * 2 <= max_threads_in_block &&
+              4l >
+          255l * 3l &&
+      bdimx * bdimy * bdimz * 2l <= max_threads_in_block &&
       batches_per_block_inner_reduction >
           batches_per_block_inner_reduction_max) {
     batches_per_block_inner_reduction = batches_per_block_inner_reduction / 2;
@@ -400,14 +656,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Do the same on the outer reduction dimension
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
-              4 >
-          255 * 3 &&
-      bdimx * bdimy * bdimz * 2 <= device_max_threads_per_multiprocessor &&
-      batches_per_block_outer_reduction >= 2) {
-    batches_per_block_outer_reduction /= 2;
+              4l >
+          255l * 3l &&
+      bdimx * bdimy * bdimz * 2l <= device_max_threads_per_multiprocessor &&
+      batches_per_block_outer_reduction >= 2l) {
+    batches_per_block_outer_reduction /= 2l;
   }
 
-  auto device_warp_size = at::cuda::warp_size();
+  auto device_warp_size = (int64_t)at::cuda::warp_size();
   auto padded_bdimx = bdimx % device_warp_size == 0
       ? bdimx
       : bdimx + (device_warp_size - bdimx % device_warp_size);
@@ -420,7 +676,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // usage register per thread is estimated as overhead + buffer_size /
   // bytes_per_register
   int64_t nvrtc_register_per_thread = 255;
-  const int blocksPerKernel = godim;
+  const int64_t blocksPerKernel = godim;
   // register estimation is only valid for vectorized gmem access
   // we've seen unexpectedly high register counts with vectorization factor less
   // than 4, which would make the below estimate inaccurate.
@@ -429,52 +685,57 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // blocks and buffers
   if (vectorize && blocksPerKernel > device_multiprocessor_count &&
       batches_per_block_inner_reduction > 1) {
-    constexpr int reg_allocation_granularity = 256;
-    constexpr float occupancy_ratio = 0.4;
-    const int persistent_buffer_size = batches_per_block_inner_reduction *
+    constexpr int64_t reg_allocation_granularity = 256;
+    constexpr double occupancy_ratio = 0.4;
+    const int64_t persistent_buffer_size = batches_per_block_inner_reduction *
         inner_reduction_unroll_factor * max_input_dtype_size;
     // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
     // register_used_on_a100  = 27,  40,  62,   73,   105
     // register_used_on_v100  = xx,  xx,  45,   62,   93
     // estimated_register_num = 42,  44,  56,   72,   104
     // safe for both v100 & a100
-    constexpr int bytes_per_register = 4;
-    constexpr int overhead_register = 40;
-    const int estimated_register_count =
+    constexpr int64_t bytes_per_register = 4;
+    constexpr int64_t overhead_register = 40;
+    const int64_t estimated_register_count =
         persistent_buffer_size / bytes_per_register + overhead_register;
     // avoid nvcc using too many registers than expected
     nvrtc_register_per_thread = estimated_register_count;
 
-    const int register_per_warp =
+    const int64_t register_per_warp =
         ceilDiv(
             estimated_register_count * device_warp_size,
             reg_allocation_granularity) *
         reg_allocation_granularity;
-    const int threadsPerBlock =
+    const int64_t threadsPerBlock =
         (pad_bdimx ? padded_bdimx : bdimx) * bdimy * bdimz;
-    const int warps_per_block = ceilDiv(threadsPerBlock, dev_prop->warpSize);
-    const int estimated_warps_per_sm = dev_prop->regsPerMultiprocessor /
+    const int64_t warps_per_block =
+        ceilDiv(threadsPerBlock, (int64_t)dev_prop->warpSize);
+    const int64_t estimated_warps_per_sm =
+        (int64_t)dev_prop->regsPerMultiprocessor /
         (register_per_warp * warps_per_block) * warps_per_block;
-    const int occupancy_warps_per_sm = static_cast<int>(
-        dev_prop->maxThreadsPerMultiProcessor / device_warp_size *
+    const int64_t occupancy_warps_per_sm = static_cast<int64_t>(
+        (dev_prop->maxThreadsPerMultiProcessor / (double)device_warp_size) *
         occupancy_ratio);
 
     if (estimated_warps_per_sm < occupancy_warps_per_sm) {
-      const int blocks_per_sm_1 = dev_prop->maxBlocksPerMultiProcessor;
-      const int blocks_per_sm_2 =
+      const int64_t blocks_per_sm_1 =
+          (int64_t)dev_prop->maxBlocksPerMultiProcessor;
+      const int64_t blocks_per_sm_2 =
           ceilDiv(occupancy_warps_per_sm, warps_per_block);
-      const int blocks_per_sm = std::min(blocks_per_sm_1, blocks_per_sm_2);
-      const int warps_per_sm = blocks_per_sm * warps_per_block;
-      const int register_per_warp = dev_prop->regsPerMultiprocessor /
-          warps_per_sm / reg_allocation_granularity *
-          reg_allocation_granularity;
-      const int occupancy_register_count = register_per_warp / device_warp_size;
+      const int64_t blocks_per_sm = std::min(blocks_per_sm_1, blocks_per_sm_2);
+      const int64_t warps_per_sm = blocks_per_sm * warps_per_block;
+      const int64_t register_per_warp =
+          (int64_t)dev_prop->regsPerMultiprocessor / warps_per_sm /
+          reg_allocation_granularity * reg_allocation_granularity;
+      const int64_t occupancy_register_count =
+          register_per_warp / device_warp_size;
       // use occupancy_register_count directly may cause register spills
       // only allow 20% drop from estimated_register_count to balance register
       // usage and occupancy
-      constexpr float max_adjust_fraction = 0.8;
+      constexpr double max_adjust_fraction = 0.8;
       nvrtc_register_per_thread = std::max(
-          static_cast<int>(estimated_register_count * max_adjust_fraction),
+          static_cast<int64_t>(
+              (double)estimated_register_count * max_adjust_fraction),
           occupancy_register_count);
     }
   }
@@ -486,7 +747,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   auto rparams = std::make_shared<ReductionParams>();
 
-  rparams->cparams.maxrregcount = nvrtc_register_per_thread;
+  rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
 
@@ -573,7 +834,7 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
       normalization_scheduler_utils::getGridOuterNormalizationParams(
           total_reduction_numel,
           total_iteration_numel,
-          vectorize_factor,
+          (int64_t)vectorize_factor,
           max_persistent_buffer_size);
 
   TORCH_INTERNAL_ASSERT(outer_params.has_value(), "No valid config found");
@@ -592,12 +853,12 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   rparams->batches_per_block_inner_reduction = pb_size;
   rparams->multiple_reds_per_blk = true;
   rparams->vectorize_iter_dom = true;
-  rparams->unroll_factor_iter_dom = vectorize_factor;
+  rparams->unroll_factor_iter_dom = (int64_t)vectorize_factor;
   rparams->block_dim_iter_dom = ParallelType::TIDx;
   rparams->unroll_factor_inner_reduction = unswitch_factor;
   rparams->split_grid_dim_iter_dom_inner =
       ceilDiv(
-          total_iteration_numel / vectorize_factor,
+          total_iteration_numel / (int64_t)vectorize_factor,
           outer_params->launch_params.bdimx()) >
       outer_params->launch_params.gdimx();
   rparams->compute_persistent_buffer_with_first_consumer = true;
@@ -668,9 +929,9 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // vectorize_factor * blockDim.x. The minimum number of SMs to run
   // this as a persistent kernel is thus defined as:
   const int64_t min_required_sm_per_norm = ceilDiv(
-      max_persistent_buffer_size * vectorize_factor *
+      max_persistent_buffer_size * (int64_t)vectorize_factor *
           normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx,
-      register_file_size);
+      (int64_t)register_file_size);
 
   if (min_required_sm_per_norm > 1) {
     return gridOuterPersistentHeuristic(
@@ -822,7 +1083,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   int64_t batches_per_block =
       ceilDiv(total_reduction_numel, bdimy * inner_reduction_unroll_factor);
 
-  batches_per_block = roundUpPow2Or8(batches_per_block);
+  batches_per_block = scheduler_utils::roundUpPow2Or8(batches_per_block);
 
   // Adjust bdimy based on batches_per_block and unroll factor set
   bdimy = ceilDiv(
@@ -837,8 +1098,9 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       // And batches_per_block can be divided by two
       batches_per_block >= 2 &&
       // Make sure batches_per_block will be updated
-      batches_per_block != roundUpPow2Or8(batches_per_block / 2)) {
-    batches_per_block = roundUpPow2Or8(batches_per_block / 2);
+      batches_per_block !=
+          scheduler_utils::roundUpPow2Or8(batches_per_block / 2)) {
+    batches_per_block = scheduler_utils::roundUpPow2Or8(batches_per_block / 2);
 
     // Adjust bdimy based on batches_per_block and unroll factor set
     bdimy = ceilDiv(
@@ -848,8 +1110,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // Register pressure is really high per thread and using less than
   // maximum threads, decrease batches per block by a factor of 2
-  if ((batches_per_block * inner_reduction_unroll_factor * 4 > 255 * 3 &&
-       bdimx * bdimy * 2 <= device_max_threads_per_multiprocessor)) {
+  if ((batches_per_block * inner_reduction_unroll_factor * 4l > 255l * 3l &&
+       bdimx * bdimy * 2l <= device_max_threads_per_multiprocessor)) {
     batches_per_block /= 2;
   }
 
@@ -864,7 +1126,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
     bdimx = ceilDiv(bdimx, 2);
   }
 
-  int gdimx = ceilDiv(total_iteration_numel, bdimx);
+  auto gdimx = ceilDiv(total_iteration_numel, bdimx);
 
   auto rparams = std::make_shared<ReductionParams>();
   rparams->batches_per_block_inner_reduction = batches_per_block;
@@ -936,25 +1198,36 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const bool fastest_dim_reduction,
     const size_t n_tensor_inputs,
     const size_t max_input_dtype_size,
+    const size_t tmp_gmem_dtype_size,
     const int64_t max_persistent_buffer_size,
     size_t vectorize_factor,
-    bool project_persistent_buffers) {
+    bool project_persistent_buffers,
+    const bool combined_inner_outer_reduction) {
   std::shared_ptr<ReductionParams> rparams;
-  if (fastest_dim_reduction) {
+  if (combined_inner_outer_reduction) {
+    const int64_t outer_dim_numel = total_iteration_numel;
+    const int64_t inner_dim_numel = inner_most_dimension_numel;
+    rparams = innerOuterPersistentHeuristic(
+        outer_dim_numel,
+        inner_dim_numel,
+        max_persistent_buffer_size,
+        tmp_gmem_dtype_size,
+        vectorize_factor);
+  } else if (fastest_dim_reduction) {
     rparams = innerPersistentHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         inner_most_dimension_numel,
-        n_tensor_inputs,
-        max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         max_persistent_buffer_size,
         vectorize_factor);
   } else {
     rparams = outerPersistentHeuristic(
         total_reduction_numel,
         total_iteration_numel,
-        n_tensor_inputs,
-        max_input_dtype_size,
+        (int64_t)n_tensor_inputs,
+        (int64_t)max_input_dtype_size,
         max_persistent_buffer_size,
         vectorize_factor);
   }
@@ -967,7 +1240,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getPersistentHeuristics");
-
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1000,6 +1272,20 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
+  int64_t n_tensor_inner_reduction = 0;
+  int64_t n_tensor_outer_reduction = 0;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      n_tensor_inner_reduction++;
+    } else {
+      n_tensor_outer_reduction++;
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  const bool combined_inner_outer_reduction =
+      n_tensor_inner_reduction && n_tensor_outer_reduction;
+
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -1021,7 +1307,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // If projected persistent buffers are smaller, they will be used.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  auto max_persistent_size = ir_utils::getViewOps(fusion).size() > 0
+  auto max_persistent_size = !ir_utils::getViewOps(fusion).empty()
       ? persistent_buffer_size_info.persistent_buffer_size
       : std::min(
             persistent_buffer_size_info.persistent_buffer_size,
@@ -1045,6 +1331,45 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   bool project_persistent_buffers =
       persistent_buffer_size_info.projected_persistent_buffer_size <
       persistent_buffer_size_info.persistent_buffer_size;
+
+  if (combined_inner_outer_reduction) {
+    // In combined_inner_outer_reduction, we have additional buffers for partial
+    // results of outer reductions.
+    int64_t outer_reduction_buffer_size =
+        normalization_scheduler_utils::partialReductionBufferSize(
+            outer_reduction_tvs, runtime_info);
+
+    // for layer_norm backward, enable project to input can reuse weight shared
+    // among different rows. Although it increased register usage and may lead
+    // to register spills, the overall performance is increased. The following
+    // code will check if we can do this projection by allowing more registers.
+    // This is a temporary solution, the issue is tracked by
+    // https://github.com/csarofeen/pytorch/issues/2525
+    if (!project_persistent_buffers) {
+      int64_t total_projected_buffer_size =
+          persistent_buffer_size_info.projected_persistent_buffer_size +
+          outer_reduction_buffer_size;
+      // allow 10% more to allow project to input, 14K float should do project
+      // and 16K float should't do. more_register_factor >= 14*1024*5(three
+      // inputs, two outer reduction results)*sizeof(float) /
+      // register_file_size_full
+      constexpr float more_register_factor = 1.1;
+      const int64_t avilable_register_file_size = static_cast<int64_t>(
+          scheduler_utils::register_file_size_full * more_register_factor);
+      if (avilable_register_file_size >= total_projected_buffer_size) {
+        project_persistent_buffers = true;
+      }
+    }
+    // now we have the final decision on whether we project to input or not.
+    if (project_persistent_buffers) {
+      max_persistent_size =
+          persistent_buffer_size_info.projected_persistent_buffer_size +
+          outer_reduction_buffer_size;
+    } else {
+      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
+          outer_reduction_buffer_size;
+    }
+  }
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
@@ -1081,6 +1406,11 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     n_tensor_inputs++;
   }
 
+  // dtype used to store partial outer reduction in combined reduction
+  const size_t tmp_gmem_dtype_size = combined_inner_outer_reduction
+      ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
+      : dataTypeSize(first_red_tv->getDataType().value());
+
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
 
@@ -1091,9 +1421,11 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       properties.fastest_dim_reduction,
       n_tensor_inputs,
       max_dtype_size,
+      tmp_gmem_dtype_size,
       max_persistent_size,
       vectorize_factor,
-      project_persistent_buffers);
+      project_persistent_buffers,
+      combined_inner_outer_reduction);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
@@ -1107,19 +1439,20 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   return getPersistentHeuristics(fusion, runtime_info, data_cache);
 }
 
-// fusion is the input IR that will be modified by this function
-void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("schedulePersistentKernel");
-
-  FusionGuard fg(fusion);
-
+// common prepare for both inner outer combined and seperated reductions
+void beforeSchedule(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& dummy_outputs,
+    std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
   // does not create trouble for transform propagation.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  std::vector<TensorView*> dummy_outputs;
   if (rparams.project_persistent_buffers &&
       ir_utils::getViewOps(fusion).empty()) {
     dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(fusion);
@@ -1133,25 +1466,32 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
 
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
   // Cache and fork outputs
-  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
-
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+}
 
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-  TORCH_INTERNAL_ASSERT(reduction_tvs.size());
+// If called from schedulePersistentKernel, reduction_tvs are either inner
+// reductions or outer reductions. If called from
+// schedulePersistentKernelInnerOuter, reduction_tvs are inner reductions, outer
+// reductions are handled by scheduleCombinedOuter.
+TensorView* scheduleReductionGeneral(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs) {
+  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];
 
-  if (ir_utils::getViewOps(fusion).size() > 0) {
+  if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate view transforms through the graph, expecially the reference.
     scheduler_utils::propagateViewTransforms(fusion, ca_map);
@@ -1163,7 +1503,8 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
   }
 
   if (rparams.persistent_kernel && rparams.cross_grid_inner_reduction &&
-      !rparams.fastest_dim && reduction_tvs.size() > 1) {
+      !rparams.fastest_dim && reduction_tvs.size() > 1 &&
+      !rparams.combined_inner_outer) {
     groupReductions(reduction_tvs, false);
   }
 
@@ -1182,24 +1523,55 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
-  TensorView* reference_tv = reduction_scheduler_utils::scheduleReductionTV(
+  return reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
+}
+
+// fusion is the input IR that will be modified by this function
+void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
+  FUSER_PERF_SCOPE("schedulePersistentKernel");
+  if (rparams.combined_inner_outer) {
+    return schedulePersistentKernelInnerOuter(fusion, rparams);
+  }
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  TensorView* reference_tv =
+      scheduleReductionGeneral(fusion, rparams, reduction_tvs);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
   TORCH_INTERNAL_ASSERT(
-      reference_tv != nullptr && reduction_tv != nullptr,
+      reference_tv != nullptr && reduction_tvs[0] != nullptr,
       "Need these two tensor views to finish the scheduling.");
 
   for (auto output : dummy_outputs) {
     fusion->addOutput(output);
   }
 
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
-      rparams,
-      reduction_tv,
+      reduction_tvs[0],
       reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
       reduction_tvs,
       cached_inputs,
       cached_outputs,
@@ -1214,8 +1586,270 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
     }
   }
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
+void scheduleReductionCombinedOuter(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    std::vector<TensorView*>& cached_gmem,
+    std::vector<TensorView*>& cached_gmem_reload,
+    std::vector<TensorView*>& outer_reference_tvs,
+    std::unordered_set<TensorView*>& boundaryNodesSet) {
+  auto mergeReductionOrIterDomains = [](TensorView* tv, bool mergeReduction) {
+    int prev_i = -1;
+    for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
+      if (mergeReduction == tv->axis(i)->isReduction()) {
+        if (prev_i == -1) {
+          prev_i = i;
+        } else {
+          tv->merge(i, prev_i);
+          prev_i = i;
+        }
+      }
+    }
+  };
+  for (auto& outer_reduction_tv : outer_reduction_tvs) {
+    // merge tensorview to [reduction, iteraiton] domains
+    mergeReductionOrIterDomains(outer_reduction_tv, true);
+    mergeReductionOrIterDomains(outer_reduction_tv, false);
+    if (rparams.multiple_reds_per_blk) {
+      outer_reduction_tv->split(
+          0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
+    }
+    outer_reduction_tv->split(
+        0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
+
+    if (rparams.multiple_reds_per_blk) {
+      outer_reduction_tv->rFactor({1});
+    }
+    TensorView* partialResult = outer_reduction_tv->rFactor({1});
+    partialResult->cacheBefore();
+    partialResult->setMemoryType(MemoryType::Global);
+    TensorView* partialResultReload = partialResult->cacheAfter();
+
+    boundaryNodesSet.insert(partialResultReload);
+    cached_gmem.emplace_back(partialResult);
+    cached_gmem_reload.emplace_back(partialResultReload);
+
+    if (rparams.multiple_reds_per_blk) {
+      if (rparams.tidx_for_outer_reduction) {
+        outer_reduction_tv->split(
+            0, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
+        // to use warp reduction
+        if (rparams.pad_outer_reduction_to_warp) {
+          outer_reduction_tv->axis(1)->padToMultipleOfWarp();
+        }
+      } else {
+        outer_reduction_tv->split(
+            0, NamedScalar::getParallelDim(ParallelType::TIDy));
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      }
+      // iteration domain
+      int axisID = -1;
+      if (rparams.vectorization_factor_outer > 1) {
+        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
+        outer_reduction_tv->axis(axisID--)->parallelize(
+            ParallelType::Vectorize);
+      }
+
+      if (rparams.tidx_for_outer_reduction) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::TIDy));
+        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDy);
+      } else {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+      }
+
+      outer_reduction_tv->split(
+          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
+
+    } else {
+      // reduction domain
+      outer_reduction_tv->split(
+          0, NamedScalar::getParallelDim(ParallelType::TIDy));
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+
+      // iteration domain
+      int axisID = -1;
+      if (rparams.vectorization_factor_outer > 1) {
+        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
+        outer_reduction_tv->axis(axisID--)->parallelize(
+            ParallelType::Vectorize);
+      }
+
+      if (rparams.lparams.bdimx() > 1) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+      }
+
+      outer_reduction_tv->split(
+          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+
+      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
+    }
+    auto outer_reference_tv =
+        reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
+    outer_reference_tvs.emplace_back(outer_reference_tv);
+  }
+}
+
+void schedulePersistentKernelInnerOuter(
+    Fusion* fusion,
+    const ReductionParams& rparams) {
+  FUSER_PERF_SCOPE("schedulePersistentKernelInnerOuter");
+
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  // split reduction_tvs into inner and outer reduction_tvs
+  std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_reduction_tvs.emplace_back(tv);
+    } else {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  TORCH_INTERNAL_ASSERT(
+      !inner_reduction_tvs.empty(),
+      "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
+  TORCH_INTERNAL_ASSERT(
+      !outer_reduction_tvs.empty(),
+      "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
+
+  // schedule inner reduction, only schedule the first inner reduction tv, then
+  // will be propagated to other inner reduction tvs.
+  TensorView* inner_reference_tv =
+      scheduleReductionGeneral(fusion, rparams, inner_reduction_tvs);
+
+  // schedule outer reduction, schedule all the outer reduction tvs since we
+  // need to store the intermediate results.
+  std::vector<TensorView*> cached_gmem;
+  std::vector<TensorView*> cached_gmem_reload;
+  std::vector<TensorView*> outer_reference_tvs;
+  std::unordered_set<TensorView*> boundaryNodesSet;
+  scheduleReductionCombinedOuter(
+      fusion,
+      rparams,
+      outer_reduction_tvs,
+      cached_gmem,
+      cached_gmem_reload,
+      outer_reference_tvs,
+      boundaryNodesSet);
+
+  // Propagate inner reduction and outer reductions
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+
+  // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
+  // propagation will not propagate to the final outer reduction.
+  reduction_scheduler_utils::propagateTransformation(
+      inner_reference_tv, boundaryNodesSet);
+  reduction_scheduler_utils::propagateRFactor(
+      inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
+
+  // Don't allow parallelization propagation goes through boundaryNodesSet
+  const auto& selected_tvs_inner =
+      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+  reduction_scheduler_utils::propagateParallelization(
+      fusion,
+      inner_reduction_tvs[0],
+      inner_reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      inner_reduction_tvs,
+      cached_inputs,
+      cached_outputs,
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+
+  // Propagate outer reduction. Each outer reduction is connected with its
+  // cached_gmem and output, since we added all the cached_gmem to the
+  // boundaryNodesSet, the transformation from one outer reduction can't
+  // propagate to other outer reductions due to the cutoff at boundaryNodesSet.
+  // Thus, we need a loop to initiate the propagation from each outer reduction.
+  // Don't allow parallelization propagation goes through cached_gmem, see issue
+  // 246.
+  for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
+    const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
+        {outer_reduction_tvs[i]}, {cached_gmem[i]});
+    reduction_scheduler_utils::propagateTransformation(
+        outer_reference_tvs[i], boundaryNodesSet);
+    reduction_scheduler_utils::propagateParallelization(
+        fusion,
+        outer_reduction_tvs[i],
+        outer_reference_tvs[i],
+        unroll,
+        vectorize,
+        is_outer_grid_persistence,
+        outer_reduction_tvs,
+        cached_inputs,
+        cached_outputs,
+        {selected_tvs_outer.begin(), selected_tvs_outer.end()});
+  }
+
+  // special vectorization of temp gmem, vectorization_factor_tmp_gmem_write is
+  // guaranteed to be smaller or equal to input vectorization factor.
+  if (rparams.vectorization_factor_tmp_gmem_write > 1) {
+    for (auto tv : cached_gmem) {
+      TORCH_INTERNAL_ASSERT(
+          rparams.vectorization_factor_tmp_gmem_write <=
+              rparams.unroll_factor_inner_reduction,
+          "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
+      if (rparams.vectorization_factor_tmp_gmem_write <
+          rparams.unroll_factor_inner_reduction) {
+        tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
+      }
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // vectorization propagate through propagateParallelization only works for
+  // input and output tensors. propagate vectorization to cached_gmem_reload
+  // directly from output tv using parallelizeAllLike. must propagate seperaely
+  // for different tvs as outer reductions are transformed seperately.
+  if (rparams.vectorization_factor_outer > 1) {
+    for (auto tv : cached_gmem_reload) {
+      auto output_tvs = ir_utils::outputTvsOf(tv);
+      TORCH_INTERNAL_ASSERT(
+          !output_tvs.empty(),
+          "cached_gmem_reload should have at least one output tensor.")
+      scheduler_utils::parallelizeAllLike(
+          output_tvs[0],
+          -1,
+          {cached_gmem_reload.begin(), cached_gmem_reload.end()},
+          {ParallelType::Vectorize});
+    }
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+  inlineMost();
+}
 } // namespace nvfuser
