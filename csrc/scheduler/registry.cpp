@@ -467,7 +467,7 @@ class SchedulerTopologyChecker {
       }
       // In the case of select, there's no consumer domain, and thus
       // there's no way to schedule the indexed producer domain
-      if (auto select = dynamic_cast<SelectOp*>(expr)) {
+      if (expr->isA<SelectOp>()) {
         return true;
       }
       if (auto consumer_of_indexed_producer =
