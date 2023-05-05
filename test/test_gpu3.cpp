@@ -8370,8 +8370,42 @@ TEST_F(NVFuserTest, FusionSegmentReduceZeroElementTensor_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
-  auto tv2 = sum(tv0, {1});
-  fusion->addOutput(tv2);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = neg(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 0}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto nvf_out = fec.runFusionWithInputs(inputs);
+  // Check that this actually fires the Pointwise scheduler instead of Reduction
+  auto fkr = fec.getMostRecentKernelRuntime();
+  TORCH_CHECK(
+      !fkr->isSegmented(), "Expected to schedule Fusion in a single segment");
+  auto heur =
+      fkr->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heur == ScheduleHeuristic::PointWise,
+      "Expected pointwise scheduler but found ",
+      heur);
+
+  testValidate(fec.fusion(), nvf_out, inputs, {t0.sum(1)}, __LINE__, __FILE__);
+}
+
+// Same as previous test but with Welford instead
+TEST_F(NVFuserTest, FusionSegmentWelfordZeroElementTensor_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto vm = variance_mean(tv0, {1}, 1, false);
+  fusion->addOutput(vm.mean);
+  fusion->addOutput(vm.var);
 
   FusionExecutorCache fec(std::move(fusion));
 
