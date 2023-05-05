@@ -5,6 +5,13 @@
 
 #include "flatbuffers/flatbuffers.h"
 
+// Ensure the included flatbuffers.h is the same version as when this file was
+// generated, otherwise it may not be compatible.
+static_assert(
+    FLATBUFFERS_VERSION_MAJOR == 2 && FLATBUFFERS_VERSION_MINOR == 0 &&
+        FLATBUFFERS_VERSION_REVISION == 7,
+    "Non-compatible flatbuffers version included");
+
 namespace nvfuser {
 namespace serde {
 
@@ -624,7 +631,7 @@ struct Bool FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint8_t>(verifier, VT_BOOL_VAL) && verifier.EndTable();
+        VerifyField<uint8_t>(verifier, VT_BOOL_VAL, 1) && verifier.EndTable();
   }
 };
 
@@ -669,8 +676,8 @@ struct Double FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<double>(verifier, VT_DOUBLE_VAL) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<double>(verifier, VT_DOUBLE_VAL, 8) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -719,8 +726,8 @@ struct Int FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<int64_t>(verifier, VT_INT_VAL) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<int64_t>(verifier, VT_INT_VAL, 8) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -768,8 +775,9 @@ struct BatchNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint8_t>(verifier, VT_TRAINING) &&
-        VerifyField<uint8_t>(verifier, VT_CHANNELS_LAST) && verifier.EndTable();
+        VerifyField<uint8_t>(verifier, VT_TRAINING, 1) &&
+        VerifyField<uint8_t>(verifier, VT_CHANNELS_LAST, 1) &&
+        verifier.EndTable();
   }
 };
 
@@ -1012,9 +1020,9 @@ struct ComplexDouble FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<double>(verifier, VT_REAL) &&
-        VerifyField<double>(verifier, VT_IMAG) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<double>(verifier, VT_REAL, 8) &&
+        VerifyField<double>(verifier, VT_IMAG, 8) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -1066,7 +1074,7 @@ struct Dtype FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -1105,7 +1113,7 @@ struct Dimension FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<int64_t>(verifier, VT_DIM) && verifier.EndTable();
+        VerifyField<int64_t>(verifier, VT_DIM, 8) && verifier.EndTable();
   }
 };
 
@@ -1153,8 +1161,8 @@ struct Norm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_AXES) &&
         verifier.VerifyVector(axes()) &&
-        VerifyField<int64_t>(verifier, VT_CORRECTION) &&
-        VerifyField<uint8_t>(verifier, VT_KEEP_DIM) && verifier.EndTable();
+        VerifyField<int64_t>(verifier, VT_CORRECTION, 8) &&
+        VerifyField<uint8_t>(verifier, VT_KEEP_DIM, 1) && verifier.EndTable();
   }
 };
 
@@ -1366,8 +1374,8 @@ struct Reduction FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_AXES) &&
         verifier.VerifyVector(axes()) &&
-        VerifyField<uint8_t>(verifier, VT_KEEP_DIM) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<uint8_t>(verifier, VT_KEEP_DIM, 1) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -1648,8 +1656,8 @@ struct Tensor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         verifier.VerifyVector(sizes()) &&
         VerifyOffset(verifier, VT_CONTIGUITY) &&
         verifier.VerifyVector(contiguity()) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) &&
-        VerifyField<uint8_t>(verifier, VT_IS_CPU) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+        VerifyField<uint8_t>(verifier, VT_IS_CPU, 1) && verifier.EndTable();
   }
 };
 
@@ -1723,7 +1731,7 @@ struct TensorCreation FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
         verifier.VerifyVector(shape()) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -1785,7 +1793,7 @@ struct TensorCreationSymbolic FLATBUFFERS_FINAL_CLASS
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
         verifier.VerifyVector(shape()) &&
-        VerifyField<int32_t>(verifier, VT_DTYPE) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -1980,8 +1988,8 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
         verifier.VerifyVector(args()) && VerifyOffset(verifier, VT_OUTPUTS) &&
         verifier.VerifyVector(outputs()) && VerifyOffset(verifier, VT_NAME) &&
         verifier.VerifyString(name()) &&
-        VerifyField<int32_t>(verifier, VT_TYPE) &&
-        VerifyField<uint8_t>(verifier, VT_DATA_TYPE) &&
+        VerifyField<int32_t>(verifier, VT_TYPE, 4) &&
+        VerifyField<uint8_t>(verifier, VT_DATA_TYPE, 1) &&
         VerifyOffset(verifier, VT_DATA) &&
         VerifyRecordData(verifier, data(), data_type()) && verifier.EndTable();
   }
@@ -2217,9 +2225,10 @@ struct TrieNode FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_RECORD) &&
         verifier.VerifyTable(record()) && VerifyOffset(verifier, VT_CHILDREN) &&
         verifier.VerifyVector(children()) &&
-        VerifyField<uint64_t>(verifier, VT_FUSION_ID) &&
-        VerifyField<uint64_t>(verifier, VT_VISITS) &&
-        VerifyField<uint8_t>(verifier, VT_IS_TERMINAL) && verifier.EndTable();
+        VerifyField<uint64_t>(verifier, VT_FUSION_ID, 8) &&
+        VerifyField<uint64_t>(verifier, VT_VISITS, 8) &&
+        VerifyField<uint8_t>(verifier, VT_IS_TERMINAL, 1) &&
+        verifier.EndTable();
   }
 };
 
@@ -2302,7 +2311,7 @@ struct FusionCache FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint64_t>(verifier, VT_MAX_FUSIONS) &&
+        VerifyField<uint64_t>(verifier, VT_MAX_FUSIONS, 8) &&
         VerifyOffset(verifier, VT_STRUCTURE) &&
         verifier.VerifyVector(structure()) &&
         verifier.VerifyVectorOfTables(structure()) &&
@@ -2499,6 +2508,10 @@ inline const char* FusionCacheIdentifier() {
 
 inline bool FusionCacheBufferHasIdentifier(const void* buf) {
   return flatbuffers::BufferHasIdentifier(buf, FusionCacheIdentifier());
+}
+
+inline bool SizePrefixedFusionCacheBufferHasIdentifier(const void* buf) {
+  return flatbuffers::BufferHasIdentifier(buf, FusionCacheIdentifier(), true);
 }
 
 inline bool VerifyFusionCacheBuffer(flatbuffers::Verifier& verifier) {
