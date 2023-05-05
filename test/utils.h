@@ -547,4 +547,10 @@ bool isSchedulerInUse(
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
 
+// Validate that the fusion is segmented with desired scheduler, currently only
+// supporting two segments
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics);
+
 } // namespace nvfuser
