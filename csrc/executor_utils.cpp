@@ -625,14 +625,15 @@ void validateAlignedVectorizedFusionInputOutput(
 
   ExpressionEvaluator eval;
   auto sizes_strides = getAllocationSizesAndStrides(aten_tensor, tv, eval);
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getMaybeAllocationDomain().size());
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (auto i = sizes_strides.size() - 1; i >= 0; --i) {
+  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
     const auto [size, stride] = sizes_strides.at(i);
-    auto root_id = tv->getMaybeAllocationDomain()[i];
+    auto root_id = tv->getMaybeAllocationDomain().at(i);
     const auto is_expanded_broadcasting =
         root_id->isBroadcast() && root_id->hasExpandedExtent();
 
