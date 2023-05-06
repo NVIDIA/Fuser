@@ -327,12 +327,38 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
           false, "Unsupported transormation in allocation domain");
     }
   }
-  std::vector<std::pair<int64_t, int64_t>> result;
-  result.reserve(alloc_dom.size());
+  // compute final result
+  std::vector<std::pair<int64_t, int64_t>> sizes_strides;
+  sizes_strides.reserve(alloc_dom.size());
   for (auto id : alloc_dom) {
-    result.emplace_back(active_ids.at(id));
+    sizes_strides.emplace_back(active_ids.at(id));
   }
-  return result;
+  // validate final strides with contiguity
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getContiguity().size());
+  int64_t contiguous_stride = 1;
+  for (int64_t i = sizes_strides.size() - 1; i >= 0; i--) {
+    auto contiguity_opt = tv->getContiguity().at(i);
+    constexpr const char* err = "Contiguity info mismatch with broadcast info";
+    if (alloc_dom.at(i)->isBroadcast()) {
+      TORCH_INTERNAL_ASSERT(!contiguity_opt.has_value(), err);
+      continue;
+    }
+    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value(), err);
+    bool contiguity = *contiguity_opt;
+    auto [size, stride] = sizes_strides.at(i);
+    if (contiguity) {
+      TORCH_CHECK(
+          stride == contiguous_stride,
+          "Stride mismatch with contiguity info. dim: ",
+          i,
+          " expected stride: ",
+          contiguous_stride,
+          " actual stride: ",
+          stride);
+    }
+    contiguous_stride = stride * size;
+  }
+  return sizes_strides;
 }
 
 // Push a tensor to the arguments

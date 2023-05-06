@@ -255,33 +255,6 @@ struct TensorArg : public TensorArgAbstract {
       TensorView* tv,
       ExpressionEvaluator& eval) {
     auto sizes_strides = getAllocationSizesAndStrides(tensor, tv, eval);
-    // validate final strides with contiguity
-    // TODO: move validation of contiguity to somewhere else
-    TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getContiguity().size());
-    int64_t contiguous_stride = 1;
-    for (int64_t i = sizes_strides.size() - 1; i >= 0; i--) {
-      auto contiguity_opt = tv->getContiguity().at(i);
-      constexpr const char* err =
-          "Contiguity info mismatch with broadcast info";
-      if (!contiguity_opt.has_value()) {
-        continue;
-      }
-      TORCH_INTERNAL_ASSERT(contiguity_opt.has_value(), err);
-      bool contiguity = *contiguity_opt;
-      auto [size, stride] = sizes_strides.at(i);
-      if (contiguity) {
-        TORCH_CHECK(
-            stride == contiguous_stride,
-            "Stride mismatch with contiguity info. dim: ",
-            i,
-            " expected stride: ",
-            contiguous_stride,
-            " actual stride: ",
-            stride);
-      }
-      contiguous_stride = stride * size;
-    }
-    // set final strides
     for (auto i : c10::irange((int64_t)sizes_strides.size())) {
       using stride_t = typename TENSOR_TYPE::index_type;
       instance_.setStride(i, (stride_t)sizes_strides.at(i).second);

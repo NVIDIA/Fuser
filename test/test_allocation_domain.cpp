@@ -66,10 +66,10 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
 
-//   EXPECT_THAT(
-//       [&]() { fe.runFusion({t0_wrong_format}); },
-//       ::testing::ThrowsMessage<c10::Error>(
-//           ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
 
