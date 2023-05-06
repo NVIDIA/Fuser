@@ -238,7 +238,7 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
   TORCH_INTERNAL_ASSERT(
       val.isScalar(),
       "Tried to push an arg to run in a fused kernel, expected a scalar but got, ",
-      val);
+      val.tagKind());
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
     case c10::ScalarType::ComplexDouble:

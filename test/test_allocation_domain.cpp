@@ -55,7 +55,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   EXPECT_THAT(
       [&]() { fec.runFusionWithInputs({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info.")));
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fec.runFusionWithInputs({t0});
 
