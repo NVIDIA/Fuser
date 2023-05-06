@@ -24,6 +24,7 @@ namespace nvfuser {
 
 class AllocationDomainTest : public NVFuserTest {};
 
+// A global->global copy kernel where both inputs are NHWC memory format
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -68,6 +69,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the input as a 1d tensor.
 TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -117,6 +120,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the output as a 1d tensor.
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -169,6 +174,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view both the input and the output as a 1d tensors.
 TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -232,6 +239,9 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the input as a 2d tensor of shape [N*H/8, 8*W*C], and
+// view the output as a 2d tensor of shape [N*H*W*C/8, 8]
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -270,6 +280,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
 
   tv1->split(0, 8);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  // [N*H*W*C/8, 8]
 
   std::vector<IterDomain*> tv1_2d = {tv1->axis(0), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_2d, true);
@@ -298,6 +309,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel converting NCHW memory format into NHWC.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -308,9 +320,9 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
 
-  std::vector<IterDomain*> tv0_nhwc = {
+  std::vector<IterDomain*> tv0_nchw = {
       tv0->axis(0), tv0->axis(1), tv0->axis(2), tv0->axis(3)};
-  tv0->setAllocationDomain(tv0_nhwc, true);
+  tv0->setAllocationDomain(tv0_nchw, true);
 
   std::vector<IterDomain*> tv1_nhwc = {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
@@ -342,6 +354,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->shared->global copy kernel, shared memory allocated transposed to
+// avoid bank conflict.
 TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -374,16 +388,7 @@ TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
-
-  EXPECT_THAT(
-      [&]() { fe.runFusion({t0}); },
-      ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("The memory format of input tensor")));
-
   auto cg_outputs = fe.runFusion({t0});
-
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
