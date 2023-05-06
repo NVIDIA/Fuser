@@ -49,7 +49,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   tv1->merge(0);
   tv1->merge(0);
   // [N*H*W*C]
-  tv1->split(0, 8);
+  tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -110,7 +110,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   tv1->merge(0);
   tv1->merge(0);
   // [N*H*W*C]
-  tv1->split(0, 8);
+  tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -165,7 +165,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
   std::vector<IterDomain*> tv1_1d = {tv1->axis(0)};
   tv1->setAllocationDomain(tv1_1d, true);
 
-  tv1->split(0, 8);
+  tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -231,7 +231,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   std::vector<IterDomain*> tv1_1d = {tv1->axis(0)};
   tv1->setAllocationDomain(tv1_1d, true);
 
-  tv1->split(0, 8);
+  tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -262,7 +262,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view the input as a 2d tensor of shape [N*H/8, 8*W*C], and
-// view the output as a 2d tensor of shape [N*H*W*C/8, 8]
+// view the output as a 2d tensor of shape [N*H*W*C/4, 4]
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -299,9 +299,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   tv1->merge(0);
   // [N*H*W*C]
 
-  tv1->split(0, 8);
+  tv1->split(0, 4);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
-  // [N*H*W*C/8, 8]
+  // [N*H*W*C/4, 4]
 
   std::vector<IterDomain*> tv1_2d = {tv1->axis(0), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_2d, true);
