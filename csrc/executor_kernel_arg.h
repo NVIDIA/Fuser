@@ -216,6 +216,7 @@ struct TensorArgAbstract : ArgAbstract {
   virtual DataType getDataType() const = 0;
   virtual int64_t numel() const = 0;
   virtual at::Tensor getTensor() const = 0;
+  virtual TensorView* getTensorView() const = 0;
   virtual bool isIndexTypeResolved() const = 0;
   //! Returns the index type of the tensor. It's an error if the
   //! tensor does not have a resolved index type.
@@ -228,6 +229,7 @@ template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
   at::Tensor tensor_;
+  TensorView* tv_;
   bool index_type_resolved_ = false;
 
   TensorArg(
@@ -235,7 +237,7 @@ struct TensorArg : public TensorArgAbstract {
       TensorView* tv,
       ExpressionEvaluator& eval,
       bool index_type_resolved)
-      : tensor_(tensor), index_type_resolved_(index_type_resolved) {
+      : tensor_(tensor), tv_(tv), index_type_resolved_(index_type_resolved) {
     setPointer(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
@@ -416,6 +418,9 @@ struct TensorArg : public TensorArgAbstract {
   at::Tensor getTensor() const override {
     return tensor_;
   }
+  TensorView* getTensorView() const override {
+    return tv_;
+  }
   int64_t numel() const override {
     int64_t ret = 1;
     for (auto i : c10::irange(instance_.nDims())) {
@@ -588,7 +593,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
  private:
   std::vector<std::unique_ptr<ArgAbstract>> arguments_;
   std::vector<void*> void_ptrs_;
-  std::unordered_map<ArgAbstract*, TensorView*> tvs_;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;

@@ -1410,7 +1410,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         __func__,
         " provided number of outputs does not match fusion output");
   }
-  args.push(outputs);
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion_->outputs());
+  ExpressionEvaluator ee;
+  args.push(outputs, {output_tvs.begin(), output_tvs.end()}, ee);
 
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
@@ -1486,8 +1488,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.smem()));
     }
     ExpressionEvaluator expr_eval;
-    evaluatorPrecomputedValues()->bindInputs(args);
-    expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+    // evaluatorPrecomputedValues()->bindInputs(args);
+    // expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
     auto arg_buffer = args.getBuffer(kernel()->indexType(), expr_eval);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");

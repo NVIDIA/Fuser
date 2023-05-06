@@ -120,8 +120,8 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
   ExpressionEvaluator ee;
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, fusion_->inputs(), ee);
+  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
+      inputs, fusion_->inputs(), ee);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
@@ -816,7 +816,7 @@ class ArgumentManager {
   const ArgAbstract* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
-  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
+  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
   // (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
@@ -928,7 +928,15 @@ class ArgumentManager {
     // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
-        fusion_args_.push(group_runtime_outputs[group_out_i]);
+        if constexpr (std::is_same_v<T, std::vector<at::Tensor>>) {
+          ExpressionEvaluator ee;
+          fusion_args_.push(
+              group_runtime_outputs[group_out_i],
+              group_outputs[group_out_i]->as<TensorView>(),
+              ee);
+        } else {
+          fusion_args_.push(group_runtime_outputs[group_out_i]);
+        }
         tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
       }
     }

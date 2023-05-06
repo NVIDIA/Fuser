@@ -226,10 +226,8 @@ void KernelArgumentHolder::push(
   if (is_cpu_scalar(tensor)) {
     arguments_.push_back(atenTypeDispatchWithC10Complex(
         tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
-    tvs_.emplace(arguments_.back().get(), tv);
   } else {
     arguments_.push_back(getTensorArg(tensor, tv, eval, std::nullopt));
-    tvs_.emplace(arguments_.back().get(), tv);
   }
 }
 
@@ -286,7 +284,10 @@ void** KernelArgumentHolder::getBuffer(
       if (!tensor_arg->isIndexTypeResolved() ||
           tensor_arg->getIndexType() != index_type) {
         auto resolved_arg = getTensorArg(
-            tensor_arg->getTensor(), tvs_.at(arg), eval, index_type);
+            tensor_arg->getTensor(),
+            tensor_arg->getTensorView(),
+            eval,
+            index_type);
         arguments_.at(i) = std::move(resolved_arg);
       }
     }
