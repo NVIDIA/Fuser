@@ -329,13 +329,13 @@ class Index {
   static std::vector<Val*> getStrides(const TensorView* tv);
 
   // get the root indices of a consumer tensor
-  static std::vector<Val*> getConsumerRootIndices(
+  static std::vector<Val*> getConsumerAllocationIndices(
       const TensorView* tv,
       const std::vector<kir::ForLoop*>& loops,
       const IndexFromIdGraph& index_from_id_graph);
 
   // get the root indices of a producer tensor
-  static std::vector<Val*> getProducerRootIndices(
+  static std::vector<Val*> getProducerAllocationIndices(
       TensorView* producer,
       const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,

@@ -62,19 +62,29 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
   // Use domain guard to ignore the contiguity of
   //  consumer tv.
   TensorDomain* domain_with_specified_contiguity = nullptr;
-  if (tv->hasRFactor()) {
-    domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
-        tv->getRootDomain(),
-        tv->getRFactorDomain(),
-        tv->domain()->leaf(),
-        TensorDomain::getContiguityFilledWith(
-            tv->getRFactorDomain(), contiguity));
-  } else {
-    domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
-        tv->getRootDomain(),
-        tv->domain()->leaf(),
-        TensorDomain::getContiguityFilledWith(tv->getRootDomain(), contiguity));
-  }
+  domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
+      tv->getRootDomain(),
+      tv->getRFactorDomain(),
+      tv->getAllocationDomain(),
+      tv->getLeafDomain(),
+      TensorDomain::getContiguityFilledWith(
+          tv->getMaybeAllocationDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+ir_utils::TVDomainGuard noAllocationDomainGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of
+  //  consumer tv.
+  TensorDomain* domain_with_specified_contiguity = nullptr;
+  domain_with_specified_contiguity = IrBuilder::create<TensorDomain>(
+      tv->getRootDomain(),
+      tv->getRFactorDomain(),
+      tv->getLeafDomain(),
+      TensorDomain::getContiguityFilledWith(
+          tv->getRFactorDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }

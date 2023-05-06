@@ -518,10 +518,31 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       new_IDs.push_back(id);
     }
   }
+
+  if (producer->hasAllocation()) {
+    // Currently, we are unable to replace allocation domain, so we only support
+    // cases where no replay is needed. That is, root <= allocation <= rfactor.
+    if (producer->hasRFactor()) {
+      ir_utils::validateDomainEquivalence(
+          producer->getRootDomain(), producer->getAllocationDomain());
+      ir_utils::validateDomainEquivalence(
+          producer->getAllocationDomain(), producer->getRFactorDomain());
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          std::unordered_set<IterDomain*>(
+              producer->getRootDomain().begin(),
+              producer->getRootDomain().end()) ==
+          std::unordered_set<IterDomain*>(
+              producer->getAllocationDomain().begin(),
+              producer->getAllocationDomain().end()));
+    }
+  }
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
+      producer->getAllocationDomain(),
       new_IDs,
       producer->domain()->contiguity());
 

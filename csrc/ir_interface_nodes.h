@@ -264,6 +264,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain()->hasRFactor();
   }
 
+  bool hasAllocation() const {
+    return domain()->hasAllocation();
+  }
+
   //! Returns true if this tensor is zero dimensional,
   //!  i.e. a wrapped scalar or an empty placeholder.
   bool isZeroDim() const {
@@ -284,6 +288,14 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   const std::vector<IterDomain*>& getRFactorDomain() const {
     return domain()->rfactor();
+  };
+
+  const std::vector<IterDomain*>& getAllocationDomain() const {
+    return domain()->allocation();
+  };
+
+  const std::vector<IterDomain*>& getLeafDomain() const {
+    return domain()->leaf();
   };
 
   // If rfactor domain exists in domain() return it, otherwise return root
