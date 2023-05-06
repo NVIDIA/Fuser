@@ -66,18 +66,6 @@ class TORCH_CUDA_CU_API IdGraph {
   std::vector<IdGroup> outputGroups(ExprGroup expr) const;
   std::vector<IdGroup> inputGroups(ExprGroup expr) const;
 
-  // Returns if for each group in id_groups0 is the same as all groups in
-  // id_groups1. Requires size and order to be exact.
-  bool groupsMatch(
-      std::vector<IdGroup> id_groups0,
-      std::vector<IdGroup> id_groups1) const;
-
-  // Returns if for each group in expr_groups0 is the same as all groups in
-  // expr_groups1. Requires size and order to be exact.
-  bool groupsMatch(
-      std::vector<ExprGroup> expr_groups0,
-      std::vector<ExprGroup> expr_groups1) const;
-
   // Traverses uses of the IdGroups in 'of' and returns all ExprGroups
   // that have a use in their definition of provided of IdGroups.
   ExprGroups allUsesOf(const IdGroups& of) const;
@@ -212,11 +200,11 @@ class TORCH_CUDA_CU_API IdGraph {
     propagate_exprs_ = false;
   }
 
- private:
   // Removes the provided expression group from unique_definitions_ and
   // unique_uses_ breaking traversal through them.
   void eraseExprGroup(ExprGroup expr_group);
 
+ private:
   // If propagate_exprs_ = false, then mapThroughExpr will not be called as a
   // consequence of calling mapIds. As well as mapThroughExpr will not be called
   // (again) as a result of calling mapThroughExpr.
@@ -616,6 +604,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // corresponding leaf domain in the index graph.
   std::unordered_map<IterDomain*, IterDomain*> buildIndexGraph(
       const std::vector<Expr*>& exprs,
+      const std::vector<TensorView*>& all_tvs,
       StatefulLoweringInfo& info,
       std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
 
@@ -626,6 +615,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // have to be resolved by or before the rfactor iter domain.
   std::unordered_map<IdGroup, IdGroups> buildCoveredAlmostExact();
 
+  // TODO: Remove
   void buildIndexMap(const std::vector<TensorView*>& all_tvs);
 
   // ======= END Iteration domain build process in order called =======
