@@ -9283,7 +9283,7 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionRfactorContigIDs_CUDA) {
+TEST_F(NVFuserTest, FusionAllocationContigIDs_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

@@ -23,7 +23,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion);
 
 //! Find the contig root domains that a vectorized leaf domain
 //! of a consumer TV depends on. Required for runtime validation.
-void fillConsumerVectorizedContigRootDomains(
+void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
 

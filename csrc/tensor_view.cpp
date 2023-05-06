@@ -1443,11 +1443,14 @@ void TensorView::commitLeafToRFactor() {
       container(),
       domain_->root(),
       domain_->leaf(),
+      domain_->allocation(),
       domain_->leaf(),
       // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
       // allow customizing contiguity. But there is no such need now, so I will
       // just fill the contiguity with true.
-      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
+      TensorDomain::getContiguityFilledWith(
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          true)));
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

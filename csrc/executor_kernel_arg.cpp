@@ -349,7 +349,12 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
     if (contiguity) {
       TORCH_CHECK(
           stride == contiguous_stride,
-          "Stride mismatch with contiguity info. dim: ",
+          "Stride mismatch with contiguity info. ",
+          "tv: ",
+          tv->toString(),
+          " allocation domain: ",
+          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          " dim: ",
           i,
           " expected stride: ",
           contiguous_stride,
