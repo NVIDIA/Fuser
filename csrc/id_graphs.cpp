@@ -1654,8 +1654,8 @@ findFirstSelfMapping(
     }
 
     // Leaf domains
-    auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->domain(), id_graph, IdMappingMode::LOOP);
+    auto self_mappped_leaf_pair =
+        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::LOOP);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -1686,7 +1686,7 @@ void IterDomainGraphs::buildIterDomainDefinitionsAndUses(
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->getMaybeRFactorDomain();
+        const auto& rfactor_domain = tv->domain()->maybeRFactor();
         if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
             rfactor_domain.end()) {
           view_rfactor_ids_.emplace(id);
@@ -2117,7 +2117,7 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
       auto exact_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv, true)
+          PairwiseRootDomainMap(p_tv, c_tv)
               .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
@@ -2206,7 +2206,7 @@ void IterDomainGraphs::validatePTypes(
     const std::vector<TensorView*>& all_tvs) const {
   VectorOfUniqueEntries<IterDomain*> leaf_ids;
   for (auto tv : all_tvs) {
-    leaf_ids.pushBack(tv->domain()->domain());
+    leaf_ids.pushBack(tv->domain()->leaf());
   }
 
   for (const auto& disjoint_set :
@@ -2307,7 +2307,7 @@ StatefulLoweringInfo buildInfo(
   for (auto expr : exprs) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       auto producer_root = producer->getMaybeRFactorDomain();
-      auto producer_domain = producer->domain()->domain();
+      auto producer_domain = producer->domain()->leaf();
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
@@ -3477,7 +3477,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
     VectorOfUniqueEntries<IterDomain*> all_promo_ids;
 
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      for (auto p_id : producer->domain()->domain()) {
+      for (auto p_id : producer->domain()->leaf()) {
         // Initialize all entries
         shared_promoted_id.initializeSet(p_id);
 
@@ -3496,7 +3496,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
     }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto c_id : consumer->domain()->domain()) {
+      for (auto c_id : consumer->domain()->leaf()) {
         // Initialize all entries
         shared_promoted_id.initializeSet(c_id);
 
@@ -3553,7 +3553,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
       std::cout << "  Producer: " << producer->toString() << std::endl;
       auto producer_root = producer->getMaybeRFactorDomain();
 
-      auto non_inline_producer_domain = producer->domain()->domain();
+      auto non_inline_producer_domain = producer->domain()->leaf();
       non_inline_producer_domain.erase(
           non_inline_producer_domain.begin(),
           non_inline_producer_domain.begin() +
@@ -3562,7 +3562,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         std::cout << "    Consumer: " << consumer->toString() << std::endl;
-        auto consumer_domain = consumer->domain()->domain();
+        auto consumer_domain = consumer->domain()->leaf();
 
         auto p2c_permissive_map =
             idGraph(IdMappingMode::PERMISSIVE)
@@ -3645,7 +3645,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
   // TODO: This needs to be available as a member function
   auto get_promoted_domain = [&](TensorDomain* td) {
     std::vector<IterDomain*> promoted_leaves;
-    for (auto id : td->domain()) {
+    for (auto id : td->leaf()) {
       auto promo_it = leaf_promotion_map.find(id);
       TORCH_INTERNAL_ASSERT(promo_it != leaf_promotion_map.end());
       promoted_leaves.push_back(promo_it->second);
@@ -3699,7 +3699,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
     auto transforms = StmtSort::getExprsBetween(
         FusionGuard::getCurFusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-        {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
     for (auto transform : transforms) {
       for (auto inp : ir_utils::filterByType<IterDomain>(transform->inputs())) {
         id_to_index_use[inp] = transform;

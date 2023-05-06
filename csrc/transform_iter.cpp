@@ -924,8 +924,8 @@ ForwardingInfo::ForwardingInfo(
   std::vector<Expr*> active_tv_history = StmtSort::getExprs(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(
-          active_tv->domain()->domain().begin(),
-          active_tv->domain()->domain().end()));
+          active_tv->domain()->leaf().begin(),
+          active_tv->domain()->leaf().end()));
 
   auto isInForwardIdSet = [&forwarded_ids](IterDomain* input_id) {
     return forwarded_ids.count(input_id) > 0;
@@ -953,34 +953,21 @@ ForwardingInfo::ForwardingInfo(
       // For the sake of BestEffortReplay we can forward the input mapping
       //   to both the active and inactive tensor to the output of the
       //   expression
-      std::vector<IterDomain*> forwarded_ids;
+      std::vector<IterDomain*> forwarded_ids_vec;
       std::vector<IterDomain*> compliment_ids;
 
-    // We have root axes in active_tv that don't exist in the inactive tensor,
-    // now forward those to include all id's in active_tv comprised of only axes
-    // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
-        FusionGuard::getCurFusion(),
-        std::vector<Val*>(
-            active_tv->domain()->leaf().begin(),
-            active_tv->domain()->leaf().end()));
-
-    auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
-      return forwarded_ids.count(input_id) > 0;
-    };
-
-    for (auto expr : active_tv_history) {
-      auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
-      // If expr inputs are all in forwarded_ids, then so are all outputs
-      if (std::all_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
-        for (auto output_ids :
-             ir_utils::filterByType<IterDomain>(expr->outputs())) {
-          forwarded_ids.emplace(output_ids);
+      for (auto input_id : input_ids) {
+        if (!isInForwardIdSet(input_id)) {
+          forwarded_ids_vec.emplace_back(input_id);
+          active_forwarding_map->emplace(
+              std::make_pair(input_id, merge_expr->out()));
+        } else {
+          compliment_ids.push_back(input_id);
         }
       }
 
       // Set up compliment map
-      for (auto forwarded_id : forwarded_ids) {
+      for (auto forwarded_id : forwarded_ids_vec) {
         active_compliment_map->emplace(
             std::make_pair(forwarded_id, compliment_ids));
       }
@@ -1008,6 +995,7 @@ IterDomain* getSwizzleFinalOutput(
     // This means id is a leaf that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
+      is_swizzle_input = false;
       break;
     }
 
