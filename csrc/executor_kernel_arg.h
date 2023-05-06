@@ -249,13 +249,16 @@ struct TensorArg : public TensorArgAbstract {
       const at::Tensor& tensor,
       TensorView* tv,
       ExpressionEvaluator& eval) {
+    DEBUG_PRINT_SCOPE(tv->toString());
     const auto& alloc_dom = tv->getMaybeAllocationDomain();
     const auto& rfactor_dom = tv->getMaybeRFactorDomain();
     // active IDs and their shape and stride
+    std::cout << "Initial sizes and strides:" << std::endl;
     std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
     for (auto i : c10::irange((int64_t)rfactor_dom.size())) {
       auto rf_id = rfactor_dom.at(i);
       active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+      std::cout << rf_id->toString() << " -> (" << tensor.size(i) << ", " << tensor.stride(i) << ")" << std::endl;
     }
     // traverse forward from rfactor to alloc
     auto forward_exprs = StmtSort::getExprsBetween(
@@ -358,6 +361,7 @@ struct TensorArg : public TensorArgAbstract {
       }
     }
     // validate final strides with contiguity
+    TORCH_INTERNAL_ASSERT(alloc_dom.size() == tv->getContiguity().size());
     int64_t contiguous_stride = 1;
     for (int64_t i = alloc_dom.size() - 1; i >= 0; i--) {
       auto alloc_id = alloc_dom.at(i);
@@ -374,7 +378,14 @@ struct TensorArg : public TensorArgAbstract {
       if (contiguity) {
         TORCH_CHECK(
             stride == contiguous_stride,
-            "Stride mismatch with contiguity info");
+            "Stride mismatch with contiguity info. dim: ",
+            i,
+            " IterDomain: ",
+            alloc_id->toString(),
+            " expected stride: ",
+            contiguous_stride,
+            " actual stride: ",
+            stride);
       }
       contiguous_stride = stride * size;
     }
