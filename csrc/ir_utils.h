@@ -200,7 +200,7 @@ TORCH_CUDA_CU_API TensorView* rfactorHelper(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(const Val* val);
 
 // Return immediate consumers of val, this function can be used on any Val and
 // will return consumers through Exprs.
@@ -210,7 +210,7 @@ TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(const Val* val);
 
 // Return immediate siblings of val, this function can be used on any Val and
 // will return siblings through Exprs.
@@ -220,7 +220,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(Val* val);
+TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(const Val* val);
 
 // Return immediate producers of vals, this function can be used on any vals and
 // will return producers through Exprs.
@@ -252,7 +252,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 
 // Return immediate consumers of tv, this function will return all immediate
 // consumers of tv through Exprs.
@@ -262,7 +262,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 
 // Return immediate siblings of tv, this function will return all immediate
 // siblings of tv through Exprs.
@@ -272,7 +272,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(TensorView* tv);
+TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
 
 // Return immediate producers of tvs, this function will return all immediate
 // producers of tvs through Exprs.
@@ -369,6 +369,30 @@ TORCH_CUDA_CU_API bool isSqueezeInput(const TensorView* tv);
 // Test if the given ID in the given tensor is squeezed
 TORCH_CUDA_CU_API bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
+// Test if the given ID in the given tensor is indirectly accessed by,
+// e.g., index_select, torch_gather and scatter
+TORCH_CUDA_CU_API bool isIndexedID(const TensorView* tv, const IterDomain* id);
+
+// Test if the given ID in the given tensor is indirectly read by,
+// e.g., index_select and torch_gather
+TORCH_CUDA_CU_API bool isIndexedProducerID(
+    const TensorView* tv,
+    const IterDomain* id);
+
+// Test if the given ID in the given tensor is indirectly written to by,
+// e.g., scatter
+TORCH_CUDA_CU_API bool isIndexedConsumerID(
+    const TensorView* tv,
+    const IterDomain* id);
+
+// Return a producer ID, if any, that is indirectly accessed by, e.g.,
+// index_select and torch_gather.
+TORCH_CUDA_CU_API IterDomain* getIndexedProducerID(const Expr* expr);
+
+// Return the corresponding consumer if of a producer ID that is
+// indirectly accessed.
+TORCH_CUDA_CU_API IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
+
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and
 // unique.
 TORCH_CUDA_CU_API std::vector<IterDomain*> allIDsOf(const TensorView* tv);
@@ -382,15 +406,33 @@ TORCH_CUDA_CU_API bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of index_select(lookup, dim, indices)
 TORCH_CUDA_CU_API bool isIndexSelectIndicesTv(const TensorView* tv);
 
-// Check if the given tv is first/third argment of torch_gather(lookup, dim,
-// indices)
-TORCH_CUDA_CU_API bool isTorchGatherIndicesTv(const Val* tv);
 TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);
 
 TORCH_CUDA_CU_API std::string varName(const Val* val);
 
 // Check if a tensor is resized as part of  its root to rfactor transformations
 bool hasResizedRfactor(const TensorView* tv);
+
+// Returns tvs that have symbolic axes
+std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
+
+//! Validate derived_domain completely covers initial_domain with no
+//! redundancy. Consider derived_domains as a different view of the
+//! same logical domain as initial_domain with affine
+//! transformations. This validation makes sure both sets
+//! of domains represent the same logical space.
+//!
+//! It is intended to be used to validate rfactor and leaf domains
+//! of a tensor root domain.
+//!
+//! For example, it's an error if a initial ID is split and
+//! only one of the outputs is included in the ids vector. It is
+//! also an error if both a producer and consumer ID are included in
+//! ids as they partially have the same dependency with the initial
+//! domain.
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain);
 
 } // namespace ir_utils
 } // namespace nvfuser

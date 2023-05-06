@@ -20,7 +20,6 @@
 #include <type_traits>
 #include <utility>
 #include "ATen/cuda/CUDAContext.h"
-#include "c10/util/Optional.h"
 #include "ir_base_nodes.h"
 #include "ir_interface_nodes.h"
 #include "ir_internal_nodes.h"
@@ -32,7 +31,7 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 using LayoutData =
     std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
 using TensorShape = std::vector<int64_t>;
@@ -46,7 +45,7 @@ constexpr size_t M_POS = 0;
 constexpr size_t N_POS = 1;
 //! A constant with position of K value (a number of rows in A tensor for TT
 //!  layout) in problem in ProblemShape type.
-constexpr size_t K_POS = 2;
+// constexpr size_t K_POS = 2;
 //! A constant with expected number of dimensions in ProblemShape type.
 constexpr size_t PROBLEM_DIMS = 3;
 
@@ -74,24 +73,6 @@ std::deque<std::deque<Val*>> getAllDepndencyChains(
 //! A wrapper for printing debug details.
 void printMsg(const std::string& msg) {
   std::cout << msg << std::endl;
-}
-
-//! A helper for deciding what kernel indexing mode use (int32_t or int64_t).
-//!  TODO: add strides to handle non-continous tensors
-PrimDataType getIndexType(const ProblemShape& problem_shape) {
-  // based on collectIndexMode function
-  constexpr int64_t most_positive_int32_index =
-      std::numeric_limits<int>::max() / 2;
-
-  const auto m = static_cast<int64_t>(problem_shape[M_POS]);
-  const auto n = static_cast<int64_t>(problem_shape[N_POS]);
-  const auto k = static_cast<int64_t>(problem_shape[K_POS]);
-
-  const bool use_i64_index = m * k > most_positive_int32_index || // tensor A
-      k * n > most_positive_int32_index || // tensor B
-      m * n > most_positive_int32_index; // output tensor
-
-  return use_i64_index ? PrimDataType::Int : PrimDataType::Int32;
 }
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
@@ -204,7 +185,7 @@ inline bool initExtraHeuristics(
 
 //! A helper for getting problem shape from fusion and runtime info. Operation
 //! can fail and nullopt object is returned.
-c10::optional<ProblemShape> getProblemShape(
+std::optional<ProblemShape> getProblemShape(
     Fusion* fusion,
     const MmaOp* mma_expr,
     SchedulerRuntimeInfo& runtime_info,
@@ -233,7 +214,10 @@ c10::optional<ProblemShape> getProblemShape(
       if (path.empty()) {
         continue;
       }
-      if (path.front()->isA<TensorView>()) {
+      if (path.size() >= 2 && path.at(1)->isA<TensorView>() &&
+          path.at(1)->as<TensorView>()->hasRFactor()) {
+        tvs.push_back(path.at(1));
+      } else if (path.front()->isA<TensorView>()) {
         tvs.push_back(path.front());
       }
     }
@@ -243,26 +227,26 @@ c10::optional<ProblemShape> getProblemShape(
   const auto* tv_input_A =
       getKeyTvFromPathBetween(fusion_inputs, {mma_inputs[0]});
   if (nullptr == tv_input_A) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   const auto* tv_input_B =
       getKeyTvFromPathBetween(fusion_inputs, {mma_inputs[1]});
   if (nullptr == tv_input_B) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   const auto* tv_output =
       getKeyTvFromPathBetween({mma_outputs[0]}, fusion_outputs);
   if (nullptr == tv_output) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   // A helper for populating concrete domains from TensorView
   const auto getShape = [&runtime_info](const TensorView* tv) {
     TensorShape tv_shape;
     const auto concrete_domains = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(tv->domain()->domain()));
+        TensorDomain::noBroadcasts(tv->domain()->leaf()));
     for (const auto* domain : concrete_domains) {
       const auto domain_extend =
           runtime_info.expressionEvaluator().evaluate(domain->extent());
@@ -281,7 +265,7 @@ c10::optional<ProblemShape> getProblemShape(
   if (in_A.size() != expected_dims || //
       in_B.size() != expected_dims || //
       output.size() != expected_dims) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   switch (matmul_layout) {
@@ -293,7 +277,7 @@ c10::optional<ProblemShape> getProblemShape(
       const bool check_m = in_A[0] == output[0];
       const bool check_n = in_B[1] == output[1];
       if (!(check_k && check_m && check_n)) {
-        return c10::nullopt;
+        return std::nullopt;
       }
       // [M, N, K]
       return TensorShape{output[0], output[1], in_A[1]};
@@ -306,7 +290,7 @@ c10::optional<ProblemShape> getProblemShape(
       const bool check_m = in_A[1] == output[0];
       const bool check_n = in_B[1] == output[1];
       if (!(check_k && check_m && check_n)) {
-        return c10::nullopt;
+        return std::nullopt;
       }
       // [M, N, K]
       return TensorShape{output[0], output[1], in_A[0]};
@@ -319,15 +303,15 @@ c10::optional<ProblemShape> getProblemShape(
       const bool check_m = in_A[0] == output[0];
       const bool check_n = in_B[0] == output[1];
       if (!(check_k && check_m && check_n)) {
-        return c10::nullopt;
+        return std::nullopt;
       }
       // [M, N, K]
       return TensorShape{output[0], output[1], in_A[1]};
     }
     default:
-      return c10::nullopt;
+      return std::nullopt;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
@@ -387,10 +371,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (tv->hasBroadcast()) {
         return "Fusion input TV has broadcast domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion input TV has unsupported number of domains";
       }
@@ -407,10 +390,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (!tv->hasReduction()) {
         return "Fusion output TV has no reduction domain";
       }
-      const auto result =
-          TensorDomain::noReductions(
-              TensorDomain::noBroadcasts(tv->domain()->domain()))
-              .size();
+      const auto result = TensorDomain::noReductions(
+                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              .size();
       if (result != expected_gemm_dims) {
         return "Fusion output TV has unsupported number of domains";
       }
@@ -424,7 +406,9 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
       if (val->definition()->isA<BroadcastOp>()) {
         const auto& bcast_inputs = val->definition()->inputs();
         // BroadcastOp has single input/output, not need to check other things
-        return bcast_inputs.front()->isFusionInput();
+        return bcast_inputs.front()->isFusionInput() ||
+            (dynamic_cast<LoadStoreOp*>(bcast_inputs.front()->definition()) !=
+             nullptr);
       }
       return false;
     };
@@ -474,7 +458,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #2
   {
     for (const auto* mma_expr : mma_exprs) {
-      const auto input_layout = mma_expr->inputLayout();
+      const auto input_layout = mma_expr->layout();
       if (!input_layout) {
         return "Failed to acquire inputs layout.";
       }
@@ -508,7 +492,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(
       mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
-  const auto layout = mma_exprs.front()->inputLayout();
+  const auto layout = mma_exprs.front()->layout();
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape = getProblemShape(
@@ -533,7 +517,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       status, "Additional part of heuristics failed to initialize.");
 
   // Set kernel index mode
-  params->cparams.index_type = getIndexType(problem_shape.value());
+  params->cparams.index_type = runtime_info.getIndexType();
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
     printMsg(params->toString());

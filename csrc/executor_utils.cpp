@@ -985,39 +985,24 @@ void dumpCompiledCodeToFile(
 // Get the max register count passed as -maxrregcount ptxas
 // option. The count is determined based on block sizes, an optional
 // heuristic and an environment variable.
-c10::optional<int> getMaxRegCount(
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic) {
+std::optional<int64_t> getMaxRegCount(
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic) {
   // The maximum possible count allowed by ptxas is 255
-  constexpr int max_register_limit = 255;
+  constexpr int64_t max_register_limit = 255;
 
   // Temporary set the max register count to be larger than the
   // limit.
-  int max_register = max_register_limit + 1;
+  int64_t max_register = max_register_limit + 1;
 
   // If the block size is known, set the maximum that at least allows
   // one block to be resident on an SM
   if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-    int num_partition = 0;
-    int reg_allocation_granularity = 0;
-    const auto prop = at::cuda::getCurrentDeviceProperties();
-    cudaOccDeviceProp occ_prop(*prop);
-    cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
-    cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
-    int warp_size = prop->warpSize;
-    int64_t num_warps = ceilDiv(opt_block_size.value(), warp_size);
-
-    // warps could be distributed unevenly across partition
-    int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
-    // registers are evenly distributed across partitions, partition with most
-    // wraps determins the maximum register available per warp
-    int max_reg_per_warp =
-        prop->regsPerBlock / num_partition / (int)max_warps_per_sm_partition;
-    // clamp down to register allocation granularity at warp level
-    int effective_max_reg_per_warp = max_reg_per_warp /
-        reg_allocation_granularity * reg_allocation_granularity;
-    max_register =
-        std::min(max_register_limit, effective_max_reg_per_warp / warp_size);
+    constexpr int64_t block_per_sm = 1;
+    max_register = std::min(
+        max_register_limit,
+        getRegPerThreadGivenThreadsPerSM(
+            opt_block_size.value() * block_per_sm));
   }
 
   // If a heuristic value is given, i.e., max_register_heuristic is
@@ -1041,7 +1026,7 @@ c10::optional<int> getMaxRegCount(
   if (max_register <= max_register_limit) {
     return max_register;
   } else {
-    return c10::optional<int>();
+    return std::optional<int64_t>();
   }
 }
 
@@ -1193,8 +1178,8 @@ void fillCompileOptions(
     bool compile_to_sass,
     int major,
     int minor,
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic) {
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1277,7 +1262,7 @@ void fillCompileOptions(
       nvrtc_compile_driver.setOption(
           "--maxrregcount=" + std::to_string(*max_register));
     } else {
-      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, *max_register);
+      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
   }
 }
@@ -1375,8 +1360,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const std::string& full_src_code,
     const std::string& func_name,
     int id,
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic,
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
@@ -1537,7 +1522,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved

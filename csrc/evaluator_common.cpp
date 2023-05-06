@@ -92,7 +92,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->domain()->leaf()) {
       ret.push_back(id->extent());
     }
     for (auto id : tv->getMaybeRFactorDomain()) {
@@ -161,13 +161,14 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     const ArgAbstract* arg = args[i];
+    TORCH_INTERNAL_ASSERT(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       if (const auto& tensor_arg_abstract =
               dynamic_cast<const TensorArgAbstract*>(arg)) {
         bindTensorMetaData(tensor_input, tensor_arg_abstract);
       } else {
         TORCH_CHECK(
-            arg->isType(ArgType::CpuScalarTensor),
+            arg != nullptr && arg->isType(ArgType::CpuScalarTensor),
             "binding input to TensorView expects input arg to be of tensor type");
       }
     } else if (input->isScalar()) {

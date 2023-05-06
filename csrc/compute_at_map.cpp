@@ -27,16 +27,16 @@ bool idIsAComputeAtLeafDomain(
     IterDomain* id,
     TensorView* producer_tv,
     TensorView* consumer_tv) {
-  auto begin = producer_tv->domain()->domain().begin();
-  auto end = producer_tv->domain()->domain().begin() +
+  auto begin = producer_tv->domain()->leaf().begin();
+  auto end = producer_tv->domain()->leaf().begin() +
       producer_tv->getComputePosition(consumer_tv);
   return std::find(begin, end, id) != end;
 }
 
 // Is the provided IterDomain an Leaf of provided TensorView
 bool idIsALeafDomain(IterDomain* id, TensorView* tv) {
-  auto begin = tv->domain()->domain().begin();
-  auto end = tv->domain()->domain().end();
+  auto begin = tv->domain()->leaf().begin();
+  auto end = tv->domain()->leaf().end();
   return std::find(begin, end, id) != end;
 }
 
@@ -324,8 +324,8 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
     }
 
     // Leaf domains
-    auto self_mappped_leaf_pair = detectMappablePair(
-        tv->domain()->domain(), id_graph, IdMappingMode::LOOP);
+    auto self_mappped_leaf_pair =
+        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::LOOP);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -344,7 +344,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
-    const auto& domain = tv->domain()->domain();
+    const auto& domain = tv->domain()->leaf();
     auto all_ids = ir_utils::allIDsOf(tv);
 
     for (auto id : all_ids) {
@@ -400,11 +400,11 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         // Multi output mapping, outputs are required to have the same domain
         // and same transformations, so they can be mapped in permissive/exact,
-        // and when within compute at position of domain()->domain() in the
+        // and when within compute at position of domain()->leaf() in the
         // parallel map.
         auto replay_FasC = BestEffortReplay(
-            first_output_tv->domain()->domain(),
-            c_tv->domain()->domain(),
+            first_output_tv->domain()->leaf(),
+            c_tv->domain()->leaf(),
             c2f_root_map);
 
         // Map the entire replay map between the multiple
@@ -424,7 +424,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
 
         // Map all entries for the Loop map as they share the same loops.
-        for (auto f_id : first_output_tv->domain()->domain()) {
+        for (auto f_id : first_output_tv->domain()->leaf()) {
           auto disjoint_set = c2f_disjoint_sets.getDisjointSetOf(f_id);
           auto id0 = *(disjoint_set.begin());
           for (auto id1 : disjoint_set) {
@@ -450,27 +450,32 @@ void IterDomainGraph::build(Fusion* fusion) {
                 .getIterDomainEquivalence();
 
         // Permissive-Resize map allows mappings of resize inputs and
-        // outputs
+        // outputs as well as those indirectly accessed domains by
+        // gather-scatter like ops
+        //
+        // TODO: clean this up. Maybe this can be just the PERMISSIVE
+        // map? Revisit after the ID map refactor.
         //
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
+        const auto pairwise_resize_map =
+            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, true)
+                p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
         auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv, true)
+            PairwiseRootDomainMap(p_tv, c_tv)
+                .mapBroadcast(false)
                 .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->domain()->domain(),
-            c_tv->domain()->domain(),
-            exact_c2p_root_map);
+            p_tv->domain()->leaf(), c_tv->domain()->leaf(), exact_c2p_root_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 
@@ -1654,13 +1659,13 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
 
     // Find the matching consumer ID using the permissive map
     auto it = std::find_if(
-        consumer_tv->domain()->domain().begin(),
-        consumer_tv->domain()->domain().end(),
+        consumer_tv->domain()->leaf().begin(),
+        consumer_tv->domain()->leaf().end(),
         [&](auto consumer_id) {
           return permissiveNodes().disjointSetMap().at(id)->has(consumer_id);
         });
     TORCH_INTERNAL_ASSERT(
-        it != consumer_tv->domain()->domain().end(),
+        it != consumer_tv->domain()->leaf().end(),
         "No consumer leaf ID of tensor ",
         consumer_tv->toString(),
         " permissively mapped with: ",

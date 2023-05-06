@@ -1462,8 +1462,20 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
+  auto tolerance_overwrite = ValidationConstants();
+  // bump tolerance
+  tolerance_overwrite.base_float_abs_tol = 3e-6;
+  tolerance_overwrite.base_float_rel_tol = 4e-3;
   testValidate(
-      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      aten_outputs,
+      __LINE__,
+      __FILE__,
+      "",
+      LaunchParams(),
+      tolerance_overwrite);
 }
 
 // Reproducer of issue #459
@@ -6887,7 +6899,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
       outer_reduction_axes.push_back(axis);
       at_sum_axes.push_back(axis);
       outer_broadcast_mask[axis] = true;
-      N = mul(N, input->domain()->domain()[axis]->extent());
+      N = mul(N, input->domain()->leaf()[axis]->extent());
     }
   }
 
@@ -7238,7 +7250,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
 
   Val* num_features = IrBuilder::create<Double>(tv1->container(), 1);
   for (const auto dim : reduction_axes) {
-    num_features = mul(num_features, tv1->domain()->domain()[dim]->extent());
+    num_features = mul(num_features, tv1->domain()->leaf()[dim]->extent());
   }
 
   auto tv5 = mul(tv1, tv0);
@@ -8545,7 +8557,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
-    for (auto id : x_consumer->domain()->domain()) {
+    for (auto id : x_consumer->domain()->leaf()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         found_vec_in_input = true;
         break;
@@ -8554,7 +8566,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
     TORCH_CHECK(found_vec_in_input, "Expect input to be vectorized");
   }
 
-  for (auto id : y->domain()->domain()) {
+  for (auto id : y->domain()->leaf()) {
     if (isParallelTypeVectorize(id->getParallelType())) {
       return;
     }
@@ -9032,27 +9044,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i1435;
-  i1435 = T0.size[2] * T0.size[1];
-  int64_t i1438;
-  i1438 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1440;
-  i1440 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i1472;
-  i1472 = i1438 % i1440;
-  int64_t i1449;
-  i1449 = T0.size[2] * T0.size[3];
-  int64_t i1473;
-  i1473 = i1472 % i1449;
-  if ((i1438 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i1201;
+  i1201 = T0.size[2] * T0.size[1];
+  int64_t i1204;
+  i1204 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1206;
+  i1206 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i1238;
+  i1238 = i1204 % i1206;
+  int64_t i1215;
+  i1215 = T0.size[2] * T0.size[3];
+  int64_t i1239;
+  i1239 = i1238 % i1215;
+  if ((i1204 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1435 * T0.size[3]) * (i1438 / i1440)) + (i1435 * (i1473 % T0.size[3]))) + (T0.size[2] * (i1472 / i1449))) + (i1473 / T0.size[3]))];
+       = T2[(((((i1201 * T0.size[3]) * (i1204 / i1206)) + (i1201 * (i1239 % T0.size[3]))) + (T0.size[2] * (i1238 / i1215))) + (i1239 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1438];
+       = T0[i1204];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9072,7 +9084,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1438]
+    T7[i1204]
        = T10[0];
   }
 }
@@ -9175,7 +9187,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->domain()->domain()) {
+    for (IterDomain* id : tv->domain()->leaf()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

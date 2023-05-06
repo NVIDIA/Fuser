@@ -82,6 +82,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   MatmulChecks, //! Print logs from tools around matmul scheduler used in
                 //! segmenter
+  IndexType, //! Print the index type of the launched kernel
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -141,9 +142,14 @@ enum class EnableOption {
 TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
     EnableOption option);
+TORCH_CUDA_CU_API int64_t
+getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-// Check if fallback path should be used which will dispatch to eagermode if any
-// errors are encountered. Helpful for debugging.
+TORCH_CUDA_CU_API int64_t
+getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+
+// Check if fallback path should be used which will dispatch to eager mode if
+// any errors are encountered. Helpful for debugging.
 bool useFallback();
 
 //! Ceil integer division
@@ -391,6 +397,13 @@ std::string toDelimitedString(
     const std::deque<Printable>& dq,
     std::string delim = ", ") {
   return toDelimitedString(dq.begin(), dq.end(), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
+    const std::unordered_set<Printable>& set,
+    std::string delim = ", ") {
+  return toDelimitedString(set.begin(), set.end(), delim);
 }
 
 template <int64_t index, int64_t stop, int64_t step, typename func_t>

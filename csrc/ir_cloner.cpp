@@ -60,7 +60,14 @@ TensorView* RecomputeTv::recompute(TensorView* tv) {
   auto exprs = StmtSort::getExprs(tv->fusion(), {tv}, false, false);
 
   // Run the replicator
-  RecomputeTv replicator(tv->fusion(), exprs);
+  RecomputeTv replicator(tv->fusion());
+
+  // Clone the expressions
+  // clang-tidy: Call to virtual method 'RecomputeTv::handle' during
+  // construction bypasses virtual dispatch
+  for (auto expr : exprs) {
+    replicator.handle(expr);
+  }
 
   // Make const version of pointer for lookup
   const auto const_tv = tv;
@@ -76,8 +83,7 @@ TensorView* RecomputeTv::recompute(TensorView* tv) {
   return cloned_val->as<TensorView>();
 }
 
-RecomputeTv::RecomputeTv(Fusion* fusion, std::vector<Expr*> exprs)
-    : IrCloner(fusion), fusion_(fusion) {
+RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion), fusion_(fusion) {
   // Add inputs to the clones map to prevent cloning them.
   for (const auto inp : fusion->inputs()) {
     clones_map_[inp] = inp;
@@ -88,10 +94,6 @@ RecomputeTv::RecomputeTv(Fusion* fusion, std::vector<Expr*> exprs)
         val->getValType().value() == ValType::NamedScalar) {
       clones_map_[val] = val;
     }
-  }
-  // Clone the expressions
-  for (auto expr : exprs) {
-    handle(expr);
   }
 }
 
@@ -106,7 +108,7 @@ Statement* RecomputeTv::handle(const TensorDomain* td) {
   // Make sure to recompute the history of the iteration domains, explicitly go
   // through the expressions and send them to IrCloner.
   auto exprs =
-      StmtSort::getExprs(fusion_, {td->domain().begin(), td->domain().end()});
+      StmtSort::getExprs(fusion_, {td->leaf().begin(), td->leaf().end()});
 
   for (auto expr : exprs) {
     IrCloner::handle(expr);

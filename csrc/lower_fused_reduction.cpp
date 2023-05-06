@@ -172,7 +172,7 @@ class FusionInspector : private IterVisitor {
   ParallelTypeBitmap getReductionParallelTypeStates(Expr* expr) {
     ParallelTypeBitmap parallel_reduction_axes;
 
-    for (auto id : ir_utils::getTvOutput(expr)->domain()->domain()) {
+    for (auto id : ir_utils::getTvOutput(expr)->domain()->leaf()) {
       auto pt = id->getParallelType();
       if (id->isReduction() && isParallelTypeThread(pt)) {
         parallel_reduction_axes.set(pt);
@@ -198,7 +198,7 @@ class FusionInspector : private IterVisitor {
 
     // Make sure the broadcast parallel types are the types reduced by
     // the preceding reduction op
-    for (auto id : broadcast_out->domain()->domain()) {
+    for (auto id : broadcast_out->domain()->leaf()) {
       auto pt = id->getParallelType();
       if (!isParallelTypeThread(pt)) {
         continue;
@@ -306,6 +306,7 @@ class FusionTransformer {
         fused_expr = IrBuilder::create<GroupedReductionOp>(
             op_types, init_vals, outputs, inputs, true);
       } else {
+        TORCH_INTERNAL_ASSERT(expr != nullptr);
         TORCH_INTERNAL_ASSERT(false, "Invalid expr: ", expr->toString());
       }
 
@@ -322,7 +323,7 @@ class FusionTransformer {
         // broadcast output tensor without a broadcast expression.
         for (auto reduction_out :
              ir_utils::filterByType<TensorView>(fused_expr->outputs())) {
-          for (auto id : reduction_out->domain()->domain()) {
+          for (auto id : reduction_out->domain()->leaf()) {
             if (id->isReduction()) {
               GpuLower::current()->fusedReductionInfo().markAsAllreduce(id);
               GpuLower::current()->threadPredMap().markAsUpdated(reduction_out);

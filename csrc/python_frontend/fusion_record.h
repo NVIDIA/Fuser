@@ -8,13 +8,11 @@
 #pragma once
 #include <c10/util/complex.h>
 #include <ir_interface_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/normalization.h>
+#include <ops/all_ops.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <serde/fusion_cache_generated.h>
 #include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
 #include <utils.h>
 
 #include <algorithm>
@@ -1418,7 +1416,7 @@ struct TensorRecord : RecordFunctor {
   TensorRecord(
       std::vector<State> _outputs,
       std::vector<int64_t> _symbolic_sizes,
-      std::vector<c10::optional<bool>> _contiguous_info,
+      std::vector<std::optional<bool>> _contiguity,
       PrimDataType _dtype,
       bool _is_cpu = false)
       : RecordFunctor(
@@ -1427,7 +1425,7 @@ struct TensorRecord : RecordFunctor {
             "define_tensor",
             serde::RecordType_Tensor),
         symbolic_sizes_(std::move(_symbolic_sizes)),
-        contiguous_info_(std::move(_contiguous_info)),
+        contiguity_(std::move(_contiguity)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {}
   virtual ~TensorRecord() = default;
@@ -1449,10 +1447,10 @@ struct TensorRecord : RecordFunctor {
       ssize_hash |= (ssize << (symbolic_sizes_.size() - 1 - i));
     }
     size_t contig_hash = 0;
-    for (size_t i = 0; i < contiguous_info_.size(); ++i) {
+    for (size_t i = 0; i < contiguity_.size(); ++i) {
       contig_hash |=
-          ((contiguous_info_[i].has_value() && contiguous_info_[i].value())
-           << (contiguous_info_.size() - 1 - i));
+          ((contiguity_[i].has_value() && contiguity_[i].value())
+           << (contiguity_.size() - 1 - i));
     }
 
     result |= ((static_cast<size_t>(is_cpu_) & 0x1) << 31);
@@ -1469,7 +1467,7 @@ struct TensorRecord : RecordFunctor {
       if (result) {
         result =
             ((symbolic_sizes_.size() == child_ptr->symbolic_sizes_.size()) &&
-             (contiguous_info_.size() == child_ptr->contiguous_info_.size()));
+             (contiguity_.size() == child_ptr->contiguity_.size()));
         if (result) {
           for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
             if (symbolic_sizes_[i] != child_ptr->symbolic_sizes_[i]) {
@@ -1479,8 +1477,8 @@ struct TensorRecord : RecordFunctor {
           }
         }
         if (result) {
-          for (size_t i = 0; i < contiguous_info_.size(); ++i) {
-            if (contiguous_info_[i] != child_ptr->contiguous_info_[i]) {
+          for (size_t i = 0; i < contiguity_.size(); ++i) {
+            if (contiguity_[i] != child_ptr->contiguity_[i]) {
               result = false;
               break;
             }
@@ -1496,14 +1494,14 @@ struct TensorRecord : RecordFunctor {
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
-      bool is_broadcast = !contiguous_info_[index].has_value();
+      bool is_broadcast = !contiguity_[index].has_value();
       bool has_symbolic_size = (symbolic_sizes_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
     }
 
     auto tv = TensorViewBuilder()
                   .ndims(symbolic_sizes_.size())
-                  .contiguity(contiguous_info_)
+                  .contiguity(contiguity_)
                   .shape(symbolic_sizes_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
@@ -1531,9 +1529,9 @@ struct TensorRecord : RecordFunctor {
       }
       os << ss;
     }
-    os << "], contiguous=[";
+    os << "], contiguity=[";
     first_arg = true;
-    for (auto ci : contiguous_info_) {
+    for (auto ci : contiguity_) {
       if (first_arg) {
         first_arg = false;
       } else {
@@ -1560,7 +1558,7 @@ struct TensorRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_sizes = builder.CreateVector(symbolic_sizes_);
 
-    auto mapOptionalToEnum = [](c10::optional<bool> v) -> int {
+    auto mapOptionalToEnum = [](std::optional<bool> v) -> int {
       if (!v.has_value()) {
         return serde::Contiguity_None;
       } else if (v.value()) {
@@ -1571,8 +1569,8 @@ struct TensorRecord : RecordFunctor {
     };
     std::vector<int> contiguity_enum;
     std::transform(
-        contiguous_info_.cbegin(),
-        contiguous_info_.cend(),
+        contiguity_.cbegin(),
+        contiguity_.cend(),
         std::back_inserter(contiguity_enum),
         mapOptionalToEnum);
     auto fb_contiguity_enum = builder.CreateVector(contiguity_enum);
@@ -1593,7 +1591,7 @@ struct TensorRecord : RecordFunctor {
   std::vector<int64_t> symbolic_sizes_;
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
-  std::vector<c10::optional<bool>> contiguous_info_;
+  std::vector<std::optional<bool>> contiguity_;
   //! Tensor data type.
   PrimDataType dtype_;
   //! Notes a scalar CPU Tensor
@@ -1963,6 +1961,60 @@ struct TorchGatherOpRecord : RecordFunctor {
   virtual bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const TorchGatherOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData_Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
+//! Similar to TorchGatherOpRecord but enforces that non-index dimension
+//! extents match between index tensor and value tensor.
+struct TakeAlongAxisOpRecord : RecordFunctor {
+  TakeAlongAxisOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.take_along_axis",
+            serde::RecordType_TakeAlongAxisOp),
+        dim_(dim) {}
+  virtual ~TakeAlongAxisOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new TakeAlongAxisOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = take_along_axis(arg1, arg3, dim_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const TakeAlongAxisOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
     }
     return result;

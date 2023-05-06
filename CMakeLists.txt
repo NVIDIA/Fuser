@@ -28,7 +28,6 @@ if (PROJECT_IS_TOP_LEVEL)
   if(BUILD_NVFUSER_BENCHMARK)
     include(cmake/Dependencies.cmake)
   endif()
-  set(CMAKE_INSTALL_PREFIX "${NVFUSER_ROOT}/nvfuser")
   # set CUDA_ARCH for cu tests.
   if(EXISTS ${TORCH_CUDA_ARCH_LIST})
     set(ARCH_FLAGS)
@@ -75,6 +74,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/codegen.cpp
     ${NVFUSER_SRCS_DIR}/contiguity.cpp
     ${NVFUSER_SRCS_DIR}/dispatch.cpp
+    ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
     ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
     ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
     ${NVFUSER_SRCS_DIR}/executor.cpp
@@ -144,6 +144,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/ops/alias.cpp
     ${NVFUSER_SRCS_DIR}/ops/arith.cpp
     ${NVFUSER_SRCS_DIR}/ops/composite.cpp
+    ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
     ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
     ${NVFUSER_SRCS_DIR}/ops/utils.cpp
     ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
@@ -216,6 +217,22 @@ if (PROJECT_IS_TOP_LEVEL)
   # this is to find pip installed nvrtc .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
+
+  # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
+  add_custom_command(
+    OUTPUT
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
+    DEPENDS
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    DEPENDS flatc
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
+    VERBATIM
+    )
+  add_custom_target(build_flatbuffer_config ALL
+      DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
+
+  add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
@@ -289,7 +306,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
     set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "$ORIGIN/../torch/lib")
-    install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION lib)
+    install(TARGETS ${NVFUSER} DESTINATION lib)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
 
@@ -334,6 +351,8 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
+    ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
     ${NVFUSER_ROOT}/test/test_gpu3.cpp
@@ -354,9 +373,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_gather_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
+    ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
   )
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
@@ -418,6 +437,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/indexselect.cpp
     ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/benchmark/main.cpp
+    ${NVFUSER_ROOT}/test/utils.cpp
   )
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")

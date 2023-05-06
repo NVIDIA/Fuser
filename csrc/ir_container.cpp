@@ -305,4 +305,20 @@ NamedScalar* IrContainer::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
+const std::vector<Bool*>& IrContainer::axioms() {
+  if (!axioms_) {
+    axioms_ = std::make_unique<std::vector<Bool*>>();
+    axioms_->reserve(kParallelTypeThreads.size() * 3);
+    auto zero = zeroVal();
+    for (auto p : kParallelTypeThreads) {
+      auto pidx = NamedScalar::getParallelIndex(p);
+      auto pdim = NamedScalar::getParallelDim(p);
+      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+    }
+  }
+  return *axioms_;
+}
+
 } // namespace nvfuser

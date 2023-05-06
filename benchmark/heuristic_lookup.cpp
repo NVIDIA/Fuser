@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 static auto getLayerBackwardNormRuntime(
     std::unique_ptr<Fusion> fusion_ptr,

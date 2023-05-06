@@ -401,7 +401,11 @@ void ReplayTransformations::handle(Resize* exp) {
   auto out = mapped;
 
   if (replay_resize_) {
-    out = IterDomain::resize(mapped, exp->leftExpand(), exp->rightExpand());
+    out = IterDomain::resize(
+        mapped,
+        exp->leftExpand(),
+        exp->rightExpand(),
+        mapped->isRFactorProduct());
   }
 
   leaf_ids_.erase(mapped);
@@ -834,10 +838,10 @@ int BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  auto rd1 = td1->getRootDomain();
-  auto rd2 = td2->getRootDomain();
+  auto rd1 = td1->root();
+  auto rd2 = td2->root();
   std::unordered_set<IterDomain*> rd2_set(
-      td2->getRootDomain().begin(), td2->getRootDomain().end());
+      td2->root().begin(), td2->root().end());
 
   // Find matching root IterDomains, we could make this O(nlog(n)) if we could
   // sort IterDomains.
@@ -851,9 +855,9 @@ int BestEffortReplay::findFirstMismatchedID(
     }
   }
 
-  BestEffortReplay ber(td2->domain(), td1->domain(), id_map);
+  BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
   for (const auto i :
-       c10::irange(std::max(td1->domain().size(), td2->domain().size()))) {
+       c10::irange(std::max(td1->leaf().size(), td2->leaf().size()))) {
     if (ber.getReplay().find(td1->axis((int)i)) == ber.getReplay().end()) {
       return (int)i;
     }
@@ -952,13 +956,26 @@ ForwardingInfo::ForwardingInfo(
       std::vector<IterDomain*> forwarded_ids;
       std::vector<IterDomain*> compliment_ids;
 
-      for (auto input_id : input_ids) {
-        if (!isInForwardIdSet(input_id)) {
-          forwarded_ids.emplace_back(input_id);
-          active_forwarding_map->emplace(
-              std::make_pair(input_id, merge_expr->out()));
-        } else {
-          compliment_ids.push_back(input_id);
+    // We have root axes in active_tv that don't exist in the inactive tensor,
+    // now forward those to include all id's in active_tv comprised of only axes
+    // not in the inactive tensor.
+    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+        FusionGuard::getCurFusion(),
+        std::vector<Val*>(
+            active_tv->domain()->leaf().begin(),
+            active_tv->domain()->leaf().end()));
+
+    auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
+      return forwarded_ids.count(input_id) > 0;
+    };
+
+    for (auto expr : active_tv_history) {
+      auto input_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
+      // If expr inputs are all in forwarded_ids, then so are all outputs
+      if (std::all_of(input_ids.begin(), input_ids.end(), isIdOnlyInActiveTv)) {
+        for (auto output_ids :
+             ir_utils::filterByType<IterDomain>(expr->outputs())) {
+          forwarded_ids.emplace(output_ids);
         }
       }
 
@@ -991,7 +1008,6 @@ IterDomain* getSwizzleFinalOutput(
     // This means id is a leaf that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
-      is_swizzle_input = false;
       break;
     }
 
@@ -1111,8 +1127,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> producer_CA_ids(
-      producer->domain()->domain().begin(),
-      producer->domain()->domain().begin() + producer_compute_at_axis);
+      producer->domain()->leaf().begin(),
+      producer->domain()->leaf().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
   // If producer has an rfactor root, that's what will match to the consumer
@@ -1141,7 +1157,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   ForwardingInfo forwarding_info(producer, consumer);
 
   auto consumer_replay = BestEffortReplay(
-      consumer->domain()->domain(),
+      consumer->domain()->leaf(),
       producer_CA_ids,
       p2c_root_map,
       forwarding_info.consumer_forwarding_map,
@@ -1176,8 +1192,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> consumer_CA_ids(
-      consumer->domain()->domain().begin(),
-      consumer->domain()->domain().begin() + consumer_compute_at_axis);
+      consumer->domain()->leaf().begin(),
+      consumer->domain()->leaf().begin() + consumer_compute_at_axis);
 
   // Figure out all inputs required to generate the compute_at dimensions
   auto consumer_CA_root_vals = IterVisitor::getInputsTo(
@@ -1199,7 +1215,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   // of producer if they match ops on consumer. Enforce if we modify an
   // rfactor axis that those ops must match.
   auto producer_replay = BestEffortReplay(
-      producer->domain()->domain(),
+      producer->domain()->leaf(),
       consumer_CA_ids,
       c2p_root_map,
       forwarding_info.producer_forwarding_map,
