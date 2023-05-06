@@ -623,14 +623,16 @@ void validateAlignedVectorizedFusionInputOutput(
       ", data type: ",
       aten_tensor.dtype());
 
+  ExpressionEvaluator eval;
+  auto sizes_strides = getAllocationSizesAndStrides(aten_tensor, tv, eval);
+
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (auto i = aten_tensor.ndimension() - 1; i >= 0; --i) {
-    const auto stride = aten_tensor.strides().at(i);
-    const auto size = aten_tensor.sizes().at(i);
-    auto root_id = tv->getMaybeRFactorDomain()[i];
+  for (auto i = sizes_strides.size() - 1; i >= 0; --i) {
+    const auto [size, stride] = sizes_strides.at(i);
+    auto root_id = tv->getMaybeAllocationDomain()[i];
     const auto is_expanded_broadcasting =
         root_id->isBroadcast() && root_id->hasExpandedExtent();
 

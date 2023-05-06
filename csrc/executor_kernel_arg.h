@@ -254,7 +254,6 @@ struct TensorArg : public TensorArgAbstract {
       const at::Tensor& tensor,
       TensorView* tv,
       ExpressionEvaluator& eval) {
-    DEBUG_PRINT_SCOPE(tv->toString());
     auto sizes_strides = getAllocationSizesAndStrides(tensor, tv, eval);
     // validate final strides with contiguity
     // TODO: move validation of contiguity to somewhere else
