@@ -910,7 +910,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->domain()->leaf(),
+      target_tv->getLeafDomain(),
       target_tv->getMaybeRFactorDomain(),
       target_tv->domain()->contiguity(),
       {},
@@ -926,7 +926,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // Fill validation info.
   // TODO: cleanup seems possible.
   if (index_producer) {
-    fillProducerVectorizedContigRootDomains(
+    fillProducerVectorizedContigAllocationDomains(
         producer_tv, consumer_tv, c2p_map, contig_finder);
   } else {
     fillConsumerVectorizedContigAllocationDomains(consumer_tv, contig_finder);
