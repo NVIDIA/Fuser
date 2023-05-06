@@ -938,7 +938,9 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
 
 std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  ExpressionEvaluator ee;
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(
+      inputs, fusion_->inputs(), ee);
   auto expr_eval =
       executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
 
@@ -1157,11 +1159,14 @@ void validateCooperativeLaunch(
   CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks_per_SM,
       kernel,
-      (int)(launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz()),
+      (int)(launch_params.bdimx() * launch_params.bdimy() *
+            launch_params.bdimz()),
       (size_t)launch_params.smem()));
 
   TORCH_INTERNAL_ASSERT(
-      (int64_t)(num_blocks_per_SM * at::cuda::getDeviceProperties(device_index)->multiProcessorCount) >=
+      (int64_t)(num_blocks_per_SM *
+                at::cuda::getDeviceProperties(device_index)
+                    ->multiProcessorCount) >=
           launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
@@ -1480,7 +1485,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
           launch_params_.smem()));
     }
-    auto arg_buffer = args.getBuffer(kernel()->indexType());
+    ExpressionEvaluator expr_eval;
+    evaluatorPrecomputedValues()->bindInputs(args);
+    expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+    auto arg_buffer = args.getBuffer(kernel()->indexType(), expr_eval);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1594,6 +1602,8 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
+  ExpressionEvaluator expr_eval;
+
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
@@ -1604,7 +1614,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type),
+      kernel_arguments.getBuffer(index_type, expr_eval),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

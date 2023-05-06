@@ -109,8 +109,10 @@ void LayerNormBackward_ShapeInference_Base(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  ExpressionEvaluator ee;
+
+  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
+      aten_inputs, fusion_ptr->inputs(), ee);
 
   TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
 
@@ -183,8 +185,9 @@ void LayerNormForward_ShapeInferenceBase(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  ExpressionEvaluator ee;
+  KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
+      aten_inputs, fusion_ptr->inputs(), ee);
 
   TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
 

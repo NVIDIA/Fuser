@@ -985,7 +985,10 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const at::ArrayRef<c10::IValue>& aten_inputs)
     : SchedulerRuntimeInfo(
           complete_fusion,
-          KernelArgumentHolder::createKernelArgumentHolder(aten_inputs)) {}
+          KernelArgumentHolder::createKernelArgumentHolder(
+              aten_inputs,
+              complete_fusion->inputs(),
+              ee)) {}
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.

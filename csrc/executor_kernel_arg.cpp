@@ -180,7 +180,9 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
 } // namespace
 
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
-    const c10::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs,
+    const std::vector<Val*>& vals,
+    ExpressionEvaluator& eval) {
   if (inputs.empty()) {
     // default to device 0
     KernelArgumentHolder args;
@@ -191,7 +193,7 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
 
   KernelArgumentHolder args;
   args.setDeviceIndex(device_index);
-  args.push(inputs);
+  args.push(inputs, vals, eval);
 
   return args;
 }
@@ -224,8 +226,10 @@ void KernelArgumentHolder::push(
   if (is_cpu_scalar(tensor)) {
     arguments_.push_back(atenTypeDispatchWithC10Complex(
         tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
+    tvs_.emplace(arguments_.back().get(), tv);
   } else {
     arguments_.push_back(getTensorArg(tensor, tv, eval, std::nullopt));
+    tvs_.emplace(arguments_.back().get(), tv);
   }
 }
 
@@ -272,18 +276,17 @@ void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
 // in the buffer
 void** KernelArgumentHolder::getBuffer(
     PrimDataType index_type,
-    TensorView* tv,
     ExpressionEvaluator& eval) {
   if (void_ptrs_.size() < arguments_.size()) {
     void_ptrs_.resize(arguments_.size());
   }
   for (const auto i : c10::irange(arguments_.size())) {
-    if (auto tensor_arg =
-            dynamic_cast<TensorArgAbstract*>(arguments_.at(i).get())) {
+    auto arg = arguments_.at(i).get();
+    if (auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg)) {
       if (!tensor_arg->isIndexTypeResolved() ||
           tensor_arg->getIndexType() != index_type) {
-        auto resolved_arg =
-            getTensorArg(tensor_arg->getTensor(), tv, eval, index_type);
+        auto resolved_arg = getTensorArg(
+            tensor_arg->getTensor(), tvs_.at(arg), eval, index_type);
         arguments_.at(i) = std::move(resolved_arg);
       }
     }
@@ -292,22 +295,31 @@ void** KernelArgumentHolder::getBuffer(
   return void_ptrs_.data();
 }
 
-void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
+void KernelArgumentHolder::push(
+    const c10::ArrayRef<c10::IValue>& args,
+    const std::vector<Val*>& vals,
+    ExpressionEvaluator& eval) {
   // Naive I/O setup, I'm ignoring all the potential transformation (i.e. I/O
   // allocated here from the subgraph could be, and very likely are, different
   // from I/O expected by the generated CUDA kernel.
-  for (const auto& arg : args) {
+  TORCH_INTERNAL_ASSERT(args.size() == vals.size());
+  for (auto i : c10::irange(args.size())) {
+    auto arg = args.at(i);
     if (arg.isTensor()) {
-      push(arg.toTensor());
+      push(arg.toTensor(), vals.at(i)->as<TensorView>(), eval);
     } else {
       push(arg);
     }
   }
 }
 
-void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
-  for (const auto& tensor : tensors) {
-    push(tensor);
+void KernelArgumentHolder::push(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    ExpressionEvaluator& eval) {
+  TORCH_INTERNAL_ASSERT(tensors.size() == tvs.size());
+  for (auto i : c10::irange(tensors.size())) {
+    push(tensors.at(i), tvs.at(i), eval);
   }
 }
 
