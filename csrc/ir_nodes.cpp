@@ -2672,6 +2672,41 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> rfactor_domain,
+    std::vector<IterDomain*> allocation_domain,
+    std::vector<IterDomain*> leaf_domain,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      rfactor_domain_(std::move(rfactor_domain)),
+      allocation_domain_(std::move(allocation_domain)),
+      leaf_domain_(std::move(leaf_domain)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, allocation_domain_);
+      ir_utils::validateDomainEquivalence(allocation_domain_, leaf_domain_);
+    }
+  }
+
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
+  resetDomains();
+}
+
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),

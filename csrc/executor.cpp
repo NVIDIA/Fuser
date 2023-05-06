@@ -878,6 +878,10 @@ std::vector<at::Tensor> allocOutputs(
       for (auto id : buf_info.tv->getMaybeRFactorDomain()) {
         dims.emplace_back(current_dims.at(id));
       }
+      std::cout << "permute: " << dims << std::endl;
+      std::cout << "frontier: " << ir_utils::toString(frontier) << std::endl;
+      std::cout << "rfactor: " << ir_utils::toString(buf_info.tv->getMaybeRFactorDomain()) << std::endl;
+      std::cout << "alloc: " << ir_utils::toString(buf_info.tv->getMaybeAllocationDomain()) << std::endl;
       tensor = tensor.permute(dims);
       // push allocated tensor
       outputs.emplace_back(tensor);

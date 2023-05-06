@@ -43,6 +43,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_nhwc, true);
 
+  std::cout << "tv1 rf: " << ir_utils::toString(tv1->getMaybeRFactorDomain()) << std::endl;
+  std::cout << "tv1 alloc: " << ir_utils::toString(tv1->getMaybeAllocationDomain()) << std::endl;
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   int n = 31, h = 64, w = 103, c = 21;
