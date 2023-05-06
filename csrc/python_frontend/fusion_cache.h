@@ -118,7 +118,7 @@ class TORCH_CUDA_CU_API FusionCache {
   FusionCache& operator=(const FusionCache&) = delete;
 
  public:
-  //! The next 4 pubic methods are the python interface methods
+  //! The next 4 public methods are the python interface methods
 
   //! Gets a pointer to the singleton and creates a new one if necessary
   static FusionCache* get(size_t max_fusions = 8192);
