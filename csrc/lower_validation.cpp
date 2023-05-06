@@ -325,13 +325,13 @@ class VectorizeValidator : public OptInDispatch {
         continue;
       }
       auto producer_root_it = std::find(
-          producer_tv->getMaybeRFactorDomain().begin(),
-          producer_tv->getMaybeRFactorDomain().end(),
+          producer_tv->getMaybeAllocationDomain().begin(),
+          producer_tv->getMaybeAllocationDomain().end(),
           producer_root_id);
       TORCH_INTERNAL_ASSERT(
-          producer_root_it != producer_tv->getMaybeRFactorDomain().end());
+          producer_root_it != producer_tv->getMaybeAllocationDomain().end());
       auto producer_root_id_offset = std::distance(
-          producer_tv->getMaybeRFactorDomain().begin(), producer_root_it);
+          producer_tv->getMaybeAllocationDomain().begin(), producer_root_it);
       producer_contiguity.push_back(
           producer_tv->domain()->contiguity().at(producer_root_id_offset));
     }
@@ -350,8 +350,7 @@ class VectorizeValidator : public OptInDispatch {
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
     for (auto id : tv->domain()->leaf()) {
-      if (id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+      if (isParallelTypeVectorize(id->getParallelType())) {
         TORCH_INTERNAL_ASSERT(
             v_id == nullptr,
             "Found two vectorized domains in ",
@@ -391,8 +390,8 @@ class VectorizeValidator : public OptInDispatch {
         " however, vector sizes only upto and including 16 bytes are supported.");
 
     auto replay_exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getMaybeRFactorDomain().begin(),
-         tv->getMaybeRFactorDomain().end()},
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
         {v_id});
 
     VectorizeValidator validator(v_id);
@@ -424,19 +423,19 @@ class VectorizeValidator : public OptInDispatch {
     TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
 
     // Contiguity is based on rfactor domain.
-    IterDomain* last_root_dim = nullptr;
-    size_t last_root_dim_pos = 0;
-    for (size_t i = tv->getMaybeRFactorDomain().size(); i > 0; i--) {
-      auto r_id = tv->getMaybeRFactorDomain()[i - 1];
+    IterDomain* last_allocation_dim = nullptr;
+    size_t last_allocation_dim_pos = 0;
+    for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
+      auto r_id = tv->getMaybeAllocationDomain()[i - 1];
       if (r_id->isReduction() || r_id->isBroadcast()) {
         continue;
       }
-      last_root_dim = r_id;
-      last_root_dim_pos = i - 1;
+      last_allocation_dim = r_id;
+      last_allocation_dim_pos = i - 1;
       break;
     }
 
-    if (last_root_dim == nullptr) {
+    if (last_allocation_dim == nullptr) {
       // Should never get here, but that would mean there are no concrete dims,
       // so we should be fine.
       return;
@@ -448,12 +447,20 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
+      auto contiguity = *tv->domain()->contiguity().at(last_allocation_dim_pos);
+      tv->fusion()->print();
       TORCH_CHECK(
-          last_root_dim == validator.vectorized_id_ &&
-              *tv->domain()->contiguity().at(last_root_dim_pos),
-          "Vectorized dim has to be from a contiguous inner most position: ",
+          last_allocation_dim == validator.vectorized_id_ && contiguity,
+          "Vectorized dim has to be from a contiguous inner most position. tv: ",
           tv,
-          "\n");
+          ", allocation domain: ",
+          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          ", vectorized id: ",
+          validator.vectorized_id_,
+          ", innermost id: ",
+          last_allocation_dim,
+          ", contiguity: ",
+          contiguity);
     }
 
     // Save info required to lowering and runtime validation

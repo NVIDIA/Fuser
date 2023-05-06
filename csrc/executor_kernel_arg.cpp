@@ -218,6 +218,123 @@ PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
 
 } // namespace
 
+std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator& eval) {
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
+  const auto& rfactor_dom = tv->getMaybeRFactorDomain();
+  // active IDs and their shape and stride
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
+  for (auto i : c10::irange((int64_t)rfactor_dom.size())) {
+    auto rf_id = rfactor_dom.at(i);
+    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  }
+  // traverse forward from rfactor to alloc
+  auto forward_exprs = StmtSort::getExprsBetween(
+      tv->fusion(),
+      {rfactor_dom.begin(), rfactor_dom.end()},
+      {alloc_dom.begin(), alloc_dom.end()});
+  for (auto expr : forward_exprs) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      auto in = split->in();
+      auto inner = split->inner();
+      auto outer = split->outer();
+      auto [in_size, in_stride] = active_ids.at(in);
+      auto factor = eval.evaluate(split->factor())->as<int64_t>();
+      TORCH_INTERNAL_ASSERT(
+          in_size % factor == 0,
+          "non-divisible split is not allowed in allocation domain");
+      TORCH_INTERNAL_ASSERT(active_ids.erase(in) == 1);
+      TORCH_INTERNAL_ASSERT(
+          active_ids
+              .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+              .second);
+      TORCH_INTERNAL_ASSERT(active_ids
+                                .emplace(
+                                    outer,
+                                    std::pair<int64_t, int64_t>{
+                                        in_size / factor, in_stride * factor})
+                                .second);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      auto inner = merge->inner();
+      auto outer = merge->outer();
+      auto out = merge->out();
+      auto [inner_size, inner_stride] = active_ids.at(inner);
+      auto [outer_size, outer_stride] = active_ids.at(outer);
+      TORCH_INTERNAL_ASSERT(
+          inner_stride * inner_size == outer_stride,
+          "Merging of discontiguous dimensions is not allowed in allocation domain");
+      TORCH_INTERNAL_ASSERT(active_ids.erase(inner) == 1);
+      TORCH_INTERNAL_ASSERT(active_ids.erase(outer) == 1);
+      TORCH_INTERNAL_ASSERT(active_ids
+                                .emplace(
+                                    out,
+                                    std::pair<int64_t, int64_t>{
+                                        inner_size * outer_size, inner_stride})
+                                .second);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+  // traverse backward from rfactor to allocation
+  auto backward_exprs = StmtSort::getExprsBetween(
+      tv->fusion(),
+      {alloc_dom.begin(), alloc_dom.end()},
+      {rfactor_dom.begin(), rfactor_dom.end()});
+  std::reverse(backward_exprs.begin(), backward_exprs.end());
+  for (auto expr : backward_exprs) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      auto in = split->in();
+      auto inner = split->inner();
+      auto outer = split->outer();
+      auto [inner_size, inner_stride] = active_ids.at(inner);
+      auto [outer_size, outer_stride] = active_ids.at(outer);
+      TORCH_INTERNAL_ASSERT(
+          inner_stride * inner_size == outer_stride,
+          "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+      TORCH_INTERNAL_ASSERT(active_ids.erase(inner) == 1);
+      TORCH_INTERNAL_ASSERT(active_ids.erase(outer) == 1);
+      TORCH_INTERNAL_ASSERT(active_ids
+                                .emplace(
+                                    in,
+                                    std::pair<int64_t, int64_t>{
+                                        inner_size * outer_size, inner_stride})
+                                .second);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      auto inner = merge->inner();
+      auto outer = merge->outer();
+      auto out = merge->out();
+      auto [out_size, out_stride] = active_ids.at(out);
+      auto factor = eval.evaluate(inner->extent())->as<int64_t>();
+      TORCH_INTERNAL_ASSERT(
+          out_size % factor == 0,
+          "The size of the output must divisible by the size of inner dimension");
+      TORCH_INTERNAL_ASSERT(active_ids.erase(out) == 1);
+      TORCH_INTERNAL_ASSERT(
+          active_ids
+              .emplace(inner, std::pair<int64_t, int64_t>{factor, out_stride})
+              .second);
+      TORCH_INTERNAL_ASSERT(active_ids
+                                .emplace(
+                                    outer,
+                                    std::pair<int64_t, int64_t>{
+                                        out_size / factor, out_stride * factor})
+                                .second);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+  std::vector<std::pair<int64_t, int64_t>> result;
+  result.reserve(alloc_dom.size());
+  for (auto id : alloc_dom) {
+    result.emplace_back(active_ids.at(id));
+  }
+  return result;
+}
+
 // Push a tensor to the arguments
 void KernelArgumentHolder::push(
     const at::Tensor& tensor,
