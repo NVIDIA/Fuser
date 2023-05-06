@@ -3194,14 +3194,6 @@ void TensorDomain::setAllocationDomain(
   ir_utils::validateDomainEquivalence(root_domain_, new_allocation_domain);
   ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
 
-  // TODO: lift this restriction
-  TORCH_CHECK(
-      std::unordered_set<IterDomain*>(
-          new_allocation_domain.begin(), new_allocation_domain.end()) ==
-          std::unordered_set<IterDomain*>(
-              maybeRFactor().begin(), maybeRFactor().end()),
-      "Currently, allocation domain can only be a reorder of rFactor domain");
-
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
 }

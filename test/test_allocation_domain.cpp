@@ -55,7 +55,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   EXPECT_THAT(
       [&]() { fec.runFusionWithInputs({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Contiguity not match")));
+          ::testing::HasSubstr("Stride mismatch with contiguity info.")));
 
   auto cg_outputs = fec.runFusionWithInputs({t0});
 
@@ -249,7 +249,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
 
   int n = 31, h = 64, w = 103, c = 21;
 
-  auto tv0 = makeContigConcreteTensor({n * h / 8, 8 * w * c});
+  auto tv0 = makeContigConcreteTensor({-1, 8 * w * c});
   fusion.addInput(tv0);
 
   std::vector<IterDomain*> tv0_2d = {tv0->axis(0), tv0->axis(1)};

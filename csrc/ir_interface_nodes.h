@@ -240,6 +240,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
+  const std::vector<std::optional<bool>>& getContiguity() {
+    return domain()->contiguity();
+  }
+
   bool hasReduction() const {
     return domain()->hasReduction();
   }

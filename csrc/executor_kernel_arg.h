@@ -256,7 +256,7 @@ struct TensorArg : public TensorArgAbstract {
       active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
     }
     // traverse forward from rfactor to alloc
-    auto forward_exprs = StmtSort::getStmtsBetween(
+    auto forward_exprs = StmtSort::getExprsBetween(
         tv->fusion(),
         {rfactor_dom.begin(), rfactor_dom.end()},
         {alloc_dom.begin(), alloc_dom.end()});
@@ -305,7 +305,7 @@ struct TensorArg : public TensorArgAbstract {
       }
     }
     // traverse backward from rfactor to allocation
-    auto backward_exprs = StmtSort::getStmtsBetween(
+    auto backward_exprs = StmtSort::getExprsBetween(
         tv->fusion(),
         {alloc_dom.begin(), alloc_dom.end()},
         {rfactor_dom.begin(), rfactor_dom.end()});
@@ -355,7 +355,28 @@ struct TensorArg : public TensorArgAbstract {
             false, "Unsupported transormation in allocation domain");
       }
     }
-    // compute final strides
+    // validate final strides with contiguity
+    int64_t contiguous_stride = 1;
+    for (int64_t i = alloc_dom.size() - 1; i >= 0; i--) {
+      auto alloc_id = alloc_dom.at(i);
+      auto contiguity_opt = tv->getContiguity().at(i);
+      constexpr const char* err =
+          "Contiguity info mismatch with broadcast info";
+      if (alloc_id->isBroadcast()) {
+        TORCH_INTERNAL_ASSERT(!contiguity_opt.has_value(), err);
+        continue;
+      }
+      TORCH_INTERNAL_ASSERT(contiguity_opt.has_value(), err);
+      bool contiguity = *contiguity_opt;
+      auto [size, stride] = active_ids.at(alloc_id);
+      if (contiguity) {
+        TORCH_CHECK(
+            stride == contiguous_stride,
+            "Stride mismatch with contiguity info");
+      }
+      contiguous_stride = stride * size;
+    }
+    // set final strides
     for (auto i : c10::irange((int64_t)alloc_dom.size())) {
       using stride_t = typename TENSOR_TYPE::index_type;
       auto alloc_id = alloc_dom.at(i);
