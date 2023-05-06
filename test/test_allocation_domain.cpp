@@ -11,7 +11,6 @@
 #include <executor.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -43,8 +42,19 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_nhwc, true);
 
-  std::cout << "tv1 rf: " << ir_utils::toString(tv1->getMaybeRFactorDomain()) << std::endl;
-  std::cout << "tv1 alloc: " << ir_utils::toString(tv1->getMaybeAllocationDomain()) << std::endl;
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 8);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -53,21 +63,17 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
   at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
   at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
 
-//   EXPECT_THAT(
-//       [&]() { fec.runFusionWithInputs({t0_wrong_format}); },
-//       ::testing::ThrowsMessage<c10::Error>(
-//           ::testing::HasSubstr("Stride mismatch with contiguity info")));
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
-  auto cg_outputs = fec.runFusionWithInputs({t0});
-
-  validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+  auto cg_outputs = fe.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
-  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -97,6 +103,20 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_nhwc, true);
 
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 8);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -104,21 +124,17 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
   at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs({t0_wrong_format}); },
+      [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("The memory format of input tensor")));
 
-  auto cg_outputs = fec.runFusionWithInputs({t0});
-
-  validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+  auto cg_outputs = fe.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
-  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -154,6 +170,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -219,6 +236,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -291,6 +309,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   tv1->split(0, 128);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -331,6 +350,18 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_nhwc, true);
 
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx]
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   int n = 31, h = 64, w = 103, c = 21;
@@ -338,21 +369,17 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   at::Tensor t0 = at::randn({n, c, h, w}, options);
   at::Tensor t0_wrong_format = t0.contiguous(at::MemoryFormat::ChannelsLast);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
 
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs({t0_wrong_format}); },
+      [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("The memory format of input tensor")));
 
-  auto cg_outputs = fec.runFusionWithInputs({t0});
-
-  validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Transpose});
+  auto cg_outputs = fe.runFusion({t0});
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-
-  ASSERT_TRUE(hasVectorizeOutput(fec.getMostRecentKernelRuntime()));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
