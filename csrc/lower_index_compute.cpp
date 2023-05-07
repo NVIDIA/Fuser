@@ -833,13 +833,13 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // Populate indexing through exact map from initial indexing
   auto consumer_root = index_producer ? consumer_tv->getRootDomain()
-                                      : consumer_tv->getAllocationDomain();
+                                      : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->domain()->leaf().begin(),
-       consumer_tv->domain()->leaf().end()});
+      {consumer_tv->getLeafDomain().begin(),
+       consumer_tv->getLeafDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
