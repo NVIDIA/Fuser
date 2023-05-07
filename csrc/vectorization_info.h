@@ -22,8 +22,10 @@ struct VectorizedSetInfo {
   int word_size = -1;
   //! Vectorized domain
   IterDomain* vectorized_leaf_id = nullptr;
-  //! Right-most root dependent domain of the leaf domain
+  //! Right-most root dependent domain of the leaf domain for consumer
   IterDomain* vectorized_root_id = nullptr;
+  //! Right-most root dependent domain of the leaf domain for producer
+  IterDomain* vectorized_producer_root_id = nullptr;
   //! All of the dependent root domains that are contiguously merged
   std::unordered_set<IterDomain*> contig_root_ids;
 };
