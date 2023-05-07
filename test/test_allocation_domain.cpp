@@ -85,14 +85,16 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(1);
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h * w * c});
   fusion.addInput(tv0);
 
   std::vector<IterDomain*> tv0_1d = {tv0->axis(0)};
   tv0->setAllocationDomain(tv0_1d, true);
-  tv0->split(0, IrBuilder::create<Int>()); // C
-  tv0->split(0, IrBuilder::create<Int>()); // W
-  tv0->split(0, IrBuilder::create<Int>()); // H
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
   tv0->reorder({{-1, 1}});
   tv0->commitLeafToRFactor();
 
@@ -118,8 +120,6 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   // [BIDx, TIDx, V]
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  int n = 31, h = 64, w = 103, c = 21;
 
   at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
   at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
