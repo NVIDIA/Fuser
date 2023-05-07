@@ -204,6 +204,11 @@ class TORCH_CUDA_CU_API IdGraph {
   // unique_uses_ breaking traversal through them.
   void eraseExprGroup(ExprGroup expr_group);
 
+  // Returns if the expression group has an input id group that matches an
+  // output id group. This means traversing on this expression doesn't actually
+  // do anything.
+  bool isTrivialExprGroup(ExprGroup expr_group) const;
+
  private:
   // If propagate_exprs_ = false, then mapThroughExpr will not be called as a
   // consequence of calling mapIds. As well as mapThroughExpr will not be called
