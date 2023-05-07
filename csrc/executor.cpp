@@ -722,8 +722,8 @@ std::vector<at::Tensor> allocOutputs(
           }
           tensor = tensor.view(new_shape);
           // update frontier
-          frontier.insert(in_it, inner);
           frontier.insert(in_it, outer);
+          frontier.insert(in_it, inner);
           frontier.erase(in_it);
         } else if (auto merge = dynamic_cast<Merge*>(expr)) {
           auto inner = merge->inner();
@@ -857,8 +857,8 @@ std::vector<at::Tensor> allocOutputs(
           }
           tensor = tensor.view(new_shape);
           // update frontier
-          frontier.insert(out_it, inner);
           frontier.insert(out_it, outer);
+          frontier.insert(out_it, inner);
           frontier.erase(out_it);
         } else {
           TORCH_INTERNAL_ASSERT(
