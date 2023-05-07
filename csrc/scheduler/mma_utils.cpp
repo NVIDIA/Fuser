@@ -168,7 +168,7 @@ void scheduleContiguousVectorLoad(
 
 void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
   TORCH_CHECK(
-      tv->domain()->leaf().size() >= tile_sizes.size(),
+      tv->getLeafDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
   // Number of inner dimensions we are tiling.

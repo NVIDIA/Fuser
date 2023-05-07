@@ -8134,7 +8134,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRootDomain(), tv1->domain()->leaf());
+      tv1->getRootDomain(), tv1->getLeafDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
@@ -8157,7 +8157,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
 
   ir_utils::validateDomainEquivalence(
-      tv2->getRootDomain(), tv2->domain()->leaf());
+      tv2->getRootDomain(), tv2->getLeafDomain());
 
   // create a 2D tensor with one symbolid and another non-symbolic
   auto tv4 = broadcast(sum(tv2, {1}), {false, true});
@@ -8168,7 +8168,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRootDomain(), tv4->domain()->leaf());
+      tv4->getRootDomain(), tv4->getLeafDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]

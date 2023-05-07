@@ -275,7 +275,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->domain()->leaf()) {
+  for (auto id : tv_out->getLeafDomain()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -321,7 +321,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
-  for (auto d : tv->domain()->leaf()) {
+  for (auto d : tv->getLeafDomain()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
