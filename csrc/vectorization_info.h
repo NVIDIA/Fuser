@@ -23,7 +23,7 @@ struct VectorizedSetInfo {
   //! Vectorized domain
   IterDomain* vectorized_leaf_id = nullptr;
   //! Right-most allocation dependent domain of the leaf domain for consumer
-  IterDomain* vectorized_alloc_id = nullptr;
+  IterDomain* vectorized_consumer_alloc_id = nullptr;
   //! Right-most allocation dependent domain of the leaf domain for producer
   IterDomain* vectorized_producer_alloc_id = nullptr;
   //! All of the dependent allocation domains that are contiguously merged
