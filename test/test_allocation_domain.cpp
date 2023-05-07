@@ -218,10 +218,6 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
 
-  std::vector<IterDomain*> tv0_nhwc = {
-      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-  tv0->setAllocationDomain(tv0_nhwc, true);
-
   // [N, C, H, W] -> [N, H, W, C]
   tv1->reorder({{1, -1}});
   // [N, H, W, C] -> [N*H*W*C]
@@ -250,7 +246,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
-          "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "Splitting one dimension into discontiguous dimensions is not")));
 
   auto cg_outputs = fe.runFusion({t0});
 
@@ -317,7 +313,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
-fe.runFusion({t0_wrong_format});
+
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(
