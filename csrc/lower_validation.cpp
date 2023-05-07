@@ -313,7 +313,6 @@ class VectorizeValidator : public OptInDispatch {
 
  public:
   static void validate(TensorView* tv) {
-    DEBUG_PRINT_SCOPE(tv->toString());
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
@@ -370,7 +369,6 @@ class VectorizeValidator : public OptInDispatch {
       for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
            ++expr_it) {
         auto expr = *expr_it;
-        std::cout << "expr:" << expr->toString() << std::endl;
         validator.handle(expr);
       }
 
