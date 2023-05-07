@@ -1976,9 +1976,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       if (terminating_rfactor_dims.find(rfactor_id) !=
           terminating_rfactor_dims.end()) {
         auto find_it = std::find(
-            tv->getLeafDomain().begin(),
-            tv->getLeafDomain().end(),
-            rfactor_id);
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(
             find_it != tv->getLeafDomain().end(),
             "Require ",

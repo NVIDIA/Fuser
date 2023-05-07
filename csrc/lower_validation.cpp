@@ -786,8 +786,7 @@ void validatePartialSplit(Fusion* fusion) {
 
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprs(
-        tv->fusion(),
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to

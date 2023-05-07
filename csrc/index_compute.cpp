@@ -1549,9 +1549,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(),
-      consumer_tv->getLeafDomain(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1853,9 +1851,7 @@ std::vector<Val*> Index::getProducerRootIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(),
-      consumer_tv->getLeafDomain(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
