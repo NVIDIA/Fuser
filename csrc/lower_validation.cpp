@@ -392,7 +392,7 @@ class VectorizeValidator : public OptInDispatch {
 
     auto getVectorizedIdInAllocationDomain =
         [misaligned_vectorize](
-            IterDomain* v_id, TensorView* tv) -> IterDomain* {
+            IterDomain* v_id, TensorView* tv, std::string name) -> IterDomain* {
       auto replay_exprs = DependencyCheck::getAllExprsBetween(
           {tv->getMaybeRFactorDomain().begin(),
            tv->getMaybeRFactorDomain().end()},
@@ -455,7 +455,9 @@ class VectorizeValidator : public OptInDispatch {
             *tv->domain()->contiguity().at(last_allocation_dim_pos);
         TORCH_CHECK(
             last_allocation_dim == validator.vectorized_id_ && contiguity,
-            "Vectorized dim has to be from a contiguous inner most position. tv: ",
+            "Vectorized dim for ",
+            name,
+            " has to be from a contiguous inner most position. tv: ",
             tv,
             ", allocation domain: ",
             ir_utils::toString(tv->getMaybeRFactorDomain()),
@@ -469,7 +471,8 @@ class VectorizeValidator : public OptInDispatch {
       return validator.vectorized_id_;
     };
 
-    auto consumer_vectorized_id = getVectorizedIdInAllocationDomain(v_id, tv);
+    auto consumer_vectorized_id =
+        getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -521,7 +524,8 @@ class VectorizeValidator : public OptInDispatch {
             .getReplay();
     if (auto c2p_it = c2p_map.find(v_id); c2p_it != c2p_map.end()) {
       vectorized_set_info.vectorized_producer_root_id =
-          getVectorizedIdInAllocationDomain(c2p_it->second, producer_tv);
+          getVectorizedIdInAllocationDomain(
+              c2p_it->second, producer_tv, "producer");
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
