@@ -306,39 +306,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // For the producer tensor, it's indexed first by transformed like
-  // the consumer. So, to find its contig merged domain, use the
-  // consumer TensorDomain with the producer contiguity info.
-  static std::vector<std::optional<bool>> mapProducerContiguity(
-      TensorView* producer_tv,
-      TensorView* consumer_tv) {
-    const auto c2p = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                         .mapConsumerToProducer(
-                             consumer_tv->domain(), producer_tv->domain());
-
-    std::vector<std::optional<bool>> producer_contiguity;
-
-    for (auto consumer_root_id : consumer_tv->getRootDomain()) {
-      auto producer_root_id = c2p.at(consumer_root_id);
-      if (producer_root_id->isBroadcast()) {
-        producer_contiguity.emplace_back(std::nullopt);
-        continue;
-      }
-      auto producer_root_it = std::find(
-          producer_tv->getMaybeRFactorDomain().begin(),
-          producer_tv->getMaybeRFactorDomain().end(),
-          producer_root_id);
-      TORCH_INTERNAL_ASSERT(
-          producer_root_it != producer_tv->getMaybeRFactorDomain().end());
-      auto producer_root_id_offset = std::distance(
-          producer_tv->getMaybeRFactorDomain().begin(), producer_root_it);
-      producer_contiguity.push_back(
-          producer_tv->domain()->contiguity().at(producer_root_id_offset));
-    }
-
-    return producer_contiguity;
-  }
-
  private:
   std::unordered_set<IterDomain*> domains_;
   IterDomain* vectorized_id_ = nullptr;
@@ -350,8 +317,7 @@ class VectorizeValidator : public OptInDispatch {
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
     for (auto id : tv->domain()->leaf()) {
-      if (id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+      if (isParallelTypeVectorize(id->getParallelType())) {
         TORCH_INTERNAL_ASSERT(
             v_id == nullptr,
             "Found two vectorized domains in ",
