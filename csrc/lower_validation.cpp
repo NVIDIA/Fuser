@@ -497,8 +497,8 @@ class VectorizeValidator : public OptInDispatch {
     // be divisible by the vector word size. The domain is usually
     // just one of the root domains, but can be a merged domain of
     // contiguous domains. Those domains are saved in
-    // VectorizedSetInfo.contig_root_ids in
-    // fillConsumerVectorizedContigRootDomains called in lower_index_compute.
+    // VectorizedSetInfo.contig_alloc_ids in
+    // fillConsumerVectorizedContigAllocationDomains called in lower_index_compute.
     GpuLower::current()->vectorizedSetInfo().emplace_back(vectorized_set_info);
   }
 };
@@ -624,15 +624,15 @@ void fillVectorizedContigRootDomains(
   // Store the contig merged root domains. If it is already set, pick
   // the smaller one as it is used for validating divisibility of the
   // merged extent.
-  if (info.contig_root_ids.empty() ||
-      indexed_root_ids.size() < info.contig_root_ids.size()) {
-    info.contig_root_ids = indexed_root_ids;
+  if (info.contig_alloc_ids.empty() ||
+      indexed_root_ids.size() < info.contig_alloc_ids.size()) {
+    info.contig_alloc_ids = indexed_root_ids;
   }
 }
 
 } // namespace
 
-void fillConsumerVectorizedContigRootDomains(
+void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
@@ -654,7 +654,7 @@ void fillConsumerVectorizedContigRootDomains(
       consumer_tv, contig_finder, consumer_root_id, info);
 }
 
-void fillProducerVectorizedContigRootDomains(
+void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,

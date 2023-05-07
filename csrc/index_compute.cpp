@@ -2371,8 +2371,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
     // Pick inputs from the starting domains, i.e.,
     // reference_predicated_root_domain.
-    auto contig_root_ids = contig_finder.indexedAllocIDs(contig_id);
-    covered_roots.insert(contig_root_ids.begin(), contig_root_ids.end());
+    auto contig_alloc_ids = contig_finder.indexedAllocIDs(contig_id);
+    covered_roots.insert(contig_alloc_ids.begin(), contig_alloc_ids.end());
     PredicateDomainInfo contig_id_info;
     contig_id_info.id = contig_id;
     contig_id_info.covered_ids = std::unordered_set<IterDomain*>(
