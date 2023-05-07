@@ -402,8 +402,8 @@ TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
   ASSERT_EQ(read, std::vector<int>{32});
   ASSERT_EQ(write, std::vector<int>{32});
 
-  std::vector<IterDomain*> tv1_transposed = {tv0->axis(1), tv0->axis(0)};
-  tv0->setAllocationDomain(tv1_transposed, true);
+  std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_transposed, true);
 
   ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
