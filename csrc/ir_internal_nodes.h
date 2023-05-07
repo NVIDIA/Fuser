@@ -1054,7 +1054,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
     }
   };
 
-  using AxesData = std::vector<int>;
+  using AxesData = std::vector<int64_t>;
   using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
 
