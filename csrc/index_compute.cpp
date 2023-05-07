@@ -654,7 +654,6 @@ IndexCompute::IndexCompute(
       zero_domains_(std::move(zero_domains)),
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
-      root_to_indexed_id_{contig_finder.allocToIndexedID()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
@@ -2361,10 +2360,10 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       continue;
     }
 
-    auto contig_id_it = contig_finder.rootToIndexedID().find(root_id);
+    auto contig_id_it = contig_finder.allocToIndexedID().find(root_id);
 
     TORCH_INTERNAL_ASSERT(
-        contig_id_it != contig_finder.rootToIndexedID().end(),
+        contig_id_it != contig_finder.allocToIndexedID().end(),
         "Error in predicate contiguity analysis, missing index for root ",
         root_id->toString());
 
@@ -2372,8 +2371,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
     // Pick inputs from the starting domains, i.e.,
     // reference_predicated_root_domain.
-    auto contig_alloc_ids = contig_finder.indexedRootIDs(contig_id);
-    covered_roots.insert(contig_alloc_ids.begin(), contig_alloc_ids.end());
+    auto contig_root_ids = contig_finder.indexedAllocIDs(contig_id);
+    covered_roots.insert(contig_root_ids.begin(), contig_root_ids.end());
     PredicateDomainInfo contig_id_info;
     contig_id_info.id = contig_id;
     contig_id_info.covered_ids = std::unordered_set<IterDomain*>(
