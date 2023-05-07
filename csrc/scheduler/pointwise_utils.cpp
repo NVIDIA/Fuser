@@ -50,6 +50,19 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   eraseIfInputMappedThroughRFactorDomain(
       in_concrete_ids, tv->getMaybeRFactorDomain());
 
+  // Erase input concrete IDs mapped to any reduction domains
+  for (auto id :
+       ir_utils::filterByType<IterDomain>(input_tv->container()->vals())) {
+    if (id->isReduction()) {
+      auto concrete =
+          ca_map_.getConcreteMappedID(id, IdMappingMode::PERMISSIVE);
+      auto conc_it = in_concrete_ids.find(concrete);
+      if (conc_it != in_concrete_ids.end()) {
+        in_concrete_ids.erase(conc_it);
+      }
+    }
+  }
+
   return in_concrete_ids.empty();
 }
 
