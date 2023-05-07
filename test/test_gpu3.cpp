@@ -1749,7 +1749,7 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
   auto cg_outputs = fe.runFusion({t0});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   int64_t i75;
   i75 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;

@@ -9043,7 +9043,7 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 1. this can be moved to a dedicated "golden" file
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
+__global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
   int64_t i1201;
   i1201 = T0.size[2] * T0.size[1];
   int64_t i1204;
