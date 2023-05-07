@@ -1385,7 +1385,7 @@ class NoOpScheduler : public SchedulerEntry {
     // Check that all outputs are either broadcast or ignored reduction.
     for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
       auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->domain()->leaf()));
+          TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
       if (!concrete_dimension.empty()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::NoOp, "output has a concrete dimension");
