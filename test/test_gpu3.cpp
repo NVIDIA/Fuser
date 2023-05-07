@@ -8468,6 +8468,69 @@ TEST_F(NVFuserTest, FusionWelfordRFactor_CUDA) {
       fusion.get(), cg_outputs, inputs, aten_outputs, __LINE__, __FILE__);
 }
 
+// Test that a FusionExecutorCache with a sequence of input shapes selects the
+// right schedulers
+void runMaybeZeroElementReductionFusion(
+    std::vector<std::pair<std::vector<int64_t>, ScheduleHeuristic>>
+        invocations) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = neg(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  for (auto i : c10::irange(invocations.size())) {
+    auto p = invocations[i];
+    auto input_shape = std::get<0>(p);
+    auto expected_scheduler = std::get<1>(p);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn(input_shape, options);
+    std::vector<c10::IValue> inputs{t0};
+
+    auto nvf_out = fec.runFusionWithInputs(inputs);
+    // Non-zero input should use Reduction scheduler
+    auto fkr = fec.getMostRecentKernelRuntime();
+    TORCH_CHECK(
+        !fkr->isSegmented(), "Expected to schedule Fusion in a single segment");
+    auto heur =
+        fkr->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+    TORCH_CHECK(
+        heur == expected_scheduler,
+        "Expected ",
+        expected_scheduler,
+        " but found ",
+        heur,
+        " in invocation number ",
+        i,
+        " of pattern ",
+        invocations);
+  }
+}
+
+TEST_F(NVFuserTest, FusionZeroElementReductionCacheShmoo_CUDA) {
+  std::vector<std::vector<std::pair<std::vector<int64_t>, ScheduleHeuristic>>>
+      invocation_patterns{
+          {// Pointwise accepts, then must reject so that Reduction can accept
+           {{4, 0}, ScheduleHeuristic::PointWise},
+           {{4, 2}, ScheduleHeuristic::Reduction},
+           {{4, 0}, ScheduleHeuristic::PointWise}},
+          {// Reduction accepts, then must reject so that Pointwise can accept
+           {{4, 0}, ScheduleHeuristic::PointWise},
+           {{4, 2}, ScheduleHeuristic::Reduction},
+           {{4, 0}, ScheduleHeuristic::PointWise}},
+      };
+  for (const auto& invocations : invocation_patterns) {
+    runMaybeZeroElementReductionFusion(invocations);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
