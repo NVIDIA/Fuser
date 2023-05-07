@@ -103,6 +103,8 @@ enum RecordType:int {
     TensorSizes,
     VarianceOp,
     VarianceMeanOp,
+    VectorConstantInt,
+    VectorInput,
 }
 
 // The RecordData hold the attribute information for each Record Functor.
@@ -129,6 +131,8 @@ union RecordData {
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
+  VectorInput,
+  VectorInt,
 }
 
 // Data for Scalar Constant Bool
@@ -261,6 +265,19 @@ table TensorCreation {
 // The shape is symbolic.
 table TensorCreationSymbolic {
   shape: [State];
+  dtype: DataType;
+}
+
+// Data for Vector Input
+table VectorInput {
+  size: long;
+  dtype: DataType;
+}
+
+// Data for Vector of Constant Int or Long
+table VectorInt {
+  int_vals: [long];
+  size: long;
   dtype: DataType;
 }
 

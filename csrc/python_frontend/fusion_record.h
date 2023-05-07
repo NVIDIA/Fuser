@@ -1925,7 +1925,7 @@ struct ScalarRecord : RecordFunctor {
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (value_ == child_ptr->value_) &&
-          (dtype_ == child_ptr->dtype_);
+          (dtype_ == child_ptr->dtype_) && (is_input_ == child_ptr->is_input_);
     }
     return result;
   }
@@ -2733,6 +2733,120 @@ struct RandomOpRecord : RecordFunctor {
   //! DataType of output
   PrimDataType dtype_;
 };
+
+//! Specialized Record Functor for recording FusionState vector of sizes for
+//! both inputs and constants.
+
+template <typename ValueType>
+struct VectorRecord : RecordFunctor {
+  VectorRecord(
+      std::vector<State> _outputs,
+      serde::RecordType record_type,
+      std::vector<ValueType> val,
+      PrimDataType dtype,
+      bool is_input)
+      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
+        value_(std::move(val)),
+        dtype_(dtype),
+        is_input_(is_input) {}
+  virtual ~VectorRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new VectorRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31       | 30 ---------------------------------------  0 |
+  //! | is_input | Dtype                                         |
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    result |= static_cast<size_t>(is_input_) << 31;
+    return result | (static_cast<size_t>(dtype_) & 0x7fffffff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (value_ == child_ptr->value_) &&
+          (dtype_ == child_ptr->dtype_) && (is_input_ == child_ptr->is_input_);
+    }
+    return result;
+  }
+
+  virtual void operator()(FusionState& fd) final {
+    std::vector<Val*> output(value_.size(), nullptr);
+    TORCH_CHECK(
+        dtype_ == DataType::Int,
+        "Only Int Dtype is not supported by a vector of sizes: ",
+        dtype_);
+    if constexpr (std::is_same<ValueType, std::nullptr_t>::value) {
+      for (size_t i = 0; i < value_.size(); ++i) {
+        output[i] = IrBuilder::create<Int>();
+        fd.addInput(output[i]);
+      }
+    } else if constexpr (std::is_same<ValueType, int64_t>::value) {
+      for (size_t i = 0; i < value_.size(); ++i) {
+        output[i] = IrBuilder::create<Int>(value_[i]);
+      }
+    } else {
+      TORCH_CHECK(false, "Unsupported ValueType by Vector of Sizes.");
+    }
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << "dtype=" << dtypeToPyString(dtype_);
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return valueRecordData(builder, value_);
+  };
+
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::vector<ValueType>& value) const;
+
+ private:
+  //! The vector's value.
+  std::vector<ValueType> value_;
+  //! Scalar data type.
+  PrimDataType dtype_;
+  //! Indicates scalar is a symbolic input
+  bool is_input_;
+};
+
+//! valueRecordData Specializations used by recordData() for VectorRecord
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
+    std::nullptr_t>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<std::nullptr_t>& value) const {
+  return {
+      serde::RecordData_VectorInput,
+      serde::CreateVectorInput(
+          builder, value.size(), serde::mapToSerdeDtype(dtype_))
+          .Union()};
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
+    int64_t>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<int64_t>& value) const {
+  return {
+      serde::RecordData_VectorInt,
+      serde::CreateVectorIntDirect(
+          builder, &value, value.size(), serde::mapToSerdeDtype(dtype_))
+          .Union()};
+}
 
 } // namespace nvfuser::python_frontend
 
