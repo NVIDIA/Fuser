@@ -8426,6 +8426,48 @@ TEST_F(NVFuserTest, FusionSegmentWelfordZeroElementTensor_CUDA) {
       heur);
 }
 
+// Same as previous test but with Welford instead
+TEST_F(NVFuserTest, FusionWelfordRFactor_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({4, 2, 2});
+  fusion->addInput(tv0);
+  auto vm = variance_mean(tv0, {1, 2}, 1, false);
+  fusion->addOutput(vm.mean);
+  fusion->addOutput(vm.var);
+
+  fusion->printMath();
+  fusion->printTransforms();
+
+  // Convert to vector of TensorViews
+  std::vector<TensorView*> welford_outputs(3, nullptr);
+  std::transform(
+      vm.mean->definition()->outputs().begin(),
+      vm.mean->definition()->outputs().end(),
+      welford_outputs.begin(),
+      [](Val* v) { return v->as<TensorView>(); });
+  vm.mean->rFactor({2}, welford_outputs);
+
+  fusion->printMath();
+  fusion->printTransforms();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // Small inputs exacerbate any issues with partial reduction of variances
+  at::Tensor t0 = at::rand({4, 2, 2}, options) + 1e5;
+  std::vector<c10::IValue> inputs{t0};
+
+  std::vector<at::Tensor> aten_outputs{
+      t0.reshape({4, 4}).mean(1), t0.reshape({4, 4}).var(1)};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(
+      fusion.get(), cg_outputs, inputs, aten_outputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -604,6 +604,34 @@ void replaceReductionWithFull(Expr* expr) {
       fusion->replaceOutput(old_out, new_out);
     }
   } else if (expr->isA<WelfordOp>()) {
+    // Fill Welford avg/var with nan, N with 0
+    auto wop = expr->as<WelfordOp>();
+
+    auto old_avg = wop->outAvg()->as<TensorView>();
+    auto old_var = wop->outVar()->as<TensorView>();
+    auto old_N = wop->outN()->as<TensorView>();
+
+    auto nan = IrBuilder::create<Double>(0.0 / 0.0);
+    auto new_avg = full_like(old_avg, nan);
+    auto new_var = full_like(old_var, nan);
+    auto new_N = full_like(old_N, wop->container()->zeroVal());
+
+    ir_utils::replaceValue(
+        fusion, {{old_avg, new_avg}, {old_var, new_var}, {old_N, new_N}});
+    if (old_avg->isFusionOutput()) {
+      fusion->replaceOutput(old_avg, new_avg);
+    }
+    if (old_var->isFusionOutput()) {
+      fusion->replaceOutput(old_var, new_var);
+    }
+    if (old_N->isFusionOutput()) {
+      fusion->replaceOutput(old_N, new_N);
+    }
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        false, "Expression cannot be replaced with full: ", expr->toString());
+  }
+}
 
 bool isPointwiseTvOp(const Expr* expr) {
   // LoadStoreOp with rfactor domain means transpose, which is not
