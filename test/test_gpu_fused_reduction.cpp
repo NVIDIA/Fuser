@@ -2299,7 +2299,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     std::vector<bool> bcast_pattern{true, true, true, false};
     std::vector<int> reduction_dims{2, 1, 0};
 
-    auto tv0 = makeSymbolicTensor(4);
+    auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
 
     auto tv1 = set(tv0);
