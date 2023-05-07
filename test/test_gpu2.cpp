@@ -4333,8 +4333,10 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = makeContigTensor(2);
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4384,8 +4386,10 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = makeContigTensor(2);
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
