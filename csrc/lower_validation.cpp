@@ -427,19 +427,19 @@ class VectorizeValidator : public OptInDispatch {
       TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
 
       // Contiguity is based on rfactor domain.
-      IterDomain* last_allocation_dim = nullptr;
-      size_t last_allocation_dim_pos = 0;
+      IterDomain* last_root_dim = nullptr;
+      size_t last_root_dim_pos = 0;
       for (size_t i = tv->getMaybeRFactorDomain().size(); i > 0; i--) {
         auto r_id = tv->getMaybeRFactorDomain()[i - 1];
         if (r_id->isReduction() || r_id->isBroadcast()) {
           continue;
         }
-        last_allocation_dim = r_id;
-        last_allocation_dim_pos = i - 1;
+        last_root_dim = r_id;
+        last_root_dim_pos = i - 1;
         break;
       }
 
-      if (last_allocation_dim == nullptr) {
+      if (last_root_dim == nullptr) {
         // Should never get here, but that would mean there are no concrete
         // dims, so we should be fine.
         return nullptr;
@@ -451,20 +451,19 @@ class VectorizeValidator : public OptInDispatch {
       if (!is_ldmatrix_trans) {
         // ldmatrix.trans is a hardware transpose instruction that can do
         // "vectorized" read from discontiguous memory
-        auto contiguity =
-            *tv->domain()->contiguity().at(last_allocation_dim_pos);
+        auto contiguity = *tv->domain()->contiguity().at(last_root_dim_pos);
         TORCH_CHECK(
-            last_allocation_dim == validator.vectorized_id_ && contiguity,
+            last_root_dim == validator.vectorized_id_ && contiguity,
             "Vectorized dim for ",
             name,
             " has to be from a contiguous inner most position. tv: ",
             tv,
-            ", allocation domain: ",
+            ", rFactor domain: ",
             ir_utils::toString(tv->getMaybeRFactorDomain()),
             ", vectorized id: ",
             validator.vectorized_id_,
             ", innermost id: ",
-            last_allocation_dim,
+            last_root_dim,
             ", contiguity: ",
             contiguity);
       }
