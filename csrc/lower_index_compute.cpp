@@ -833,7 +833,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // Populate indexing through exact map from initial indexing
   auto consumer_root = index_producer ? consumer_tv->getRootDomain()
-                                      : consumer_tv->getMaybeRFactorDomain();
+                                      : consumer_tv->getAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
@@ -911,7 +911,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
       target_tv->getLeafDomain(),
-      target_tv->getMaybeRFactorDomain(),
+      target_tv->getMaybeAllocationDomain(),
       target_tv->domain()->contiguity(),
       {},
       indexing.indexMap(),
@@ -920,6 +920,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
+
   auto target_indexing = indexing.updateIndexCompute(
       target_tv->domain(), index_update_map, contig_finder);
 
@@ -973,8 +974,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
-      {consumer_tv->getMaybeRFactorDomain().begin(),
-       consumer_tv->getMaybeRFactorDomain().end()},
+      {consumer_tv->getAllocationDomain().begin(),
+       consumer_tv->getAllocationDomain().end()},
       {consumer_tv->domain()->leaf().begin(),
        consumer_tv->domain()->leaf().end()});
 
@@ -1318,8 +1319,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
 
     // Annotate all ids
     auto all_original_ids = DependencyCheck::getAllValsBetween(
-        {original_tv->getMaybeRFactorDomain().begin(),
-         original_tv->getMaybeRFactorDomain().end()},
+        {original_tv->getAllocationDomain().begin(),
+         original_tv->getAllocationDomain().end()},
         {original_tv->domain()->leaf().begin(),
          original_tv->domain()->leaf().end()});
 

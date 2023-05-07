@@ -586,7 +586,7 @@ void fillVectorizedContigAllocationDomains(
     const ContigIDs& contig_finder,
     IterDomain* vectorized_alloc_id,
     VectorizedSetInfo& info) {
-  const auto& alloc_dom = tv->getMaybeRFactorDomain();
+  const auto& alloc_dom = tv->getAllocationDomain();
 
   // Find the alloc domains that are dependency of the merged contig
   // domain.
