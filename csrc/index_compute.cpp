@@ -434,11 +434,11 @@ void IndexCompute::handle(Merge* merge) {
 
     // Try to find the last non broadcast entry to put the index in if it's a
     // contiguous merge. This isn't strictly necessary but there's implicit
-    // assumptions in the indexing logic that assume broadcasted root domains
-    // can be ignored. This logic is just to try and match that logic.
+    // assumptions in the indexing logic that assume broadcasted allocation
+    // domains can be ignored. This logic is just to try and match that logic.
     // Initialize everything to zero.
-    for (auto root_id : input_ids) {
-      index_map_[root_id] = zero;
+    for (auto alloc_id : input_ids) {
+      index_map_[alloc_id] = zero;
     }
 
     // If all are broadcast we can just send the index to the last entry.
@@ -494,10 +494,10 @@ void IndexCompute::handle(Merge* merge) {
       zero_merged_in_.insert(inner_id);
     }
   } else if (hasZeroMerged(out_id)) {
-    // Don't propagate to inner id if it's comprised of only broadcast root
-    // domains, unless outer is also all broadcast domains. Index shouldn't be
-    // anything but zero if both inner and outer are all broadcast domains, but
-    // didn't add a hard check for this. See Indexing5 test.
+    // Don't propagate to inner id if it's comprised of only broadcast
+    // allocation domains, unless outer is also all broadcast domains. Index
+    // shouldn't be anything but zero if both inner and outer are all broadcast
+    // domains, but didn't add a hard check for this. See Indexing5 test.
     if (!inner_id->isBroadcast() && !outer_id->isBroadcast()) {
       // If neither dimension is a broadcast (should be true for reference
       // indexing) pick the preferred path or the inner path.
@@ -1828,7 +1828,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::getProducerRootIndices");
+  FUSER_PERF_SCOPE("GpuLower::Lower::getProducerAllocationIndices");
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
   auto pairwise_map =
@@ -1957,25 +1957,25 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   auto consumer_indexing = index_from_id_graph.index;
   auto strides = getStrides(consumer_tv);
   // if we need to override index, we need to generate the index from each
-  // root axis firstly.
-  auto root_inds =
+  // allocation axis firstly.
+  auto alloc_inds =
       getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
 
   // Global striding
   auto vectorize_shift =
       loops.empty() ? nullptr : loops.back()->vectorize_shift();
   std::vector<Val*> strided_inds(
-      root_inds.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(root_inds.size())) {
+      alloc_inds.size(), GpuLower::current()->kernel()->zeroVal());
+  for (const auto i : c10::irange(alloc_inds.size())) {
     auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
-      root_inds[i] = override_it->second;
+      alloc_inds[i] = override_it->second;
     }
-    if (root_inds[i]->isZeroInt()) {
+    if (alloc_inds[i]->isZeroInt()) {
       continue;
     } else {
       auto strided_ind =
-          SimplifyingIrBuilder::mulExpr(root_inds[i], strides[i]);
+          SimplifyingIrBuilder::mulExpr(alloc_inds[i], strides[i]);
       if (i == strides.size() - 1 && vectorize_shift != nullptr) {
         strided_inds[i] =
             SimplifyingIrBuilder::addExpr(strided_ind, vectorize_shift);
