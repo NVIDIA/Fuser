@@ -585,18 +585,10 @@ void fillVectorizedContigAllocationDomains(
     const ContigIDs& contig_finder,
     IterDomain* vectorized_alloc_id,
     VectorizedSetInfo& info) {
-  DEBUG_PRINT_SCOPE(tv->toString(), vectorized_alloc_id->toString());
   const auto& alloc_dom = tv->getAllocationDomain();
 
   // Find the alloc domains that are dependency of the merged contig
   // domain.
-
-  std::cout << "allocation domain: "
-            << ir_utils::toString(tv->getMaybeAllocationDomain()) << std::endl;
-  std::cout << "allocToIndexedID domain: " << std::endl;
-  for (auto [k, v] : contig_finder.allocToIndexedID()) {
-    std::cout << k->toString() << " -> " << v->toString() << std::endl;
-  }
 
   auto consumer_indexed_it =
       contig_finder.allocToIndexedID().find(vectorized_alloc_id);

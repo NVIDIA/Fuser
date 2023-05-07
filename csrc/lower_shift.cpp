@@ -175,6 +175,13 @@ HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
         setRootAxisInfo(rf_root_axis, AxisHaloInfo());
       }
     }
+    // Just adds a placeholder to make it not fail. Allocation support is not
+    // yet in place.
+    if (tv->hasAllocation()) {
+      for (auto alloc_axis : tv->getMaybeAllocationDomain()) {
+        setRootAxisInfo(alloc_axis, AxisHaloInfo());
+      }
+    }
   }
 
   // Propagate backward halo information of root axes from fusion
