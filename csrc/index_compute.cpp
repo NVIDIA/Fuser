@@ -1417,11 +1417,13 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       continue;
     }
 
+    auto producer_dim_contiguity = producer_tv->domain()->contiguity().at(dim);
     if (root_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(
-          !producer_tv->domain()->contiguity().at(dim).has_value());
-    } else if (*producer_tv->domain()->contiguity().at(dim)) {
+      TORCH_INTERNAL_ASSERT(!producer_dim_contiguity.has_value());
+    } else if (!producer_dim_contiguity.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+    } else if (producer_dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;
@@ -1766,10 +1768,13 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
       continue;
     }
 
+    auto dim_contiguity = tv->domain()->contiguity().at(dim);
     if (root_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(!tv->domain()->contiguity().at(dim).has_value());
-    } else if (*tv->domain()->contiguity().at(dim)) {
+      TORCH_INTERNAL_ASSERT(!dim_contiguity.has_value());
+    } else if (!dim_contiguity.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+    } else if (dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;

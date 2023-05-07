@@ -1391,7 +1391,7 @@ struct TensorViewDetails {
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  for (size_t pos = 0; pos < dims.size(); ++pos) {
+  for (auto pos : c10::irange((int64_t)dims.size())) {
     const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
