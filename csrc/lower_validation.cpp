@@ -674,7 +674,7 @@ void fillProducerVectorizedContigAllocationDomains(
 
   VectorizedSetInfo& info = *it;
 
-  fillVectorizedContigAllocDomains(
+  fillVectorizedContigAllocationDomains(
       producer_tv, contig_finder, info.vectorized_producer_alloc_id, info);
 }
 
