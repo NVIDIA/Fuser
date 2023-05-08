@@ -625,9 +625,9 @@ void fillVectorizedContigRootDomains(
   // domain.
 
   auto consumer_indexed_it =
-      contig_finder.rootToIndexedID().find(vectorized_root_id);
+      contig_finder.allocToIndexedID().find(vectorized_root_id);
   TORCH_INTERNAL_ASSERT(
-      consumer_indexed_it != contig_finder.rootToIndexedID().end(),
+      consumer_indexed_it != contig_finder.allocToIndexedID().end(),
       "Contiguity information not found for root domain: ",
       vectorized_root_id->toString());
   auto consumer_indexed_id = consumer_indexed_it->second;
