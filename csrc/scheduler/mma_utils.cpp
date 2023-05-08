@@ -172,10 +172,10 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
       "Tensor dimension less than tile dimension!");
 
   // Number of inner dimensions we are tiling.
-  const auto tile_dimension_size = tile_sizes.size();
+  const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
 
   // Split the inner dimensions:
-  for (auto idx : c10::irange(tile_dimension_size)) {
+  for (int64_t idx : c10::irange(tile_dimension_size)) {
     // Using negative indexing to accomodate potential batching
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
@@ -282,11 +282,11 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  not re-order any iterdomain beyond that point to keep the
   //  outer loop structure unchanged.
   for (int64_t i = static_cast<int64_t>(ndims) - 1; i >= 0; i--) {
-    auto leaf_id = tv->axis(i);
+    auto leaf_id = tv->axis((int)i);
     if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
       // Register this reduction or broadcast axis
       //  to reorder.
-      broadcast_or_reduction_pos.push_front(i);
+      broadcast_or_reduction_pos.push_front((int)i);
       leftmost_pos = i;
       continue;
     }
@@ -1142,17 +1142,17 @@ bool isMmaInitLoop(const kir::Scope& loop_body) {
       if (!isMmaInitLoop(inner_loop->body())) {
         return false;
       }
-    } else if (expr->isA<LoadStoreOp>()) {
-      if (!ir_utils::isTvOp(expr)) {
+    } else if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (!ir_utils::isTvOp(ldst)) {
         return false;
       }
-      if (auto ti = dynamic_cast<kir::TensorIndex*>(expr->output(0))) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(ldst->output(0))) {
         if (!ti->view()->definition() ||
             !ti->view()->definition()->isA<MmaOp>()) {
           return false;
         }
       }
-      if (auto tv = dynamic_cast<TensorView*>(expr->output(0))) {
+      if (auto tv = dynamic_cast<TensorView*>(ldst->output(0))) {
         if (!tv->definition() || !tv->definition()->isA<MmaOp>()) {
           return false;
         }

@@ -2617,14 +2617,14 @@ TensorDomain::TensorDomain(
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
-                             : std::move(contiguity)) {
+                             : std::move(contiguity)),
+      has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
-  leaf_domain_ = root_domain_;
   resetDomains();
 }
 

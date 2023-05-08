@@ -329,7 +329,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         bdimx = std::min(
             ceilDiv(cur_right_elem_count, max_unroll_factor), kThreadX);
         bdimy = 1;
-        gdim_right = 1;
         // Put remainder in bdimy if there's at least a wave of grid level
         // parallelism.
         if (cur_left_elem_count > device_multiprocessor_count) {
