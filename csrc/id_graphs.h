@@ -497,7 +497,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // Replay Expr but with the inputs provided. IterDomainGraphss will be updated
   // for all maps that have entries, adding the output iter domains of the
   // replayed expression and adding potential mappings through the expression.
-  Expr* addReplayAs(const std::vector<IterDomain*>& new_inputs, Expr* expr);
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
   // Similar to addReplayAs, but clones the expr exactly instead of replaying it
   // forward. It's up to the calling code to make sure the replacements are

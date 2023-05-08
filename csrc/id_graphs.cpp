@@ -341,7 +341,8 @@ bool transformAtributesMatch(Expr* first, Expr* second) {
   }
 
   TORCH_INTERNAL_ASSERT(
-      first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>(),
+      first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
+          first->isA<Resize>(),
       "Merge and split are the only expressions supported through rfactor operations in compute at map, but found:\n",
       first->toString());
 
@@ -1217,6 +1218,21 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     }
   }
 
+  // TODO: For now we're using same as, however we could know what val's are
+  // exactly the same given the exact map. We might want to pipe that
+  // information through to here.
+  if (first->isA<Resize>()) {
+    if (!first->as<Resize>()->leftExpand()->sameAs(
+            second->as<Resize>()->leftExpand())) {
+      return false;
+    }
+
+    if (!first->as<Resize>()->rightExpand()->sameAs(
+            second->as<Resize>()->rightExpand())) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -1768,7 +1784,7 @@ std::string IterDomainGraphs::toString() const {
 
 // Replay Expr but with the inputs provided.
 Expr* IterDomainGraphs::addReplayAs(
-    const std::vector<IterDomain*>& new_inputs,
+    std::vector<IterDomain*> new_inputs,
     Expr* expr) {
   // Figure out which graphs are already initialized to make sure we add the new
   // expression to them.
@@ -1790,6 +1806,28 @@ Expr* IterDomainGraphs::addReplayAs(
   auto orig_inputs = ir_utils::filterByType<IterDomain>(expr->inputs());
   std::vector<IterDomain*> orig_input_ids(
       orig_inputs.begin(), orig_inputs.end());
+
+  if (std::any_of(
+          new_inputs.begin(),
+          new_inputs.end(),
+          [](IterDomain* id) { return id->isReduction(); }) &&
+      std::any_of(new_inputs.begin(), new_inputs.end(), [](IterDomain* id) {
+        return !id->isReduction();
+      })) {
+    // Inputs have mismatched type, replace new_inputs
+    decltype(new_inputs) tmp_inputs;
+    std::swap(tmp_inputs, new_inputs);
+    for (auto tmp_input : tmp_inputs) {
+      new_inputs.push_back(
+          IterDomainBuilder(tmp_input).iter_type(IterType::Iteration).build());
+      id_definitions_[new_inputs.back()];
+      id_uses_[new_inputs.back()];
+      for (auto mode : initialized_modes) {
+        idGraph(mode).initializeId(new_inputs.back(), {}, {});
+        idGraph(mode).mapIds(new_inputs.back(), tmp_input);
+      }
+    }
+  }
 
   {
     TORCH_INTERNAL_ASSERT(
@@ -2213,24 +2251,26 @@ void IterDomainGraphs::buildAlmostExactMap() {
   idGraph(IdMappingMode::ALMOSTEXACT).mapThroughTrivialExprs();
 }
 
+// TODO: Reenable after reenabling parallel propagation.
+//        propagateLoopPTypes
 void IterDomainGraphs::validatePTypes(
     const std::vector<TensorView*>& all_tvs) const {
-  VectorOfUniqueEntries<IterDomain*> leaf_ids;
-  for (auto tv : all_tvs) {
-    leaf_ids.pushBack(tv->domain()->leaf());
-  }
+  // VectorOfUniqueEntries<IterDomain*> leaf_ids;
+  // for (auto tv : all_tvs) {
+  //   leaf_ids.pushBack(tv->domain()->leaf());
+  // }
 
-  for (const auto& disjoint_set :
-       idGraph(IdMappingMode::EXACT).disjointIdSets().disjointSets()) {
-    for (auto id : disjoint_set->vector()) {
-      auto id_ptype = id->getParallelType();
+  // for (const auto& disjoint_set :
+  //      idGraph(IdMappingMode::EXACT).disjointIdSets().disjointSets()) {
+  //   for (auto id : disjoint_set->vector()) {
+  //     auto id_ptype = id->getParallelType();
 
-      TORCH_INTERNAL_ASSERT(
-          leaf_ids.has(id) || id_ptype == ParallelType::Serial,
-          "Invalid parallelization of non leaf iter domain: ",
-          id->toString());
-    }
-  }
+  //     TORCH_INTERNAL_ASSERT(
+  //         leaf_ids.has(id) || id_ptype == ParallelType::Serial,
+  //         "Invalid parallelization of non leaf iter domain: ",
+  //         id->toString());
+  //   }
+  // }
 }
 
 void IterDomainGraphs::propagateLoopPTypes() const {

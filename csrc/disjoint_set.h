@@ -334,10 +334,6 @@ class DisjointSets {
   // belonging to entry0, maps all entries of disjoint set belonging to entry1
   // to entry0, removes original disjoint set belonging to entry1.
   void mapEntries(T entry0, T entry1) {
-    if (entry0 == entry1) {
-      return;
-    }
-
     auto set_it_0 = disjoint_set_maps_.find(entry0);
     auto set_it_1 = disjoint_set_maps_.find(entry1);
 
@@ -369,6 +365,11 @@ class DisjointSets {
     } else {
       new_set->pushBack(entry0);
       disjoint_set_maps_[entry0] = new_set;
+    }
+
+    // This should be after we enter a new set in case it doesn't exist.
+    if (entry0 == entry1) {
+      return;
     }
 
     if (set_1_found) {
