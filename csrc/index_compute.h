@@ -132,9 +132,6 @@ class IndexCompute : public BackwardVisitor {
   // IDs that are a result of contiguous merges
   std::unordered_set<IterDomain*> contig_ids_;
 
-  // Map from root to indexed domains
-  std::unordered_map<IterDomain*, IterDomain*> root_to_indexed_id_;
-
   // Mentions if we should propagate an index down a particular IterDomain path
   // if there's an option
   std::unordered_set<IterDomain*> preferred_paths_;
@@ -178,10 +175,6 @@ class IndexCompute : public BackwardVisitor {
 
   const std::unordered_set<IterDomain*>& zeroMergedIn() const {
     return zero_merged_in_;
-  }
-
-  const std::unordered_map<IterDomain*, IterDomain*>& rootToContigID() const {
-    return root_to_indexed_id_;
   }
 
   // Propagate back from _td using initial_index_map
