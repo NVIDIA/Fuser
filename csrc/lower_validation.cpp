@@ -210,7 +210,7 @@ void checkContiguity(
           "Issue found in, ",
           tv);
       TORCH_INTERNAL_ASSERT(
-          *tv->domain()->contiguity().at(idx),
+          tv->domain()->contiguity().at(idx).value_or(false),
           "Cannot merge non-contiguous root domains with misaligned vectorization.",
           "Issue found in, ",
           tv);
@@ -258,7 +258,7 @@ void checkContiguity(
       TORCH_INTERNAL_ASSERT(root_c2p.find(consumer_root) != root_c2p.end());
 
       TORCH_INTERNAL_ASSERT(
-          *producer_domain_contiguity.at(producer_root),
+          producer_domain_contiguity.at(producer_root).value_or(false),
           "Cannot merge non-contiguous root domains with misaligned vectorization.",
           "Issue found in, ",
           consumer);

@@ -1108,7 +1108,9 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     }
 
     // Not contiguous
-    if (!*contiguity[root_i]) {
+    auto contiguity_opt = contiguity.at(root_i);
+    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+    if (!*contiguity_opt) {
       break;
     }
 

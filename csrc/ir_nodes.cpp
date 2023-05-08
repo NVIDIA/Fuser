@@ -1391,7 +1391,7 @@ struct TensorViewDetails {
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  for (size_t pos = 0; pos < dims.size(); ++pos) {
+  for (auto pos : c10::irange((int64_t)dims.size())) {
     const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
@@ -2617,14 +2617,14 @@ TensorDomain::TensorDomain(
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
-                             : std::move(contiguity)) {
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)),
+      has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
-  leaf_domain_ = root_domain_;
   resetDomains();
 }
 
