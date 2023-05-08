@@ -345,6 +345,12 @@ TORCH_CUDA_CU_API bool isReductionOverSizeZero(
     const Expr*,
     SchedulerRuntimeInfo& runtime_info);
 
+//! Returns whether Expr is a reduction that has at least one size-0
+//! non-reduction dimension
+TORCH_CUDA_CU_API bool reductionHasSizeZeroConcreteDimension(
+    const Expr*,
+    SchedulerRuntimeInfo& runtime_info);
+
 //! Replaces a reduction with full() using the appropriate value, assuming no
 //! actual reduction would take place. Note that since no runtime information
 //! or ExpressionEvaluator is given, this function cannot verify that zero

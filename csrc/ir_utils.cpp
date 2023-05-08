@@ -592,6 +592,24 @@ bool isReductionOverSizeZero(
   return false;
 }
 
+bool reductionHasSizeZeroConcreteDimension(
+    const Expr* expr,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!isReductionOp(expr)) {
+    return false;
+  }
+  auto expr_eval = runtime_info.expressionEvaluator();
+  for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (auto id : output->getRootDomain()) {
+      if (!id->isReduction() &&
+          expr_eval.evaluate(id->extent())->as<int64_t>() == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void replaceReductionWithFull(Expr* expr) {
   auto fusion = expr->container()->as<Fusion>();
   if (expr->isA<ReductionOp>()) {

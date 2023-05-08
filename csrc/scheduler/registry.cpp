@@ -1504,10 +1504,12 @@ class ReductionScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
-    // Reject if there are any zero-size reductions, since these would prefer
-    // pointwise
     for (auto rop : ir_utils::getReductionOps(fusion)) {
-      if (ir_utils::isReductionOverSizeZero(rop, runtime_info)) {
+      // Reject if there are any zero-size reductions, since these would prefer
+      // pointwise, or if there are reductions with zero-size concrete
+      // dimensions, since these would prefer NoOp
+      if (ir_utils::isReductionOverSizeZero(rop, runtime_info) ||
+          ir_utils::reductionHasSizeZeroConcreteDimension(rop, runtime_info)) {
         return false;
       }
     }

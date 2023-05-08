@@ -8520,11 +8520,15 @@ TEST_F(NVFuserTest, FusionZeroElementReductionCacheShmoo_CUDA) {
           {// Pointwise accepts, then must reject so that Reduction can accept
            {{4, 0}, ScheduleHeuristic::PointWise},
            {{4, 2}, ScheduleHeuristic::Reduction},
-           {{4, 0}, ScheduleHeuristic::PointWise}},
+           {{0, 2}, ScheduleHeuristic::NoOp}},
           {// Reduction accepts, then must reject so that Pointwise can accept
-           {{4, 0}, ScheduleHeuristic::PointWise},
            {{4, 2}, ScheduleHeuristic::Reduction},
-           {{4, 0}, ScheduleHeuristic::PointWise}},
+           {{4, 0}, ScheduleHeuristic::PointWise},
+           {{0, 2}, ScheduleHeuristic::NoOp}},
+          {// NoOp accepts, then must reject so that Pointwise can accept
+           {{0, 2}, ScheduleHeuristic::NoOp},
+           {{4, 0}, ScheduleHeuristic::PointWise},
+           {{4, 2}, ScheduleHeuristic::Reduction}},
       };
   for (const auto& invocations : invocation_patterns) {
     runMaybeZeroElementReductionFusion(invocations);
