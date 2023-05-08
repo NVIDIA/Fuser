@@ -590,7 +590,7 @@ namespace {
 void fillVectorizedContigAllocationDomains(
     const TensorView* tv,
     const ContigIDs& contig_finder,
-    IterDomain* vectorized_consumer_alloc_id,
+    IterDomain* vectorized_alloc_id,
     VectorizedSetInfo& info) {
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
 
@@ -598,21 +598,21 @@ void fillVectorizedContigAllocationDomains(
   // domain.
 
   auto consumer_indexed_it =
-      contig_finder.allocToIndexedID().find(vectorized_consumer_alloc_id);
+      contig_finder.allocToIndexedID().find(vectorized_alloc_id);
   TORCH_INTERNAL_ASSERT(
       consumer_indexed_it != contig_finder.allocToIndexedID().end(),
       "Contiguity information not found for allocation domain: ",
-      vectorized_consumer_alloc_id->toString());
+      vectorized_alloc_id->toString());
   auto consumer_indexed_id = consumer_indexed_it->second;
 
   // Actual indexed allocation domains for this allocation domain. If
   // contig merge is done, multiple allocation domains are included.
   std::unordered_set<IterDomain*> indexed_alloc_ids;
 
-  if (consumer_indexed_id == vectorized_consumer_alloc_id) {
+  if (consumer_indexed_id == vectorized_alloc_id) {
     // Indexed domain is equal to the allocation domain, meaning no contig
     // merge is involved.
-    indexed_alloc_ids.insert(vectorized_consumer_alloc_id);
+    indexed_alloc_ids.insert(vectorized_alloc_id);
   } else {
     auto consumer_within_contig_it =
         contig_finder.withinContigIDs().find(consumer_indexed_id);

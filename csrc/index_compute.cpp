@@ -1611,7 +1611,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       continue;
     }
 
-    // Already an entry for this alloc domain, continue
+    // Already an entry for this allocation domain, continue
     if (index_map.find(alloc_id) != index_map.end()) {
       continue;
     }
@@ -1629,7 +1629,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
     TORCH_INTERNAL_ASSERT(
         is_overriden || index_map.find(alloc_dom[i]) != index_map.end(),
-        "Couldn't find alloc mapping for ",
+        "Couldn't find allocation mapping for ",
         producer_tv->toString(),
         " dim: ",
         i,
@@ -2050,7 +2050,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
     TORCH_INTERNAL_ASSERT(
         index_map.find(alloc_dom[i]) != index_map.end(),
-        "Couldn't find alloc mapping for ",
+        "Couldn't find allocation mapping for ",
         consumer_tv->toString(),
         " dim: ",
         i,
@@ -2074,7 +2074,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
       TORCH_INTERNAL_ASSERT(
           index_map.find(alloc_dom[j]) != index_map.end(),
-          "Couldn't find alloc mapping for ",
+          "Couldn't find allocation mapping for ",
           consumer_tv->toString(),
           " dim: ",
           j,
