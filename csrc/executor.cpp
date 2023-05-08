@@ -33,7 +33,7 @@
 
 namespace nvfuser {
 
-int FusionExecutor::fusion_id_counter_ = 0;
+int64_t FusionExecutor::fusion_id_counter_ = 0;
 
 bool fill_allocation_with_nan_ = false;
 
@@ -257,8 +257,9 @@ void FusionExecutor::compileFusion(
   TORCH_INTERNAL_ASSERT(
       options_.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
   auto properties = at::cuda::getDeviceProperties(options_.device.index());
-  configured_device_smem_ = properties->sharedMemPerBlock;
-  device_smem_limit_ = properties->sharedMemPerBlockOptin;
+  // TODO: These properties should be set as part of the constructor so that it
+  // can be const
+  device_smem_limit_ = static_cast<int64_t>(properties->sharedMemPerBlockOptin);
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
@@ -334,7 +335,7 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: pass block_size here;
-  std::optional<size_t> dynamic_smem = std::nullopt;
+  std::optional<int64_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
@@ -368,22 +369,14 @@ void FusionExecutor::compileFusion(
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
-  // The driver API call requires an int argument.
-  int max_dynamic_smem = 0;
-  CUDA_SAFE_CALL(cuFuncGetAttribute(
-      &max_dynamic_smem,
-      CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-      compiled_kernel_.function));
-  maybe_available_dynamic_smem_ = max_dynamic_smem;
+  // These should be nullopt at this point, but reset just in case
+  available_dynamic_smem_size_.reset();
+  static_smem_size_.reset();
 
-  if (maybe_available_dynamic_smem_.has_value() && dynamic_smem.has_value() &&
-      dynamic_smem.value() > maybe_available_dynamic_smem_.value()) {
-    CUDA_SAFE_CALL(cuFuncSetAttribute(
-        compiled_kernel_.function,
-        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-        launch_params_.smem()));
-    // Update current max as to avoid redundant calls.
-    maybe_available_dynamic_smem_ = launch_params_.smem();
+  // If the dynamic shmem size is known, make sure the compiled kernel
+  // has at least that size of dynamic shmem
+  if (dynamic_smem.has_value()) {
+    ensureAvailableDynamicSmemSize(dynamic_smem.value());
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
@@ -709,11 +702,11 @@ std::vector<at::Tensor> allocOutputs(
 
 } // namespace
 
-uint64_t FusionExecutor::computeSharedMemory(
+int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
-    uint64_t total) {
+    int64_t total) {
   FUSER_PERF_SCOPE("computeSharedMemory");
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
@@ -721,11 +714,12 @@ uint64_t FusionExecutor::computeSharedMemory(
     if (smem_alloc->alias() == nullptr) {
       const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
       if (inferred_val.has_value()) {
-        const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+        const auto data_size =
+            static_cast<int64_t>(dataTypeSize(smem_alloc->buffer()->dtype()));
         // Add padding to align dynamic shared memory
         if (align_padding) {
           const int align_size = 16; // always align to 16B/128b.
-          total = ceilDiv((int64_t)total, align_size) * align_size;
+          total = ceilDiv(total, align_size) * align_size;
         }
         total += inferred_val->as<int64_t>() * data_size;
       } else {
@@ -744,7 +738,7 @@ uint64_t FusionExecutor::computeSharedMemory(
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     ExpressionEvaluator& expr_eval,
-    const int warp_size) {
+    const int64_t warp_size) {
   FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
   TORCH_INTERNAL_ASSERT(warp_size > 0, "WARP_SIZE should be larger than 0");
 
@@ -847,7 +841,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
 
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
-  uint64_t reduction_broadcast_workspace = 0;
+  int64_t reduction_broadcast_workspace = 0;
   const bool has_workspace = kernel_summary.has_block_reductions ||
       kernel_summary.has_grid_reductions ||
       kernel_summary.has_block_broadcasts || kernel_summary.has_grid_broadcasts;
@@ -862,18 +856,18 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     reduction_broadcast_workspace =
-        dataTypeSize(kernel_summary.largest_smem_data_type) * welford_factor *
-        launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz();
+        (int64_t)dataTypeSize(kernel_summary.largest_smem_data_type) *
+        welford_factor * launch_params.bdimx() * launch_params.bdimy() *
+        launch_params.bdimz();
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
-          (uint64_t)
-              kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+          (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
   }
 
-  const uint64_t dynamic_smem_size = computeSharedMemory(
+  const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
       true,
@@ -883,32 +877,11 @@ LaunchParams FusionExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (maybe_available_dynamic_smem_.has_value()) {
-    // Dynamic shared memory space that we can allocate without
-    //  carving more space from L1.
-    const uint64_t available_dynamic_smem_without_reconfiguration =
-        maybe_available_dynamic_smem_.value();
-    // Maximum additional shared memory size we could request
-    //  if we do re-configuration.
-    const uint64_t additional_dynamic_smem_available_through_reconfiguration =
-        device_smem_limit_ - configured_device_smem_;
-
-    TORCH_INTERNAL_ASSERT(
-        (dynamic_smem_size) <
-            (available_dynamic_smem_without_reconfiguration +
-             additional_dynamic_smem_available_through_reconfiguration),
-        "The total shared memory allocation is larger than available memory.",
-        " Dynamic size: ",
-        dynamic_smem_size,
-        ". Available size: ",
-        maybe_available_dynamic_smem_.value(),
-        ". Configured smem size: ",
-        configured_device_smem_,
-        ". Device limit size: ",
-        device_smem_limit_);
+  if (compiled()) {
+    validateDynamicSmemSize(dynamic_smem_size);
   }
 
-  launch_params.setSmem((int64_t)dynamic_smem_size);
+  launch_params.setSmem(dynamic_smem_size);
 
   return launch_params;
 }
@@ -1347,32 +1320,75 @@ void FusionExecutor::recompileKernel(
           maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
-  // Available dynamic smem needs to be re-checked as it depends on the kernel
-  // static shared memory usage.
-  int max_dynamic_smem = 0;
-  CUDA_SAFE_CALL(cuFuncGetAttribute(
-      &max_dynamic_smem,
-      CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-      compiled_kernel_.function));
-  maybe_available_dynamic_smem_ = max_dynamic_smem;
+  available_dynamic_smem_size_.reset();
+  static_smem_size_.reset();
 
   if (kernel()->summary().has_cooperative_grid_reduction) {
     // We need to increase shared memory before kernel launch, but also before
     // calling into `validateCooperativeLaunch`!
     // So we need to do it there before calling into the validation, to avoid
     // false positives
-    if (maybe_available_dynamic_smem_.has_value() &&
-        size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
-      CUDA_SAFE_CALL(cuFuncSetAttribute(
-          compiled_kernel_.function,
-          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-          launch_params_.smem()));
-      // Update current max as to avoid redundant calls.
-      maybe_available_dynamic_smem_ = launch_params_.smem();
-    }
+    ensureAvailableDynamicSmemSize(new_launch_params.smem());
     validateCooperativeLaunch(
         compiled_kernel_.function, new_launch_params, options_.device.index());
   }
+}
+
+int64_t FusionExecutor::getAvailableDynamicSmemSize() {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot get dynamic smem size unless kernel is compiled");
+  if (!available_dynamic_smem_size_.has_value()) {
+    int size = 0;
+    CUDA_SAFE_CALL(cuFuncGetAttribute(
+        &size,
+        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+        compiled_kernel_.function));
+    available_dynamic_smem_size_ = size;
+  }
+  return available_dynamic_smem_size_.value();
+}
+
+int64_t FusionExecutor::getStaticSmemSize() {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot get static smem size unless kernel is compiled");
+  if (!static_smem_size_.has_value()) {
+    int size = 0;
+    // Is this really a costly operation worth caching?
+    CUDA_SAFE_CALL(cuFuncGetAttribute(
+        &size, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, compiled_kernel_.function));
+    static_smem_size_ = size;
+  }
+  return static_smem_size_.value();
+}
+
+void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
+  TORCH_INTERNAL_ASSERT(
+      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      "The total shared memory allocation is larger than available memory.",
+      " Dynamic size: ",
+      dynamic_smem_size,
+      ". Static size: ",
+      getStaticSmemSize(),
+      ". Required total size: ",
+      getStaticSmemSize() + dynamic_smem_size,
+      ". Device limit size: ",
+      device_smem_limit_);
+}
+
+int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
+    int64_t dynamic_smem_size) {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot set dynamic smem size unless kernel is compiled");
+  if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
+    validateDynamicSmemSize(dynamic_smem_size);
+    CUDA_SAFE_CALL(cuFuncSetAttribute(
+        compiled_kernel_.function,
+        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+        dynamic_smem_size));
+    std::cerr << "Set done" << std::endl;
+    available_dynamic_smem_size_ = dynamic_smem_size;
+  }
+  return available_dynamic_smem_size_.value();
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1506,16 +1522,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (execute_kernel_) {
-    if (maybe_available_dynamic_smem_.has_value() &&
-        size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
-      // Increase limit of dynamic shared memory if needed.
-      CUDA_SAFE_CALL(cuFuncSetAttribute(
-          compiled_kernel_.function,
-          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-          launch_params_.smem()));
-      // Update current max to avoid redundant calls.
-      maybe_available_dynamic_smem_ = launch_params_.smem();
-    }
+    ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
     auto arg_buffer = args.getBuffer(kernel()->indexType());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");

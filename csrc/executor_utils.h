@@ -38,18 +38,21 @@ namespace nvfuser {
     }                                                    \
   } while (0)
 
-#define CUDA_SAFE_CALL(x)                                              \
-  do {                                                                 \
-    CUresult _result = x;                                              \
-    if (_result != CUDA_SUCCESS) {                                     \
-      const char* msg;                                                 \
-      const char* name;                                                \
-      cuGetErrorName(_result, &name);                                  \
-      cuGetErrorString(_result, &msg);                                 \
-      std::cerr << "\nerror: " << name << " failed with error " << msg \
-                << '\n';                                               \
-      exit(1);                                                         \
-    }                                                                  \
+#define CUDA_SAFE_CALL(x)              \
+  do {                                 \
+    CUresult _result = x;              \
+    if (_result != CUDA_SUCCESS) {     \
+      const char* msg;                 \
+      const char* name;                \
+      cuGetErrorName(_result, &name);  \
+      cuGetErrorString(_result, &msg); \
+      TORCH_INTERNAL_ASSERT(           \
+          _result == CUDA_SUCCESS,     \
+          "CUDA error: ",              \
+          name,                        \
+          " failed with error ",       \
+          msg);                        \
+    }                                  \
   } while (0)
 
 #define CUDA_RT_SAFE_CALL(x)                                            \
@@ -89,8 +92,8 @@ std::string disassembleBinary(
     const std::string& nvdisasm_args);
 
 struct NvrtcFunction {
-  CUmodule module = CUmodule();
-  CUfunction function = CUfunction();
+  CUmodule module = nullptr;
+  CUfunction function = nullptr;
 };
 
 // Returns executable function and the ptxas log from compilation
@@ -98,7 +101,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     std::optional<int64_t> opt_block_size = std::nullopt,
     const int64_t max_register_heuristic = 255,
     bool return_compiled_binary = false);
