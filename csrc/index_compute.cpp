@@ -654,7 +654,6 @@ IndexCompute::IndexCompute(
       zero_domains_(std::move(zero_domains)),
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
-      root_to_indexed_id_{contig_finder.rootToIndexedID()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
@@ -1188,8 +1187,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // mentioned above
   auto producer_tv = tv;
   auto it = std::find_if(
-      tv->domain()->leaf().begin(),
-      tv->domain()->leaf().end(),
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
       [&](IterDomain* tv_id) {
         // Matching is done using the index and loop maps. See
         // validateParallelize as well.
@@ -1199,7 +1198,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
 
   // There's no mapped producer ID. Zero substitution shouldn't be
   // done.
-  if (it == tv->domain()->leaf().end()) {
+  if (it == tv->getLeafDomain().end()) {
     return false;
   }
 
@@ -1343,8 +1342,8 @@ void ensureStaticIndexing(
     // the loop map, the loop index should be used for indexing of the
     // tensor, except for broadcast and reduction domains.
     auto it = std::find_if(
-        tv->domain()->leaf().begin(),
-        tv->domain()->leaf().end(),
+        tv->getLeafDomain().begin(),
+        tv->getLeafDomain().end(),
         [loop_id, &id_map](IterDomain* id) {
           if (id->isBroadcast() || id->isReduction() || id->isStride()) {
             return false;
@@ -1356,7 +1355,7 @@ void ensureStaticIndexing(
           return GpuLower::current()->caMap()->areMapped(
               loop_id, id, IdMappingMode::PERMISSIVE);
         });
-    if (it != tv->domain()->leaf().end()) {
+    if (it != tv->getLeafDomain().end()) {
       loop->requireUnroll();
     }
   }
@@ -1489,7 +1488,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->domain()->leaf()) {
+  for (auto id : consumer_tv->getLeafDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -1551,9 +1550,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->domain()->leaf(),
-      consumer_tv->domain()->leaf(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1858,9 +1855,7 @@ std::vector<Val*> Index::getProducerRootIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->domain()->leaf(),
-      consumer_tv->domain()->leaf(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
@@ -2343,7 +2338,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   }
 
   ContigIDs contig_finder(
-      consumer_tv->domain()->leaf(),
+      consumer_tv->getLeafDomain(),
       consumer_root_domain,
       TensorDomain::getContiguityFilledWith(consumer_root_domain, true),
       final_ids,
@@ -2369,10 +2364,10 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       continue;
     }
 
-    auto contig_id_it = contig_finder.rootToIndexedID().find(root_id);
+    auto contig_id_it = contig_finder.allocToIndexedID().find(root_id);
 
     TORCH_INTERNAL_ASSERT(
-        contig_id_it != contig_finder.rootToIndexedID().end(),
+        contig_id_it != contig_finder.allocToIndexedID().end(),
         "Error in predicate contiguity analysis, missing index for root ",
         root_id->toString());
 
@@ -2380,7 +2375,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
     // Pick inputs from the starting domains, i.e.,
     // reference_predicated_root_domain.
-    auto contig_root_ids = contig_finder.indexedRootIDs(contig_id);
+    auto contig_root_ids = contig_finder.indexedAllocIDs(contig_id);
     covered_roots.insert(contig_root_ids.begin(), contig_root_ids.end());
     PredicateDomainInfo contig_id_info;
     contig_id_info.id = contig_id;
@@ -2445,8 +2440,8 @@ int getUnswitchStopOffset(
 
   // Find if this contig_id is used in the unswitched domains
   auto unswitch_it = std::find_if(
-      consumer_tv->domain()->leaf().begin(),
-      consumer_tv->domain()->leaf().end(),
+      consumer_tv->getLeafDomain().begin(),
+      consumer_tv->getLeafDomain().end(),
       [](IterDomain* id) {
         return id->getParallelType() == ParallelType::Unswitch ||
             id->getParallelType() == ParallelType::Unroll ||
@@ -2457,7 +2452,7 @@ int getUnswitchStopOffset(
   // root domain, the halo width needs to be added to the stop offset
   if (std::any_of(
           unswitch_it,
-          consumer_tv->domain()->leaf().end(),
+          consumer_tv->getLeafDomain().end(),
           [&gpu_lower, &consumer_root_id](auto leaf_id) {
             return gpu_lower->haloInfo()->isHaloInherited(
                 consumer_root_id, leaf_id);
