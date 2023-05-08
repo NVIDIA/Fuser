@@ -648,8 +648,8 @@ void fillConsumerVectorizedContigAllocationDomains(
   VectorizedSetInfo& info = *it;
 
   // info.vectorized_consumer_alloc_id is validated at this point to be the
-  // last concrete root domain in consumer.
-  auto consumer_root_id = info.vectorized_consumer_alloc_id;
+  // last concrete allocation domain in consumer.
+  auto consumer_alloc_id = info.vectorized_consumer_alloc_id;
 
   fillVectorizedContigAllocationDomains(
       consumer_tv, contig_finder, consumer_alloc_id, info);
