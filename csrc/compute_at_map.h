@@ -324,6 +324,7 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   // Build a single entry in  concrete_cache_id_
   IterDomain* computeConcreteId(IterDomain* id, IdMappingMode mode);
   void buildConcreteIds();
+  void buildScatterMap();
 
   // Relies on concrete_id_cache_, buildConcreteIds() must be run before this.
   void buildUniqueExactExprMaps();

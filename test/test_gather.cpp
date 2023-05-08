@@ -74,6 +74,45 @@ at::Tensor generateScatter2DIndex(
   }
 }
 
+
+// When indices are not unique, the behavior of scatter is non-deterministic.
+// So, we need a method to generate tensor each element is unique.
+at::Tensor generate2DIndexTensorForScatter(const std::vector<int64_t> &inp_size, 
+  const std::vector<int64_t> &idx_size, 
+  const std::vector<int64_t> &src_size, 
+  int dim) {
+  // Make sure the size is valid
+  TORCH_CHECK(inp_size.size() == 2 && src_size.size() == 2 && idx_size.size() == 2);
+  for (const auto i : c10::irange(inp_size.size())) {
+    if(dim != (int)i) {
+      TORCH_CHECK(idx_size[i] <= src_size[i] && idx_size[i] <= inp_size[i]);
+    }
+    else {
+      TORCH_CHECK(idx_size[i] <= src_size[i]);
+    }
+  }
+  auto options_i =
+    torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+  auto unique_value = at::randperm(inp_size[dim], options_i);
+  if (dim == 0) {
+    auto idx_tensor = at::zeros({idx_size[1], idx_size[0]}, options_i);
+    for (const auto i : c10::irange(idx_size[1])) {
+      auto unique_index = at::randperm(idx_size[0], options_i);
+      auto unique_idx = at::index_select(unique_value, 0, unique_index);
+      idx_tensor[i] = unique_idx;
+    }
+    return idx_tensor.transpose(0, 1).contiguous();
+  } else {
+    auto idx_tensor = at::zeros(idx_size, options_i);
+    for (const auto i : c10::irange(idx_size[0])) {
+      auto unique_index = at::randperm(idx_size[1], options_i);
+      auto unique_idx = at::index_select(unique_value, 0, unique_index);
+      idx_tensor[i] = unique_idx;
+    }
+    return idx_tensor;
+  }
+}
+
 } // namespace
 
 TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
@@ -743,11 +782,134 @@ TEST_F(IndexingOpTest, ScatterInputInitializeTest_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
-  std::cout << cg_outputs[0] << std::endl;
-  std::cout << out_ref << std::endl;
   
   testValidate(
       &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
 }
 
+// Test Corner case shapes and selected dim
+TEST_F(IndexingOpTest, ScatterCornerShapeTest_CUDA) {
+  at::manual_seed(0);
+
+  const std::vector<std::vector<int64_t>> input_dims = {
+    {1, 1}, {0, 0}, {1, 256}, {1, 256}, {0, 256}, {0, 256}, 
+  };
+
+  const std::vector<std::vector<int64_t>> src_dims = {
+    {1, 1}, {0, 0}, {1, 256}, {1, 256}, {0, 256}, {0, 256},
+  };
+
+  const std::vector<std::vector<int64_t>> idx_dims = {
+    {1, 1}, {0, 0}, {1, 256}, {1, 256}, {0, 256}, {0, 256},
+  };
+
+  const std::vector<int64_t> select_id = {
+    0, 0, 0, 1, 0, 1
+  };
+
+  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
+    const auto& inp_size = input_dims.at(test_id);
+    const auto& idx_size = idx_dims.at(test_id);
+    const auto& src_size = src_dims.at(test_id);
+    const auto& sel_id = select_id.at(test_id);
+
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* tv_input = makeConcreteTensor(inp_size);
+    TensorView* tv_idx = makeConcreteTensor(idx_size, DataType::Int);
+    TensorView* tv_src = makeConcreteTensor(src_size);
+
+    fusion.addInput(tv_input);
+    fusion.addInput(tv_idx);
+    fusion.addInput(tv_src);
+    
+    auto tv_out = scatter(tv_input, sel_id, tv_idx, tv_src);
+    fusion.addOutput(tv_out);
+    
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options_i =
+        torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+    at::Tensor t_idx = generate2DIndexTensorForScatter(inp_size, idx_size, src_size, sel_id);
+    at::Tensor t_output = at::zeros(inp_size, options);
+    at::Tensor t_input = at::randn(inp_size, options);
+    at::Tensor t_src = at::randn(src_size, options);
+    
+    auto out_ref = at::scatter(t_input, sel_id, t_idx, t_src);
+
+    std::vector<c10::IValue> aten_inputs = {t_input, t_idx, t_src};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+    
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
+  }  
+}
+
+// Test Corner case shapes and selected dim
+TEST_F(IndexingOpTest, ScatterUnsameTest_CUDA) {
+  at::manual_seed(0);
+
+  const std::vector<std::vector<int64_t>> input_dims = {
+    {128, 8}, 
+  };
+
+  const std::vector<std::vector<int64_t>> src_dims = {
+    {64, 8}, 
+  };
+
+  const std::vector<std::vector<int64_t>> idx_dims = {
+    {64, 8}, 
+  };
+
+  const std::vector<int64_t> select_id = {
+    0, 
+  };
+
+  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
+    const auto& inp_size = input_dims.at(test_id);
+    const auto& idx_size = idx_dims.at(test_id);
+    const auto& src_size = src_dims.at(test_id);
+    const auto& sel_id = select_id.at(test_id);
+
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* tv_input = makeConcreteTensor(inp_size);
+    TensorView* tv_idx = makeConcreteTensor(idx_size, DataType::Int);
+    TensorView* tv_src = makeConcreteTensor(src_size);
+
+    fusion.addInput(tv_input);
+    fusion.addInput(tv_idx);
+    fusion.addInput(tv_src);
+    
+    auto tv_out = scatter(tv_input, sel_id, tv_idx, tv_src);
+    fusion.addOutput(tv_out);
+    
+    tv_out->split(-1, 4);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options_i =
+        torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+    at::Tensor t_idx = generate2DIndexTensorForScatter(inp_size, idx_size, src_size, sel_id);
+    at::Tensor t_output = at::zeros(inp_size, options);
+    at::Tensor t_input = at::randn(inp_size, options);
+    at::Tensor t_src = at::randn(src_size, options);
+    
+    auto out_ref = at::scatter(t_input, sel_id, t_idx, t_src);
+
+    std::vector<c10::IValue> aten_inputs = {t_input, t_idx, t_src};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+    
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
+  }  
+}
 } // namespace nvfuser

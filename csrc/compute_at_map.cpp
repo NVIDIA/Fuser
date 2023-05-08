@@ -1125,22 +1125,37 @@ IterDomain* ComputeAtMap::computeConcreteId(
   return concrete_id;
 }
 
-void ComputeAtMap::buildConcreteIds() {
+void ComputeAtMap::buildScatterMap() {
   // Since ScatterOp is an element wise-op based on indexTv, we need to replace
   // the default iteration domain in some passes. Here we just save it.
   for (auto expr : ir_utils::getScatterOps(fusion_)) {
     auto output_ids = ir_utils::allIDsOf(expr->output(0)->as<TensorView>());
-    auto index_ids = ir_utils::allIDsOf(expr->indexTv());
     auto src_ids = ir_utils::allIDsOf(expr->srcTv());
-    for (size_t i = 0; i < output_ids.size(); ++i) {
-      auto out_id = output_ids[i];
-      auto idx_id = index_ids[i];
-      auto src_id = src_ids[i];
-      scatter_id_map_[out_id] = idx_id;
-      scatter_id_map_[src_id] = idx_id;
+    for(auto i_id : ir_utils::allIDsOf(expr->indexTv())) {
+      for (const auto& disjoint_set_shared_ptr :
+         id_graph_.permissiveNodes().disjointSets()) {
+        if(disjoint_set_shared_ptr->has(i_id)) {
+          for(auto o_id : output_ids) {
+            if(disjoint_set_shared_ptr->has(o_id)) {
+              scatter_id_map_[o_id]  = i_id;
+              break;
+             }
+          }
+          for(auto s_id : src_ids) {
+            if(disjoint_set_shared_ptr->has(s_id)) {
+              scatter_id_map_[s_id]  = i_id;
+              break;
+             }
+          }
+          break;
+        }
+      }
     }
   }
+}
 
+void ComputeAtMap::buildConcreteIds() {
+  buildScatterMap();
   // For the exact map just select the first ID since they're all exactly the
   // same size, it doesn't matter which is selected. This should be run-to-run
   // deterministic but which ID gets selected her depends on the traversal order
