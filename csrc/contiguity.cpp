@@ -22,20 +22,20 @@ OrderedIdInformation::OrderedIdInformation(
     return;
   }
 
-  // Grab alloc ids and initialize them.
+  // Grab allocation ids and initialize them.
   for (const auto alloc_i : c10::irange(alloc_domain.size())) {
     auto alloc_id = alloc_domain[alloc_i]->as<IterDomain>();
 
     // Initialize id_to_alloc_ids to map allocs to themselves
     id_to_alloc_ids_[alloc_id] = {alloc_id};
 
-    // Initialize allocs as being made up of correctly ordered transforms.
+    // Initialize allocations as being made up of correctly ordered transforms.
     consistently_ordered_ids_.emplace(alloc_id);
 
     exclusively_consumes_allocs_.emplace(alloc_id);
   }
 
-  // Iterate from the alloc domain to the provided ids and fill
+  // Iterate from the allocation domain to the provided ids and fill
   // consistently_ordered_ids_, id_to_alloc_ids_, and
   // exclusively_consumes_allocs_ for all the IDs
   auto exprs = StmtSort::getExprsBetween(
@@ -48,7 +48,7 @@ OrderedIdInformation::OrderedIdInformation(
   }
 }
 
-bool OrderedIdInformation::checkExclusivelyConsumesRoots(IterDomain* id) {
+bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
   TORCH_INTERNAL_ASSERT(
       std::find(active_ids_.begin(), active_ids_.end(), id) !=
           active_ids_.end(),
@@ -64,8 +64,8 @@ bool OrderedIdInformation::checkExclusivelyConsumesRoots(IterDomain* id) {
 
   const auto& alloc_ids = alloc_id_it->second;
 
-  // Check all the allocs of all other ids, to see if any alloc_ids in id are
-  // also in them.
+  // Check all the allocations of all other ids, to see if any alloc_ids in id
+  // are also in them.
   for (auto other_active_id : active_ids_) {
     if (other_active_id == id || other_active_id == nullptr) {
       continue;
@@ -111,7 +111,7 @@ void OrderedIdInformation::handle(Merge* merge) {
   bool inner_ordered = inner_ordered_it != consistently_ordered_ids_.end();
   bool outer_ordered = outer_ordered_it != consistently_ordered_ids_.end();
 
-  // Get alloc ids of the two inputs
+  // Get allocation ids of the two inputs
   const auto inner_alloc_ids_it = id_to_alloc_ids_.find(merge->inner());
   const auto outer_alloc_ids_it = id_to_alloc_ids_.find(merge->outer());
 
@@ -127,9 +127,9 @@ void OrderedIdInformation::handle(Merge* merge) {
   //  It prevents contiguous indexing if the concretization is within the IDs
   //  that are used for indexing.
   //  For vectorization it just means we need to make sure the extents of the
-  //  axes to the right of the broadcast alloc domain in the contigous merge is
-  //  bigger than the vectorization dimension. And that the tensor buffer
-  //  supports the vector word size (always done).
+  //  axes to the right of the broadcast allocation domain in the contigous
+  //  merge is bigger than the vectorization dimension. And that the tensor
+  //  buffer supports the vector word size (always done).
   bool outer_is_concretized_bcast = merge->outer()->isBroadcast() &&
       concrete_info_->isConcretized(merge->outer());
 
@@ -216,7 +216,7 @@ void OrderedIdInformation::handle(Merge* merge) {
   id_to_alloc_ids_[merge->out()] = alloc_ids;
 
   // Need to check this after updating active_ids_ and id_to_alloc_ids_
-  if (checkExclusivelyConsumesRoots(merge->out())) {
+  if (checkExclusivelyConsumesAllocs(merge->out())) {
     exclusively_consumes_allocs_.emplace(merge->out());
   }
 }
@@ -237,7 +237,7 @@ void OrderedIdInformation::handle(Split* split) {
 
   bool in_ordered = in_ordered_it != consistently_ordered_ids_.end();
 
-  // Get alloc ids of the input
+  // Get allocation ids of the input
   const auto in_alloc_ids_it = id_to_alloc_ids_.find(split->in());
 
   TORCH_INTERNAL_ASSERT(
@@ -285,7 +285,7 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
   bool in_x_ordered = in_x_ordered_it != consistently_ordered_ids_.end();
   bool in_y_ordered = in_y_ordered_it != consistently_ordered_ids_.end();
 
-  // Get alloc ids of the two inputs
+  // Get allocation ids of the two inputs
   const auto in_x_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inX());
   const auto in_y_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inY());
 
@@ -309,7 +309,7 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
       consistently_ordered_ids_.emplace(swizzle->outX());
     }
 
-    if (exclusivelyConsumesRoots(swizzle->inX())) {
+    if (exclusivelyConsumesAllocs(swizzle->inX())) {
       exclusively_consumes_allocs_.emplace(swizzle->outX());
     }
 
@@ -317,7 +317,7 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
       consistently_ordered_ids_.emplace(swizzle->outY());
     }
 
-    if (exclusivelyConsumesRoots(swizzle->inY())) {
+    if (exclusivelyConsumesAllocs(swizzle->inY())) {
       exclusively_consumes_allocs_.emplace(swizzle->outY());
     }
 
@@ -347,7 +347,7 @@ void OrderedIdInformation::handle(Resize* resize) {
 
   bool in_ordered = in_ordered_it != consistently_ordered_ids_.end();
 
-  // Get alloc ids of the two inputs
+  // Get allocation ids of the two inputs
   const auto in_alloc_ids_it = id_to_alloc_ids_.find(resize->in());
 
   TORCH_INTERNAL_ASSERT(
@@ -366,7 +366,7 @@ void OrderedIdInformation::handle(Resize* resize) {
     consistently_ordered_ids_.emplace(resize->out());
   }
 
-  if (exclusivelyConsumesRoots(resize->in())) {
+  if (exclusivelyConsumesAllocs(resize->in())) {
     exclusively_consumes_allocs_.emplace(resize->out());
   }
 
@@ -395,8 +395,8 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
       if (std::find(alloc_domain.begin(), alloc_domain.end(), inp_id) !=
           alloc_domain.end()) {
         // This generally shouldn't happen as there shouldn't be
-        // transformations before the alloc ids, but in case for some reason
-        // we eventually do have cases like that, we should reset the
+        // transformations before the allocation ids, but in case for some
+        // reason we eventually do have cases like that, we should reset the
         // alloc_ids if for some reason they've been placed in the non
         // divisible split set.
         depends_on_non_divisible_split.erase(inp_id);
@@ -522,12 +522,14 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     alloc_to_indexed_id_[alloc_domain_id] = alloc_domain_id;
     // Initialize to false
     is_contig_alloc_[alloc_domain_id] = false;
-    // If a alloc domain has halo, can't use merged domain even if
+    // If a allocation domain has halo, can't use merged domain even if
     // both inputs are contiguous. HaloInfo is also initialized for
     // rfactor allocation domains, which should just return "zero"
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
-    if (*alloc_contiguity_.at(alloc_domain_i) &&
+    auto alloc_contiguity_opt = alloc_contiguity_.at(alloc_domain_i);
+    TORCH_INTERNAL_ASSERT(alloc_contiguity_opt.has_value());
+    if (alloc_contiguity_opt.value() &&
         !halo_info_->getRootAxisInfo(alloc_domain_id).hasHalo() &&
         alloc_domain_id->getIterType() != IterType::GatherScatter) {
       contig_ids_.emplace(alloc_domain_id);
@@ -570,7 +572,7 @@ void ContigIDs::handle(Merge* merge) {
     return;
   }
 
-  if (!consistent_transform_info_->exclusivelyConsumesRoots(merge->out())) {
+  if (!consistent_transform_info_->exclusivelyConsumesAllocs(merge->out())) {
     return;
   }
 
@@ -585,12 +587,12 @@ void ContigIDs::handle(Merge* merge) {
     return;
   }
 
-  // Check alloc domains for contiguity
+  // Check allocation domains for contiguity
   auto alloc_ids_it =
-      consistent_transform_info_->idToRootIds().find(merge->out());
+      consistent_transform_info_->idToAllocIds().find(merge->out());
 
   TORCH_INTERNAL_ASSERT(
-      alloc_ids_it != consistent_transform_info_->idToRootIds().end(),
+      alloc_ids_it != consistent_transform_info_->idToAllocIds().end(),
       "\nError in contiguous analysis, merge info doesn't exist for:\n",
       merge->toString(),
       "\nId: ",
@@ -612,12 +614,14 @@ void ContigIDs::handle(Merge* merge) {
       alloc_ids.erase(alloc_id);
       // If we're indexing:
       // we could still potentially consider this ID linearly indexable, as we
-      // could multiple the index by the last alloc's stride.
+      // could multiple the index by the last allocation's stride.
       //
       // If we're computing predicates (ignore_consistent_ordering_==true),
       // then we don't have this same constraint, we can just ignore
-      // contiguity of the allocs all together.
-      if (!*alloc_contiguity_.at(alloc_id_i) && is_indexing_pass) {
+      // contiguity of the allocations all together.
+      auto alloc_contiguity_opt = alloc_contiguity_.at(alloc_id_i);
+      TORCH_INTERNAL_ASSERT(alloc_contiguity_opt.has_value());
+      if (!alloc_contiguity_opt.value() && is_indexing_pass) {
         if (!alloc_ids.empty()) {
           return;
         }

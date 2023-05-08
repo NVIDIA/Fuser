@@ -159,7 +159,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
     auto vector_size =
-        tensors.vec_tv->domain()->leaf().back()->extent()->as<Int>();
+        tensors.vec_tv->getLeafDomain().back()->extent()->as<Int>();
 
     // Size of memory type for the elements
     Int* data_size_in_bytes =
@@ -481,13 +481,13 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
                        producer_tv->domain(), consumer_tv->domain());
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {consumer_tv->domain()->leaf().begin() +
+        {consumer_tv->getLeafDomain().begin() +
              consumer_tv->getComputeAtPosition(),
-         consumer_tv->domain()->leaf().end()});
+         consumer_tv->getLeafDomain().end()});
     auto producer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {producer_tv->domain()->leaf().begin() +
+        {producer_tv->getLeafDomain().begin() +
              producer_tv->getComputeAtPosition(),
-         producer_tv->domain()->leaf().end()});
+         producer_tv->getLeafDomain().end()});
 
     const auto& consumer_contig = consumer_tv->domain()->contiguity();
     const auto& producer_contig = producer_tv->domain()->contiguity();
@@ -539,7 +539,14 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
       // If it's not contiguous, extending the vectorization domain
       // further is not possible
-      if (!(*producer_contig.at(i) && *consumer_contig.at(consumer_root_idx))) {
+      auto producer_dim_contiguity = producer_contig.at(i);
+      TORCH_INTERNAL_ASSERT(producer_dim_contiguity.has_value());
+
+      auto consumer_dim_contiguity = consumer_contig.at(consumer_root_idx);
+      TORCH_INTERNAL_ASSERT(consumer_dim_contiguity.has_value());
+
+      if (!(producer_dim_contiguity.value() &&
+            consumer_dim_contiguity.value())) {
         break;
       }
 

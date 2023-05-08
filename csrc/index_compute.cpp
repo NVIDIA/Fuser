@@ -434,11 +434,11 @@ void IndexCompute::handle(Merge* merge) {
 
     // Try to find the last non broadcast entry to put the index in if it's a
     // contiguous merge. This isn't strictly necessary but there's implicit
-    // assumptions in the indexing logic that assume broadcasted root domains
-    // can be ignored. This logic is just to try and match that logic.
+    // assumptions in the indexing logic that assume broadcasted allocation
+    // domains can be ignored. This logic is just to try and match that logic.
     // Initialize everything to zero.
-    for (auto root_id : input_ids) {
-      index_map_[root_id] = zero;
+    for (auto alloc_id : input_ids) {
+      index_map_[alloc_id] = zero;
     }
 
     // If all are broadcast we can just send the index to the last entry.
@@ -494,10 +494,10 @@ void IndexCompute::handle(Merge* merge) {
       zero_merged_in_.insert(inner_id);
     }
   } else if (hasZeroMerged(out_id)) {
-    // Don't propagate to inner id if it's comprised of only broadcast root
-    // domains, unless outer is also all broadcast domains. Index shouldn't be
-    // anything but zero if both inner and outer are all broadcast domains, but
-    // didn't add a hard check for this. See Indexing5 test.
+    // Don't propagate to inner id if it's comprised of only broadcast
+    // allocation domains, unless outer is also all broadcast domains. Index
+    // shouldn't be anything but zero if both inner and outer are all broadcast
+    // domains, but didn't add a hard check for this. See Indexing5 test.
     if (!inner_id->isBroadcast() && !outer_id->isBroadcast()) {
       // If neither dimension is a broadcast (should be true for reference
       // indexing) pick the preferred path or the inner path.
@@ -654,7 +654,6 @@ IndexCompute::IndexCompute(
       zero_domains_(std::move(zero_domains)),
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
-      root_to_indexed_id_{contig_finder.allocToIndexedID()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
@@ -1188,8 +1187,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // mentioned above
   auto producer_tv = tv;
   auto it = std::find_if(
-      tv->domain()->leaf().begin(),
-      tv->domain()->leaf().end(),
+      tv->getLeafDomain().begin(),
+      tv->getLeafDomain().end(),
       [&](IterDomain* tv_id) {
         // Matching is done using the index and loop maps. See
         // validateParallelize as well.
@@ -1199,7 +1198,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
 
   // There's no mapped producer ID. Zero substitution shouldn't be
   // done.
-  if (it == tv->domain()->leaf().end()) {
+  if (it == tv->getLeafDomain().end()) {
     return false;
   }
 
@@ -1343,8 +1342,8 @@ void ensureStaticIndexing(
     // the loop map, the loop index should be used for indexing of the
     // tensor, except for broadcast and reduction domains.
     auto it = std::find_if(
-        tv->domain()->leaf().begin(),
-        tv->domain()->leaf().end(),
+        tv->getLeafDomain().begin(),
+        tv->getLeafDomain().end(),
         [loop_id, &id_map](IterDomain* id) {
           if (id->isBroadcast() || id->isReduction() || id->isStride()) {
             return false;
@@ -1356,7 +1355,7 @@ void ensureStaticIndexing(
           return GpuLower::current()->caMap()->areMapped(
               loop_id, id, IdMappingMode::PERMISSIVE);
         });
-    if (it != tv->domain()->leaf().end()) {
+    if (it != tv->getLeafDomain().end()) {
       loop->requireUnroll();
     }
   }
@@ -1417,11 +1416,13 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       continue;
     }
 
+    auto producer_dim_contiguity = producer_tv->domain()->contiguity().at(dim);
     if (alloc_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(
-          !producer_tv->domain()->contiguity().at(dim).has_value());
-    } else if (*producer_tv->domain()->contiguity().at(dim)) {
+      TORCH_INTERNAL_ASSERT(!producer_dim_contiguity.has_value());
+    } else if (!producer_dim_contiguity.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+    } else if (producer_dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;
@@ -1487,7 +1488,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->domain()->leaf()) {
+  for (auto id : consumer_tv->getLeafDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -1549,9 +1550,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->domain()->leaf(),
-      consumer_tv->domain()->leaf(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1768,18 +1767,21 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
       continue;
     }
 
+    auto dim_contiguity = tv->domain()->contiguity().at(dim);
     if (alloc_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(!tv->domain()->contiguity().at(dim).has_value());
-    } else if (*tv->domain()->contiguity().at(dim)) {
+      TORCH_INTERNAL_ASSERT(!dim_contiguity.has_value());
+    } else if (!dim_contiguity.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+    } else if (dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
       strides[dim] = cur_contig_stride;
       // Prepare for the next dimension which may also be contiguous, multiply
       // by extent of this dimension
-      auto root_dim_extent = getHaloExtentOfRootAxis(alloc_dom[dim]);
+      auto alloc_dim_extent = getHaloExtentOfRootAxis(alloc_dom[dim]);
       cur_contig_stride =
-          SimplifyingIrBuilder::mulExpr(cur_contig_stride, root_dim_extent);
+          SimplifyingIrBuilder::mulExpr(cur_contig_stride, alloc_dim_extent);
     } else {
       // If non contiguous dimension, keep local stride information, set cur
       // stride to local stride * local raw extent
@@ -1831,7 +1833,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::getProducerRootIndices");
+  FUSER_PERF_SCOPE("GpuLower::Lower::getProducerAllocationIndices");
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
   auto pairwise_map =
@@ -1854,9 +1856,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->domain()->leaf(),
-      consumer_tv->domain()->leaf(),
-      c2p_root_map);
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
@@ -1962,25 +1962,25 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   auto consumer_indexing = index_from_id_graph.index;
   auto strides = getStrides(consumer_tv);
   // if we need to override index, we need to generate the index from each
-  // root axis firstly.
-  auto root_inds =
+  // allocation axis firstly.
+  auto alloc_inds =
       getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
 
   // Global striding
   auto vectorize_shift =
       loops.empty() ? nullptr : loops.back()->vectorize_shift();
   std::vector<Val*> strided_inds(
-      root_inds.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(root_inds.size())) {
+      alloc_inds.size(), GpuLower::current()->kernel()->zeroVal());
+  for (const auto i : c10::irange(alloc_inds.size())) {
     auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
-      root_inds[i] = override_it->second;
+      alloc_inds[i] = override_it->second;
     }
-    if (root_inds[i]->isZeroInt()) {
+    if (alloc_inds[i]->isZeroInt()) {
       continue;
     } else {
       auto strided_ind =
-          SimplifyingIrBuilder::mulExpr(root_inds[i], strides[i]);
+          SimplifyingIrBuilder::mulExpr(alloc_inds[i], strides[i]);
       if (i == strides.size() - 1 && vectorize_shift != nullptr) {
         strided_inds[i] =
             SimplifyingIrBuilder::addExpr(strided_ind, vectorize_shift);
@@ -2339,7 +2339,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   }
 
   ContigIDs contig_finder(
-      consumer_tv->domain()->leaf(),
+      consumer_tv->getLeafDomain(),
       consumer_root_domain,
       TensorDomain::getContiguityFilledWith(consumer_root_domain, true),
       final_ids,
@@ -2376,7 +2376,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
     // Pick inputs from the starting domains, i.e.,
     // reference_predicated_root_domain.
-    auto contig_alloc_ids = contig_finder.indexedRootIDs(contig_id);
+    auto contig_alloc_ids = contig_finder.indexedAllocIDs(contig_id);
     covered_roots.insert(contig_alloc_ids.begin(), contig_alloc_ids.end());
     PredicateDomainInfo contig_id_info;
     contig_id_info.id = contig_id;
@@ -2441,8 +2441,8 @@ int getUnswitchStopOffset(
 
   // Find if this contig_id is used in the unswitched domains
   auto unswitch_it = std::find_if(
-      consumer_tv->domain()->leaf().begin(),
-      consumer_tv->domain()->leaf().end(),
+      consumer_tv->getLeafDomain().begin(),
+      consumer_tv->getLeafDomain().end(),
       [](IterDomain* id) {
         return id->getParallelType() == ParallelType::Unswitch ||
             id->getParallelType() == ParallelType::Unroll ||
@@ -2453,7 +2453,7 @@ int getUnswitchStopOffset(
   // root domain, the halo width needs to be added to the stop offset
   if (std::any_of(
           unswitch_it,
-          consumer_tv->domain()->leaf().end(),
+          consumer_tv->getLeafDomain().end(),
           [&gpu_lower, &consumer_root_id](auto leaf_id) {
             return gpu_lower->haloInfo()->isHaloInherited(
                 consumer_root_id, leaf_id);

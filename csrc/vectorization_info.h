@@ -22,9 +22,9 @@ struct VectorizedSetInfo {
   int word_size = -1;
   //! Vectorized domain
   IterDomain* vectorized_leaf_id = nullptr;
-  //! Right-most alloc dependent domain of the leaf domain in consumer
-  IterDomain* vectorized_alloc_id = nullptr;
-  //! Right-most alloc dependent domain of the leaf domain in producer
+  //! Right-most allocation dependent domain of the leaf domain for consumer
+  IterDomain* vectorized_consumer_alloc_id = nullptr;
+  //! Right-most allocation dependent domain of the leaf domain for producer
   IterDomain* vectorized_producer_alloc_id = nullptr;
   //! All of the dependent allocation domains that are contiguously merged
   std::unordered_set<IterDomain*> contig_alloc_ids;

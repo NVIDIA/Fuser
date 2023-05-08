@@ -4117,8 +4117,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicPass_CUDA) {
   constexpr int kVecSize = 2;
   constexpr int kNumElems = kTDX * kVecSize;
 
-  auto tv0 = makeSymbolicTensor(kNumDims);
-  auto tv1 = makeSymbolicTensor(kNumDims);
+  auto tv0 = makeContigTensor(kNumDims);
+  auto tv1 = makeContigTensor(kNumDims);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -4335,6 +4335,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4386,6 +4388,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4437,9 +4441,8 @@ TEST_F(NVFuserTest, FusionVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
-
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -6899,7 +6902,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
       outer_reduction_axes.push_back(axis);
       at_sum_axes.push_back(axis);
       outer_broadcast_mask[axis] = true;
-      N = mul(N, input->domain()->leaf()[axis]->extent());
+      N = mul(N, input->getLeafDomain()[axis]->extent());
     }
   }
 
@@ -7250,7 +7253,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
 
   Val* num_features = IrBuilder::create<Double>(tv1->container(), 1);
   for (const auto dim : reduction_axes) {
-    num_features = mul(num_features, tv1->domain()->leaf()[dim]->extent());
+    num_features = mul(num_features, tv1->getLeafDomain()[dim]->extent());
   }
 
   auto tv5 = mul(tv1, tv0);
@@ -8557,7 +8560,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
-    for (auto id : x_consumer->domain()->leaf()) {
+    for (auto id : x_consumer->getLeafDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         found_vec_in_input = true;
         break;
@@ -8566,7 +8569,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
     TORCH_CHECK(found_vec_in_input, "Expect input to be vectorized");
   }
 
-  for (auto id : y->domain()->leaf()) {
+  for (auto id : y->getLeafDomain()) {
     if (isParallelTypeVectorize(id->getParallelType())) {
       return;
     }
@@ -9043,7 +9046,7 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 1. this can be moved to a dedicated "golden" file
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
+__global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
   int64_t i1201;
   i1201 = T0.size[2] * T0.size[1];
   int64_t i1204;
@@ -9187,7 +9190,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->domain()->leaf()) {
+    for (IterDomain* id : tv->getLeafDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

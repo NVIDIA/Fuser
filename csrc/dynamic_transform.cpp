@@ -281,7 +281,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
-      tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
+      tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
 
