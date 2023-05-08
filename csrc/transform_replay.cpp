@@ -532,9 +532,13 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
           std::unordered_set<IterDomain*>(
               producer->getRootDomain().begin(),
               producer->getRootDomain().end()) ==
-          std::unordered_set<IterDomain*>(
-              producer->getAllocationDomain().begin(),
-              producer->getAllocationDomain().end()));
+              std::unordered_set<IterDomain*>(
+                  producer->getAllocationDomain().begin(),
+                  producer->getAllocationDomain().end()),
+          "Currently, we only support the case where root <= allocation <= rfactor. ",
+          "Because the producer has no rFactor domain, ",
+          "The allocation domain must be the same set of IterDomains as the root domain. ",
+          "However, this condition is not satisfied.");
     }
   }
 
