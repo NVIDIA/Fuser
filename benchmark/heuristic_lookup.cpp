@@ -108,9 +108,9 @@ static void LayerNormBackward_HeuristicLookup(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
 
-  ExpressionEvaluator ee;
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      aten_inputs, fusion_ptr->inputs(), ee);
+      aten_inputs, fusion_ptr->inputs(), {});
 
   TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
 
@@ -165,9 +165,9 @@ static void LayerNormForward_HeuristicLookup(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
 
-  ExpressionEvaluator ee;
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      aten_inputs, fusion_ptr->inputs(), ee);
+      aten_inputs, fusion_ptr->inputs(), {});
 
   TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
 

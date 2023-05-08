@@ -73,9 +73,9 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
   CompileOptions options;
   options.device = c10::Device(c10::DeviceType::CUDA, device_index);
 
-  ExpressionEvaluator ee;
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   auto args = KernelArgumentHolder::createKernelArgumentHolder(
-      cluster_inputs, fusion_from_cluster->inputs(), ee);
+      cluster_inputs, fusion_from_cluster->inputs(), {});
   // Set parameters inferred by auto scheduler.
   if (maybe_scheduler_entry.has_value()) {
     auto scheduler_entry = maybe_scheduler_entry.value();

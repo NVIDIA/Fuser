@@ -367,7 +367,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
       const std::vector<Val*>& vals,
-      ExpressionEvaluator& eval);
+      ExpressionEvaluator eval);
 
   KernelArgumentHolder() = default;
 

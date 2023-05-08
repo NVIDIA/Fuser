@@ -7342,10 +7342,9 @@ TEST_F(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  ExpressionEvaluator ee;
   KernelArgumentHolder runtime_inputs =
       KernelArgumentHolder::createKernelArgumentHolder(
-          {aten_input, aten_weight, aten_bias}, fusion.inputs(), ee);
+          {aten_input, aten_weight, aten_bias}, fusion.inputs(), {});
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   TORCH_INTERNAL_ASSERT(isTranslated);
@@ -7805,14 +7804,13 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
         at::randn({std::numeric_limits<int>::max()}, options).ge(0);
     std::vector<c10::IValue> large_inputs = {t0_large};
 
-    ExpressionEvaluator ee;
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(
-            large_inputs, fusion.inputs(), ee)
+            large_inputs, fusion.inputs(), {})
             .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
     TORCH_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(
-            small_inputs, fusion.inputs(), ee)
+            small_inputs, fusion.inputs(), {})
             .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
     {

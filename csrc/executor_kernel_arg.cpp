@@ -182,7 +182,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     const std::vector<Val*>& vals,
-    ExpressionEvaluator& eval) {
+    ExpressionEvaluator eval) {
   if (inputs.empty()) {
     // default to device 0
     KernelArgumentHolder args;

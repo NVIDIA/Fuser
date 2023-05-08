@@ -118,10 +118,10 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
-  ExpressionEvaluator ee;
 
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      inputs, fusion_->inputs(), ee);
+      inputs, fusion_->inputs(), {});
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions

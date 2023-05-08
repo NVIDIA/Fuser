@@ -1133,9 +1133,9 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
 
 std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
     const at::ArrayRef<c10::IValue>& inputs) {
-  ExpressionEvaluator ee;
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(
-      inputs, fusion_->inputs(), ee);
+      inputs, fusion_->inputs(), {});
   auto expr_eval =
       executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
 

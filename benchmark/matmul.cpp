@@ -144,9 +144,9 @@ static void SingleMatmulBase(
   // inputs
   at::manual_seed(0);
 
-  ExpressionEvaluator ee;
+  // TODO: pass in an ExpressionEvaluator with input sizes bound
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      {inputs.first, inputs.second}, fusion->inputs(), ee);
+      {inputs.first, inputs.second}, fusion->inputs(), {});
 
   // Disable magic zero
   CompileParams cparams;

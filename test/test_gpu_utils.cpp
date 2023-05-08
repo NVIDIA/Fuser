@@ -502,9 +502,8 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper5_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2 * 3, 4}, options);
 
-  ExpressionEvaluator ee;
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      {inp}, fusion.inputs(), ee);
+      {inp}, fusion.inputs(), {});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 2);
@@ -894,9 +893,8 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper5_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2, 3 * 4}, options);
 
-  ExpressionEvaluator ee;
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
-      {inp}, fusion_ptr->inputs(), ee);
+      {inp}, fusion_ptr->inputs(), {});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 2);
