@@ -78,7 +78,7 @@ class ValidateSiblings : public IterVisitor {
 
       auto replay =
           BestEffortReplay(
-              sibling->domain()->leaf(), ref_output->domain()->leaf(), id_map)
+              sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
               .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
@@ -148,8 +148,8 @@ void validateIterDomainUsage(Fusion* fusion) {
 
     std::vector<Val*> leaf_domains;
     std::copy(
-        tv->domain()->leaf().begin(),
-        tv->domain()->leaf().end(),
+        tv->getLeafDomain().begin(),
+        tv->getLeafDomain().end(),
         std::back_inserter(leaf_domains));
 
     auto all_domain_vals =
@@ -306,39 +306,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // For the producer tensor, it's indexed first by transformed like
-  // the consumer. So, to find its contig merged domain, use the
-  // consumer TensorDomain with the producer contiguity info.
-  static std::vector<std::optional<bool>> mapProducerContiguity(
-      TensorView* producer_tv,
-      TensorView* consumer_tv) {
-    const auto c2p = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                         .mapConsumerToProducer(
-                             consumer_tv->domain(), producer_tv->domain());
-
-    std::vector<std::optional<bool>> producer_contiguity;
-
-    for (auto consumer_root_id : consumer_tv->getRootDomain()) {
-      auto producer_root_id = c2p.at(consumer_root_id);
-      if (producer_root_id->isBroadcast()) {
-        producer_contiguity.emplace_back(std::nullopt);
-        continue;
-      }
-      auto producer_root_it = std::find(
-          producer_tv->getMaybeRFactorDomain().begin(),
-          producer_tv->getMaybeRFactorDomain().end(),
-          producer_root_id);
-      TORCH_INTERNAL_ASSERT(
-          producer_root_it != producer_tv->getMaybeRFactorDomain().end());
-      auto producer_root_id_offset = std::distance(
-          producer_tv->getMaybeRFactorDomain().begin(), producer_root_it);
-      producer_contiguity.push_back(
-          producer_tv->domain()->contiguity().at(producer_root_id_offset));
-    }
-
-    return producer_contiguity;
-  }
-
  private:
   std::unordered_set<IterDomain*> domains_;
   IterDomain* vectorized_id_ = nullptr;
@@ -349,9 +316,8 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     bool misaligned_vectorize = false;
-    for (auto id : tv->domain()->leaf()) {
-      if (id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+    for (auto id : tv->getLeafDomain()) {
+      if (isParallelTypeVectorize(id->getParallelType())) {
         TORCH_INTERNAL_ASSERT(
             v_id == nullptr,
             "Found two vectorized domains in ",
@@ -820,8 +786,7 @@ void validatePartialSplit(Fusion* fusion) {
 
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprs(
-        tv->fusion(),
-        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
+        tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to
@@ -867,7 +832,7 @@ void validateMmaTensors(MmaOp* mma) {
       mma->out()->as<TensorView>()};
 
   for (auto tv : to_validate) {
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
         TORCH_INTERNAL_ASSERT(
@@ -899,8 +864,8 @@ void validateMmaTensors(MmaOp* mma) {
 
     TORCH_INTERNAL_ASSERT(
         std::all_of(
-            tv->domain()->leaf().begin() + tv->getComputeAtPosition(),
-            tv->domain()->leaf().end(),
+            tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
+            tv->getLeafDomain().end(),
             [](IterDomain* id) {
               return id->isMmaSwizzled() ||
                   // MMA instructions can only take inputs from registers,
@@ -996,7 +961,7 @@ void validateLdMatrixOutput(TensorView* tv) {
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->domain()->leaf()) {
+  for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = (int)id->extent()->evaluateInt();
       break;
@@ -1096,18 +1061,18 @@ void validateSwizzle(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
       std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+          tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->leaf().begin(),
-           tv->domain()->leaf().begin() + tv->getMaxComputePosition()});
+          {tv->getLeafDomain().begin(),
+           tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getMaybeRFactorDomain(),
-          {tv->domain()->leaf().begin() + tv->getMaxComputePosition(),
-           tv->domain()->leaf().end()});
+          {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
+           tv->getLeafDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -1288,7 +1253,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->domain()->leaf()) {
+      for (auto axis : out_tv->getLeafDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= (int)axis->extent()->getInt().value();
         }
@@ -1323,7 +1288,7 @@ void validateResize(Fusion* fusion) {
         fusion,
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()},
-        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
 
     TORCH_INTERNAL_ASSERT(
         std::none_of(

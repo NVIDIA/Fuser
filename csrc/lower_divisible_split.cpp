@@ -47,13 +47,13 @@ std::unordered_set<Split*> getAllDivisibleSplits(
   // Gather vectorized splits.
   for (auto tv : all_tvs) {
     auto vec_id_it = std::find_if(
-        tv->domain()->leaf().begin(),
-        tv->domain()->leaf().end(),
+        tv->getLeafDomain().begin(),
+        tv->getLeafDomain().end(),
         [](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
         });
 
-    if (vec_id_it == tv->domain()->leaf().end()) {
+    if (vec_id_it == tv->getLeafDomain().end()) {
       continue;
     }
 
