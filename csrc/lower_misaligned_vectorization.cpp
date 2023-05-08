@@ -539,14 +539,13 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
       // If it's not contiguous, extending the vectorization domain
       // further is not possible
-      auto producer_dim_contiguity = producer_contig.at(i);
-      TORCH_INTERNAL_ASSERT(producer_dim_contiguity.has_value());
+      // auto producer_dim_contiguity = producer_contig.at(i);
+      // TORCH_INTERNAL_ASSERT(producer_dim_contiguity.has_value());
 
       auto consumer_dim_contiguity = consumer_contig.at(consumer_root_idx);
       TORCH_INTERNAL_ASSERT(consumer_dim_contiguity.has_value());
 
-      if (!(producer_dim_contiguity.value() &&
-            consumer_dim_contiguity.value())) {
+      if (!(producer_contig.at(i).value() && consumer_dim_contiguity.value())) {
         break;
       }
 
