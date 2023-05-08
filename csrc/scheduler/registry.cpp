@@ -1202,7 +1202,9 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   }
 
   // If the inner most dimension is not contiguous return 1
-  if (!*contiguity[id_pos]) {
+  auto contiguity_opt = contiguity.at(id_pos);
+  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+  if (!*contiguity_opt) {
     return 1;
   }
 
