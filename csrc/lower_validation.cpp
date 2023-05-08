@@ -595,7 +595,7 @@ void fillVectorizedContigAllocationDomains(
       contig_finder.allocToIndexedID().find(vectorized_consumer_alloc_id);
   TORCH_INTERNAL_ASSERT(
       consumer_indexed_it != contig_finder.allocToIndexedID().end(),
-      "Contiguity information not found for root domain: ",
+      "Contiguity information not found for alloc domain: ",
       vectorized_consumer_alloc_id->toString());
   auto consumer_indexed_id = consumer_indexed_it->second;
 
@@ -604,9 +604,9 @@ void fillVectorizedContigAllocationDomains(
   std::unordered_set<IterDomain*> indexed_alloc_ids;
 
   if (consumer_indexed_id == vectorized_consumer_alloc_id) {
-    // Indexed domain is equal to the root domain, meaning no contig
+    // Indexed domain is equal to the allocation domain, meaning no contig
     // merge is involved.
-    indexed_root_ids.insert(vectorized_consumer_alloc_id);
+    indexed_alloc_ids.insert(vectorized_consumer_alloc_id);
   } else {
     auto consumer_within_contig_it =
         contig_finder.withinContigIDs().find(consumer_indexed_id);
@@ -622,12 +622,12 @@ void fillVectorizedContigAllocationDomains(
         });
   }
 
-  // Store the contig merged alloc domains. If it is already set, pick
+  // Store the contig merged allocation domains. If it is already set, pick
   // the smaller one as it is used for validating divisibility of the
   // merged extent.
   if (info.contig_alloc_ids.empty() ||
-      indexed_root_ids.size() < info.contig_alloc_ids.size()) {
-    info.contig_alloc_ids = indexed_root_ids;
+      indexed_alloc_ids.size() < info.contig_alloc_ids.size()) {
+    info.contig_alloc_ids = indexed_alloc_ids;
   }
 }
 
@@ -674,7 +674,7 @@ void fillProducerVectorizedContigAllocationDomains(
 
   VectorizedSetInfo& info = *it;
 
-  fillVectorizedContigRootDomains(
+  fillVectorizedContigAllocDomains(
       producer_tv, contig_finder, info.vectorized_producer_alloc_id, info);
 }
 
