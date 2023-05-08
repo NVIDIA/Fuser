@@ -180,7 +180,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
     // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
+    tv->split((int)(idx - tile_dimension_size), (int)tile_sizes.at(idx));
   }
 
   // The transformation happened should look like:
@@ -315,7 +315,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // pointer to the current target postion after
   //  repordering
-  int current_pos = leftmost_pos;
+  int current_pos = (int)leftmost_pos;
   std::unordered_map<int, int> reorder_map_old_to_new;
 
   // first place all the broadcast and reduction on the left:

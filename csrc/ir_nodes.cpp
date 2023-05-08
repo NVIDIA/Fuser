@@ -2619,7 +2619,7 @@ TensorDomain::TensorDomain(
       root_domain_(std::move(root_domain)),
       leaf_domain_(root_domain_),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)),
       has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
@@ -2637,7 +2637,7 @@ TensorDomain::TensorDomain(
       root_domain_(std::move(root_domain)),
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
@@ -2662,7 +2662,7 @@ TensorDomain::TensorDomain(
       rfactor_domain_(std::move(rfactor_domain)),
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
@@ -2693,7 +2693,7 @@ TensorDomain::TensorDomain(
       allocation_domain_(std::move(allocation_domain)),
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 

@@ -1311,8 +1311,9 @@ bool hasInnerDim(
   TORCH_INTERNAL_ASSERT(contiguity.size() == rfactor_dom.size());
 
   // Don't vectorize if inner most dimension is not contiguous
-  TORCH_INTERNAL_ASSERT(contiguity.at(inner_most_dim_pos).has_value())
-  if (!*contiguity.at(inner_most_dim_pos)) {
+  auto contiguity_opt = contiguity.at(inner_most_dim_pos);
+  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value())
+  if (!*contiguity_opt) {
     return false;
   }
 
@@ -2202,7 +2203,7 @@ void promoteProducerMemoryTypes(
     for (const auto i :
          c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
-          producer->axis((int)i + producer->getComputeAtPosition());
+          producer->axis((int)(i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
       if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
         continue;
