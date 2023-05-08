@@ -82,7 +82,7 @@ ir_utils::TVDomainGuard noAllocationDomainGuard(
       tv->getRFactorDomain(),
       tv->getLeafDomain(),
       TensorDomain::getContiguityFilledWith(
-          tv->getRFactorDomain(), contiguity));
+          tv->getMaybeRFactorDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
