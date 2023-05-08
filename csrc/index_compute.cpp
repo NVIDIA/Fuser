@@ -1712,7 +1712,7 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::noAllocationDomainGuard(consumer_tv, true);
+  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, true);
   return sumVals(
       getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
 }
@@ -1721,7 +1721,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::noAllocationDomainGuard(consumer_tv, false);
+  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, false);
   IndexFromIdGraph index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
   return getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
@@ -1733,7 +1733,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::noAllocationDomainGuard(producer_tv, false);
+  auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
   return getProducerAllocationIndices(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 }
