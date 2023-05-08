@@ -1167,7 +1167,7 @@ void validateCooperativeLaunch(
 // information. Note that inputs and outputs are those that are passed
 // to FusionExecutor::runFusion, so outputs may not be given.
 void dumpFusionArgs(
-    int fusion_id,
+    int64_t fusion_id,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
@@ -1192,7 +1192,7 @@ void dumpFusionArgs(
 // and outputs passed to FusionExecutor::runFusion, this function
 // dumps those that are passed to a CUDA kernel.
 void dumpKernelArgs(
-    int fusion_id,
+    int64_t fusion_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
@@ -1387,7 +1387,7 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
         dynamic_smem_size));
     available_dynamic_smem_size_ = dynamic_smem_size;
   }
-  return available_dynamic_smem_size_.value();
+  return getAvailableDynamicSmemSize();
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
