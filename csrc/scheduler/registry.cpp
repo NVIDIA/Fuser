@@ -1296,24 +1296,18 @@ class NoOpScheduler : public SchedulerEntry {
         auto all_nonzero = std::none_of(
             concrete_dimension.begin(),
             concrete_dimension.end(),
-            [](IterDomain* id) { return id->extent()->isZeroInt(); });
+            [](IterDomain* id) {
+              // Purely symbolic extents _might_ be zero depending on inputs.
+              // These will need to be checked at runtime. So we should only
+              // reject if the extent is known to be non-zero at compile time.
+              return !id->extent()->isConstInt() || id->extent()->isZeroInt();
+            });
         if (all_nonzero) {
           scheduler_debug_utils::canScheduleRejectReason(
               ScheduleHeuristic::NoOp,
               "reduction of non-zero elements is not supported");
           return false;
         }
-      }
-    }
-
-    // Check that all outputs are either broadcast or ignored reduction.
-    for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-      auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->domain()->leaf()));
-      if (!concrete_dimension.empty()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::NoOp, "output has a concrete dimension");
-        return false;
       }
     }
 
@@ -1335,11 +1329,36 @@ class NoOpScheduler : public SchedulerEntry {
       HeuristicSummary* data_cache = nullptr) {
     // TODO:
     //  Pipe through dynamic zero checks.
+
+    for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+      for (auto id : output->domain()->root()) {
+        // Check that there are no concrete output dimensions of non-zero size
+        if (id->isReduction() || id->isBroadcast()) {
+          continue;
+        }
+        if (runtime_info.expressionEvaluator()
+                .evaluate(id->extent())
+                .value()
+                .as<int64_t>() != 0) {
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
   void schedule(Fusion* fusion) override {
-    // Schedule is no-op.
+    // Schedule is no-op, but we need to remove problematic ops. In particular,
+    // reductions with zero concrete size should be converted to full ops.
+    fusion->print();
+    std::cout << "\nRemoving reductions\n" << std::endl;
+    for (auto rop : fusion->exprs()) {
+      if (rop->isA<ReductionOp>() || rop->isA<WelfordOp>()) {
+        ir_utils::replaceReductionWithFull(rop);
+      }
+    }
+    fusion->print();
     return;
   }
 

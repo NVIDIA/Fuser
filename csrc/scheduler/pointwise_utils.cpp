@@ -54,11 +54,14 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   for (auto id :
        ir_utils::filterByType<IterDomain>(input_tv->container()->vals())) {
     if (id->isReduction()) {
-      auto concrete =
-          ca_map_.getConcreteMappedID(id, IdMappingMode::PERMISSIVE);
-      auto conc_it = in_concrete_ids.find(concrete);
-      if (conc_it != in_concrete_ids.end()) {
-        in_concrete_ids.erase(conc_it);
+      // Guard against IDs that were not processed when building ca_map_
+      if (ca_map_.idExistsInMap(id)) {
+        auto concrete =
+            ca_map_.getConcreteMappedID(id, IdMappingMode::PERMISSIVE);
+        auto conc_it = in_concrete_ids.find(concrete);
+        if (conc_it != in_concrete_ids.end()) {
+          in_concrete_ids.erase(conc_it);
+        }
       }
     }
   }
