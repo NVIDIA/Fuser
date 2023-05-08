@@ -974,8 +974,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
-      {consumer_tv->getAllocationDomain().begin(),
-       consumer_tv->getAllocationDomain().end()},
+      {consumer_tv->getMaybeAllocationDomain().begin(),
+       consumer_tv->getMaybeAllocationDomain().end()},
       {consumer_tv->getLeafDomain().begin(),
        consumer_tv->getLeafDomain().end()});
 
@@ -1319,8 +1319,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
 
     // Annotate all ids
     auto all_original_ids = DependencyCheck::getAllValsBetween(
-        {original_tv->getAllocationDomain().begin(),
-         original_tv->getAllocationDomain().end()},
+        {original_tv->getMaybeAllocationDomain().begin(),
+         original_tv->getMaybeAllocationDomain().end()},
         {original_tv->getLeafDomain().begin(),
          original_tv->getLeafDomain().end()});
 
