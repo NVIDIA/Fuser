@@ -266,7 +266,8 @@ ExpressionEvaluator bindInputsAndLaunchParams(
     const at::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints) {
   KernelArgumentHolder argument_holder;
-  argument_holder.push(aten_inputs, fusion->inputs(), {});
+  ExpressionEvaluator ee;
+  argument_holder.push(aten_inputs, fusion->inputs(), ee);
 
   auto expr_eval = executor_utils::bindInputs(argument_holder, fusion);
   for (auto val : fusion->vals()) {
