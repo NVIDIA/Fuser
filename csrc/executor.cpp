@@ -1385,7 +1385,6 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
         compiled_kernel_.function,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
         dynamic_smem_size));
-    std::cerr << "Set done" << std::endl;
     available_dynamic_smem_size_ = dynamic_smem_size;
   }
   return available_dynamic_smem_size_.value();

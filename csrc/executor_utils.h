@@ -28,14 +28,13 @@
 
 namespace nvfuser {
 
-#define NVRTC_SAFE_CALL(x)                               \
-  do {                                                   \
-    nvrtcResult _result = x;                             \
-    if (_result != NVRTC_SUCCESS) {                      \
-      std::cerr << "\nerror: " #x " failed with error "  \
-                << nvrtcGetErrorString(_result) << '\n'; \
-      exit(1);                                           \
-    }                                                    \
+#define NVRTC_SAFE_CALL(x)                       \
+  do {                                           \
+    nvrtcResult _result = x;                     \
+    TORCH_INTERNAL_ASSERT(                       \
+        _result == NVRTC_SUCCESS,                \
+        "NVRTC error: " #x "failed with error ", \
+        nvrtcGetErrorString(_result));           \
   } while (0)
 
 #define CUDA_SAFE_CALL(x)              \
@@ -55,15 +54,15 @@ namespace nvfuser {
     }                                  \
   } while (0)
 
-#define CUDA_RT_SAFE_CALL(x)                                            \
-  do {                                                                  \
-    cudaError_t _result = x;                                            \
-    if (_result != cudaSuccess) {                                       \
-      std::cerr << "\nerror: " << cudaGetErrorName(_result)             \
-                << " failed with error " << cudaGetErrorString(_result) \
-                << '\n';                                                \
-      exit(1);                                                          \
-    }                                                                   \
+#define CUDA_RT_SAFE_CALL(x)          \
+  do {                                \
+    cudaError_t _result = x;          \
+    TORCH_INTERNAL_ASSERT(            \
+        _result == cudaSuccess,       \
+        "CUDA error: ",               \
+        cudaGetErrorName(_result),    \
+        " failed with error ",        \
+        cudaGetErrorString(_result)); \
   } while (0)
 
 namespace executor_utils {
