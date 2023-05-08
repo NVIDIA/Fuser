@@ -524,7 +524,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     is_contig_alloc_[alloc_domain_id] = false;
     // If a allocation domain has halo, can't use merged domain even if
     // both inputs are contiguous. HaloInfo is also initialized for
-    // rfactor allocation domains, which should just return "zero"
+    // rfactor root domains, which should just return "zero"
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
     auto alloc_contiguity_opt = alloc_contiguity_.at(alloc_domain_i);
