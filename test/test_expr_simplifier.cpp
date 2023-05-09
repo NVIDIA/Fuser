@@ -1081,4 +1081,15 @@ TEST_F(ExprSimplifierTest, Assume_CUDA) {
   ASSERT_TRUE(assume::tensorsAreNotEmpty(expr)->sameAs("T0.size[0] > 0"_));
 }
 
+TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
+  auto expect = "i1 < ( i2 * T0.size[0] )"_;
+
+  ASSERT_TRUE(simplified->sameAs(expect));
+}
+
 } // namespace nvfuser

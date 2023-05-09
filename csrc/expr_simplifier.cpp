@@ -1741,6 +1741,38 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   return value;
 }
 
+// Apply rule 1 in [Simplification of boolean predicates] to convert
+// i / d < D into i < d * D
+Val* convertDivToMulInPredicate(Val* value, const Context& context) {
+  auto bop = dynamic_cast<BinaryOp*>(value->definition());
+  if (!bop) {
+    return value;
+  }
+  if (bop->getBinaryOpType() != BinaryOpType::LT) {
+    return value;
+  }
+  auto lhs = bop->lhs();
+  auto rhs = bop->rhs();
+  bop = dynamic_cast<BinaryOp*>(lhs->definition());
+  if (!bop) {
+    return value;
+  }
+  if (bop->getBinaryOpType() != BinaryOpType::Div) {
+    return value;
+  }
+  auto numerator = bop->lhs();
+  auto denominator = bop->rhs();
+  if (isValidDenominator(denominator, context) &&
+      prove::isNonNegative(numerator, context) &&
+      prove::isNonNegative(denominator, context)) {
+    auto new_rhs = maybeFlattenedOpOf(BinaryOpType::Mul, {rhs, denominator});
+    auto out = IrBuilder::newScalar(DataType::Bool);
+    IrBuilder::create<BinaryOp>(BinaryOpType::LT, out, numerator, new_rhs);
+    return out;
+  }
+  return value;
+}
+
 // Apply rule L to replace x % y with 0 if x can be proved to be a multiple of y
 // Also, according to rule M, if x can be factorized as x = k * y, then x / y
 // can be simplified as x / y = (k * y) / y = k * (y / y) = k
@@ -2378,6 +2410,7 @@ Val* simplifyExpr(
     RUN_PASS(simplifyDivisibleDivMod);
     RUN_PASS(cancelDivMod);
     RUN_PASS(fundamentalDivisionWithRemainderProperty);
+    RUN_PASS(convertDivToMulInPredicate);
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
     RUN_PASS(distributeGcdRemainderDivMod);
