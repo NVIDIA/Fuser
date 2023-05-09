@@ -326,6 +326,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! the given size
   int64_t ensureAvailableDynamicSmemSize(int64_t dynamic_smem_size);
 
+  //! Clear the cached properties of the compiled kernel
+  void resetCompiledKernelProperties();
+
  private:
   CompileOptions options_;
 

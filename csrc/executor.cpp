@@ -370,8 +370,7 @@ void FusionExecutor::compileFusion(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
-  available_dynamic_smem_size_.reset();
-  static_smem_size_.reset();
+  resetCompiledKernelProperties();
 
   // If the dynamic shmem size is known, make sure the compiled kernel
   // has at least that size of dynamic shmem
@@ -1320,8 +1319,7 @@ void FusionExecutor::recompileKernel(
           maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
-  available_dynamic_smem_size_.reset();
-  static_smem_size_.reset();
+  resetCompiledKernelProperties();
 
   if (kernel()->summary().has_cooperative_grid_reduction) {
     // We need to increase shared memory before kernel launch, but also before
@@ -1388,6 +1386,11 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     available_dynamic_smem_size_ = dynamic_smem_size;
   }
   return getAvailableDynamicSmemSize();
+}
+
+void FusionExecutor::resetCompiledKernelProperties() {
+  available_dynamic_smem_size_.reset();
+  static_smem_size_.reset();
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
