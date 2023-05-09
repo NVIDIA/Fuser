@@ -550,9 +550,8 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::ScalarRecord<bool>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ScalarConstantBool,
-            buffer->data_as_Bool()->bool_val(),
-            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()),
-            false);
+            std::optional<bool>(buffer->data_as_Bool()->bool_val()),
+            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarConstantBool,
@@ -564,9 +563,8 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::ScalarRecord<double>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ScalarConstantDouble,
-            data->double_val(),
-            mapToNvfuserDtype(data->dtype()),
-            false);
+            std::optional<double>(data->double_val()),
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarConstantDouble,
@@ -578,9 +576,9 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::ScalarRecord<std::complex<double>>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ScalarConstantComplexDouble,
-            std::complex<double>(data->real(), data->imag()),
-            mapToNvfuserDtype(data->dtype()),
-            false);
+            std::optional<std::complex<double>>(
+                std::complex<double>(data->real(), data->imag())),
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarConstantComplexDouble,
@@ -592,9 +590,8 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::ScalarRecord<int64_t>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ScalarConstantInt,
-            data->int_val(),
-            mapToNvfuserDtype(data->dtype()),
-            false);
+            std::optional<int64_t>(data->int_val()),
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarConstantInt, deserializeScalarConstantIntRecord);
@@ -701,9 +698,8 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::ScalarRecord<std::nullptr_t>(
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ScalarInput,
-        nullptr,
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()),
-        true);
+        std::nullopt,
+        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
   };
   registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
 

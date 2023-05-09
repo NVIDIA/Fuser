@@ -117,9 +117,8 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
     std::unique_ptr<RecordFunctor> new_record(new ScalarRecord<std::nullptr_t>(
         {State(1, serde::StateType_Scalar)},
         serde::RecordType_ScalarInput,
-        nullptr,
-        DataType::Float,
-        true));
+        std::nullopt,
+        DataType::Float));
     TrieNode* root = fc->rootTriePtr();
     TrieNode* node = nullptr;
 
