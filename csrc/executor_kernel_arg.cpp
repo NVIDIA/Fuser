@@ -90,7 +90,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
     TensorView* tv,
     ExpressionEvaluator& eval,
     bool index_type_resolved) {
-  switch (TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()) {
+  switch (tv->getMaybeAllocationDomain().size()) {
     case (0):
       return getTensorArg<T, 0, nvfuser_index_t>(
           tensor, tv, eval, index_type_resolved);
@@ -222,10 +222,8 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator& eval) {
-  const auto& alloc_dom =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& rfactor_dom =
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
+  const auto& rfactor_dom = tv->getMaybeRFactorDomain();
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   for (auto i : c10::irange((int64_t)rfactor_dom.size())) {

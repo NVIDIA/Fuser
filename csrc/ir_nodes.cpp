@@ -2587,17 +2587,15 @@ namespace {
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
-  auto alloc_dom_no_reduction = TensorDomain::noReductions(allocation_domain);
   TORCH_CHECK(
-      contiguity.size() == alloc_dom_no_reduction.size(),
+      contiguity.size() == allocation_domain.size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity.size(),
       " but needed one of size ",
-      alloc_dom_no_reduction.size());
+      allocation_domain.size());
   for (auto i : c10::irange(contiguity.size())) {
     TORCH_CHECK(
-        alloc_dom_no_reduction.at(i)->isBroadcast() !=
-            contiguity.at(i).has_value(),
+        allocation_domain.at(i)->isBroadcast() != contiguity.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -3107,9 +3105,7 @@ std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
-    if (id->isReduction()) {
-      continue;
-    } else if (id->isBroadcast()) {
+    if (id->isBroadcast()) {
       contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);

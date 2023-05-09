@@ -623,11 +623,9 @@ void validateAlignedVectorizedFusionInputOutput(
       ", data type: ",
       aten_tensor.dtype());
 
-  auto alloc_no_reduction = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-
   ExpressionEvaluator eval;
   auto sizes_strides = getAllocationSizesAndStrides(aten_tensor, tv, eval);
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == alloc_no_reduction.size());
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getMaybeAllocationDomain().size());
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
@@ -635,7 +633,7 @@ void validateAlignedVectorizedFusionInputOutput(
   bool still_rightmost = true;
   for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
     const auto [size, stride] = sizes_strides.at(i);
-    auto root_id = alloc_no_reduction.at(i);
+    auto root_id = tv->getMaybeAllocationDomain().at(i);
     const auto is_expanded_broadcasting =
         root_id->isBroadcast() && root_id->hasExpandedExtent();
 
