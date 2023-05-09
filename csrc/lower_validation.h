@@ -33,7 +33,6 @@ void fillConsumerVectorizedContigAllocationDomains(
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,
     const ContigIDs& contig_finder);
 
 //! Validates partial split expressions. Partial split only uses an
