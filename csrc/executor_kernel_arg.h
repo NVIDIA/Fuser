@@ -62,7 +62,7 @@ struct TensorArgCodegen {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = N;
-  size_t data_ptr_address = 0;
+  T* data = nullptr;
   std::array<nvfuser_index_t, N> size;
   std::array<nvfuser_index_t, N> stride;
 
@@ -89,7 +89,7 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   using data_type = T;
   using index_type = nvfuser_index_t;
   static constexpr int ndims = 0;
-  size_t data_ptr_address = 0;
+  T* data = nullptr;
 
   constexpr int nDims() const {
     return 0;
@@ -213,7 +213,8 @@ struct TensorArg : public TensorArgAbstract {
 
   TensorArg(const at::Tensor& tensor, bool index_type_resolved)
       : tensor_(tensor), index_type_resolved_(index_type_resolved) {
-    instance_.data_ptr_address = (size_t)tensor.data_ptr();
+    instance_.data =
+        static_cast<decltype(TENSOR_TYPE::data)>(tensor.data_ptr());
     for (const auto i : c10::irange(tensor.ndimension())) {
       setSize(i, tensor.sizes()[i]);
       setStride(i, tensor.strides()[i]);
@@ -248,7 +249,7 @@ struct TensorArg : public TensorArgAbstract {
     return instance_.nDims();
   }
   size_t getPointerAddress() const override {
-    return instance_.data_ptr_address;
+    return (size_t)instance_.data;
   }
   DataType getDataType() const override {
     return NativeTypeWithC10ComplexToDataType<
