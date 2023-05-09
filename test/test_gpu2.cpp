@@ -5577,7 +5577,8 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
 
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
-  args.push(t0);
+  ExpressionEvaluator ee;
+  args.push(t0, tv0, ee);
 
   auto segmented_fusion =
       SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
@@ -8208,7 +8209,8 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
 
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
-  args.push(aten_inputs);
+  ExpressionEvaluator ee;
+  args.push(aten_inputs, {t0, t1, t3, t5, t7, t11, t13, t15, t17}, ee);
   args.push(val);
 
   for (auto i : c10::irange(5)) {
