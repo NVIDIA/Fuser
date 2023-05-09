@@ -89,7 +89,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         TORCH_CHECK(
             input.isInt(),
             "Scalar input affects concretization but is not Int");
-        encoding_ += std::to_string(input.toInt());
+        encodeBuffer(input.toInt(), encoding_);
       }
     }
     encoding_.push_back(';');
