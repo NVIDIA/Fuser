@@ -37,14 +37,19 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return fusion_;
   }
 
+  //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
     return dynamic_reshapes_.size() > 0 || dynamic_reductions_.size() > 0;
   }
 
-  const std::vector<TensorView*>& getDynamicReshapes() const {
+  //! Return a vector of ViewOp expressions that have dynamic output shapes
+  const std::vector<ViewOp*>& getDynamicReshapes() const {
     return dynamic_reshapes_;
   }
 
+  //! Return a vector of reduction expressions (ReductionOp or WelfordOp) that
+  //! have dynamic shapes and thus might be replaced by full or squeeze
+  //! operations
   const std::vector<TensorView*>& getDynamicReductions() const {
     return dynamic_reductions_;
   }
@@ -59,7 +64,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
  private:
   Fusion* fusion_ = nullptr;
 
-  std::vector<TensorView*> dynamic_reshapes_;
+  std::vector<ViewOp*> dynamic_reshapes_;
 
   std::vector<TensorView*> dynamic_reductions_;
 
@@ -72,7 +77,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
       Fusion* fusion,
-      DynamicTransformInitialInfo* info,
+      const DynamicTransformInitialInfo* info,
       ExpressionEvaluator* expr_eval)
       : fusion_(fusion) {
     TORCH_INTERNAL_ASSERT(
@@ -99,7 +104,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   }
 
   void analyzeReshapes(
-      DynamicTransformInitialInfo* info,
+      const DynamicTransformInitialInfo* info,
       ExpressionEvaluator* expr_eval);
 
   Fusion* fusion() const {
@@ -131,14 +136,14 @@ class TORCH_CUDA_CU_API DynamicTransform {
   //! input sizes given through an expression evaluator.
   static DynamicTransformConcretizationInfo getConcretizationInfo(
       Fusion* fusion,
-      DynamicTransformInitialInfo* info,
+      const DynamicTransformInitialInfo* info,
       ExpressionEvaluator* expr_eval);
 
   //! Get concrete transformations for a symbolic fusion with concrete
   //! input sizes given through kernel arguments
   static DynamicTransformConcretizationInfo getConcretizationInfo(
       Fusion* fusion,
-      DynamicTransformInitialInfo* info,
+      const DynamicTransformInitialInfo* info,
       const KernelArgumentHolder* args);
 
   //! Concretizes a given fusion. Note that the concretization is

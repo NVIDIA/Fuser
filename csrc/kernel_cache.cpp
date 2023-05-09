@@ -381,7 +381,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   }
 
   // Get precomputed initial concretization info
-  auto initial_info =
+  const auto& initial_info =
       fusion_->getManaged<DynamicTransformInitialInfo>("initial_info");
 
   // Compute concretization info given inputs. This object points to Vals in
@@ -450,13 +450,14 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           "Copied Fusion is missing managed concretization info");
       DynamicTransform::concretizeFusion(
           fusion.get(), cloned_conc_info.value());
-      // The information in cloned_conc_info refers to variables in the copied
-      // symbolic fusion which get replaced during concretization. Keeping
-      // these around during a subsequent fusion copy would lead to an attempt
-      // to clone them, ending in a segfault. Instead, we reset the object
-      // here, effectively as if it now describes a non-dynamic Fusion.
-      // cloned_conc_info.clear();
+      // The information in initial_info and cloned_conc_info refers to
+      // variables in the copied symbolic fusion which get replaced during
+      // concretization. Keeping these around during a subsequent fusion copy
+      // would lead to an attempt to clone them, ending in a segfault. Instead,
+      // we reset the object here, effectively as if it now describes a
+      // non-dynamic Fusion.
       fusion->stopManaging(conc_info_index);
+      fusion->stopManaging("initial_info");
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));

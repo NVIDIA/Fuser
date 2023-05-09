@@ -21,7 +21,8 @@ namespace nvfuser {
 
 DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
-  DynamicTransformInitialInfo cloned_info((Fusion*)ir_cloner.container());
+  DynamicTransformInitialInfo cloned_info(
+      static_cast<Fusion*>(ir_cloner.container()));
   cloned_info.dynamic_reshapes_.reserve(dynamic_reshapes_.size());
   for (const auto tv : dynamic_reshapes_) {
     if (tv) {
@@ -29,6 +30,17 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     }
   }
   return cloned_info;
+}
+
+std::string DynamicTransformInitialInfo::toString() const {
+  std::stringstream ss;
+  ss << "DynamicTransformInitialInfo\n";
+  std::string indent = "  ";
+  ss << indent << "Dynamic reshapes:\n";
+  for (const auto& op : dynamic_reshapes_) {
+    ss << indent << indent << op->toString() << "\n";
+  }
+  return ss.str();
 }
 
 //! Gather information about concretizing transformations without
@@ -44,7 +56,7 @@ class DynamicTransformInfoBuilder : public IterVisitor {
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symblic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshapes_.push_back(out_tv);
+      info_.dynamic_reshapes_.push_back(op);
     }
   }
 
@@ -66,13 +78,11 @@ DynamicTransformInfoBuilder::DynamicTransformInfoBuilder(Fusion* fusion)
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
-    DynamicTransformInitialInfo* info,
+    const DynamicTransformInitialInfo* info,
     ExpressionEvaluator* expr_eval) {
-  for (auto out_tv : info->getDynamicReshapes()) {
-    TORCH_INTERNAL_ASSERT(
-        out_tv->definition() != nullptr,
-        "Dynamic reshape must have definition");
-    auto inp_tv = out_tv->definition()->as<ViewOp>()->in()->as<TensorView>();
+  for (const auto op : info->getDynamicReshapes()) {
+    auto inp_tv = op->in()->as<TensorView>();
+    auto out_tv = op->out()->as<TensorView>();
 
     // If there's no symblic axis, this is a static reshape op
     if (!out_tv->domain()->hasSymbolicAxis()) {
@@ -178,7 +188,7 @@ bool DynamicTransformConcretizationInfo::operator==(
 DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformConcretizationInfo cloned_info(
-      (Fusion*)ir_cloner.container());
+      static_cast<Fusion*>(ir_cloner.container()));
   for (auto& pair : reshape_transforms_) {
     cloned_info.reshape_transforms_.emplace_back(
         ir_cloner.clone(pair.first),
@@ -496,14 +506,14 @@ DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
 
 DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
-    DynamicTransformInitialInfo* info,
+    const DynamicTransformInitialInfo* info,
     ExpressionEvaluator* expr_eval) {
   return DynamicTransformConcretizationInfo(fusion, info, expr_eval);
 }
 
 DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
-    DynamicTransformInitialInfo* info,
+    const DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
   ExpressionEvaluator expr_eval;
 
