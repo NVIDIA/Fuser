@@ -1011,7 +1011,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -1020,7 +1020,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -1029,7 +1029,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_right);
   TORCH_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -1039,7 +1039,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
   tv->reorder(swap);
   TORCH_CHECK(ref[0]->sameAs(tv->axis(2)));
   TORCH_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -1203,18 +1203,18 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 1. this can be moved to a dedicated "golden" file
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
-  int64_t i590;
-  i590 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i590 < T0.size[0])) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
+  int64_t i86;
+  i86 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  if ((i86 < T0.size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
-       = T1[i590];
+       = T1[i86];
     float T4[1];
     T4[0] = 0;
     T4[0]
-       = T0[i590];
+       = T0[i86];
     float T2[1];
     T2[0]
       = T4[0]
@@ -1223,7 +1223,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Te
     T6[0]
       = T2[0]
       * T4[0];
-    T3[i590]
+    T3[i86]
        = T6[0];
   }
 }
@@ -1923,13 +1923,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->domain()->leaf();
+  auto tv5_domain = tv5->getLeafDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->domain()->leaf();
+  auto tv5_domain_current = tv5->getLeafDomain();
   TORCH_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;

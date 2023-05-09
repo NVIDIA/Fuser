@@ -270,7 +270,7 @@ void IrGraphGenerator::generateScheduleGraph() {
       if (tv->domain()->hasRFactor())
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->domain()->getRFactorDomain()),
+            IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
             "[style=dashed, color=green, arrowhead=none]");
     }
   }
@@ -398,7 +398,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << (has_rfactor ? " (r-factor domain)" : "")
         << "|{";
   int axis = 0;
-  for (auto iter_domain : tv->domain()->getMaybeRFactorDomain()) {
+  for (auto iter_domain : tv->getMaybeRFactorDomain()) {
     if (axis != 0) {
       label << "|";
     }

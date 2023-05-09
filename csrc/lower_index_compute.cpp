@@ -52,7 +52,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->domain()->leaf()) {
+  for (auto id : consumer_tv->getLeafDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -520,9 +520,9 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
         // Make sure consumer_leaf_id is indeed a consumer leaf ID
         TORCH_INTERNAL_ASSERT(
             std::find(
-                consumer_tv->domain()->leaf().begin(),
-                consumer_tv->domain()->leaf().end(),
-                consumer_leaf_id) != consumer_tv->domain()->leaf().end(),
+                consumer_tv->getLeafDomain().begin(),
+                consumer_tv->getLeafDomain().end(),
+                consumer_leaf_id) != consumer_tv->getLeafDomain().end(),
             "Not a consumer leaf ID: ",
             consumer_leaf_id->toString(),
             ", consumer: ",
@@ -539,8 +539,8 @@ void LoopIndexingAnalysis::run() {
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
       {consumer_tv_->getRootDomain().begin(),
        consumer_tv_->getRootDomain().end()},
-      {consumer_tv_->domain()->leaf().begin(),
-       consumer_tv_->domain()->leaf().end()});
+      {consumer_tv_->getLeafDomain().begin(),
+       consumer_tv_->getLeafDomain().end()});
 
   // Resolve definition of each exact concrete id's involved in the whole loop
   // nest transform history
@@ -833,13 +833,13 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // Populate indexing through exact map from initial indexing
   auto consumer_root = index_producer ? consumer_tv->getRootDomain()
-                                      : consumer_tv->getMaybeRFactorDomain();
+                                      : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->domain()->leaf().begin(),
-       consumer_tv->domain()->leaf().end()});
+      {consumer_tv->getLeafDomain().begin(),
+       consumer_tv->getLeafDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -910,8 +910,8 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->domain()->leaf(),
-      target_tv->getMaybeRFactorDomain(),
+      target_tv->getLeafDomain(),
+      target_tv->getMaybeAllocationDomain(),
       target_tv->domain()->contiguity(),
       {},
       indexing.indexMap(),
@@ -920,16 +920,17 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
+
   auto target_indexing = indexing.updateIndexCompute(
       target_tv->domain(), index_update_map, contig_finder);
 
   // Fill validation info.
   // TODO: cleanup seems possible.
   if (index_producer) {
-    fillProducerVectorizedContigRootDomains(
-        producer_tv, consumer_tv, c2p_map, contig_finder);
+    fillProducerVectorizedContigAllocationDomains(
+        producer_tv, consumer_tv, contig_finder);
   } else {
-    fillConsumerVectorizedContigRootDomains(consumer_tv, contig_finder);
+    fillConsumerVectorizedContigAllocationDomains(consumer_tv, contig_finder);
   }
 
   return IndexFromIdGraph(
@@ -973,10 +974,10 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
-      {consumer_tv->getMaybeRFactorDomain().begin(),
-       consumer_tv->getMaybeRFactorDomain().end()},
-      {consumer_tv->domain()->leaf().begin(),
-       consumer_tv->domain()->leaf().end()});
+      {consumer_tv->getMaybeAllocationDomain().begin(),
+       consumer_tv->getMaybeAllocationDomain().end()},
+      {consumer_tv->getLeafDomain().begin(),
+       consumer_tv->getLeafDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -1207,9 +1208,9 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
 
   // Start the set with all the leaf ids.
   std::transform(
-      consumer_tv_->domain()->leaf().begin() +
+      consumer_tv_->getLeafDomain().begin() +
           consumer_tv_->getComputeAtPosition(),
-      consumer_tv_->domain()->leaf().end(),
+      consumer_tv_->getLeafDomain().end(),
       std::inserter(out_of_line_ids, out_of_line_ids.end()),
       exactConcreteId);
 
@@ -1318,10 +1319,10 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
 
     // Annotate all ids
     auto all_original_ids = DependencyCheck::getAllValsBetween(
-        {original_tv->getMaybeRFactorDomain().begin(),
-         original_tv->getMaybeRFactorDomain().end()},
-        {original_tv->domain()->leaf().begin(),
-         original_tv->domain()->leaf().end()});
+        {original_tv->getMaybeAllocationDomain().begin(),
+         original_tv->getMaybeAllocationDomain().end()},
+        {original_tv->getLeafDomain().begin(),
+         original_tv->getLeafDomain().end()});
 
     for (auto original_id :
          ir_utils::filterByType<IterDomain>(all_original_ids)) {

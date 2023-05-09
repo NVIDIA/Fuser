@@ -47,7 +47,7 @@ namespace {
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
   auto& parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
-  for (auto id : tv->domain()->leaf()) {
+  for (auto id : tv->getLeafDomain()) {
     if (id->isThreadDim()) {
       auto ptype = id->getParallelType();
       // Need to predicate to avoid out of bound access
@@ -88,7 +88,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
     PredicateAnalyzer analyzer(disjoint_c2p_ids);
 
-    for (auto id : consumer->domain()->leaf()) {
+    for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
         return true;
       }
@@ -298,8 +298,8 @@ class PredicateChcker : public IterVisitor {
     for (const auto& inputs_or_outputs : inputs_and_outputs) {
       for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
         if (std::any_of(
-                tv->domain()->leaf().begin(),
-                tv->domain()->leaf().end(),
+                tv->getLeafDomain().begin(),
+                tv->getLeafDomain().end(),
                 [](IterDomain* axis) {
                   return axis->getParallelType() ==
                       ParallelType::MisalignedVectorize;
@@ -409,7 +409,7 @@ class PredicateChcker : public IterVisitor {
       }
     }
 
-    for (auto id : consumer->domain()->leaf()) {
+    for (auto id : consumer->getLeafDomain()) {
       // TODO: (Enable in a follow up)
       //  smem predicate removal with init would break unroll and unswitch,
       //  eg. as in issue 1133, so disabling this removal pattern for now.
@@ -495,7 +495,7 @@ class PredicateChcker : public IterVisitor {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
            output->getMaybeRFactorDomain().end()},
-          {output->domain()->leaf().begin(), output->domain()->leaf().end()});
+          {output->getLeafDomain().begin(), output->getLeafDomain().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
           output->getMaybeRFactorDomain().begin(),
