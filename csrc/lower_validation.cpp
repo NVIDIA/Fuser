@@ -493,11 +493,9 @@ class VectorizeValidator : public OptInDispatch {
     auto c2p_map =
         BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
             .getReplay();
-    if (auto c2p_it = c2p_map.find(v_id); c2p_it != c2p_map.end()) {
-      vectorized_set_info.vectorized_producer_alloc_id =
-          getVectorizedIdInAllocationDomain(
-              c2p_it->second, producer_tv, "producer");
-    }
+    vectorized_set_info.vectorized_producer_alloc_id =
+        getVectorizedIdInAllocationDomain(
+            c2p_map.at(v_id), producer_tv, "producer");
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually
@@ -664,7 +662,6 @@ void fillConsumerVectorizedContigAllocationDomains(
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
   auto it = std::find_if(
