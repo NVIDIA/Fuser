@@ -532,6 +532,8 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
         alloc_domain_id->isReduction() != alloc_contiguity.has_value(),
         "Expecting a reduction because contiguity has no value, get ",
         alloc_domain_id->toString());
+    // Index of merged reductions can always be coalesced, so considering
+    // reduction as true contiguity.
     if (alloc_contiguity.value_or(true) &&
         !halo_info_->getRootAxisInfo(alloc_domain_id).hasHalo() &&
         alloc_domain_id->getIterType() != IterType::GatherScatter) {
@@ -627,6 +629,8 @@ void ContigIDs::handle(Merge* merge) {
           alloc_id->isReduction() != alloc_contiguity.has_value(),
           "Expecting a reduction because contiguity has no value, get ",
           alloc_id->toString());
+      // Index of merged reductions can always be coalesced, so considering
+      // reduction as true contiguity.
       if (!alloc_contiguity.value_or(true) && is_indexing_pass) {
         if (!alloc_ids.empty()) {
           return;
