@@ -1411,12 +1411,11 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   return true;
 }
 
-// TODO: Actually assert if self mapping found. Self mapping test is not correct
-// yet.
 void IterDomainGraphs::assertNoSelfMapping() {
   if (hasSelfMapping()) {
-    TORCH_WARN(
-        "IdGraphs thinks there's a self mapping in the problem. It's probably IdGraphs problem, not yours... ",
+    TORCH_INTERNAL_ASSERT(
+        !hasSelfMapping(),
+        "Unsupported domain mapping detected in ",
         std::get<0>(*self_mapping_info_)->toString(),
         ". ",
         std::get<3>(*self_mapping_info_),
@@ -1679,8 +1678,11 @@ findFirstSelfMapping(
     }
 
     // Leaf domains
+    // TODO: Exact map isn't quite right here, it should be based on the index
+    // map. However, it should also be impossible for index map to generate a
+    // case like this.
     auto self_mappped_leaf_pair =
-        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::LOOP);
+        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::EXACT);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
