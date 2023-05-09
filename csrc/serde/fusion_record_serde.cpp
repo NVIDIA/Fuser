@@ -547,11 +547,12 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeScalarConstantBoolRecord =
       [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_Bool();
         return new python_frontend::ScalarRecord<bool>(
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ScalarConstantBool,
-            std::optional<bool>(buffer->data_as_Bool()->bool_val()),
-            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+            std::optional<bool>(data->bool_val()),
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarConstantBool,
@@ -695,11 +696,12 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 
   auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_ScalarInput();
     return new python_frontend::ScalarRecord<std::nullptr_t>(
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ScalarInput,
         std::nullopt,
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
 
