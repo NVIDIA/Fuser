@@ -4117,8 +4117,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicPass_CUDA) {
   constexpr int kVecSize = 2;
   constexpr int kNumElems = kTDX * kVecSize;
 
-  auto tv0 = makeSymbolicTensor(kNumDims);
-  auto tv1 = makeSymbolicTensor(kNumDims);
+  auto tv0 = makeContigTensor(kNumDims);
+  auto tv1 = makeContigTensor(kNumDims);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -4335,6 +4335,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4386,6 +4388,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4437,9 +4441,8 @@ TEST_F(NVFuserTest, FusionVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
-
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
