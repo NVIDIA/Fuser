@@ -589,7 +589,7 @@
 //
 // So, we have the following rule for trunc division:
 // Rule 1: For i >= 0, d > 0, i / d < D <=> i < D * d
-// > D*d Proof:
+// Proof:
 // 1. i / d < D => i < D * d
 //    Consider the function f(x) = x / d, it is weakly increasing. Also note
 //    that D = D * d / d.
