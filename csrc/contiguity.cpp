@@ -527,9 +527,8 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     // rfactor root domains, which should just return "zero"
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
-    auto alloc_contiguity_opt = alloc_contiguity_.at(alloc_domain_i);
-    TORCH_INTERNAL_ASSERT(alloc_contiguity_opt.has_value());
-    if (alloc_contiguity_opt.value() &&
+    auto alloc_contiguity = alloc_contiguity_.at(alloc_domain_i);
+    if (alloc_contiguity.value_or(false) &&
         !halo_info_->getRootAxisInfo(alloc_domain_id).hasHalo() &&
         alloc_domain_id->getIterType() != IterType::GatherScatter) {
       contig_ids_.emplace(alloc_domain_id);
@@ -619,9 +618,8 @@ void ContigIDs::handle(Merge* merge) {
       // If we're computing predicates (ignore_consistent_ordering_==true),
       // then we don't have this same constraint, we can just ignore
       // contiguity of the allocations all together.
-      auto alloc_contiguity_opt = alloc_contiguity_.at(alloc_id_i);
-      TORCH_INTERNAL_ASSERT(alloc_contiguity_opt.has_value());
-      if (!alloc_contiguity_opt.value() && is_indexing_pass) {
+      auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
+      if (!alloc_contiguity.value_or(false) && is_indexing_pass) {
         if (!alloc_ids.empty()) {
           return;
         }
