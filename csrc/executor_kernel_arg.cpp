@@ -90,7 +90,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
     TensorView* tv,
     ExpressionEvaluator& eval,
     bool index_type_resolved) {
-  switch (tv->getMaybeAllocationDomain().size()) {
+  switch (TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()) {
     case (0):
       return getTensorArg<T, 0, nvfuser_index_t>(
           tensor, tv, eval, index_type_resolved);
@@ -222,13 +222,19 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator& eval) {
-  const auto& alloc_dom = tv->getMaybeAllocationDomain();
-  const auto& rfactor_dom = tv->getMaybeRFactorDomain();
+  const auto& alloc_dom =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  const auto& rfactor_dom =
+      TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  for (auto i : c10::irange((int64_t)rfactor_dom.size())) {
-    auto rf_id = rfactor_dom.at(i);
-    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  int64_t no_reduction_i = 0;
+  for (auto rf_id : rfactor_dom) {
+    if (!rf_id->isReduction()) {
+      active_ids[rf_id] = {
+          tensor.size(no_reduction_i), tensor.stride(no_reduction_i)};
+      no_reduction_i++;
+    }
   }
   // traverse forward from rfactor to alloc
   auto forward_exprs = StmtSort::getExprsBetween(
@@ -306,8 +312,8 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
       auto inner = merge->inner();
       auto outer = merge->outer();
       auto out = merge->out();
-      auto [out_size, out_stride] = active_ids.at(out);
       auto factor = eval.evaluate(inner->extent())->as<int64_t>();
+      auto [out_size, out_stride] = active_ids.at(out);
       TORCH_INTERNAL_ASSERT(
           out_size % factor == 0,
           "The size of the output must divisible by the size of inner dimension");
@@ -330,23 +336,23 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
   // compute final result
   std::vector<std::pair<int64_t, int64_t>> sizes_strides;
   sizes_strides.reserve(alloc_dom.size());
-  for (auto id : alloc_dom) {
+  for (auto i : c10::irange(alloc_dom.size())) {
+    auto id = alloc_dom.at(i);
     sizes_strides.emplace_back(active_ids.at(id));
   }
   // validate final strides with contiguity
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getContiguity().size());
   int64_t contiguous_stride = 1;
+  std::vector<std::optional<bool>> contiguity = tv->getContiguity();
   for (int64_t i = sizes_strides.size() - 1; i >= 0; i--) {
-    auto contiguity_opt = tv->getContiguity().at(i);
-    constexpr const char* err = "Contiguity info mismatch with broadcast info";
     if (alloc_dom.at(i)->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!contiguity_opt.has_value(), err);
       continue;
     }
-    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value(), err);
-    bool contiguity = *contiguity_opt;
+    while (!contiguity.back().has_value()) {
+      contiguity.pop_back();
+      continue;
+    }
     auto [size, stride] = sizes_strides.at(i);
-    if (contiguity) {
+    if (*contiguity.back()) {
       TORCH_CHECK(
           stride == contiguous_stride,
           "Stride mismatch with contiguity info. ",
@@ -362,6 +368,7 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
           stride);
     }
     contiguous_stride = stride * size;
+    contiguity.pop_back();
   }
   return sizes_strides;
 }

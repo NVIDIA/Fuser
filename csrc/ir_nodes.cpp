@@ -2594,8 +2594,10 @@ void validateContiguity(
       " but needed one of size ",
       allocation_domain.size());
   for (auto i : c10::irange(contiguity.size())) {
+    auto should_be_null = allocation_domain.at(i)->isBroadcast() ||
+        allocation_domain.at(i)->isReduction();
     TORCH_CHECK(
-        allocation_domain.at(i)->isBroadcast() != contiguity.at(i).has_value(),
+        should_be_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -3105,7 +3107,7 @@ std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
-    if (id->isBroadcast()) {
+    if (id->isBroadcast() || id->isReduction()) {
       contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
