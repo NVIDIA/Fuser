@@ -49,7 +49,9 @@ int getProducerHaloOffset(
           .mapDifferentExtents(true)
           .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
 
-  auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
+  auto producer_id =
+      TensorDomain::noReductions(producer_tv->getMaybeAllocationDomain())
+          .at(producer_axis);
 
   auto it = p2c.find(producer_id);
   // p2c should always have a mapping for producer_id. The only case
@@ -1389,17 +1391,14 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   auto alloc_indices = getProducerAllocationIndices(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 
-  const auto& alloc_dom = producer_tv->getMaybeAllocationDomain();
+  const auto& alloc_dom =
+      TensorDomain::noReductions(producer_tv->getMaybeAllocationDomain());
 
   // TODO: Abstract stride logic to reuse with consumer indexing
   std::vector<Val*> strides(alloc_dom.size(), nullptr);
   {
     int stride_i = 0;
     for (const auto i : c10::irange(alloc_dom.size())) {
-      if (alloc_dom[i]->isReduction()) {
-        strides[i] = GpuLower::current()->kernel()->oneVal();
-        continue;
-      }
       std::stringstream ss;
       ss << "T" << producer_tv->name() << ".stride[" << stride_i++ << "]";
       strides[i] =
@@ -1598,29 +1597,14 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   const auto& zero_domain_map = producer_indexing.zeroDomains();
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
-  auto alloc_dom = producer_tv->getMaybeAllocationDomain();
-
-  // Figure out which alloc axes we don't need to index
-  std::unordered_set<IterDomain*> skip_indexing;
-
-  for (auto alloc_id : alloc_dom) {
-    // Already taken care of because we can detect no indexing required
-    if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride()) {
-      skip_indexing.insert(alloc_id);
-      continue;
-    }
-
-    // Already an entry for this allocation domain, continue
-    if (index_map.find(alloc_id) != index_map.end()) {
-      continue;
-    }
-  }
+  auto alloc_dom =
+      TensorDomain::noReductions(producer_tv->getMaybeAllocationDomain());
 
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (skip_indexing.count(alloc_dom[i])) {
+    auto alloc_id = alloc_dom.at(i);
+    if (alloc_id->isBroadcast()) {
       continue;
     }
 
@@ -1659,7 +1643,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     // Compute striding for this index.
     Val* stride = nullptr;
     for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
-      if (skip_indexing.count(alloc_dom[j])) {
+      auto alloc_id = alloc_dom.at(j);
+      if (alloc_id->isBroadcast()) {
         continue;
       }
 
@@ -1741,7 +1726,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
 std::vector<Val*> Index::getStrides(const TensorView* tv) {
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
-  auto alloc_dom = tv->getMaybeAllocationDomain();
+  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
 
   std::vector<Val*> strides(
       alloc_dom.size(), GpuLower::current()->kernel()->oneVal());
@@ -1763,9 +1748,6 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
-    if (alloc_dom[dim]->isReduction() || alloc_dom[dim]->isStride()) {
-      continue;
-    }
 
     auto dim_contiguity = tv->domain()->contiguity().at(dim);
     if (alloc_dom[dim]->isBroadcast()) {
@@ -1796,7 +1778,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops,
     const IndexFromIdGraph& index_from_id_graph) {
-  auto alloc_dom = tv->getMaybeAllocationDomain();
+  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   auto indexing = index_from_id_graph.index;
 
   std::vector<Val*> alloc_inds(
@@ -1901,13 +1883,14 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
-  auto alloc_dom = producer_tv->getMaybeAllocationDomain();
+  auto alloc_dom =
+      TensorDomain::noReductions(producer_tv->getMaybeAllocationDomain());
 
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
+    if (alloc_dom[i]->isBroadcast()) {
       continue;
     }
 
@@ -1991,7 +1974,9 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   }
 
   TORCH_INTERNAL_ASSERT(
-      strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
+      strided_inds.size() ==
+      TensorDomain::noReductions(consumer_tv->getMaybeAllocationDomain())
+          .size());
 
   return strided_inds;
 }
@@ -2032,12 +2017,12 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
-  auto alloc_dom = consumer_tv->getMaybeAllocationDomain();
+  auto alloc_dom =
+      TensorDomain::noReductions(consumer_tv->getMaybeAllocationDomain());
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride()) {
+    if (alloc_dom[i]->isBroadcast()) {
       continue;
     }
 
@@ -2110,7 +2095,9 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   // index, so it's just much simpler to check here before adding the
   // additional index for double buffering.
   TORCH_INTERNAL_ASSERT(
-      strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
+      strided_inds.size() ==
+      TensorDomain::noReductions(consumer_tv->getMaybeAllocationDomain())
+          .size());
 
   if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
     auto db_loop =
@@ -2306,9 +2293,10 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   // root domain. The actual size of an IterDomain after resize
   // changes, and the output IterDomain needs to be used to generate
   // its predicate.
-  const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
-      ? consumer_tv->getMaybeRFactorDomain()
-      : consumer_tv->getRootDomain();
+  const auto& consumer_root_domain = TensorDomain::noReductions(
+      ir_utils::hasResizedRfactor(consumer_tv)
+          ? consumer_tv->getMaybeRFactorDomain()
+          : consumer_tv->getRootDomain());
 
   if (consumer_root_domain.empty()) {
     return std::vector<PredicateDomainInfo>();
