@@ -29,7 +29,7 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(tv));
     }
   }
-  // cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
+  cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
   return cloned_info;
 }
 
