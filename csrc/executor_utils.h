@@ -28,39 +28,41 @@
 
 namespace nvfuser {
 
-#define NVRTC_SAFE_CALL(x)                               \
-  do {                                                   \
-    nvrtcResult _result = x;                             \
-    if (_result != NVRTC_SUCCESS) {                      \
-      std::cerr << "\nerror: " #x " failed with error "  \
-                << nvrtcGetErrorString(_result) << '\n'; \
-      exit(1);                                           \
-    }                                                    \
+#define NVRTC_SAFE_CALL(x)                       \
+  do {                                           \
+    nvrtcResult _result = x;                     \
+    TORCH_INTERNAL_ASSERT(                       \
+        _result == NVRTC_SUCCESS,                \
+        "NVRTC error: " #x "failed with error ", \
+        nvrtcGetErrorString(_result));           \
   } while (0)
 
-#define CUDA_SAFE_CALL(x)                                              \
-  do {                                                                 \
-    CUresult _result = x;                                              \
-    if (_result != CUDA_SUCCESS) {                                     \
-      const char* msg;                                                 \
-      const char* name;                                                \
-      cuGetErrorName(_result, &name);                                  \
-      cuGetErrorString(_result, &msg);                                 \
-      std::cerr << "\nerror: " << name << " failed with error " << msg \
-                << '\n';                                               \
-      exit(1);                                                         \
-    }                                                                  \
+#define CUDA_SAFE_CALL(x)              \
+  do {                                 \
+    CUresult _result = x;              \
+    if (_result != CUDA_SUCCESS) {     \
+      const char* msg;                 \
+      const char* name;                \
+      cuGetErrorName(_result, &name);  \
+      cuGetErrorString(_result, &msg); \
+      TORCH_INTERNAL_ASSERT(           \
+          _result == CUDA_SUCCESS,     \
+          "CUDA error: ",              \
+          name,                        \
+          " failed with error ",       \
+          msg);                        \
+    }                                  \
   } while (0)
 
-#define CUDA_RT_SAFE_CALL(x)                                            \
-  do {                                                                  \
-    cudaError_t _result = x;                                            \
-    if (_result != cudaSuccess) {                                       \
-      std::cerr << "\nerror: " << cudaGetErrorName(_result)             \
-                << " failed with error " << cudaGetErrorString(_result) \
-                << '\n';                                                \
-      exit(1);                                                          \
-    }                                                                   \
+#define CUDA_RT_SAFE_CALL(x)          \
+  do {                                \
+    cudaError_t _result = x;          \
+    TORCH_INTERNAL_ASSERT(            \
+        _result == cudaSuccess,       \
+        "CUDA error: ",               \
+        cudaGetErrorName(_result),    \
+        " failed with error ",        \
+        cudaGetErrorString(_result)); \
   } while (0)
 
 namespace executor_utils {
@@ -89,8 +91,8 @@ std::string disassembleBinary(
     const std::string& nvdisasm_args);
 
 struct NvrtcFunction {
-  CUmodule module = CUmodule();
-  CUfunction function = CUfunction();
+  CUmodule module = nullptr;
+  CUfunction function = nullptr;
 };
 
 // Returns executable function and the ptxas log from compilation
@@ -98,7 +100,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     std::optional<int64_t> opt_block_size = std::nullopt,
     const int64_t max_register_heuristic = 255,
     bool return_compiled_binary = false);
