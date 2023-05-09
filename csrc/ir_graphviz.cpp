@@ -398,7 +398,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << "|";
   label << "{";
   bool first_axis = true;
-  for (auto iter_domain : tv->domain()->leaf()) {
+  for (auto iter_domain : tv->getLeafDomain()) {
     if (first_axis) {
       first_axis = false;
     } else {
