@@ -113,7 +113,17 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)),
-      has_dynamic_reshape_(fusion_->hasDynamicTransform()) {}
+      has_dynamic_reshape_(fusion_->hasDynamicTransform()) {
+  // Precompute initial concretization info and attach it to the fusion as
+  // managed data
+  fusion_->manage(
+      "initial_info",
+      DynamicTransform::getInitialInfo(fusion_.get()),
+      [](IrCloner& ir_cloner, std::any data) -> std::any {
+        auto orig_info = std::any_cast<DynamicTransformInitialInfo>(data);
+        return orig_info.clone(ir_cloner);
+      });
+}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -370,13 +380,18 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
+  // Get precomputed initial concretization info
+  auto initial_info =
+      fusion_->getManaged<DynamicTransformInitialInfo>("initial_info");
+
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   size_t conc_info_index = 0;
-  if (has_dynamic_reshape_) {
-    conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
+  if (initial_info.hasDynamicTransforms()) {
+    conc_info = DynamicTransform::getConcretizationInfo(
+        fusion_.get(), &initial_info, &args);
     TORCH_CHECK(
         conc_info.has_value(),
         "Unable to get concretization info for dynamic Fusion");

@@ -63,7 +63,9 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, 4);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -80,7 +82,9 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, -1);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -99,7 +103,13 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // This should fail as (4 * 3) is not evenly divisible by 5
     EXPECT_THAT(
-        [&]() { DynamicTransform::getConcretizationInfo(&fusion, &expr_eval); },
+        [&]() {
+          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+          auto info = DynamicTransform::getConcretizationInfo(
+              &fusion, &initial_info, &expr_eval);
+          DynamicTransform::getConcretizationInfo(
+              &fusion, &initial_info, &expr_eval);
+        },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Cannot infer")));
   }
@@ -136,7 +146,9 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     expr_eval.bind(tv2->axis(0)->extent(), 3);
     expr_eval.bind(tv2->axis(1)->extent(), 4);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
@@ -176,7 +188,9 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv1->axis(0)->extent(), shape_after.at(0));
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
   TORCH_CHECK(
@@ -241,7 +255,9 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
       expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
     }
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -288,7 +304,9 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     expr_eval.bind(tv1->axis(0)->extent(), before_after.second.at(0));
     expr_eval.bind(tv1->axis(1)->extent(), before_after.second.at(1));
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -340,7 +358,9 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
       }
     }
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -419,8 +439,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
     }
 
-    auto ref_info =
-        DynamicTransform::getConcretizationInfo(&fusion, &ref_expr_eval);
+    auto ref_initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto ref_info = DynamicTransform::getConcretizationInfo(
+        &fusion, &ref_initial_info, &ref_expr_eval);
 
     for (const auto& transform : pattern.equal_transforms) {
       TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
@@ -433,7 +454,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
         }
       }
 
-      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+      auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+      auto info = DynamicTransform::getConcretizationInfo(
+          &fusion, &initial_info, &expr_eval);
 
       TORCH_CHECK(
           ref_info == info,
@@ -454,7 +477,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
         }
       }
 
-      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+      auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+      auto info = DynamicTransform::getConcretizationInfo(
+          &fusion, &initial_info, &expr_eval);
 
       TORCH_CHECK(
           ref_info != info,
@@ -518,7 +543,9 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   expr_eval.bind(tv0->axis(1)->extent(), 4);
   expr_eval.bind(reshape_shape0, 12);
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
@@ -556,7 +583,9 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   expr_eval.bind(tv1->axis(0)->extent(), 4);
   expr_eval.bind(tv1->axis(1)->extent(), 3);
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -590,7 +619,9 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval1.bind(tv1->axis(1)->extent(), 2);
   expr_eval1.bind(tv1->axis(2)->extent(), 3);
 
-  auto info1 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval1);
+  auto initial_info1 = DynamicTransform::getInitialInfo(&fusion);
+  auto info1 = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info1, &expr_eval1);
 
   ExpressionEvaluator expr_eval2;
   ;
@@ -602,7 +633,9 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval2.bind(tv1->axis(1)->extent(), 2);
   expr_eval2.bind(tv1->axis(2)->extent(), 2);
 
-  auto info2 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval2);
+  auto initial_info2 = DynamicTransform::getInitialInfo(&fusion);
+  auto info2 = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info2, &expr_eval2);
 
   // Generally different concretizations doesn't always mean different
   // hashes, but in this case they should be different
@@ -747,7 +780,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (int i : c10::irange(output_dims)) {
+  for (auto i : c10::irange(output_dims)) {
     output_shape[i] = IrBuilder::create<Int>();
     fusion.addInput(output_shape[i]);
   }
@@ -802,14 +835,14 @@ void reductionDynamicViewAddFusion(
         }
       }
       if (negone_dim >= 0) {
-        bias_shape[negone_dim] = at_x.numel() / other_numel;
+        bias_shape[negone_dim] = (long)at_x.numel() / (long)other_numel;
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (int i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+    for (auto i : c10::irange(output_dims)) {
+      aten_inputs.emplace_back(output_shape[i]);
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);

@@ -19,40 +19,135 @@
 
 namespace nvfuser {
 
-//! Gather information about concretizing transformations with
+DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
+    IrCloner& ir_cloner) const {
+  DynamicTransformInitialInfo cloned_info((Fusion*)ir_cloner.container());
+  cloned_info.dynamic_reshapes_.reserve(dynamic_reshapes_.size());
+  for (const auto tv : dynamic_reshapes_) {
+    if (tv) {
+      cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(tv));
+    }
+  }
+  return cloned_info;
+}
+
+//! Gather information about concretizing transformations without
 //! concrete input sizes.
 class DynamicTransformInfoBuilder : public IterVisitor {
  public:
-  DynamicTransformInfoBuilder(Fusion* fusion, ExpressionEvaluator* expr_eval);
+  DynamicTransformInfoBuilder(Fusion* fusion);
 
   using IterVisitor::handle;
 
   // Analyze a dynamic reshape and generate AnalyzeViewResult
-  void handle(ViewOp* op) override;
+  void handle(ViewOp* op) override {
+    auto out_tv = op->out()->as<TensorView>();
+    // If there's no symblic axis, this is a static reshape op
+    if (out_tv->domain()->hasSymbolicAxis()) {
+      info_.dynamic_reshapes_.push_back(out_tv);
+    }
+  }
 
   const auto& getInfo() const {
     return info_;
   }
 
  private:
-  ExpressionEvaluator* expr_eval_ = nullptr;
-
-  DynamicTransformConcretizationInfo info_;
+  DynamicTransformInitialInfo info_;
 };
 
-DynamicTransformInfoBuilder::DynamicTransformInfoBuilder(
-    Fusion* fusion,
-    ExpressionEvaluator* expr_eval)
-    : expr_eval_(expr_eval), info_(fusion) {
+DynamicTransformInfoBuilder::DynamicTransformInfoBuilder(Fusion* fusion)
+    : info_(fusion) {
   TORCH_INTERNAL_ASSERT(
       !fusion->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
-  // Make sure all exactly mapped IDs have the same value in the
-  // evaluator when any one of the IDs has a known value
-  expr_eval_->propagateBoundValuesThroughExactMaps(fusion);
-
   traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+}
+
+void DynamicTransformConcretizationInfo::analyzeReshapes(
+    DynamicTransformInitialInfo* info,
+    ExpressionEvaluator* expr_eval) {
+  for (auto out_tv : info->getDynamicReshapes()) {
+    TORCH_INTERNAL_ASSERT(
+        out_tv->definition() != nullptr,
+        "Dynamic reshape must have definition");
+    auto inp_tv = out_tv->definition()->as<ViewOp>()->in()->as<TensorView>();
+
+    // If there's no symblic axis, this is a static reshape op
+    if (!out_tv->domain()->hasSymbolicAxis()) {
+      return;
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        out_tv->hasRFactor(),
+        "Unexpected output tv of ViewOp: ",
+        out_tv->toString());
+
+    const auto& inp_dom =
+        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+
+    // Determine input shape using expr evaluator
+    std::vector<int64_t> inp_shape(inp_dom.size(), 0);
+    for (const auto i : c10::irange(inp_dom.size())) {
+      auto inp_id = inp_dom.at(i);
+      // This should have been validated when initially creating reshape
+      // op, but just in case
+      TORCH_INTERNAL_ASSERT(
+          !inp_id->maybePartial(),
+          "Invalid domain to reshape: ",
+          inp_id->toString());
+      auto extent_val = expr_eval->evaluate(inp_id->extent());
+      TORCH_INTERNAL_ASSERT(
+          extent_val.has_value(),
+          "Cannot evaluate the extent of an input domain to reshape: ",
+          inp_id->toString());
+      TORCH_INTERNAL_ASSERT(
+          extent_val->isInt(),
+          "Invalid evaluated value of domain extent: ",
+          inp_id->toString());
+      TORCH_INTERNAL_ASSERT(
+          extent_val->as<int64_t>() > 0,
+          "Invalid input domain extent: ",
+          extent_val->as<int64_t>());
+      inp_shape.at(i) = extent_val->as<int64_t>();
+    }
+
+    const auto& out_dom = out_tv->getMaybeRFactorDomain();
+
+    // Determine output shape using expr evaluator. Note there may be
+    // one domain of extent -1
+    std::vector<int64_t> out_shape(out_dom.size(), 0);
+    bool extent_m1_found = false;
+    for (const auto i : c10::irange(out_dom.size())) {
+      auto out_id = out_dom.at(i);
+      auto extent_val = expr_eval->evaluate(out_id->extent());
+      TORCH_INTERNAL_ASSERT(
+          extent_val.has_value(),
+          "Cannot evaluate the extent of an output domain to reshape: ",
+          out_id->toString());
+      TORCH_INTERNAL_ASSERT(
+          extent_val->isInt(),
+          "Invalid evaluated value of domain extent: ",
+          out_id->toString());
+      const auto extent_int = extent_val->as<int64_t>();
+      if (extent_int == -1) {
+        TORCH_INTERNAL_ASSERT(
+            !extent_m1_found,
+            "Multiple output domains of size -1 not allowed",
+            out_tv->toString());
+        extent_m1_found = true;
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            extent_int > 0, "Invalid output domain extent: ", extent_int);
+      }
+      out_shape.at(i) = extent_int;
+    }
+
+    auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
+
+    reshape_transforms_.emplace_back(out_tv, view_result);
+  }
 }
 
 bool DynamicTransformConcretizationInfo::operator==(
@@ -105,85 +200,6 @@ std::string DynamicTransformConcretizationInfo::toString() const {
        << kv.second.toString() << "\n";
   }
   return ss.str();
-}
-
-void DynamicTransformInfoBuilder::handle(ViewOp* op) {
-  auto inp_tv = op->in()->as<TensorView>();
-  auto out_tv = op->out()->as<TensorView>();
-
-  // If there's no symblic axis, this should be a static reshape op
-  if (!out_tv->domain()->hasSymbolicAxis()) {
-    return;
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      out_tv->hasRFactor(),
-      "Unexpected output tv of ViewOp: ",
-      out_tv->toString());
-
-  const auto& inp_dom =
-      TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-
-  // Determine input shape using expr evaluator
-  std::vector<int64_t> inp_shape(inp_dom.size(), 0);
-  for (const auto i : c10::irange(inp_dom.size())) {
-    auto inp_id = inp_dom.at(i);
-    // This should have been validated when initially creating reshape
-    // op, but just in case
-    TORCH_INTERNAL_ASSERT(
-        !inp_id->maybePartial(),
-        "Invalid domain to reshape: ",
-        inp_id->toString());
-    auto extent_val = expr_eval_->evaluate(inp_id->extent());
-    TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
-        "Cannot evaluate the extent of an input domain to reshape: ",
-        inp_id->toString());
-    TORCH_INTERNAL_ASSERT(
-        extent_val->isInt(),
-        "Invalid evaluated value of domain extent: ",
-        inp_id->toString());
-    TORCH_INTERNAL_ASSERT(
-        extent_val->as<int64_t>() > 0,
-        "Invalid input domain extent: ",
-        extent_val->as<int64_t>());
-    inp_shape.at(i) = extent_val->as<int64_t>();
-  }
-
-  const auto& out_dom = out_tv->getMaybeRFactorDomain();
-
-  // Determine output shape using expr evaluator. Note there may be
-  // one domain of extent -1
-  std::vector<int64_t> out_shape(out_dom.size(), 0);
-  bool extent_m1_found = false;
-  for (const auto i : c10::irange(out_dom.size())) {
-    auto out_id = out_dom.at(i);
-    auto extent_val = expr_eval_->evaluate(out_id->extent());
-    TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
-        "Cannot evaluate the extent of an output domain to reshape: ",
-        out_id->toString());
-    TORCH_INTERNAL_ASSERT(
-        extent_val->isInt(),
-        "Invalid evaluated value of domain extent: ",
-        out_id->toString());
-    const auto extent_int = extent_val->as<int64_t>();
-    if (extent_int == -1) {
-      TORCH_INTERNAL_ASSERT(
-          !extent_m1_found,
-          "Multiple output domains of size -1 not allowed",
-          out_tv->toString());
-      extent_m1_found = true;
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          extent_int > 0, "Invalid output domain extent: ", extent_int);
-    }
-    out_shape.at(i) = extent_int;
-  }
-
-  auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
-
-  info_.reshape_transforms_.emplace_back(out_tv, view_result);
 }
 
 //! Concretize a symbolic fusion with concrete transformation info
@@ -473,15 +489,21 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   return is_concretized;
 }
 
-DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
-    Fusion* fusion,
-    ExpressionEvaluator* expr_eval) {
-  DynamicTransformInfoBuilder builder(fusion, expr_eval);
+DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
+  DynamicTransformInfoBuilder builder(fusion);
   return builder.getInfo();
 }
 
 DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
+    DynamicTransformInitialInfo* info,
+    ExpressionEvaluator* expr_eval) {
+  return DynamicTransformConcretizationInfo(fusion, info, expr_eval);
+}
+
+DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
+    Fusion* fusion,
+    DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
   ExpressionEvaluator expr_eval;
 
@@ -523,7 +545,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       }
     }
   }
-  return DynamicTransform::getConcretizationInfo(fusion, &expr_eval);
+  return DynamicTransformConcretizationInfo(fusion, info, &expr_eval);
 }
 
 void DynamicTransform::concretizeFusion(
