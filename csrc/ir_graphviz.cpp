@@ -398,7 +398,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << (has_rfactor ? " (r-factor domain)" : "")
         << "|{";
   int axis = 0;
-  for (auto iter_domain : tv->getMaybeRFactorDomain()) {
+  for (auto iter_domain : tv->domain()->rfactor()) {
     if (axis != 0) {
       label << "|";
     }
@@ -442,7 +442,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
     rootd_label << "{T" << tv->name() << " (root domain)|";
     rootd_label << "{";
     axis = 0;
-    for (auto iter_domain : tv->domain()->getRootDomain()) {
+    for (auto iter_domain : tv->domain()->root()) {
       handle(iter_domain);
       if (axis != 0) {
         rootd_label << "|";
@@ -461,7 +461,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
 
     // Add arcs from root domain to its IterDomains
     axis = 0;
-    for (auto iter_domain : tv->domain()->getRFactorDomain()) {
+    for (auto iter_domain : tv->domain()->rfactor()) {
       handle(iter_domain);
 
       if (const auto* def = iter_domain->definition()) {
