@@ -690,18 +690,17 @@ std::vector<at::Tensor> allocOutputs(
           c10::nullopt);
       // permute & view to get the final tensor
       at::Tensor tensor = alloc_tensor;
-      auto alloc_no_reduction =
-          TensorDomain::noReductions(buf_info.tv->getMaybeAllocationDomain());
-      auto rfactor_no_reduction =
-          TensorDomain::noReductions(buf_info.tv->getMaybeRFactorDomain());
       std::list<IterDomain*> frontier(
-          alloc_no_reduction.begin(), alloc_no_reduction.end());
+          buf_info.tv->getMaybeAllocationDomain().begin(),
+          buf_info.tv->getMaybeAllocationDomain().end());
       TORCH_INTERNAL_ASSERT(alloc_tensor.dim() == (int64_t)frontier.size());
       // traverse forward from alloc to rfactor
       auto forward_exprs = StmtSort::getExprsBetween(
           buf_info.tv->fusion(),
-          {alloc_no_reduction.begin(), alloc_no_reduction.end()},
-          {rfactor_no_reduction.begin(), rfactor_no_reduction.end()});
+          {buf_info.tv->getMaybeAllocationDomain().begin(),
+           buf_info.tv->getMaybeAllocationDomain().end()},
+          {buf_info.tv->getMaybeRFactorDomain().begin(),
+           buf_info.tv->getMaybeRFactorDomain().end()});
       for (auto expr : forward_exprs) {
         if (auto split = dynamic_cast<Split*>(expr)) {
           auto in = split->in();
@@ -783,8 +782,10 @@ std::vector<at::Tensor> allocOutputs(
       // traverse backward from allocation to rfactor
       auto backward_exprs = StmtSort::getExprsBetween(
           buf_info.tv->fusion(),
-          {rfactor_no_reduction.begin(), rfactor_no_reduction.end()},
-          {alloc_no_reduction.begin(), alloc_no_reduction.end()});
+          {buf_info.tv->getMaybeRFactorDomain().begin(),
+           buf_info.tv->getMaybeRFactorDomain().end()},
+          {buf_info.tv->getMaybeAllocationDomain().begin(),
+           buf_info.tv->getMaybeAllocationDomain().end()});
       std::reverse(backward_exprs.begin(), backward_exprs.end());
       for (auto expr : backward_exprs) {
         if (auto split = dynamic_cast<Split*>(expr)) {
@@ -865,7 +866,8 @@ std::vector<at::Tensor> allocOutputs(
         }
       }
       // do a final permute
-      TORCH_INTERNAL_ASSERT(frontier.size() == rfactor_no_reduction.size());
+      TORCH_INTERNAL_ASSERT(
+          frontier.size() == buf_info.tv->getMaybeRFactorDomain().size());
       std::unordered_map<IterDomain*, int64_t> current_dims;
       int64_t counter = 0;
       for (auto id : frontier) {
@@ -873,7 +875,7 @@ std::vector<at::Tensor> allocOutputs(
       }
       std::vector<int64_t> dims;
       dims.reserve(frontier.size());
-      for (auto id : rfactor_no_reduction) {
+      for (auto id : buf_info.tv->getMaybeRFactorDomain()) {
         dims.emplace_back(current_dims.at(id));
       }
       tensor = tensor.permute(dims);

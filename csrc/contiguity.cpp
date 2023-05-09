@@ -442,7 +442,7 @@ ContigIDs::ContigIDs(
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
     bool ignore_consistent_ordering)
-    : alloc_domain_(TensorDomain::noReductions(alloc_domain)),
+    : alloc_domain_(alloc_domain),
       alloc_contiguity_(alloc_contiguity),
       final_ids_(final_ids),
       index_map_(index_map),
@@ -478,7 +478,7 @@ ContigIDs::ContigIDs(
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
     bool ignore_consistent_ordering)
-    : alloc_domain_(TensorDomain::noReductions(alloc_domain)),
+    : alloc_domain_(alloc_domain),
       alloc_contiguity_(alloc_contiguity),
       final_ids_(final_ids),
       index_map_(index_map),
