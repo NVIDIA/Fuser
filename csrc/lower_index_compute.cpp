@@ -926,10 +926,10 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // Fill validation info.
   // TODO: cleanup seems possible.
   if (index_producer) {
-    fillProducerVectorizedContigRootDomains(
+    fillProducerVectorizedContigAllocationDomains(
         producer_tv, consumer_tv, c2p_map, contig_finder);
   } else {
-    fillConsumerVectorizedContigRootDomains(consumer_tv, contig_finder);
+    fillConsumerVectorizedContigAllocationDomains(consumer_tv, contig_finder);
   }
 
   return IndexFromIdGraph(

@@ -194,34 +194,34 @@ void validateIr(Fusion* fusion) {
 
 namespace {
 
-// Check contiguity for all root domains associated with Misaligned Vectorize
-// ParallelType
+// Check contiguity for all allocation domains associated with Misaligned
+// Vectorize ParallelType
 void checkContiguity(
     const std::unordered_set<IterDomain*>& domains,
     TensorView* tv) {
   TORCH_INTERNAL_ASSERT(tv->getMemoryType() == MemoryType::Global);
 
-  for (const auto idx : c10::irange(tv->getRootDomain().size())) {
-    auto root = tv->getRootDomain()[idx];
-    if (domains.find(root) != domains.end()) {
+  for (const auto idx : c10::irange(tv->getMaybeAllocationDomain().size())) {
+    auto alloc = tv->getMaybeAllocationDomain()[idx];
+    if (domains.find(alloc) != domains.end()) {
       TORCH_INTERNAL_ASSERT(
-          !root->isBroadcast(),
+          !alloc->isBroadcast(),
           "Misaligned vectorization prohibits merging broadcast domains.",
           "Issue found in, ",
           tv);
       TORCH_INTERNAL_ASSERT(
           tv->domain()->contiguity().at(idx).value_or(false),
-          "Cannot merge non-contiguous root domains with misaligned vectorization.",
+          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
           "Issue found in, ",
           tv);
     }
   }
 }
 
-// Check all root iter domains in consumer that are present in domain, making
-// sure they're contiguous. Map these domains to producer and make sure they are
-// also contiguous in producer. Producer-consumer relationship is assumed to be
-// through a set operation.
+// Check all allocation iter domains in consumer that are present in domain,
+// making sure they're contiguous. Map these domains to producer and make sure
+// they are also contiguous in producer. Producer-consumer relationship is
+// assumed to be through a set operation.
 void checkContiguity(
     const std::unordered_set<IterDomain*>& domains,
     TensorView* consumer,
@@ -230,36 +230,42 @@ void checkContiguity(
   TORCH_INTERNAL_ASSERT(consumer->getMemoryType() == MemoryType::Local);
   TORCH_INTERNAL_ASSERT(producer->getMemoryType() == MemoryType::Global);
 
-  auto root_c2p =
+  // TODO: we should use BestEffortReplay to find the correct c2p map for
+  // allocation domain when it is different from rFactor domain.
+  TORCH_INTERNAL_ASSERT(
+      !consumer->hasAllocation() && !producer->hasAllocation(),
+      "Misaligned vectorization for allocation domain is not supported.");
+  auto alloc_c2p =
       PairwiseRootDomainMap(producer, consumer)
           .mapConsumerToProducer(consumer->domain(), producer->domain());
 
   std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
-  for (const auto idx : c10::irange(producer->getMaybeRFactorDomain().size())) {
-    auto root = producer->getMaybeRFactorDomain().at(idx);
+  for (const auto idx :
+       c10::irange(producer->getMaybeAllocationDomain().size())) {
+    auto alloc = producer->getMaybeAllocationDomain().at(idx);
     auto contiguity = producer->domain()->contiguity().at(idx);
-    producer_domain_contiguity.insert({root, contiguity});
+    producer_domain_contiguity.insert({alloc, contiguity});
   }
 
-  for (auto consumer_root : consumer->getMaybeRFactorDomain()) {
-    if (domains.find(consumer_root) != domains.end()) {
-      auto producer_root = root_c2p.at(consumer_root);
+  for (auto consumer_alloc : consumer->getMaybeAllocationDomain()) {
+    if (domains.find(consumer_alloc) != domains.end()) {
+      auto producer_alloc = alloc_c2p.at(consumer_alloc);
       TORCH_INTERNAL_ASSERT(
-          producer_domain_contiguity.find(producer_root) !=
+          producer_domain_contiguity.find(producer_alloc) !=
           producer_domain_contiguity.end());
 
       TORCH_INTERNAL_ASSERT(
-          !consumer_root->isBroadcast() || !producer_root->isBroadcast(),
+          !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
           "Misaligned vectorization prohibits merging broadcast domains.",
           "Issue found in, ",
           consumer);
 
-      TORCH_INTERNAL_ASSERT(root_c2p.find(consumer_root) != root_c2p.end());
+      TORCH_INTERNAL_ASSERT(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
 
       TORCH_INTERNAL_ASSERT(
-          producer_domain_contiguity.at(producer_root).value_or(false),
-          "Cannot merge non-contiguous root domains with misaligned vectorization.",
+          producer_domain_contiguity.at(producer_alloc).value_or(false),
+          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
           "Issue found in, ",
           consumer);
     }
@@ -270,7 +276,7 @@ class VectorizeValidator : public OptInDispatch {
  private:
   // Initially, vectorized_id is the IterDomain with Vectorize ParallelType
   // After processing all merge and split operations,
-  // vectorized_id is the corresponding root domain
+  // vectorized_id is the corresponding allocation domain
   VectorizeValidator(IterDomain* vectorized_id)
       : vectorized_id_(vectorized_id) {}
 
@@ -387,7 +393,7 @@ class VectorizeValidator : public OptInDispatch {
           contiguity);
     }
     return validator.vectorized_id_;
-  };
+  }
 
  private:
   std::unordered_set<IterDomain*> domains_;
@@ -474,7 +480,7 @@ class VectorizeValidator : public OptInDispatch {
     // specific vectorized set.
     vectorized_set_info.word_size = (int)vector_word_size;
     vectorized_set_info.vectorized_leaf_id = v_id;
-    vectorized_set_info.vectorized_root_id = consumer_vectorized_id;
+    vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
     auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
@@ -488,24 +494,25 @@ class VectorizeValidator : public OptInDispatch {
         BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
             .getReplay();
     if (auto c2p_it = c2p_map.find(v_id); c2p_it != c2p_map.end()) {
-      vectorized_set_info.vectorized_producer_root_id =
+      vectorized_set_info.vectorized_producer_alloc_id =
           getVectorizedIdInAllocationDomain(
               c2p_it->second, producer_tv, "producer");
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually
-    // just one of the root domains, but can be a merged domain of
+    // just one of the allocation domains, but can be a merged domain of
     // contiguous domains. Those domains are saved in
-    // VectorizedSetInfo.contig_root_ids in
-    // fillConsumerVectorizedContigRootDomains called in lower_index_compute.
+    // VectorizedSetInfo.contig_alloc_ids in
+    // fillConsumerVectorizedContigAllocationDomains called in
+    // lower_index_compute.
     GpuLower::current()->vectorizedSetInfo().emplace_back(vectorized_set_info);
   }
 };
 
 } // namespace
 
-// Uses ContigIDs to find root contig domains that a vectorized domain
+// Uses ContigIDs to find allocation contig domains that a vectorized domain
 // depends on. As ContigIDs depends on HaloInfo, this must be done
 // after HaloInfo is created.
 void validateAndCollectVectorizeInfo(Fusion* fusion) {
@@ -580,32 +587,32 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
 
 namespace {
 
-void fillVectorizedContigRootDomains(
+void fillVectorizedContigAllocationDomains(
     const TensorView* tv,
     const ContigIDs& contig_finder,
-    IterDomain* vectorized_root_id,
+    IterDomain* vectorized_alloc_id,
     VectorizedSetInfo& info) {
-  const auto& root_dom = tv->getMaybeRFactorDomain();
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
 
-  // Find the root domains that are dependency of the merged contig
+  // Find the allocation domains that are dependency of the merged contig
   // domain.
 
   auto consumer_indexed_it =
-      contig_finder.allocToIndexedID().find(vectorized_root_id);
+      contig_finder.allocToIndexedID().find(vectorized_alloc_id);
   TORCH_INTERNAL_ASSERT(
       consumer_indexed_it != contig_finder.allocToIndexedID().end(),
-      "Contiguity information not found for root domain: ",
-      vectorized_root_id->toString());
+      "Contiguity information not found for allocation domain: ",
+      vectorized_alloc_id->toString());
   auto consumer_indexed_id = consumer_indexed_it->second;
 
-  // Actual indexed root domains for this root domain. If
-  // contig merge is done, multiple root domains are included.
-  std::unordered_set<IterDomain*> indexed_root_ids;
+  // Actual indexed allocation domains for this allocation domain. If
+  // contig merge is done, multiple allocation domains are included.
+  std::unordered_set<IterDomain*> indexed_alloc_ids;
 
-  if (consumer_indexed_id == vectorized_root_id) {
-    // Indexed domain is equal to the root domain, meaning no contig
+  if (consumer_indexed_id == vectorized_alloc_id) {
+    // Indexed domain is equal to the allocation domain, meaning no contig
     // merge is involved.
-    indexed_root_ids.insert(vectorized_root_id);
+    indexed_alloc_ids.insert(vectorized_alloc_id);
   } else {
     auto consumer_within_contig_it =
         contig_finder.withinContigIDs().find(consumer_indexed_id);
@@ -613,26 +620,26 @@ void fillVectorizedContigRootDomains(
         consumer_within_contig_it != contig_finder.withinContigIDs().end());
     const auto& within_ids = consumer_within_contig_it->second;
     std::copy_if(
-        root_dom.begin(),
-        root_dom.end(),
-        std::inserter(indexed_root_ids, indexed_root_ids.end()),
-        [&](IterDomain* root_id) {
-          return within_ids.find(root_id) != within_ids.end();
+        alloc_dom.begin(),
+        alloc_dom.end(),
+        std::inserter(indexed_alloc_ids, indexed_alloc_ids.end()),
+        [&](IterDomain* alloc_id) {
+          return within_ids.find(alloc_id) != within_ids.end();
         });
   }
 
-  // Store the contig merged root domains. If it is already set, pick
+  // Store the contig merged allocation domains. If it is already set, pick
   // the smaller one as it is used for validating divisibility of the
   // merged extent.
-  if (info.contig_root_ids.empty() ||
-      indexed_root_ids.size() < info.contig_root_ids.size()) {
-    info.contig_root_ids = indexed_root_ids;
+  if (info.contig_alloc_ids.empty() ||
+      indexed_alloc_ids.size() < info.contig_alloc_ids.size()) {
+    info.contig_alloc_ids = indexed_alloc_ids;
   }
 }
 
 } // namespace
 
-void fillConsumerVectorizedContigRootDomains(
+void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
@@ -646,15 +653,15 @@ void fillConsumerVectorizedContigRootDomains(
 
   VectorizedSetInfo& info = *it;
 
-  // info.vectorized_root_id is validated at this point to be the
-  // last concrete root domain in consumer.
-  auto consumer_root_id = info.vectorized_root_id;
+  // info.vectorized_consumer_alloc_id is validated at this point to be the
+  // last concrete allocation domain in consumer.
+  auto consumer_alloc_id = info.vectorized_consumer_alloc_id;
 
-  fillVectorizedContigRootDomains(
-      consumer_tv, contig_finder, consumer_root_id, info);
+  fillVectorizedContigAllocationDomains(
+      consumer_tv, contig_finder, consumer_alloc_id, info);
 }
 
-void fillProducerVectorizedContigRootDomains(
+void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,
@@ -673,8 +680,8 @@ void fillProducerVectorizedContigRootDomains(
 
   VectorizedSetInfo& info = *it;
 
-  fillVectorizedContigRootDomains(
-      producer_tv, contig_finder, info.vectorized_producer_root_id, info);
+  fillVectorizedContigAllocationDomains(
+      producer_tv, contig_finder, info.vectorized_producer_alloc_id, info);
 }
 
 namespace {
