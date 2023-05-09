@@ -1681,8 +1681,8 @@ findFirstSelfMapping(
     // TODO: Exact map isn't quite right here, it should be based on the index
     // map. However, it should also be impossible for index map to generate a
     // case like this.
-    auto self_mappped_leaf_pair =
-        detectMappablePair(tv->domain()->leaf(), id_graph, IdMappingMode::EXACT);
+    auto self_mappped_leaf_pair = detectMappablePair(
+        tv->domain()->leaf(), id_graph, IdMappingMode::EXACT);
     if (self_mappped_leaf_pair.has_value()) {
       return std::make_tuple(
           tv,
@@ -2199,9 +2199,6 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       ForwardingInfo permissive_forwarding(p_tv, c_tv);
       for (auto entry : permissive_forwarding.producer_forwarding_map) {
-        // std::cout << "Permissive producer forwarding: "
-        //           << entry.first->toString() << " -> "
-        //           << entry.second->toString() << std::endl;
         idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
       }
 
@@ -2209,18 +2206,11 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          // std::cout << "Permissive producer compliment: "
-          //           << entry.first->toString() << " -> " <<
-          //           entry_2->toString()
-          //           << std::endl;
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
       }
 
       for (auto entry : permissive_forwarding.consumer_forwarding_map) {
-        // std::cout << "Permissive consumer forwarding: "
-        //           << entry.first->toString() << " -> "
-        //           << entry.second->toString() << std::endl;
         idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
       }
 
@@ -2228,10 +2218,6 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (auto entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          // std::cout << "Permissive consumer compliment: "
-          //           << entry.first->toString() << " -> " <<
-          //           entry_2->toString()
-          //           << std::endl;
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
       }
@@ -2375,8 +2361,6 @@ StatefulLoweringInfo buildInfo(
         all_producer_ca_deps.insert(
             ca_deps_filter.begin(), ca_deps_filter.end());
       }
-      // std::cout << "Producer: " << producer->toString() << "\n  "
-      //           << all_producer_ca_deps.toString() << std::endl;
 
       info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
@@ -2480,21 +2464,12 @@ void IterDomainGraphs::build(
   if (FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
     validatePTypes(all_tvs);
 
-    // FusionGuard::getCurFusion()->print(std::cout, true);
-
     StatefulLoweringInfo info = buildInfo(
         tv_exprs,
         idGraph(IdMappingMode::EXACT),
         idGraph(IdMappingMode::PERMISSIVE));
 
     initializeLoopMap(info);
-    // std::cout << "Loop groups: "
-    //           << debug::idGroupsString(idGraph(IdMappingMode::LOOP))
-    //           << std::endl;
-
-    // std::cout << "Promoted groups: "
-    //           << debug::idGroupsString(idGraph(IdMappingMode::LOOP))
-    //           << std::endl;
 
     // Initial propagation of parallel types for inlined iter domains. Each time
     // new expressions are replayed this needs to be run. The disjoint sets in
@@ -2742,21 +2717,16 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     iel_promotion_map[iel_group] = promoted_iel_groups.front()->front();
   }
 
-  // std::cout << "Initial promotion map:" << std::endl;
-
   for (auto iel_group :
        intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
     auto entry_it = iel_promotion_map.find(iel_group);
     if (entry_it == iel_promotion_map.end()) {
       continue;
     }
-    // std::cout << "  " << entry_it->second->toString() << " <- "
-    //           << entry_it->first->toString() << std::endl;
   }
 
   IdGraphStmtSort iel_stmt_sort(intersection_exact_loop_graph);
 
-  // std::cout << "Initial promotion replay:" << std::endl;
   for (auto iel_expr : iel_stmt_sort.exprs()) {
     auto input_groups = intersection_exact_loop_graph.inputGroups(iel_expr);
 
@@ -2827,8 +2797,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     bool replayed = replay == nullptr;
     if (replay == nullptr) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
-      // std::cout << "  ***REPLAY***:\n    " << iel_expr->front()
-      //           << "    As:" << replay->toString();
     }
 
     auto out_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
@@ -3110,13 +3078,9 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  // std::cout << "Loop promotion before second replay:" << std::endl;
   for (auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()) {
     if (loop_graph_copy_promotion_map.find(loop_group) !=
         loop_graph_copy_promotion_map.end()) {
-      // std::cout << debug::toString(loop_group, 0, true) << " -> "
-      //           << loop_graph_copy_promotion_map[loop_group]->toString()
-      //           << std::endl;
     }
   }
 
@@ -3250,12 +3214,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     if (replay == nullptr) {
       replay = addReplayAs(promoted_inputs, iel_expr->front());
     }
-    //   std::cout << "  ***REPLAY2***:\n    " << iel_expr->front()
-    //             << "    As:" << replay->toString();
-    // } else {
-    //   std::cout << "  ***MATCH2***:\n    " << iel_expr->front()
-    //             << "    As:" << replay->toString();
-    // }
 
     auto output_groups = intersection_exact_loop_graph.outputGroups(iel_expr);
 
@@ -3289,14 +3247,11 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  // std::cout << "Promotion map from second replay: " << std::endl;
   for (auto group :
        intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
     if (iel_promotion_map.find(group) == iel_promotion_map.end()) {
       continue;
     }
-    // std::cout << debug::toString(group, 0, true) << " -> "
-    //           << iel_promotion_map.at(group)->toString() << std::endl;
   }
 
   return iel_promotion_map;
@@ -3307,806 +3262,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
     const std::vector<TensorView*>& all_tvs,
     StatefulLoweringInfo& info,
     std::unordered_map<IdGroup, IterDomain*> stale_promotion_map) {
-  // Update the iel graph
-  auto intersection_exact_loop_graph = buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
-
-  // Update the promotion map
-  auto iel_promotion_map =
-      updateMap(stale_promotion_map, intersection_exact_loop_graph);
-
-  auto exact_covered_ids =
-      computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
-
-  // Grab terminal iter domain in the loop groups.
-  VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
-      computeTerminalLoopIds(info);
-
-  // Loop promotion map is to prepare for IterDomain replays. Since these
-  // replays will modify the loop map, we operate on a copy of the loop map,
-  // not the original one.
-  // Loop promotion map is to prepare for IterDomain replays to resolve
-  // non-inlined loop groups. Since these replays will modify the loop map as
-  // we're iterating over the loop map, operate on a copy of the loop map, not
-  // the original one.
-  auto loop_graph_copy = idGraph(IdMappingMode::LOOP);
-
-  // Build a map from loop iter domain group to a promoted iter domain (doesn't
-  // have to be in the loop group) that covers all the exact groups
-  // representative of the resolved transformations within the loop group. Only
-  // the inlined loop groups will be covered here.
-  std::unordered_map<IdGroup, IterDomain*> loop_graph_copy_promotion_map;
-
-  // Returns a new promoted domain if one is found in the iel_promotion_map,
-  // otherwise returns original id.
-  auto get_promoted_id = [&intersection_exact_loop_graph,
-                          &iel_promotion_map](IterDomain* id) {
-    auto iel_group = intersection_exact_loop_graph.toGroup(id);
-    auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
-    if (iel_promotion_map_it != iel_promotion_map.end()) {
-      return iel_promotion_map_it->second;
-    }
-    return id;
-  };
-
-  // Returns the entry in exact_covered_ids associated with provided IterDomain.
-  // Basically calling .at but with a better error.
-  auto get_covered_exact_groups = [&](IterDomain* id) {
-    auto exact_group = idGraph(IdMappingMode::EXACT).toGroup(id);
-    auto covered_it = exact_covered_ids.find(exact_group);
-    TORCH_INTERNAL_ASSERT(
-        covered_it != exact_covered_ids.end(),
-        "Missing map entry in analysis for: ",
-        debug::toString(exact_group, 0, true));
-    return covered_it->second;
-  };
-
-  // Now we need to find the right promoted ID for every loop group, making
-  // sure the promoted ID covers every ID of the IDs in the loop group.
-  // This ID could be a terminal ID in the group. A promoted ID of the terminal
-  // IDs, or an ID that was replayed previously and now part of the loop group.
-  //
-  // The correct/final promoted ID of the loop group must exist at this point.
-  // It just might not be within the loop group we're looking at.
-  // std::cout << "Find promoted ids from loop group or promoted iter domains."
-  //           << std::endl;
-  for (auto loop_group : loop_graph_copy.disjointIdSets().disjointSets()) {
-    if (loop_group->size() == 1) {
-      auto promoted_id = get_promoted_id(loop_group->front());
-
-      TORCH_INTERNAL_ASSERT(
-          get_covered_exact_groups(loop_group->front())
-                  .subtract(get_covered_exact_groups(promoted_id))
-                  .size() == 0,
-          "Promotion failed, promoted id: ",
-          promoted_id->toString(),
-          " doesn't cover the right domains for ",
-          loop_group->front()->toString());
-      loop_graph_copy_promotion_map[loop_group] = promoted_id;
-      continue;
-    }
-
-    // If promotion entry exists for any terminal id the promoted id will be
-    // stored here.
-    std::vector<IterDomain*> promoted_terminal_ids;
-
-    // If a promotion entry doesn't exist for a terminal id, put it here.
-    std::vector<IterDomain*> terminal_ids;
-
-    // All exact groups that the terminal loop id's cover.
-    IdGroups all_covered_exact_groups;
-
-    // Populate all three structures above.
-    for (auto loop_id : *loop_group) {
-      if (!terminal_loop_ids.has(loop_id)) {
-        continue;
-      }
-
-      all_covered_exact_groups.pushBack(get_covered_exact_groups(loop_id));
-
-      auto promoted_id = get_promoted_id(loop_id);
-      if (promoted_id == loop_id) {
-        terminal_ids.push_back(loop_id);
-      } else {
-        promoted_terminal_ids.push_back(promoted_id);
-      }
-    }
-
-    // If promoted id's exist, those are the candidates to have the right
-    // transformations for indexing. Otherwise, use the terminal _ids.
-    auto candidate_ids =
-        promoted_terminal_ids.empty() ? terminal_ids : promoted_terminal_ids;
-
-    // Find the loop promotion id from the candidates.
-    IterDomain* loop_promotion_id = nullptr;
-    for (auto candidate_id : candidate_ids) {
-      if (all_covered_exact_groups
-              .subtract(get_covered_exact_groups(candidate_id))
-              .empty()) {
-        loop_promotion_id = candidate_id;
-        break;
-      }
-    }
-
-    // If we're still missing the loop_promotion_id, check all replayed IDs in
-    // the loop group.
-    if (loop_promotion_id == nullptr) {
-      candidate_ids = loop_group->subtract(info.ordered_c_ids).vector();
-      for (auto candidate_id : candidate_ids) {
-        if (all_covered_exact_groups
-                .subtract(get_covered_exact_groups(candidate_id))
-                .empty()) {
-          loop_promotion_id = candidate_id;
-        }
-      }
-    }
-
-    if (loop_promotion_id == nullptr) {
-      std::stringstream err_msg;
-      err_msg << "\nCould not find promotion for loop group:\n  ";
-      err_msg << debug::toString(loop_group, 0, true);
-      err_msg << "\nnone of the candidate iter domains of this group:\n  ";
-      err_msg << "  "
-              << VectorOfUniqueEntries<IterDomain*>(candidate_ids).toString();
-      err_msg << "\n cover all id groups that the loop group covers:\n";
-      err_msg << " " << debug::toString(all_covered_exact_groups) << std::endl;
-      TORCH_INTERNAL_ASSERT(false, err_msg.str());
-    }
-
-    loop_graph_copy_promotion_map[loop_group] = loop_promotion_id;
-  }
-
-  // std::cout << "Promotion map to build the Index Graph: " << std::endl;
-  for (auto group : loop_graph_copy.disjointIdSets().disjointSets()) {
-    if (loop_graph_copy_promotion_map.find(group) ==
-        loop_graph_copy_promotion_map.end()) {
-      continue;
-    }
-    // std::cout << debug::toString(group, 0, true) << " -> "
-    //           << loop_graph_copy_promotion_map.at(group)->toString()
-    //           << std::endl;
-  }
-
-  // Indexing traversal must start at leaf nodes of TensorViews as that's where
-  // the loop indices are defined. For indexing we need to propagate leaves to
-  // root domains. We want the indexing graph easy to traverse. Easy to traverse
-  // means that we start at terminating outputs of this graph and propagate to
-  // terminating inputs. We shouldn't have to worry about which paths each time
-  // we traverse the index graph as we may do it many times.
-
-  // The IEL Map cannot be traversed for indexing, because the loop map is
-  // really only used to model broadcast promotion. We could have multiple paths
-  // from leaf nodes to an intermediate IEL entry. Meaning:
-
-  // T0 root[i0, i1] T0 leaf domain [i0*i1//32, 4, 8]
-  // T1 root[i0, i1] T0 leaf domain [i0*i1//32, 8, 4]
-
-  // Even though T0 and T1 are inlined on the outer most dimension, indexing
-  // into their roots is different. Yet, their roots would be in the same IEL
-  // entries.
-
-  // The index graph should provide a direct model of what indices are reused,
-  // i.e. if two ID's in the IndexMap map to eachother, they should use the same
-  // index math. Therefore, roughly what we need to do is:
-
-  // - Figure out which leaves share exact indexing and map them together:
-  //   (1) Producer-consumer leaf nodes are inlined with eachother (map to the
-  //   same promoted id)
-  //   (2) Promoted producer-consumer leaf nodes are almost exact, have the same
-  //   parallel type, but are not inlined.
-
-  // - Start at the promoted leaf nodes of each tensor view
-
-  // - If those promoted leaf nodes are *ALMOST EXACT* mapped from
-  // producer-consumer they can be mapped in the index map
-
-  // - Traversing backward from each tensor view's leaf nodes, we directly reach
-  // the root nodes of that tensor view
-
-  // - During the backward traversal, for an expression, if the output iter
-  // domains are mapped in the index map, their inputs should be mapped as well.
-  //   So as we build the index map, we could also be accumulating mapped iter
-  //   domains.
-
-  // Mark all iter domains that share a loop nest and are almost exact mapped.
-  // Ignores promotion.
-
-  // Doing the same as above on promoted iter domains is a bit tricky, because
-  // there's a promoted IterDomian per IEL group, we need a promoted IterDomain
-  // per index group. So let's figure out which leaf domains share a promoted
-  // iter domain, so we don't have to build a promoted iter domain for every
-  // leaf, then try to rejoin them.
-
-  // TODO: I think we need to validate that for each tensor view leaf domains,
-  // no two leaves within a tensor domain map to another leaf in the same tensor
-  // domain in the IEL graph. Not sure how this could occur, but I suspect it
-  // could.
-
-  // Which non-promoted iter domains, share their promoted iterdomains
-  DisjointSets<IterDomain*> shared_promoted_id;
-
-  for (auto expr : exprs) {
-    std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-        promo_id_to_producer_ids;
-    std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-        promo_id_to_consumer_ids;
-
-    // Copy of all promo ids for determinism
-    VectorOfUniqueEntries<IterDomain*> all_promo_ids;
-
-    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      for (auto p_id : producer->domain()->leaf()) {
-        // Initialize all entries
-        shared_promoted_id.initializeSet(p_id);
-
-        auto loop_copy_p_group_pair = loop_graph_copy.disjointIdSet(p_id);
-        TORCH_INTERNAL_ASSERT(loop_copy_p_group_pair.second);
-        auto loop_copy_p_group = loop_copy_p_group_pair.first;
-
-        auto promo_id_it =
-            loop_graph_copy_promotion_map.find(loop_copy_p_group);
-        TORCH_INTERNAL_ASSERT(
-            promo_id_it != loop_graph_copy_promotion_map.end());
-
-        promo_id_to_producer_ids[promo_id_it->second].pushBack(p_id);
-        all_promo_ids.pushBack(promo_id_it->second);
-      }
-    }
-
-    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto c_id : consumer->domain()->leaf()) {
-        // Initialize all entries
-        shared_promoted_id.initializeSet(c_id);
-
-        auto loop_copy_c_group_pair = loop_graph_copy.disjointIdSet(c_id);
-        TORCH_INTERNAL_ASSERT(loop_copy_c_group_pair.second);
-        auto loop_copy_c_group = loop_copy_c_group_pair.first;
-
-        auto promo_id_it =
-            loop_graph_copy_promotion_map.find(loop_copy_c_group);
-        TORCH_INTERNAL_ASSERT(
-            promo_id_it != loop_graph_copy_promotion_map.end());
-
-        promo_id_to_consumer_ids[promo_id_it->second].pushBack(c_id);
-        all_promo_ids.pushBack(promo_id_it->second);
-      }
-    }
-
-    for (auto promo_id : all_promo_ids) {
-      auto p_ids_it = promo_id_to_producer_ids.find(promo_id);
-      if (p_ids_it == promo_id_to_producer_ids.end()) {
-        continue;
-      }
-      auto p_ids = p_ids_it->second;
-
-      auto c_ids_it = promo_id_to_consumer_ids.find(promo_id);
-      if (c_ids_it == promo_id_to_consumer_ids.end()) {
-        continue;
-      }
-      auto c_ids = c_ids_it->second;
-
-      if (c_ids.size() && p_ids.size()) {
-        for (auto p_id : p_ids) {
-          shared_promoted_id.mapEntries(p_ids.front(), p_id);
-        }
-        for (auto c_id : c_ids) {
-          shared_promoted_id.mapEntries(p_ids.front(), c_id);
-        }
-      }
-    }
-  }
-
-  auto get_representative_promoted_id = [&](IterDomain* id) {
-    auto promo_id_it =
-        loop_graph_copy_promotion_map.find(loop_graph_copy.toGroup(id));
-    TORCH_INTERNAL_ASSERT(promo_id_it != loop_graph_copy_promotion_map.end());
-    return promo_id_it->second;
-  };
-
-  // std::cout << "Opportunistic joining of shared promos:" << std::endl;
-  // Opportunistically collapse indexing of non-inlined leaf domains if their
-  // promoted ids are almost exact mapped and have the same parallel type.
-  for (auto expr : exprs) {
-    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      // std::cout << "  Producer: " << producer->toString() << std::endl;
-      auto producer_root = producer->getMaybeRFactorDomain();
-
-      auto non_inline_producer_domain = producer->domain()->leaf();
-      non_inline_producer_domain.erase(
-          non_inline_producer_domain.begin(),
-          non_inline_producer_domain.begin() +
-              producer->getComputeAtPosition());
-
-      for (auto consumer :
-           ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // std::cout << "    Consumer: " << consumer->toString() << std::endl;
-        auto consumer_domain = consumer->domain()->leaf();
-
-        auto p2c_permissive_map =
-            idGraph(IdMappingMode::PERMISSIVE)
-                .buildMapBetween(non_inline_producer_domain, consumer_domain);
-
-        for (auto p_id : non_inline_producer_domain) {
-          auto p2c_it = p2c_permissive_map.find(p_id);
-          if (p2c_it == p2c_permissive_map.end() || p2c_it->second.empty()) {
-            continue;
-          }
-
-          auto rep_p_id = get_representative_promoted_id(p_id);
-          auto c_id = p2c_it->second.front();
-          auto rep_c_id = get_representative_promoted_id(c_id);
-
-          // std::cout << "      " << p_id->toString() << " -> "
-          //           << rep_p_id->toString() << " :: " << c_id->toString()
-          //           << " -> " << rep_c_id->toString() << std::endl;
-          if (!idGraph(IdMappingMode::ALMOSTEXACT)
-                   .disjointIdSets()
-                   .strictAreMapped(rep_p_id, rep_c_id)) {
-            continue;
-          }
-          if (rep_p_id->getParallelType() != rep_c_id->getParallelType()) {
-            continue;
-          }
-          // std::cout << "      Mapped" << std::endl;
-          shared_promoted_id.mapEntries(p_id, c_id);
-        }
-      }
-    }
-  }
-
-  // std::cout << "Leaf iter domains that share a promoted iter domain."
-  //           << std::endl;
-  // for (auto disjoint_set : shared_promoted_id.disjointSets()) {
-  //   std::cout << disjoint_set->toString() << std::endl;
-  // }
-
-  // Map from leaf iter domains to their potentially promoted iter domain used
-  // for indexing.
-  std::unordered_map<IterDomain*, IterDomain*> leaf_promotion_map;
-
-  // If a promoted iter domain was generated by replays, it won't be connected
-  // in the index graph. We can reuse these iter domains directly instead of
-  // having to make a clone of them. However, we can only use them once for a
-  // group.
-  VectorOfUniqueEntries<IterDomain*> used_promo_ids;
-
-  for (auto id_group : shared_promoted_id.disjointSets()) {
-    IterDomain* promo_id = get_representative_promoted_id(id_group->front());
-
-    // Promoted id is already part of the group, just use that.
-    if (std::find(id_group->begin(), id_group->end(), promo_id) !=
-        id_group->end()) {
-      for (auto id : *id_group) {
-        leaf_promotion_map[id] = promo_id;
-      }
-      continue;
-    }
-
-    // Promo id generated from running replay, we can use it for one of the
-    // index groups.
-    if (!info.ordered_c_ids.has(promo_id) && !used_promo_ids.has(promo_id)) {
-      used_promo_ids.pushBack(promo_id);
-      for (auto id : *id_group) {
-        leaf_promotion_map[id] = promo_id;
-      }
-      continue;
-    }
-
-    // Need to take a copy of the promo_id as it's already dedicated to an index
-    // group.
-    promo_id = cloneIterDomain(promo_id);
-    for (auto id : *id_group) {
-      leaf_promotion_map[id] = promo_id;
-    }
-  }
-
-  // TODO: This needs to be available as a member function
-  auto get_promoted_domain = [&](TensorDomain* td) {
-    std::vector<IterDomain*> promoted_leaves;
-    for (auto id : td->leaf()) {
-      auto promo_it = leaf_promotion_map.find(id);
-      TORCH_INTERNAL_ASSERT(promo_it != leaf_promotion_map.end());
-      promoted_leaves.push_back(promo_it->second);
-    }
-    return promoted_leaves;
-  };
-
-  // std::cout << "Iter domain group to their promoted iter domain." <<
-  // std::endl; for (auto id_group : shared_promoted_id.disjointSets()) {
-  //   std::cout << id_group->toString() << "\n  -> "
-  //             << leaf_promotion_map.at(id_group->front()) << std::endl;
-  // }
-
-  // Track every expression required for indexing
-  VectorOfUniqueEntries<Expr*> all_index_exprs;
-  // Track every iter domain required for indexing
-  VectorOfUniqueEntries<IterDomain*> all_index_ids;
-
-  // std::cout << "\n\nThird and final replay" << std::endl;
-  // std::cout << "Building promoted tensor view domains:" << std::endl;
-  // Need to "replay" all of the indexing expressions to make sure roots are
-  // connected to the promoted leaves, in a way we can index directly on the
-  // index graph.
-  //
-  // Since we're performing replays we need to copy the graph we're iterating
-  // on.
-  auto ae_graph = idGraph(IdMappingMode::ALMOSTEXACT);
-
-  // Because of how replays work in buildInlinePromotions and
-  // buildLoopPromotionMap, we could have multiple uses and definitions of the
-  // the same iter domain.
-  //
-  // However, for the index graph we want to go back to every iter domain having
-  // at most one use and definition.
-  //
-  // We also want to use expressions that exist if we can.
-  //
-  // If there's multiple paths on the index graph then we would generate
-  // conflicting indicies (unless somehow the expressions all end up collapsing
-  // by being mapped later). Enforce one defintion and use per iter domain.
-  std::unordered_map<IterDomain*, Expr*> id_to_index_use;
-  std::unordered_map<IterDomain*, Expr*> id_to_index_def;
-
-  // Initialize index graph using the history of each tensorview. These
-  // expressions are not guaranteed to be used, but if it is used, this will
-  // prefer those used in a tv's history.
-  //
-  // This prevents conflicts later where we try to reuse an expression and take
-  // an expression in another tensor view's history.
-  for (auto tv : all_tvs) {
-    auto transforms = StmtSort::getExprsBetween(
-        FusionGuard::getCurFusion(),
-        {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-        {tv->domain()->leaf().begin(), tv->domain()->leaf().end()});
-    for (auto transform : transforms) {
-      for (auto inp : ir_utils::filterByType<IterDomain>(transform->inputs())) {
-        id_to_index_use[inp] = transform;
-      }
-      for (auto out :
-           ir_utils::filterByType<IterDomain>(transform->outputs())) {
-        id_to_index_def[out] = transform;
-      }
-    }
-  }
-
-  // Manually initialize the index graph
-  for (auto id_group :
-       idGraph(IdMappingMode::ALMOSTEXACT).disjointIdSets().disjointSets()) {
-    for (auto id : *id_group) {
-      VectorOfUniqueEntries<Expr*> defs;
-      if (id_to_index_def.find(id) != id_to_index_def.end()) {
-        defs.pushBack(id_to_index_def.at(id));
-      }
-
-      VectorOfUniqueEntries<Expr*> uses;
-      if (id_to_index_use.find(id) != id_to_index_use.end()) {
-        uses.pushBack(id_to_index_use.at(id));
-      }
-
-      idGraph(IdMappingMode::INDEX).initializeId(id, defs, uses);
-    }
-  }
-
-  idGraph(IdMappingMode::INDEX).mapThroughTrivialExprs();
-  idGraph(IdMappingMode::INDEX).removeTrivialExprs();
-
-  for (auto tv : all_tvs) {
-    // We don't have to process inputs at this point as they're already
-    // allocated on a global
-    if (tv->isFusionInput()) {
-      continue;
-    }
-
-    auto promoted_domain = get_promoted_domain(tv->domain());
-    // replay from root to promoted leaves.
-    // std::cout << "\n\n  Processing: TV" << tv->name() << "\n    Root: TV"
-    //           << tv->getRootDomain()
-    //           << "\n    Domain promoted to: " << promoted_domain <<
-    //           std::endl;
-
-    // The promoted leaf iter domains are where indexing starts. We're going to
-    // start at those expressions and replay transformations for this tensor
-    // view working back to root domains. We want to intercept the history of
-    // the transformations local to the tensor view where possible.
-    //
-    // So effectively what we have to do is map the ae graph to the history of
-    // the tensor view as well as the promoted iter domains. We start traversal
-    // at the promoted iter domains and will intercept the tensor view history
-    // as possible.
-    //
-    // We must be able to interecept the provided tensor view at the rfactor and
-    // root domains, otherwise we wouldn't be able to allocate or index into the
-    // buffer at tensor view (rfactor domain) or it's producer (root domain).
-
-    // Grab all the domains and convert them to their ae groups.
-    auto all_ids_v = ir_utils::allIDsOf(tv);
-    auto all_ids =
-        VectorOfUniqueEntries<IterDomain*>(all_ids_v.begin(), all_ids_v.end());
-
-    // Create a map from the ae group to the iter domain as when we replay we'll
-    // replace the ae iter domain in the replay with the id in this map.
-    std::unordered_map<IdGroup, IterDomain*> ae_group_2_id;
-
-    for (auto tv_id : all_ids) {
-      // Use emplace here as it multiple tv_ids could map to the same ae_group.
-      // Emplace will simply grab the first one that appears.
-      ae_group_2_id.emplace(std::make_pair(ae_graph.toGroup(tv_id), tv_id));
-    }
-
-    // Add the promoted domain ids
-    for (auto promoted_id : promoted_domain) {
-      all_ids.pushBack(promoted_id);
-      ae_group_2_id[ae_graph.toGroup(promoted_id)] = promoted_id;
-    }
-
-    auto ae_leaf_groups = ae_graph.toGroups(VectorOfUniqueEntries<IterDomain*>{
-        promoted_domain.begin(), promoted_domain.end()});
-
-    // Don't support multiple leaf domains promoted to the same ae graph at this
-    // point.
-    TORCH_INTERNAL_ASSERT(
-        ae_leaf_groups.size() == promoted_domain.size(),
-        "Multiple leaf domains that map almost exactly is not supported at this point.");
-
-    auto ae_root_groups = ae_graph.toGroups(VectorOfUniqueEntries<IterDomain*>{
-        tv->getRootDomain().begin(), tv->getRootDomain().end()});
-
-    // Make a copy of the expressions so we can reverse them
-    auto reverse_indexing_transforms =
-        ae_graph.getExprsBetween(ae_root_groups, ae_leaf_groups).vector();
-
-    std::reverse(
-        reverse_indexing_transforms.begin(), reverse_indexing_transforms.end());
-
-    // Replay indexing transformations start on leaf nodes propagating back to
-    // the root domain
-    for (ExprGroup ae_expr_group : reverse_indexing_transforms) {
-      // Outputs must be promoted with the ae_group_2_id map. Inputs may be
-      // promoted when we intercept the history of the TV with the replay.
-      //
-      // if there isn't an entry in ae_group_2_id, then we have a resolved
-      // merged in broadcast, and that resolved iter domain will need to be
-      // cloned. Would be nice to see if the dangling input has already been
-      // added already through another indexing path that this overlaps with,
-      // however having an additional ID and expression per case doesn't seem
-      // too bad right now.
-
-      auto ae_output_groups = ae_graph.outputGroups(ae_expr_group);
-
-      std::vector<IterDomain*> promoted_outputs;
-      for (auto out_group : ae_output_groups) {
-        auto out_promo_it = ae_group_2_id.find(out_group);
-        if (out_promo_it == ae_group_2_id.end()) {
-          promoted_outputs.push_back(out_group->front());
-        } else {
-          promoted_outputs.push_back(out_promo_it->second);
-        }
-      }
-
-      Expr* replay = nullptr;
-
-      // Check if we already have this expression covered in the index graph. If
-      // so, don't add another expr, just add mappings for the iter domains
-      // necessary.
-
-      // If there isn't already an index expression covering this, check the
-      // almost exact map if there's any expression not already in the index
-      // graph that we can use, and add in the index graph.
-
-      // Else generate a new index expression from scratch.
-
-      // Before replaying, check if there's already an expression like this, if
-      // so use that for promotion.
-      ExprGroups promoted_output_defs;
-      for (auto out_id : promoted_outputs) {
-        auto index_group = idGraph(IdMappingMode::INDEX).toGroup(out_id);
-        promoted_output_defs.pushBack(
-            idGraph(IdMappingMode::INDEX).uniqueDefinitions(index_group));
-      }
-
-      for (auto index_def_group : promoted_output_defs) {
-        // This enforces that inputs and outputs are all almost exact mapped
-        if (!idGraph(IdMappingMode::ALMOSTEXACT)
-                 .disjointExprSets()
-                 .strictAreMapped(
-                     index_def_group->front(), ae_expr_group->front())) {
-          continue;
-        }
-
-        // Check that the outputs we need on the replay match in the index map
-        // with this expression.
-        auto index_def_outputs = ir_utils::filterByType<IterDomain>(
-                                     index_def_group->front()->outputs())
-                                     .vector();
-
-        bool outs_match = true;
-        for (auto out_i : c10::irange(index_def_outputs.size())) {
-          outs_match = outs_match &&
-              idGraph(IdMappingMode::INDEX)
-                  .disjointIdSets()
-                  .strictAreMapped(
-                      index_def_outputs[out_i], promoted_outputs[out_i]);
-        }
-
-        if (!outs_match) {
-          continue;
-        }
-
-        // Look for an expression in the group we can reuse.
-        //
-        // See comment on definition of id_to_index_use
-        for (auto maybe_match : *index_def_group) {
-          VectorOfUniqueEntries<Expr*> input_uses;
-          for (auto inp :
-               ir_utils::filterByType<IterDomain>(maybe_match->inputs())) {
-            auto use_it = id_to_index_use.find(inp);
-            if (use_it == id_to_index_use.end()) {
-              continue;
-            }
-            input_uses.pushBack(use_it->second);
-          }
-
-          // If there's already a use, make sure it's this use.
-          if (input_uses.subtract({maybe_match}).size() > 0) {
-            continue;
-          }
-
-          VectorOfUniqueEntries<Expr*> output_defs;
-          for (auto out :
-               ir_utils::filterByType<IterDomain>(maybe_match->outputs())) {
-            auto def_it = id_to_index_def.find(out);
-            if (def_it == id_to_index_def.end()) {
-              continue;
-            }
-            output_defs.pushBack(def_it->second);
-          }
-
-          // If there's already a def, make sure it's this def.
-          if (output_defs.subtract({maybe_match}).size() > 0) {
-            continue;
-          }
-
-          std::vector<IterDomain*> ae_inps =
-              ir_utils::filterByType<IterDomain>(
-                  ae_expr_group->front()->inputs())
-                  .vector();
-
-          auto maybe_match_inputs =
-              ir_utils::filterByType<IterDomain>(maybe_match->inputs())
-                  .vector();
-
-          // If there are promoted inputs, we need them to match exactly,
-          // otherwise we can't reuse this expression. So although replay is not
-          // nullptr, we may set it back and keep looking.
-          bool promo_inps_match = true;
-          for (auto inp_i : c10::irange(maybe_match_inputs.size())) {
-            auto ae_group_pair = ae_graph.disjointIdSet(ae_inps[inp_i]);
-            if (ae_group_pair.second &&
-                ae_group_2_id.find(ae_group_pair.first) !=
-                    ae_group_2_id.end()) {
-              auto promo_inp = ae_group_2_id.at(ae_group_pair.first);
-              if (promo_inp != maybe_match_inputs[inp_i]) {
-                promo_inps_match = false;
-              }
-            }
-          }
-
-          if (!promo_inps_match) {
-            continue;
-          }
-
-          replay = maybe_match;
-
-          for (auto inp :
-               ir_utils::filterByType<IterDomain>(replay->inputs())) {
-            id_to_index_use[inp] = replay;
-          }
-
-          for (auto out :
-               ir_utils::filterByType<IterDomain>(replay->outputs())) {
-            id_to_index_def[out] = replay;
-          }
-          break;
-        }
-
-        // No expression we could use found, keep trying.
-        if (replay == nullptr) {
-          continue;
-        }
-
-        std::vector<IterDomain*> ae_inps =
-            ir_utils::filterByType<IterDomain>(ae_expr_group->front()->inputs())
-                .vector();
-
-        auto replay_inputs =
-            ir_utils::filterByType<IterDomain>(replay->inputs()).vector();
-
-        for (auto inp_i : c10::irange(replay_inputs.size())) {
-          auto ae_group_pair = ae_graph.disjointIdSet(ae_inps[inp_i]);
-          if (!(ae_group_pair.second &&
-                ae_group_2_id.find(ae_group_pair.first) !=
-                    ae_group_2_id.end())) {
-            continue;
-          }
-          idGraph(IdMappingMode::INDEX)
-              .mapIds(
-                  replay_inputs[inp_i], ae_group_2_id.at(ae_group_pair.first));
-        }
-      }
-
-      // No existing expression could be reused.
-      if (replay == nullptr) {
-        std::vector<IterDomain*> ae_inps_outs =
-            ir_utils::filterByType<IterDomain>(ae_expr_group->front()->inputs())
-                .vector();
-        auto outs = ir_utils::filterByType<IterDomain>(
-            ae_expr_group->front()->outputs());
-        ae_inps_outs.insert(ae_inps_outs.end(), outs.begin(), outs.end());
-
-        std::unordered_map<IterDomain*, IterDomain*> replacement_map;
-        for (auto id : ae_inps_outs) {
-          auto ae_group = ae_graph.toGroup(id);
-          auto promoted_it = ae_group_2_id.find(ae_group);
-          if (promoted_it == ae_group_2_id.end()) {
-            replacement_map[id] = id->cloneWithoutRFactor();
-          } else {
-            replacement_map[id] = promoted_it->second;
-          }
-        }
-
-        replay =
-            addExprWithReplacement(replacement_map, ae_expr_group->front());
-        // std::cout << "      ***REPLAY3***:\n        "
-        //           << ae_expr_group->front()->toString()
-        //           << "        As:" << replay->toString();
-
-      } else {
-        // std::cout << "      ***MATCH3***:\n        "
-        //           << "        " << replay->toString();
-      }
-
-      all_index_exprs.pushBack(replay);
-      {
-        auto in_ids = ir_utils::filterByType<IterDomain>(replay->inputs());
-        all_index_ids.insert(in_ids.begin(), in_ids.end());
-
-        auto out_ids = ir_utils::filterByType<IterDomain>(replay->outputs());
-        all_index_ids.insert(out_ids.begin(), out_ids.end());
-      }
-
-      std::vector<IterDomain*> ae_inps =
-          ir_utils::filterByType<IterDomain>(ae_expr_group->front()->inputs())
-              .vector();
-      std::vector<IterDomain*> replay_inps =
-          ir_utils::filterByType<IterDomain>(replay->inputs()).vector();
-      TORCH_INTERNAL_ASSERT(ae_inps.size() == replay_inps.size());
-
-      for (auto inp_i : c10::irange(ae_inps.size())) {
-        auto ae_group = ae_graph.toGroup(ae_inps[inp_i]);
-        // Only replace if entry does not exist.
-        ae_group_2_id.emplace(std::make_pair(ae_group, replay_inps[inp_i]));
-      }
-    }
-  }
-
-  // std::cout << "All indexing expressions (on the index graph): " <<
-  // std::endl;
-  auto index_expr_groups =
-      idGraph(IdMappingMode::INDEX).toGroups(all_index_exprs);
-
-  ExprGroups extraneous_expr_groups =
-      ExprGroups(
-          idGraph(IdMappingMode::INDEX).disjointExprSets().disjointSets())
-          .subtract(index_expr_groups);
-  for (auto group : extraneous_expr_groups) {
-    idGraph(IdMappingMode::INDEX).eraseExprGroup(group);
-  }
-
-  // std::cout << "All index graph exprs: " << std::endl;
-  // std::cout << debug::exprGroupsString(idGraph(IdMappingMode::INDEX))
-  //           << std::endl;
-
-  return {};
+  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
 }
 
 } // namespace nvfuser
