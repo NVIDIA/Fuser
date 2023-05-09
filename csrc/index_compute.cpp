@@ -1598,7 +1598,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   const auto& zero_domain_map = producer_indexing.zeroDomains();
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
-  auto alloc_dom = producer_tv->getMaybeAllocationDomain();
+  const auto& alloc_dom = producer_tv->getMaybeAllocationDomain();
 
   // Figure out which alloc axes we don't need to index
   std::unordered_set<IterDomain*> skip_indexing;
@@ -1741,7 +1741,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
 std::vector<Val*> Index::getStrides(const TensorView* tv) {
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
-  auto alloc_dom = tv->getMaybeAllocationDomain();
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
 
   std::vector<Val*> strides(
       alloc_dom.size(), GpuLower::current()->kernel()->oneVal());
@@ -1796,7 +1796,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops,
     const IndexFromIdGraph& index_from_id_graph) {
-  auto alloc_dom = tv->getMaybeAllocationDomain();
+  const auto& alloc_dom = tv->getMaybeAllocationDomain();
   auto indexing = index_from_id_graph.index;
 
   std::vector<Val*> alloc_inds(
@@ -1901,7 +1901,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
-  auto alloc_dom = producer_tv->getMaybeAllocationDomain();
+  const auto& alloc_dom = producer_tv->getMaybeAllocationDomain();
 
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
@@ -2032,7 +2032,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
-  auto alloc_dom = consumer_tv->getMaybeAllocationDomain();
+  const auto& alloc_dom = consumer_tv->getMaybeAllocationDomain();
+
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
