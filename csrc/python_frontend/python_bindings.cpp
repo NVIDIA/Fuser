@@ -163,6 +163,13 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+  
+  py::class_<Vector> vector_class(nvfuser, "Vector");
+  scalar_class.def("__repr__", [](Vector& self) {
+    std::stringstream ss;
+    ss << "Vector(index=" << self.index << ")";
+    return ss.str();
+  });
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for

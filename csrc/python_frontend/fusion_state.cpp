@@ -29,6 +29,8 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
     os << "S";
   } else if (state.stype == serde::StateType_Tensor) {
     os << "T";
+  } else if (state.stype == serde::StateType_Vector) {
+    os << "V";
   } else if (state.stype == serde::StateType_None) {
     os << "None";
   } else {
