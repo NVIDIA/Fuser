@@ -486,7 +486,7 @@ void HaloInfo::validate(
     std::shared_ptr<const ComputeAtMap> ca_map) const {
   const auto mem_type = tv->getMemoryType();
 
-  for (auto axis : tv->domain()->leaf()) {
+  for (auto axis : tv->getLeafDomain()) {
     auto concrete_id = ca_map->getConcreteMappedID(axis, IdMappingMode::LOOP);
 
     // The extent is assumed to be the same
@@ -531,13 +531,13 @@ void HaloInfo::validate(
       auto consumer = use->outputs()[0]->as<TensorView>();
       // Find the corresponding axis in the consumer
       auto it = std::find_if(
-          consumer->domain()->leaf().begin(),
-          consumer->domain()->leaf().end(),
+          consumer->getLeafDomain().begin(),
+          consumer->getLeafDomain().end(),
           [&](IterDomain* consumer_axis) {
             return ca_map->areMapped(
                 axis, consumer_axis, IdMappingMode::PERMISSIVE);
           });
-      if (it == consumer->domain()->leaf().end()) {
+      if (it == consumer->getLeafDomain().end()) {
         continue;
       }
       if (!extentEqual(axis, *it)) {

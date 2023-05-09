@@ -783,7 +783,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->domain()->leaf();
+  const auto& domain = tv->getLeafDomain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
