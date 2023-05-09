@@ -1355,8 +1355,17 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   if (x->isZero() && isPositiveHelper(y, context)) {
     return true;
   }
+  // i1 % i2 < i2
+  if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
+      bop != nullptr && bop->getBinaryOpType() == BinaryOpType::Mod) {
+    auto denominator = bop->rhs();
+    if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
+        isNonNegative(y, context)) {
+      return true;
+    }
+  }
+  // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
-    // x <= a & a < b & b <= y  -->  x < y
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
       return true;
     }
