@@ -475,8 +475,14 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   }
 
   //! Get all cached runtimes
-  auto& getKernelRuntimes() {
+  const auto& getKernelRuntimes() const {
     return kernel_runtimes_;
+  }
+
+  //! Get mapping from keys (KernelArgumentHolder cache IDs) to
+  //! FusionKernelRuntimes
+  const auto& getArgIdToRuntimeMap() const {
+    return id_to_kernel_runtime_;
   }
 
   void profile(bool to_profile) {

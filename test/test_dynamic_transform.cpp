@@ -748,7 +748,8 @@ using dynamic_view_invocation = std::tuple<
     shape, // input_shape
     shape, // output_shape
     int64_t, // multiplicative factor
-    bool // expect miss
+    bool, // expect miss in first level (KernelArgumentHolder cache ID)
+    bool // expect miss in next level (reuse concrete FusionKernelRuntime)
     >;
 
 //! Given a collection of input/output shapes test that FusionExecutorCache
@@ -798,7 +799,7 @@ void reductionDynamicViewAddFusion(
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion));
 
-  // Return pair of: number of concretizations & total number of kernel runtimes
+  // Return number of cached concretizations
   auto countConcretizations = [&fusion_executor_cache]() {
     std::unordered_set<const std::pair<
         size_t,
@@ -809,21 +810,30 @@ void reductionDynamicViewAddFusion(
     }
     return concs.size();
   };
-  size_t num_concretizations = countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
   // should be
-  auto checkCache = [&countConcretizations,
-                     &num_concretizations](bool expect_miss) {
+  size_t num_concretizations = countConcretizations();
+  auto checkConcretizationCache = [&countConcretizations,
+                                   &num_concretizations](bool expect_miss) {
     auto current = countConcretizations();
     ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
     num_concretizations = current;
+  };
+  // Check that arg cache ID has cache misses only when they should
+  auto num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
+  auto checkCacheIdCache = [&fusion_executor_cache,
+                            &num_cache_ids](bool expect_miss) {
+    auto current = fusion_executor_cache.getArgIdToRuntimeMap().size();
+    ASSERT_EQ(current, num_cache_ids + (size_t)expect_miss);
+    num_cache_ids = current;
   };
 
   for (auto& inv : invocations) {
     auto input_shape = std::get<0>(inv);
     auto output_shape = std::get<1>(inv);
     auto factor = std::get<2>(inv);
-    auto expect_miss = std::get<3>(inv);
+    auto expect_cache_id_miss = std::get<3>(inv);
+    auto expect_conc_miss = std::get<4>(inv);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -854,7 +864,8 @@ void reductionDynamicViewAddFusion(
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-    checkCache(expect_miss);
+    checkCacheIdCache(expect_cache_id_miss);
+    checkConcretizationCache(expect_conc_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
@@ -875,23 +886,43 @@ void reductionDynamicViewAddFusion(
 
 TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
   auto invocations = std::vector<dynamic_view_invocation>{
-      {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, 1, true}, // trivial
-      {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, 1, false}, // trivial (identical)
+      // in_shape, out_shape, factor, arg_cache_miss, runtime_cache_miss
+      {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, 1, true, true}, // trivial
+      {{8, 3 * 4, 7, 5},
+       {8, 3 * 4, 7, 5},
+       1,
+       false,
+       false}, // trivial (identical)
       {{8, 3 * 4, 7, 5},
        {8, 3 * 4, 7, 5},
        2,
+       false,
        false}, // trivial (changed factor)
-      {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, 1, true}, // merge(2) osplit(1, 3)
-      {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, 2, false}, // merge(2) osplit(1, 3)
+      {{8, 3 * 4, 7, 9},
+       {8, 3, 4, 7 * 9},
+       1,
+       true,
+       true}, // merge(2) osplit(1, 3)
+      {{8, 3 * 4, 7, 9},
+       {8, 3, 4, 7 * 9},
+       2,
+       false,
+       false}, // merge(2) osplit(1, 3)
       {{8, 3 * 4, 7, 9},
        {8, 3, 4 * 7, 9},
        1,
+       true,
        true}, // merge(1) merge(2) osplit(1, 3)
       {{8, 3 * 4, 7, 5},
        {8, 3, 4 * 7, 5},
        1,
+       false,
        false}, // merge(1) merge(2) osplit(1, 3)
-      {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, 1, false}, // merge(1) osplit(1, 3)
+      {{8, 3 * 5, 7, 9},
+       {8, 3, 5 * 7, 9},
+       1,
+       false,
+       false}, // merge(1) osplit(1, 3)
       // test passing -1 dynamically for dimension size
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, 1, false} // merge(1) osplit(1, 3)
   };
