@@ -298,8 +298,34 @@ struct hasToString : decltype(hasToStringHelper<T>(0)) {};
 // string. If std::stringstream << is defined for T, then use <<.
 // otherwise, just returns a "<attr>"
 
+// See https://stackoverflow.com/a/72814709
+template <typename C>
+struct is_vector : std::false_type {};
+template <typename T, typename A>
+struct is_vector<std::vector<T, A>> : std::true_type {};
+template <typename C>
+inline constexpr bool is_vector_v = is_vector<C>::value;
+
 template <typename T>
 struct Printer {
+  //! Print vector of printables as "[a, b ,c]"
+  template <typename Iterator>
+  static std::string iteratorToString(Iterator first, Iterator last) {
+    std::stringstream ss;
+    ss << "[";
+    bool first_it = true;
+    for (auto it = first; it != last; it = std::next(it)) {
+      if (!first_it) {
+        ss << ", ";
+      }
+      ss << Printer<
+          typename std::iterator_traits<Iterator>::value_type>::toString(*it);
+      first_it = false;
+    }
+    ss << "]";
+    return ss.str();
+  }
+
   static std::string toString(const T& value) {
     if constexpr (hasToString<T>()) {
       if constexpr (std::is_pointer<T>::value) {
@@ -307,6 +333,9 @@ struct Printer {
       } else {
         return value.toString();
       }
+    } else if constexpr (is_vector<T>::value) {
+      // If this is an iterable, print it as one
+      return iteratorToString(value.begin(), value.end());
     } else {
       return "<attr>";
     }
