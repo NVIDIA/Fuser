@@ -1112,6 +1112,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     }
     GlobalBufferInfo info;
     info.zero_init = alloc->zeroInit();
+    info.tv = tv;
     std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, alloc, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
