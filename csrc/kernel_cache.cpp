@@ -45,13 +45,20 @@ void encodeBuffer(size_t value, std::string& buffer) {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    bool hash_scalars) {
+    const std::optional<std::vector<bool>> input_affects_concretization) {
   IdLookupReturn ret;
+
+  if (input_affects_concretization.has_value()) {
+    TORCH_CHECK(
+        input_affects_concretization.value().size() == inputs.size(),
+        "Size mismatch between inputs and input_affects_concretization");
+  }
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
-  for (const auto& input : inputs) {
+  for (const auto i : c10::irange(inputs.size())) {
+    auto input = inputs[i];
     if (input.isTensor()) {
       auto& input_tensor = input.toTensor();
 
@@ -75,8 +82,13 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
-      if (hash_scalars && input.isInt()) {
-        // add value of integer scalars here
+      if (input_affects_concretization.has_value() &&
+          input_affects_concretization.value()[i]) {
+        // add value of integer scalars here only if it is one of the scalars
+        // provided, as these are used in determining concretization
+        TORCH_CHECK(
+            input.isInt(),
+            "Scalar input affects concretization but is not Int");
         encoding_ += std::to_string(input.toInt());
       }
     }
@@ -113,16 +125,29 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)),
-      has_dynamic_reshape_(fusion_->hasDynamicTransform()) {
-  // Precompute initial concretization info and attach it to the fusion as
-  // managed data
+      initial_info_(DynamicTransform::getInitialInfo(fusion_.get())) {
+  // Track initial concretization info in initial_info_ for quick access. We
+  // also allow fusion_ to manage it so that when it is copied, we can extract
+  // the cloned version.
   fusion_->manage(
       "initial_info",
-      DynamicTransform::getInitialInfo(fusion_.get()),
+      initial_info_,
       [](IrCloner& ir_cloner, std::any data) -> std::any {
         auto orig_info = std::any_cast<DynamicTransformInitialInfo>(data);
         return orig_info.clone(ir_cloner);
       });
+
+  // initial_info_ provides a set of input Vals that are used for
+  // concretization. Here we check which inputs, if any, correspond to any of
+  // those Vals. These will be the inputs that are explicitly used in the cache
+  // Id for KernelArgumentHolder.
+  input_affects_concretization_.resize(fusion_->inputs().size(), false);
+  auto dyn_vals = initial_info_.getRootDynamicVals();
+  for (const auto i : c10::irange(fusion_->inputs().size())) {
+    auto input = fusion_->inputs().at(i);
+    input_affects_concretization_[i] =
+        input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
+  }
 }
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
@@ -141,7 +166,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ has_dynamic_reshape_);
+      inputs_id_lookup_.lookupId(inputs, input_affects_concretization_);
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -436,12 +461,12 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtime = reuse_it->get();
     kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
   } else {
-    // graph miss, need to re-build an optimized graph for this case
+    // cache miss, need to re-build an optimized graph for this case
 
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (has_dynamic_reshape_) {
+    if (initial_info_.hasDynamicTransforms()) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -467,7 +492,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (has_dynamic_reshape_) {
+  if (initial_info_.hasDynamicTransforms()) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.

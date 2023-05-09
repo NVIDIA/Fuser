@@ -45,36 +45,61 @@ std::string DynamicTransformInitialInfo::toString() const {
 
 //! Gather information about concretizing transformations without
 //! concrete input sizes.
-class DynamicTransformInfoBuilder : public IterVisitor {
+class DynamicTransformInitialInfoBuilder : public IterVisitor {
  public:
-  DynamicTransformInfoBuilder(Fusion* fusion);
-
-  using IterVisitor::handle;
-
-  // Analyze a dynamic reshape and generate AnalyzeViewResult
-  void handle(ViewOp* op) override {
-    auto out_tv = op->out()->as<TensorView>();
-    // If there's no symblic axis, this is a static reshape op
-    if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshapes_.push_back(op);
-    }
-  }
+  DynamicTransformInitialInfoBuilder(Fusion* fusion);
 
   const auto& getInfo() const {
     return info_;
   }
 
  private:
+  using IterVisitor::handle;
+
+  // Just find views that have symbolic outputs. Do not do replacement
+  void handle(ViewOp* op) override {
+    auto inp_tv = op->in()->as<TensorView>();
+    auto out_tv = op->out()->as<TensorView>();
+    // If there's no symbolic axis, this is a static reshape op
+    if (out_tv->domain()->hasSymbolicAxis()) {
+      info_.dynamic_reshapes_.push_back(op);
+
+      // Input and output extent expressions affect concretization
+      const auto& inp_dom =
+          TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+      for (const auto id : inp_dom) {
+        leaf_dynamic_vals_.push_back(id->extent());
+      }
+      const auto& out_dom = inp_tv->getMaybeRFactorDomain();
+      for (const auto id : out_dom) {
+        leaf_dynamic_vals_.push_back(id->extent());
+      }
+    }
+  }
+
+  //! Process vector of leaf dynamic values by finding inputs and recording the
+  //! result into info_
+  void finalizeDynamicVals() {
+    const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
+    info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
+  }
+
+ private:
   DynamicTransformInitialInfo info_;
+
+  std::vector<Val*> leaf_dynamic_vals_;
 };
 
-DynamicTransformInfoBuilder::DynamicTransformInfoBuilder(Fusion* fusion)
+DynamicTransformInitialInfoBuilder::DynamicTransformInitialInfoBuilder(
+    Fusion* fusion)
     : info_(fusion) {
   TORCH_INTERNAL_ASSERT(
       !fusion->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
   traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+
+  finalizeDynamicVals();
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
@@ -500,7 +525,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 }
 
 DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
-  DynamicTransformInfoBuilder builder(fusion);
+  DynamicTransformInitialInfoBuilder builder(fusion);
   return builder.getInfo();
 }
 

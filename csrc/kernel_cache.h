@@ -304,7 +304,8 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! depend on those inputs and omitting them would lead to a collision.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      bool hash_scalars = false);
+      const std::optional<std::vector<bool>> input_affects_concretization =
+          std::nullopt);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
@@ -551,8 +552,13 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //!   caching profiles. Currently it just makes it easier to test
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
 
-  //! Whether fusion_ contains dynamic reshapes
-  bool has_dynamic_reshape_ = false;
+  //! Initial concretization info
+  DynamicTransformInitialInfo initial_info_;
+
+  //! Whether each input to the fusion affects concretization. True for every
+  //! TensorView, or any scalar that appears in an extent to the input of a
+  //! dynamic operation.
+  std::vector<bool> input_affects_concretization_;
 };
 
 class GraphCache {

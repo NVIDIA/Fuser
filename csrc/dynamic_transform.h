@@ -21,7 +21,7 @@
 namespace nvfuser {
 
 class Fusion;
-class DynamicTransformInfoBuilder;
+class DynamicTransformInitialInfoBuilder;
 
 //! Initial information derived only from the symbolic Fusion without input
 //! sizes
@@ -39,19 +39,19 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return dynamic_reshapes_.size() > 0 || dynamic_reductions_.size() > 0;
+    return dynamic_reshapes_.size() > 0;
+  }
+
+  //! Return a set of scalars that are inputs or extents of input TensorViews
+  //! and that appear in inputs to dynamic expressions. Any Vals not in this
+  //! list do not affect concretization.
+  const std::unordered_set<Val*> getRootDynamicVals() const {
+    return root_dynamic_vals_;
   }
 
   //! Return a vector of ViewOp expressions that have dynamic output shapes
   const std::vector<ViewOp*>& getDynamicReshapes() const {
     return dynamic_reshapes_;
-  }
-
-  //! Return a vector of reduction expressions (ReductionOp or WelfordOp) that
-  //! have dynamic shapes and thus might be replaced by full or squeeze
-  //! operations
-  const std::vector<TensorView*>& getDynamicReductions() const {
-    return dynamic_reductions_;
   }
 
   std::string toString() const;
@@ -66,9 +66,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   std::vector<ViewOp*> dynamic_reshapes_;
 
-  std::vector<TensorView*> dynamic_reductions_;
+  // Root Vals that determine concretization
+  std::unordered_set<Val*> root_dynamic_vals_;
 
-  friend class DynamicTransformInfoBuilder;
+  friend class DynamicTransformInitialInfoBuilder;
 };
 
 //! A set of transformations for a symbolic fusion with concrete sizes
@@ -88,7 +89,6 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     // evaluator when any one of the IDs has a known value
     expr_eval->propagateBoundValuesThroughExactMaps(fusion);
 
-    // look at
     analyzeReshapes(info, expr_eval);
   }
 
