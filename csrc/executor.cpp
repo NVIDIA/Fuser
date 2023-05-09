@@ -1730,14 +1730,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (execute_kernel_) {
-    if (maybe_available_dynamic_smem_.has_value() &&
-        size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
-      // Increase limit of dynamic shared memory if needed.
-      CUDA_SAFE_CALL(cuFuncSetAttribute(
-          compiled_kernel_.function,
-          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-          launch_params_.smem()));
-    }
     ExpressionEvaluator expr_eval;
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
     auto arg_buffer = args.getBuffer(kernel()->indexType(), expr_eval);
