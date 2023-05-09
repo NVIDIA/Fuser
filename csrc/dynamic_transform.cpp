@@ -76,7 +76,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
           leaf_dynamic_vals_.push_back(id->extent());
         }
       }
-      const auto& out_dom = inp_tv->getMaybeRFactorDomain();
+      const auto& out_dom = out_tv->getMaybeRFactorDomain();
       for (const auto id : out_dom) {
         auto ext = info_.expr_eval_.evaluate(id->extent());
         if (!ext.has_value()) {
