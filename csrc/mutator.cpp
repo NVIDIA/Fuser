@@ -96,7 +96,10 @@ void OptOutMutator::mutate(TensorDomain* td) {
 
   std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->maybeRFactor())
+      ? updateIdVec(td->rfactor())
+      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> allocation_dom = td->hasAllocation()
+      ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
@@ -105,7 +108,12 @@ void OptOutMutator::mutate(TensorDomain* td) {
   }
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, domain, td->contiguity());
+      td->container(),
+      root_dom,
+      rfactor_dom,
+      allocation_dom,
+      domain,
+      td->contiguity());
   registerMutation(td, mutated_val);
 }
 

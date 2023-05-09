@@ -1781,6 +1781,14 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> allocation,
+      std::vector<IterDomain*> leaf_domain,
+      std::vector<std::optional<bool>> contiguity = {});
+
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
@@ -1896,7 +1904,23 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
     return hasAllocation() ? allocation_domain_ : maybeRFactor();
   };
 
-  void setAllocationDomain(std::vector<IterDomain*>);
+  // Set the allocation domain of this TensorDomain. The new allocation domain
+  // must satisfy root <= allocation <= leaf, that is, it must be within the
+  // history between root and leaf domain. Because contiguity is always defined
+  // w.r.t. the allocation domain, the contiguity must be updated accordingly.
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      std::vector<std::optional<bool>> new_contiguity);
+
+  // Similar to the previous one, but with new contiguity filled with all true
+  // or all false.
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      bool new_contiguity) {
+    setAllocationDomain(
+        std::move(new_allocation_domain),
+        getContiguityFilledWith(new_allocation_domain, new_contiguity));
+  }
 
   void resetDomains() {
     no_reduction_domain_ = noReductions(leaf_domain_);
