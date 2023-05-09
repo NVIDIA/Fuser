@@ -267,16 +267,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs);
 
-  //! Get the underlying Fusion
-  const Fusion* getFusion() const {
-    return fusion_;
-  }
-
-  //! Get the underlying kir::Kernel
-  const GpuLower* getLowered() const {
-    return lowered_.get();
-  }
-
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
