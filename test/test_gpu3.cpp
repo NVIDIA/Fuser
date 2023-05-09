@@ -6862,7 +6862,7 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
     auto dim1 = IterDomainBuilder(w1.avg->axis(1)).build();
     auto td = IrBuilder::create<TensorDomain>(
         std::vector<IterDomain*>{dim0, dim1},
-        std::vector<std::optional<bool>>{true, true});
+        std::vector<std::optional<bool>>{true, std::nullopt});
     auto tv = IrBuilder::create<TensorView>(td, dtype);
     return tv;
   };

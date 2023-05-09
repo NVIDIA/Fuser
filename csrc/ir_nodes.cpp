@@ -2607,8 +2607,8 @@ void validateContiguity(
          allocation_domain.at(i)->isReduction());
     TORCH_CHECK(
         expect_null != contiguity.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
+        "The contiguity of a broadcast/reduction dimension must be None. "
+        "The contiguity of a non-broadcast/reduction dimension must be true/false");
   }
 }
 
