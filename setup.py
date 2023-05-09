@@ -271,7 +271,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
     cmd_str.append(".")
 
-    print(f"Configuraing CMake with {' '.join(cmd_str)}")
+    print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
 
     if not CMAKE_ONLY:
