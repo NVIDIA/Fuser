@@ -219,7 +219,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return ss.str();
           })
       .def(
-          "to_graphviz",
+          "_to_graphviz",
           [](FusionDefinition& self, std::string detail_level) -> std::string {
             // map detail_level to IrGraphGenerator::DetailLevel
             IrGraphGenerator::DetailLevel dl =

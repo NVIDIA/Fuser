@@ -196,7 +196,7 @@ std::string FusionDefinition::toGraphviz(
 
   FusionGuard::setCurFusion(fusion);
 
-  return IrGraphGenerator::toGraphviz(fusion, detail_level);
+  return IrGraphGenerator(fusion, detail_level).generate();
 }
 
 std::vector<at::Tensor> FusionDefinition::execute(

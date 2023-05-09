@@ -39,6 +39,64 @@ namespace nvfuser {
 //
 class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
  public:
+  // A selection of colors from the X11 color scheme
+  // https://graphviz.org/doc/info/colors.html#x11
+  enum class Color {
+    AZURE,
+    PINK,
+    GREEN,
+    GREY,
+    YELLOW,
+    LAVENDER,
+    CYAN,
+    WHITE,
+    MAGENTA,
+    RED,
+    // Only the cases above are included in colorCycle
+    LIGHTGRAY,
+    LIGHTGREEN,
+    LIGHTSALMON
+  };
+
+  // Small color palette from the X11 theme
+  static Color colorCycle(size_t index) {
+    const size_t number_of_colors = 10;
+    index = index % number_of_colors;
+    return static_cast<Color>(index);
+  }
+
+  std::string colorToString(Color color) {
+    switch (color) {
+      case Color::AZURE:
+        return "azure";
+      case Color::PINK:
+        return "pink";
+      case Color::GREEN:
+        return "green";
+      case Color::YELLOW:
+        return "yellow";
+      case Color::LAVENDER:
+        return "lavender";
+      case Color::CYAN:
+        return "cyan";
+      case Color::WHITE:
+        return "white";
+      case Color::MAGENTA:
+        return "magenta";
+      case Color::RED:
+        return "red";
+      case Color::LIGHTGRAY:
+        return "lightgray";
+      case Color::LIGHTGREEN:
+        return "lightgreen";
+      case Color::LIGHTSALMON:
+        return "lightsalmon";
+      default:
+        break;
+    }
+    return "";
+  }
+
   enum class DetailLevel {
     ComputeOnly, // Only dataflow (compute) nodes
     Basic, // Compute + schedule, with minimal details (default)
@@ -61,8 +119,8 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
     //! Whether to show nodes that are unused due to dead code elimination.
     bool showUnreachableNodes = false; // true for Explicit
 
-    //! Whether to show definitions of constant Scalars
-    bool showDefsOfConstants = false; // true for Explicit
+    //! Whether to show definitions of Scalars in their node labels
+    bool showValuesOfConstants = true; // true for Explicit
 
     //! Print to string, prepending line_prefix to each line of output
     std::string toString(std::string line_prefix = "") {
@@ -78,34 +136,27 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
     }
   };
 
-  using ExprColorMap = std::unordered_map<const Expr*, size_t>;
+  IrGraphGenerator(const Fusion* fusion, DetailLevel detail_level);
+
+  using ExprColorMap = std::unordered_map<const Expr*, Color>;
+
+  void setExprColor(Expr* expr, Color color) {
+    expr_color_map_[expr] = color;
+  }
+
+  //! Return graph as dot-format string
+  std::string generate();
+
+  //! Write dot-format string to file
+  void print(const char* filename);
 
  public:
-  static void print(
-      const Fusion* fusion,
-      const char* filename,
-      DetailLevel detail_level = DetailLevel::Basic,
-      ExprColorMap* expr_color_map = nullptr);
-
-  static std::string toGraphviz(
-      const Fusion* fusion,
-      DetailLevel detail_level,
-      ExprColorMap* expr_color_map = nullptr);
-
   //! L-value reference to enable setting config options manually.
   Config& config() {
     return config_;
   }
 
  private:
-  IrGraphGenerator(
-      const Fusion* fusion,
-      DetailLevel detail_level,
-      ExprColorMap* expr_color_map = nullptr);
-  ~IrGraphGenerator() override = default;
-
-  std::string generate();
-
   void generateComputeGraph();
   void generateScheduleGraph();
 
@@ -135,7 +186,17 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
       const Statement* dst,
       const std::string& style = "");
 
-  void printExpr(const Expr* expr, const std::string& label);
+  //! If color not specified for an expression, set it to color
+  void maybeSetExprColor(const Expr* e, Color color) {
+    if (expr_color_map_.find(e) == expr_color_map_.end()) {
+      expr_color_map_.insert({e, color});
+    }
+  }
+
+  void printExpr(
+      const Expr* expr,
+      const std::string& label,
+      const std::string& border_color = "blue");
   void printValue(const Val* val, const std::string& label);
 
  private:
@@ -150,7 +211,7 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
   std::vector<const TensorView*> tensor_views_;
   std::vector<std::string> arcs_;
   int next_id_ = 1;
-  ExprColorMap* expr_color_map_ = nullptr;
+  ExprColorMap expr_color_map_;
 };
 
 } // namespace nvfuser

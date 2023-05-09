@@ -44,7 +44,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (b->isSymbolic()) {
       label_ << "b" << b->name();
     } else {
-      if (config_.showDefsOfConstants) {
+      if (config_.showValuesOfConstants) {
         label_ << "b" << b->name() << "=";
       }
       label_ << *b->value();
@@ -55,7 +55,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (d->isSymbolic()) {
       label_ << typePrefix(d->getDataType().value()) << d->name();
     } else {
-      if (config_.showDefsOfConstants) {
+      if (config_.showValuesOfConstants) {
         label_ << typePrefix(d->getDataType().value()) << d->name() << "=";
       }
       label_ << *d->value();
@@ -66,7 +66,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (i->isSymbolic()) {
       label_ << "i" << i->name();
     } else {
-      if (config_.showDefsOfConstants) {
+      if (config_.showValuesOfConstants) {
         label_ << "i" << i->name() << "=";
       }
       label_ << *i->value();
@@ -106,64 +106,18 @@ class IrNodeLabel final : private OptInConstDispatch {
   const DetailLevel detail_level_;
 };
 
-// Small color palette from the X11 theme
-static const char* getColorFromIndex(size_t index) {
-  const size_t number_of_colors = 10;
-  index = index % number_of_colors;
-  switch (index) {
-    case 0: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "azure";
-    case 1: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "pink";
-    case 2: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "green";
-    case 3: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "grey";
-    case 4: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "yellow";
-    case 5: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "lavender";
-    case 6: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "cyan";
-    case 7: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "white";
-    case 8: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "magenta";
-    case 9: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "red";
-    default:
-      break;
-  }
-  return "";
-}
-
 } // anonymous namespace
 
-void IrGraphGenerator::print(
-    const Fusion* fusion,
-    const char* filename,
-    DetailLevel detail_level,
-    ExprColorMap* expr_color_map) {
+void IrGraphGenerator::print(const char* filename) {
   std::ofstream dot_file(filename);
   TORCH_CHECK(dot_file.good(), "Failed to open the IR graph file");
-  dot_file << toGraphviz(fusion, detail_level, expr_color_map);
-}
-
-std::string IrGraphGenerator::toGraphviz(
-    const Fusion* fusion,
-    DetailLevel detail_level,
-    ExprColorMap* expr_color_map) {
-  IrGraphGenerator ir_graph(fusion, detail_level, expr_color_map);
-  return ir_graph.generate();
+  dot_file << generate();
 }
 
 IrGraphGenerator::IrGraphGenerator(
     const Fusion* fusion,
-    DetailLevel detail_level,
-    ExprColorMap* expr_color_map)
-    : detail_level_(detail_level),
-      fusion_(fusion),
-      expr_color_map_(expr_color_map) {
+    DetailLevel detail_level)
+    : detail_level_(detail_level), fusion_(fusion) {
   // setup inputs & outputs
   // (indexes used to quickly check if a value is fusion input or output)
   for (const auto* input : fusion->inputs()) {
@@ -203,12 +157,16 @@ void IrGraphGenerator::addArc(
   arcs_.push_back(arc_def.str());
 }
 
-void IrGraphGenerator::printExpr(const Expr* expr, const std::string& label) {
+void IrGraphGenerator::printExpr(
+    const Expr* expr,
+    const std::string& label,
+    const std::string& border_color) {
   graph_def_ << "    " << getid(expr) << " "
-             << "[label=\"" << label << "\", shape=Mrecord, color=blue, "
+             << "[label=\"" << label
+             << "\", shape=Mrecord, color=" << border_color << ", "
              << "style=filled, fillcolor=";
-  if (expr_color_map_ != nullptr && expr_color_map_->count(expr)) {
-    graph_def_ << getColorFromIndex(expr_color_map_->at(expr));
+  if (expr_color_map_.count(expr)) {
+    graph_def_ << colorToString(expr_color_map_.at(expr));
   } else {
     graph_def_ << "azure";
   }
@@ -276,7 +234,7 @@ std::string IrGraphGenerator::generate() {
 
 void IrGraphGenerator::generateComputeGraph() {
   graph_def_ << "  subgraph cluster_compute {\n"
-             << "    label=\"compute\";\n"
+             << "    label=\"Compute Definition\";\n"
              << "    style=dashed;\n";
 
   // Inputs
@@ -294,7 +252,7 @@ void IrGraphGenerator::generateComputeGraph() {
 
 void IrGraphGenerator::generateScheduleGraph() {
   graph_def_ << "  subgraph cluster_schedule {\n"
-             << "    label=\"schedule\";\n"
+             << "    label=\"Schedule\";\n"
              << "    style=dashed;\n";
 
   // Connect TensorView with their TensorDomain
@@ -338,20 +296,35 @@ void IrGraphGenerator::handle(const Expr* e) {
   if (!visited(e)) {
     visited_.insert(e);
 
-    // node
-    printExpr(e, e->getGraphvizLabel());
-
     // Determine whether this is an IterDomain expression
     // If so, we may want to skip some inputs
     bool is_id_expr = false;
+    bool is_scalar_expr = true;
     for (auto v : e->inputs()) {
       if (v->isA<IterDomain>()) {
         is_id_expr = true;
-        break;
+      }
+      if (!v->isScalar()) {
+        is_scalar_expr = false;
       }
     }
 
-    std::string arc_style(is_id_expr ? "[color=lightgray]" : "");
+    // Default colors for non-IterDomain and non-Scalar expressions
+    std::string arc_style;
+    std::string border_color("blue");
+
+    // draw node for e
+    if (is_id_expr) {
+      arc_style = "[color=lightgray]";
+      border_color = "gray";
+      maybeSetExprColor(e, Color::LIGHTGRAY);
+    } else if (is_scalar_expr) {
+      arc_style = "[color=green]";
+      border_color = "green";
+      maybeSetExprColor(e, Color::WHITE);
+    }
+
+    printExpr(e, e->getGraphvizLabel(), border_color);
 
     // inputs & outputs
     for (auto v : e->inputs()) {
@@ -422,7 +395,8 @@ void IrGraphGenerator::handle(const NamedScalar* i) {
 void IrGraphGenerator::handle(const TensorView* tv) {
   auto has_rfactor = tv->domain()->hasRFactor();
   std::stringstream label;
-  label << "{T" << tv->name() << (has_rfactor ? " (r-factor)" : "") << "|{";
+  label << "{T" << tv->name() << (has_rfactor ? " (r-factor domain)" : "")
+        << "|{";
   int axis = 0;
   for (auto iter_domain : tv->domain()->getMaybeRFactorDomain()) {
     if (axis != 0) {
@@ -447,7 +421,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   std::string style = "style=filled, fillcolor=" + this_color;
 
   graph_def_ << "    " << getid(tv) << " [label=\"" << label.str()
-             << "\", shape=Mrecord, color=brown, " << style << "];\n";
+             << "\", shape=record, color=brown, " << style << "];\n";
 
   tensor_views_.push_back(tv);
 
@@ -465,7 +439,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
 
     std::stringstream rootd_label;
     std::string root_link_style("[color=lightgray]");
-    rootd_label << "{T" << tv->name() << " (root)|";
+    rootd_label << "{T" << tv->name() << " (root domain)|";
     rootd_label << "{";
     axis = 0;
     for (auto iter_domain : tv->domain()->getRootDomain()) {
@@ -502,7 +476,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
     }
 
     graph_def_ << "    " << rootd_id << " [label=\"" << rootd_label.str()
-               << "\", shape=Mrecord, color=black, style=filled, fillcolor="
+               << "\", shape=record, color=brown, style=filled, fillcolor="
                << root_color << "];\n";
   }
 }

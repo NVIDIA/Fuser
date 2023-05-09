@@ -184,6 +184,23 @@ class FusionDefinition(_C._FusionDefinition):
             inputs, tensor_transforms, override_user_schedule
         )
 
+    def to_graphviz(self, **kwargs):
+        """
+        Create a graphviz object representing the most recently scheduled Fusion.
+
+        Returns:
+            A :class:`graphviz.Source` object
+        """
+        try:
+            import graphviz
+        except ImportError as exc:
+            raise RuntimeError(
+                "In order to plot Fusion graphs, NVFuser requires the 'graphviz' Python library to be installed."
+            ) from exc
+
+        dot = self._to_graphviz(**kwargs)
+        return graphviz.Source(dot)
+
 
 from .nvfuser_version import __version__
 

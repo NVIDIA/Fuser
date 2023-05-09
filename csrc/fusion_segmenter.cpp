@@ -387,13 +387,14 @@ SegmentedEdge* SegmentedFusion::newEdge(
 }
 
 void SegmentedFusion::draw() {
-  size_t group_index = 0;
-  std::unordered_map<const Expr*, size_t> expr_color_map;
+  IrGraphGenerator graphgen(
+      completeFusion(), IrGraphGenerator::DetailLevel::ComputeOnly);
 
+  size_t group_index = 0;
   for (auto group : groups()) {
     for (auto expr : group->exprs()) {
       if (ir_utils::isTvOp(expr)) {
-        expr_color_map[expr] = group_index;
+        graphgen.setExprColor(expr, IrGraphGenerator::colorCycle(group_index));
       }
     }
     group_index++;
@@ -403,11 +404,7 @@ void SegmentedFusion::draw() {
   sstream << "segmented_fusion" << segmented_fusion_name_ << ".dot";
   auto filename = sstream.str();
 
-  IrGraphGenerator::print(
-      completeFusion(),
-      filename.c_str(),
-      IrGraphGenerator::DetailLevel::ComputeOnly,
-      &expr_color_map);
+  graphgen.print(filename.c_str());
 }
 
 namespace {
