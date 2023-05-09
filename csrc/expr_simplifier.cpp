@@ -94,23 +94,28 @@ class Logger : public NoOpLogger {
       : NoOpLogger(value), init_val_(value), current_val_(value) {}
 
   ~Logger() override {
-    if (!shouldPrint()) {
-      return;
-    }
+    try {
+      if (!shouldPrint()) {
+        return;
+      }
 
-    auto str = [](Val* v) {
-      std::stringstream ss;
-      ss << ir_utils::varName(v) << " = " << v->toInlineString();
-      return ss.str();
-    };
+      auto str = [](Val* v) {
+        std::stringstream ss;
+        ss << ir_utils::varName(v) << " = " << v->toInlineString();
+        return ss.str();
+      };
 
-    std::string header = "Simplifying expression:\n" + str(init_val_);
-    std::cout << header << std::endl;
-    for (auto r : record_) {
-      std::cout << r.name << ":\n" << str(r.result) << std::endl;
+      std::string header = "Simplifying expression:\n" + str(init_val_);
+      std::cout << header << std::endl;
+      for (auto r : record_) {
+        std::cout << r.name << ":\n" << str(r.result) << std::endl;
+      }
+      std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
+                << std::endl;
+    } catch (...) {
+      // clang-tidy don't want this function to throw, but this is just a
+      // debugging helper, I don't really care if it has throw or not.
     }
-    std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
-              << std::endl;
   }
 
   void record(const char* name, Val* value) override {
