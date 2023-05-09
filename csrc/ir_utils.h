@@ -424,5 +424,28 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
+//! Compute the IterType of an IterDomain that has been resized. If the output
+//! is size 1, or the output uses no input elements, this function returns
+//! Broadcast. Otherwise, it returns Iteration.
+inline IterType resizeOutputIterType(
+    int64_t in_extent,
+    int64_t out_extent,
+    int64_t left,
+    int64_t right) {
+  TORCH_CHECK(out_extent >= 0, "Resized extent must be non-negative.");
+  if (
+      // negative padding sums to input extent. Output is zero-dimensional
+      out_extent == 0 ||
+      // input overlaps output
+      left + in_extent > 0 || right + in_extent > 0) {
+    return IterType::Iteration;
+  } else {
+    // Result is size-1 or input doesn't overlap output.
+    // In these cases, the output is just a broadcast of either the used input
+    // value, or the pad value.
+    return IterType::Broadcast;
+  }
+}
+
 } // namespace ir_utils
 } // namespace nvfuser

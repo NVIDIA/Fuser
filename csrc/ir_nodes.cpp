@@ -2501,7 +2501,8 @@ IterDomain* IterDomain::resize(
     auto out_extent = resized_id_size->getInt().value();
     auto left = left_expansion->getInt().value();
     auto right = right_expansion->getInt().value();
-    iter_type = resize_output_itertype(in_extent, out_extent, left, right);
+    iter_type =
+        ir_utils::resizeOutputIterType(in_extent, out_extent, left, right);
   } else {
     iter_type = IterType::Symbolic;
   }
