@@ -312,6 +312,90 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
+  // Given the vectorized leaf ID in a tensor, find its innermost ancestors in
+  // the allocation domain.
+  static IterDomain* getVectorizedIdInAllocationDomain(
+      IterDomain* v_id,
+      TensorView* tv,
+      std::string name) {
+    auto replay_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
+        {v_id});
+
+    VectorizeValidator validator(v_id);
+
+    for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
+         ++expr_it) {
+      auto expr = *expr_it;
+      validator.handle(expr);
+    }
+
+    TORCH_CHECK(
+        validator.is_valid,
+        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+        "Issue found in, ",
+        tv,
+        "\n");
+
+    if (v_id->getParallelType() == ParallelType::MisalignedVectorize) {
+      if (tv->getMemoryType() == MemoryType::Global) {
+        checkContiguity(validator.domains_, tv);
+      } else if (tv->definition()->isA<LoadStoreOp>()) {
+        auto input = tv->definition()->input(0);
+        TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
+        auto input_tv = input->as<TensorView>();
+        checkContiguity(validator.domains_, tv, input_tv);
+      }
+    }
+
+    TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
+
+    // Contiguity is based on rfactor domain.
+    IterDomain* last_alloc_dim = nullptr;
+    size_t last_alloc_dim_pos = 0;
+    for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
+      auto r_id = tv->getMaybeAllocationDomain()[i - 1];
+      if (r_id->isReduction() || r_id->isBroadcast()) {
+        continue;
+      }
+      last_alloc_dim = r_id;
+      last_alloc_dim_pos = i - 1;
+      break;
+    }
+
+    if (last_alloc_dim == nullptr) {
+      // Should never get here, but that would mean there are no concrete
+      // dims, so we should be fine.
+      return nullptr;
+    }
+
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    bool is_ldmatrix_trans =
+        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    if (!is_ldmatrix_trans) {
+      // ldmatrix.trans is a hardware transpose instruction that can do
+      // "vectorized" read from discontiguous memory
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+      TORCH_CHECK(
+          last_alloc_dim == validator.vectorized_id_ &&
+              contiguity.value_or(false),
+          "Vectorized dim for ",
+          name,
+          " has to be from a contiguous inner most position. tv: ",
+          tv,
+          ", allocation domain: ",
+          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          ", vectorized id: ",
+          validator.vectorized_id_,
+          ", innermost id: ",
+          last_alloc_dim,
+          ", contiguity: ",
+          contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
+    }
+    return validator.vectorized_id_;
+  }
+
  private:
   std::unordered_set<IterDomain*> domains_;
   IterDomain* vectorized_id_ = nullptr;
@@ -321,7 +405,6 @@ class VectorizeValidator : public OptInDispatch {
   static void validate(TensorView* tv) {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
-    bool misaligned_vectorize = false;
     for (auto id : tv->getLeafDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         TORCH_INTERNAL_ASSERT(
@@ -330,8 +413,6 @@ class VectorizeValidator : public OptInDispatch {
             tv,
             " only one is allowed.");
         v_id = id;
-        misaligned_vectorize =
-            id->getParallelType() == ParallelType::MisalignedVectorize;
       }
     }
 
@@ -361,86 +442,6 @@ class VectorizeValidator : public OptInDispatch {
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");
-
-    auto getVectorizedIdInAllocationDomain =
-        [misaligned_vectorize](
-            IterDomain* v_id, TensorView* tv, std::string name) -> IterDomain* {
-      auto replay_exprs = DependencyCheck::getAllExprsBetween(
-          {tv->getMaybeRFactorDomain().begin(),
-           tv->getMaybeRFactorDomain().end()},
-          {v_id});
-
-      VectorizeValidator validator(v_id);
-
-      for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
-           ++expr_it) {
-        auto expr = *expr_it;
-        validator.handle(expr);
-      }
-
-      TORCH_CHECK(
-          validator.is_valid,
-          "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
-          "Issue found in, ",
-          tv,
-          "\n");
-
-      if (misaligned_vectorize) {
-        if (tv->getMemoryType() == MemoryType::Global) {
-          checkContiguity(validator.domains_, tv);
-        } else if (tv->definition()->isA<LoadStoreOp>()) {
-          auto input = tv->definition()->input(0);
-          TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
-          auto input_tv = input->as<TensorView>();
-          checkContiguity(validator.domains_, tv, input_tv);
-        }
-      }
-
-      TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
-
-      // Contiguity is based on rfactor domain.
-      IterDomain* last_alloc_dim = nullptr;
-      size_t last_alloc_dim_pos = 0;
-      for (size_t i = tv->getMaybeRFactorDomain().size(); i > 0; i--) {
-        auto r_id = tv->getMaybeRFactorDomain()[i - 1];
-        if (r_id->isReduction() || r_id->isBroadcast()) {
-          continue;
-        }
-        last_alloc_dim = r_id;
-        last_alloc_dim_pos = i - 1;
-        break;
-      }
-
-      if (last_alloc_dim == nullptr) {
-        // Should never get here, but that would mean there are no concrete
-        // dims, so we should be fine.
-        return nullptr;
-      }
-
-      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-      bool is_ldmatrix_trans = ldst != nullptr &&
-          ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
-      if (!is_ldmatrix_trans) {
-        // ldmatrix.trans is a hardware transpose instruction that can do
-        // "vectorized" read from discontiguous memory
-        auto contiguity = *tv->domain()->contiguity().at(last_alloc_dim_pos);
-        TORCH_CHECK(
-            last_alloc_dim == validator.vectorized_id_ && contiguity,
-            "Vectorized dim for ",
-            name,
-            " has to be from a contiguous inner most position. tv: ",
-            tv,
-            ", rFactor domain: ",
-            ir_utils::toString(tv->getMaybeRFactorDomain()),
-            ", vectorized id: ",
-            validator.vectorized_id_,
-            ", innermost id: ",
-            last_alloc_dim,
-            ", contiguity: ",
-            contiguity);
-      }
-      return validator.vectorized_id_;
-    };
 
     auto consumer_vectorized_id =
         getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
@@ -493,11 +494,9 @@ class VectorizeValidator : public OptInDispatch {
     auto c2p_map =
         BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
             .getReplay();
-    if (auto c2p_it = c2p_map.find(v_id); c2p_it != c2p_map.end()) {
-      vectorized_set_info.vectorized_producer_alloc_id =
-          getVectorizedIdInAllocationDomain(
-              c2p_it->second, producer_tv, "producer");
-    }
+    vectorized_set_info.vectorized_producer_alloc_id =
+        getVectorizedIdInAllocationDomain(
+            c2p_map.at(v_id), producer_tv, "producer");
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually
@@ -664,7 +663,6 @@ void fillConsumerVectorizedContigAllocationDomains(
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
   auto it = std::find_if(
