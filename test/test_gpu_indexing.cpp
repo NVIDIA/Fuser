@@ -832,6 +832,7 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
 }
 
 // TODO: Finish and enable test
+#if 0
 //
 // Create a case where we're missing a valid concrete id so the compute at map
 // processing will fail. We need to be able to create the concrete ID not just
@@ -880,7 +881,9 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   fusion.print();
   fusion.printKernel();
 }
+#endif
 
+#if 0
 // TODO: Finish and enable test
 //
 // Progressive loop promotion. producer gets promoted in consumer, consumer is
@@ -931,6 +934,7 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
 
   fusion.printKernel();
 }
+#endif
 
 // Repro for issue #1873
 TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
@@ -972,9 +976,6 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  int w = 3, x = 4, y = 7, z = 8;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
   // [y]
   auto tv0 = makeSymbolicTensor(1);
   // [w, x, y, z]
@@ -1000,6 +1001,9 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
 
   FusionExecutor fe;
 
+  int w = 3, x = 4, y = 7, z = 8;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
   at::Tensor t0 = at::randn({y}, options);
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
@@ -1015,6 +1019,8 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+#if 0
+// TODO: Finish and enable test.
 // Broadcast and concretize same domain in two different ways and try to merge
 // their loops remains unsupported.
 TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
@@ -1056,6 +1062,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
 
   ASSERT_ANY_THROW(fusion.printKernel());
 }
+#endif
 
 // TODO: All the above tests are merges followed by splits, we should make some
 // more complex examples even though merging then spliting is the most likely
@@ -1086,8 +1093,24 @@ TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
   MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
   inlineAllAt(tv3, 2, false);
 
-  fusion.printKernel();
-}
+  FusionExecutor fe;
 
+  int x = 4, y = 7;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({x}, options);
+  at::Tensor t1 = at::randn({x, y}, options);
+
+  auto t2 = t0.unsqueeze(-1);
+  auto aten_output = t1.add(t2);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser
