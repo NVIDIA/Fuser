@@ -376,9 +376,10 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      auto contiguity = *tv->domain()->contiguity().at(last_alloc_dim_pos);
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       TORCH_CHECK(
-          last_alloc_dim == validator.vectorized_id_ && contiguity,
+          last_alloc_dim == validator.vectorized_id_ &&
+              contiguity.value_or(false),
           "Vectorized dim for ",
           name,
           " has to be from a contiguous inner most position. tv: ",
@@ -390,7 +391,7 @@ class VectorizeValidator : public OptInDispatch {
           ", innermost id: ",
           last_alloc_dim,
           ", contiguity: ",
-          contiguity);
+          contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }
     return validator.vectorized_id_;
   }
