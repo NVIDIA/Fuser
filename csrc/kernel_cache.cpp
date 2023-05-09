@@ -786,9 +786,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
 
-  const size_t num_groups = runtime_workspace_.group_run_order.size();
+  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
-  for (size_t group_id = 0; group_id < num_groups; ++group_id) {
+  for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
     // TODO: index mode should be updated per segmented kernel
@@ -818,7 +818,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
-    num_live_args_after_segment_runs_.push_back(args.size());
+    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
   // wait until all segments finish compiling
