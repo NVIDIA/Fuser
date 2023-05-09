@@ -1979,13 +1979,8 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
-  // First compile gets a compiled kernel
-  fe.compileFusion(&fusion, {t0});
-
-  // Should be throwing because the kernel
-  //  requested absolute device limit
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(fe.runFusion({t0}));
+  //  NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
 }
 
 // Try to test alignment when multiple tensors are
