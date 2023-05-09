@@ -22,7 +22,7 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
-          tools/setup-env.sh
+          source tools/setup-env.sh
           python setup.py build
 
   clang-tidy:
@@ -37,7 +37,7 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
-          tools/setup-env.sh
+          source tools/setup-env.sh
 
           # Install lintrunner
           pip install lintrunner
