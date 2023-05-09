@@ -536,10 +536,10 @@ class WelfordVectorizer : public kir::ExprMutator {
       // mean the expr predicate is different, but likely not
       // worthwhile to consider.
       auto wop_out = ir_utils::getTvOutput(wop);
-      for (auto tv_leaf_id : tv->domain()->leaf()) {
+      for (auto tv_leaf_id : tv->getLeafDomain()) {
         if (std::none_of(
-                wop_out->domain()->leaf().begin(),
-                wop_out->domain()->leaf().end(),
+                wop_out->getLeafDomain().begin(),
+                wop_out->getLeafDomain().end(),
                 [&](auto wop_leaf_id) {
                   return GpuLower::current()->caMap()->areMapped(
                       tv_leaf_id, wop_leaf_id, IdMappingMode::LOOP);

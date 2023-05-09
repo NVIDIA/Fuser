@@ -42,7 +42,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
         continue;

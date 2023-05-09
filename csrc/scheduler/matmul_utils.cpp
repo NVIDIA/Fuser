@@ -45,7 +45,7 @@ constexpr size_t M_POS = 0;
 constexpr size_t N_POS = 1;
 //! A constant with position of K value (a number of rows in A tensor for TT
 //!  layout) in problem in ProblemShape type.
-constexpr size_t K_POS = 2;
+// constexpr size_t K_POS = 2;
 //! A constant with expected number of dimensions in ProblemShape type.
 constexpr size_t PROBLEM_DIMS = 3;
 
@@ -246,7 +246,7 @@ std::optional<ProblemShape> getProblemShape(
   const auto getShape = [&runtime_info](const TensorView* tv) {
     TensorShape tv_shape;
     const auto concrete_domains = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(tv->domain()->leaf()));
+        TensorDomain::noBroadcasts(tv->getLeafDomain()));
     for (const auto* domain : concrete_domains) {
       const auto domain_extend =
           runtime_info.expressionEvaluator().evaluate(domain->extent());
@@ -372,7 +372,7 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
         return "Fusion input TV has broadcast domain";
       }
       const auto result = TensorDomain::noReductions(
-                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              TensorDomain::noBroadcasts(tv->getLeafDomain()))
                               .size();
       if (result != expected_gemm_dims) {
         return "Fusion input TV has unsupported number of domains";
@@ -391,7 +391,7 @@ std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
         return "Fusion output TV has no reduction domain";
       }
       const auto result = TensorDomain::noReductions(
-                              TensorDomain::noBroadcasts(tv->domain()->leaf()))
+                              TensorDomain::noBroadcasts(tv->getLeafDomain()))
                               .size();
       if (result != expected_gemm_dims) {
         return "Fusion output TV has unsupported number of domains";

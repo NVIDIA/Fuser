@@ -240,6 +240,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
+  const std::vector<std::optional<bool>>& getContiguity() {
+    return domain()->contiguity();
+  }
+
   bool hasReduction() const {
     return domain()->hasReduction();
   }
@@ -258,6 +262,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   bool hasRFactor() const {
     return domain()->hasRFactor();
+  }
+
+  bool hasAllocation() const {
+    return domain()->hasAllocation();
   }
 
   //! Returns true if this tensor is zero dimensional,
@@ -282,6 +290,14 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain()->rfactor();
   };
 
+  const std::vector<IterDomain*>& getAllocationDomain() const {
+    return domain()->allocation();
+  };
+
+  const std::vector<IterDomain*>& getLeafDomain() const {
+    return domain()->leaf();
+  };
+
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
   const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
@@ -290,9 +306,23 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // If allocation domain exists in domain() return it, otherwise return
   // getMaybeRFactorDomain()
-  const std::vector<IterDomain*>& maybeAllocation() const {
+  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
+
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      std::vector<std::optional<bool>> new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), std::move(new_contiguity));
+  }
+
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      bool new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), new_contiguity);
+  }
 
   IterDomain* axis(int pos) const;
 

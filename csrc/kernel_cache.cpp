@@ -65,14 +65,14 @@ class ArgumentManager {
   const ArgAbstract* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
-  // T is assumed to be either std::vector<at::Tensor> or KernelArgumentHolder
+  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
   // (from dry run)
   // TODO: make the output type uniform no matter it's a real or dry run
   template <typename T>
   void updateWithSegmentOutputs(
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs,
-      const size_t group_id) {
+      const int64_t group_id) {
     addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
     deleteUnusedArgs(group_id);
   }
@@ -82,7 +82,7 @@ class ArgumentManager {
   // map from val to args
   std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
-  std::unordered_map<size_t, std::vector<Val*>> vals_last_used_at_segment_;
+  std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
   void mapFusionInputsToArgs(
       const std::vector<Val*>& fusion_inputs,
@@ -118,14 +118,14 @@ class ArgumentManager {
       return val->isFusionInput() || val->isFusionOutput();
     };
     // map val to segment_id where arg is lastly used
-    std::unordered_map<Val*, size_t> last_used_segment_map;
-    const size_t n_groups = group_run_order.size();
+    std::unordered_map<Val*, int64_t> last_used_segment_map;
+    const int64_t num_groups = (int64_t)group_run_order.size();
     // only need to set lifetime of vals if there are more than 3 groups
-    if (n_groups >= 3) {
+    if (num_groups >= 3) {
       // start from the 2nd group, since the input of the first group is always
       // the global input and its outputs are always used by at least one of the
       // following groups
-      for (size_t group_id = 1; group_id < n_groups; ++group_id) {
+      for (auto group_id : c10::irange(1l, num_groups)) {
         auto group_to_run = group_run_order.at(group_id);
         // set/update life of vals in inputs of this group
         for (auto val : group_to_run->inputs()) {
@@ -137,7 +137,7 @@ class ArgumentManager {
         }
         // set/update life of vals in outputs of this group
         // skip the last group since its outputs are always the global outputs
-        if (group_id < n_groups - 1) {
+        if (group_id < num_groups - 1) {
           for (auto val : group_to_run->outputs()) {
             // skip fusion inputs and outputs, they may be used by other fusions
             // or code
@@ -154,7 +154,7 @@ class ArgumentManager {
       }
     }
   }
-  void deleteUnusedArgs(size_t group_id) {
+  void deleteUnusedArgs(int64_t group_id) {
     // erase args corresponding to vals lastly used in this segment
     if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
       for (auto val : vals_last_used_at_segment_[group_id]) {
@@ -962,9 +962,9 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
-  const size_t num_groups = runtime_workspace_.group_run_order.size();
+  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
-  for (size_t group_id = 0; group_id < num_groups; ++group_id) {
+  for (auto group_id : c10::irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -985,7 +985,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
         runKernelWithInput(group_runtime_inputs, group_to_run);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
-    num_live_args_after_segment_runs_.push_back(args.size());
+    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
   return args_manager.getTensorMap();

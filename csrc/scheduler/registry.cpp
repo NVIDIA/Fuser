@@ -467,7 +467,7 @@ class SchedulerTopologyChecker {
       }
       // In the case of select, there's no consumer domain, and thus
       // there's no way to schedule the indexed producer domain
-      if (auto select = dynamic_cast<SelectOp*>(expr)) {
+      if (expr->isA<SelectOp>()) {
         return true;
       }
       if (auto consumer_of_indexed_producer =
@@ -1107,7 +1107,9 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     }
 
     // Not contiguous
-    if (!*contiguity[root_i]) {
+    auto contiguity_opt = contiguity.at(root_i);
+    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+    if (!*contiguity_opt) {
       break;
     }
 
@@ -1199,7 +1201,9 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   }
 
   // If the inner most dimension is not contiguous return 1
-  if (!*contiguity[id_pos]) {
+  auto contiguity_opt = contiguity.at(id_pos);
+  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+  if (!*contiguity_opt) {
     return 1;
   }
 
@@ -1384,7 +1388,7 @@ class NoOpScheduler : public SchedulerEntry {
     // Check that all outputs are either broadcast or ignored reduction.
     for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
       auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->domain()->leaf()));
+          TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
       if (!concrete_dimension.empty()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::NoOp, "output has a concrete dimension");
