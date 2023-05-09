@@ -1632,7 +1632,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           fillTensorWithNan(intermediate_buffer);
         }
       }
-      args.push(intermediate_buffer);
+      // TODO: pass in an ExpressionEvaluator with input sizes bound
+      ExpressionEvaluator ee;
+      args.push(intermediate_buffer, buf_info.tv, ee);
       intermediates.push_back(intermediate_buffer);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
