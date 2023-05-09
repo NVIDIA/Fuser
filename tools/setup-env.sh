@@ -8,6 +8,7 @@ sudo apt-get -y install cuda-toolkit-12-1 libnccl-dev
 
 # cmake environment variables
 export CUDAARCHS=86
+export CMAKE_CUDA_ARCHITECTURES=$CUDAARCHS
 export CUDACXX=/usr/local/cuda/bin/nvcc
 export PATH=/usr/local/cuda/bin:${PATH}
 export CUDA_INSTALL_PATH=/usr/local/cuda
