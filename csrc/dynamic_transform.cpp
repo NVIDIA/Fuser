@@ -29,6 +29,7 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(tv));
     }
   }
+  // cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
   return cloned_info;
 }
 
@@ -68,11 +69,19 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       const auto& inp_dom =
           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
       for (const auto id : inp_dom) {
-        leaf_dynamic_vals_.push_back(id->extent());
+        // Try and evaluate the extent so that intermediate expressions are
+        // cached
+        auto ext = info_.expr_eval_.evaluate(id->extent());
+        if (!ext.has_value()) {
+          leaf_dynamic_vals_.push_back(id->extent());
+        }
       }
       const auto& out_dom = inp_tv->getMaybeRFactorDomain();
       for (const auto id : out_dom) {
-        leaf_dynamic_vals_.push_back(id->extent());
+        auto ext = info_.expr_eval_.evaluate(id->extent());
+        if (!ext.has_value()) {
+          leaf_dynamic_vals_.push_back(id->extent());
+        }
       }
     }
   }
@@ -540,7 +549,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
     const DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
-  ExpressionEvaluator expr_eval;
+  auto expr_eval = info->getExpressionEvaluator();
 
   // Bind input scalars and tensor metadata to symbolic scalars
   // Here we bind only the inputs that are needed to concretize dynamic

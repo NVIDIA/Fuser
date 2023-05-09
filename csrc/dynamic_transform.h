@@ -54,6 +54,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return dynamic_reshapes_;
   }
 
+  const ExpressionEvaluator& getExpressionEvaluator() const {
+    return expr_eval_;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -68,6 +72,9 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
+
+  // ExpressionEvaluator that we use to pre-compute as much as possible
+  ExpressionEvaluator expr_eval_;
 
   friend class DynamicTransformInitialInfoBuilder;
 };
