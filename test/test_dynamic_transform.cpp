@@ -817,15 +817,13 @@ void reductionDynamicViewAddFusion(
                                    &num_concretizations](bool expect_miss) {
     auto current = countConcretizations();
     ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
-    num_concretizations = current;
   };
   // Check that arg cache ID has cache misses only when they should
-  auto num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
+  size_t num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
   auto checkCacheIdCache = [&fusion_executor_cache,
                             &num_cache_ids](bool expect_miss) {
     auto current = fusion_executor_cache.getArgIdToRuntimeMap().size();
     ASSERT_EQ(current, num_cache_ids + (size_t)expect_miss);
-    num_cache_ids = current;
   };
 
   for (auto& inv : invocations) {
@@ -863,7 +861,11 @@ void reductionDynamicViewAddFusion(
       aten_inputs.emplace_back(output_shape[i]);
     }
 
+    // Reset counters so that we can detect cache misses
+    num_concretizations = countConcretizations();
+    num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+    // Look for cache misses
     checkCacheIdCache(expect_cache_id_miss);
     checkConcretizationCache(expect_conc_miss);
 
@@ -891,8 +893,8 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
       {{8, 3 * 4, 7, 5},
        {8, 3 * 4, 7, 5},
        1,
-       false,
-       false}, // trivial (identical)
+       true,
+       false}, // trivial (different shape)
       {{8, 3 * 4, 7, 5},
        {8, 3 * 4, 7, 5},
        2,
@@ -916,12 +918,12 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
       {{8, 3 * 4, 7, 5},
        {8, 3, 4 * 7, 5},
        1,
-       false,
+       true, // 5 instead of 9 => new key
        false}, // merge(1) merge(2) osplit(1, 3)
       {{8, 3 * 5, 7, 9},
        {8, 3, 5 * 7, 9},
        1,
-       false,
+       true,
        false}, // merge(1) osplit(1, 3)
       // test passing -1 dynamically for dimension size
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, 1, false} // merge(1) osplit(1, 3)
