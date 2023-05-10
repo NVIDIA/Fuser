@@ -1,14 +1,22 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <id_model/id_graph.h>
 #include <id_model/to_string.h>
 #include <ir_utils.h>
 
 namespace nvfuser {
 
-IdGraph::IdGraph(const IdGraph& other) {
-  disjoint_ids_ = other.disjoint_ids_;
-  disjoint_exprs_ = other.disjoint_exprs_;
-  view_rfactor_ids_ = other.view_rfactor_ids_;
-
+IdGraph::IdGraph(const IdGraph& other)
+    : disjoint_ids_(other.disjoint_ids_),
+      disjoint_exprs_(other.disjoint_exprs_),
+      view_rfactor_ids_(other.view_rfactor_ids_),
+      unique_definitions_(),
+      unique_uses_() {
   for (auto orig_unique_def_pair : other.unique_definitions_) {
     auto orig_id_group = orig_unique_def_pair.first;
     auto orig_expr_groups = orig_unique_def_pair.second;

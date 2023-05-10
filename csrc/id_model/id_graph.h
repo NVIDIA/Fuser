@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #pragma once
 
 #include <disjoint_set.h>
@@ -245,4 +252,4 @@ class TORCH_CUDA_CU_API IdGraph {
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 };
 
-}
+} // namespace nvfuser

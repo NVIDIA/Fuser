@@ -1,6 +1,13 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <id_model/id_graphs.h>
-#include <id_model/visitor.h>
 #include <id_model/to_string.h>
+#include <id_model/visitor.h>
 
 #include <disjoint_set.h>
 #include <ir_utils.h>
@@ -1285,7 +1292,8 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
 
     for (auto iel_use_group : non_promoted_input_uses) {
-      if (IdGraph::transformAtributesMatch(iel_expr->front(), iel_use_group->front())) {
+      if (IdGraph::transformAtributesMatch(
+              iel_expr->front(), iel_use_group->front())) {
         auto use_inps =
             ir_utils::filterByType<IterDomain>(iel_use_group->front()->inputs())
                 .vector();

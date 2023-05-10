@@ -1,4 +1,10 @@
-
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <id_model/to_string.h>
 
 namespace nvfuser {
@@ -319,4 +325,4 @@ std::string usesString(
   return toString(id_graph, uses, indent_size, with_ptr);
 }
 
-}
+} // namespace nvfuser
