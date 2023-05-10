@@ -1842,7 +1842,9 @@ float FusionExecutor::runRtc(
   CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
   KernelArgumentHolder kernel_arguments;
-  kernel_arguments.push(args);
+  ExpressionEvaluator ee;
+  kernel_arguments.push(
+      args, std::vector<TensorView*>(args.size(), nullptr), ee);
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
