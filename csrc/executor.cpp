@@ -682,7 +682,12 @@ std::vector<at::Tensor> allocOutputs(
       // integration, see step 1 - note [trivial forwarding]
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty({0}, tensor_options));
+      outputs.emplace_back(at::empty(
+          std::vector<int64_t>(
+              TensorDomain::noReductions(buf_info.tv->getMaybeRFactorDomain())
+                  .size(),
+              0),
+          tensor_options));
     } else {
       // do allocation based on allocation domain
       auto alloc_tensor = at::native::empty_strided_cuda(
