@@ -5154,7 +5154,8 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
 
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
-  args.push(aten_inputs);
+  ExpressionEvaluator ee;
+  args.push(aten_inputs, {tv0, tv1}, ee);
 
   auto fusion_segments = fusion.segment(args);
   TORCH_CHECK(fusion_segments->groups().size() <= 4);

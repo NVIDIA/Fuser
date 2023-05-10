@@ -255,6 +255,7 @@ struct TensorArg : public TensorArgAbstract {
       TensorView* tv,
       ExpressionEvaluator& eval) {
     auto sizes_strides = getAllocationSizesAndStrides(tensor, tv, eval);
+    TORCH_INTERNAL_ASSERT((size_t)instance_.nAllocationDims() == sizes_strides.size());
     for (auto i : c10::irange((int64_t)sizes_strides.size())) {
       using stride_t = typename TENSOR_TYPE::index_type;
       instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
