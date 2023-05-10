@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
-    return fusion_id_ != -1 && compiled_kernel_.function != nullptr && (lowered_ || is_cached_);
+    return fusion_id_ != -1 && compiled_kernel_.function != nullptr && lowered_;
   };
 
   void evictCache(size_t cache_id) {
@@ -448,9 +448,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // nvrtc compiled binary
   std::vector<char> last_compiled_binary_;
-
-  // is_cached
-  bool is_cached_ = false;
 };
 
 } // namespace nvfuser

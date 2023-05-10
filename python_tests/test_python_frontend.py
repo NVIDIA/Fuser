@@ -1246,7 +1246,6 @@ class TestNvFuserFrontend(TestCase):
         for torch_dtype in list_of_dtype:
             test_dtype(torch_dtype)
 
-    '''
     def test_shape(self):
         inputs = [
             # test with both one and multiple dimensions
@@ -1278,7 +1277,6 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(at_out1, nvf_out[0])
         self.assertEqual(at_out2, nvf_out[1])
-    '''
 
     def test_arithmetic_ops(self):
         inputs = [
@@ -1498,7 +1496,7 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(torch.real(inputs[0]), nvf_out[0])
             self.assertEqual(torch.imag(inputs[0]), nvf_out[1])
 
-    '''
+    """
     def test_cuda_code_and_scheduled_fusion_ir_strings(self):
         inputs = [
             torch.randn(2, 2, 2, 2, device="cuda"),
@@ -1584,7 +1582,7 @@ class TestNvFuserFrontend(TestCase):
                 _ = fd.cuda_code_for(big_inputs)
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.scheduled_fusion_ir_for(big_inputs)
-    '''
+    """
 
     def test_pad(self):
         inputs = [
@@ -1667,7 +1665,6 @@ class TestNvFuserFrontend(TestCase):
         # Erroneous cache hit based on fill value would use kernel1
         self.assertEqual(F.pad(inputs[0], [1, 1], "constant", 2.0), nvf_out3[0])
 
-    '''
     def test_cat(self):
         inputs = [
             torch.randn(2, 4, device="cuda"),
@@ -1701,7 +1698,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
-    '''
 
     def test_nextafter(self):
         inputs = [
@@ -1920,7 +1916,6 @@ class TestNvFuserFrontend(TestCase):
             for idx in range(len(eager_out)):
                 self.assertEqual(eager_out[idx], nvf_out[idx])
 
-    '''
     def test_slice_error_checks(self):
         inputs = [
             [torch.randn(10, 10, device="cuda")],
@@ -2042,7 +2037,6 @@ class TestNvFuserFrontend(TestCase):
                         inp,
                     )
             first_check = False
-    '''
 
     def test_constant_nans(self):
         inputs = [

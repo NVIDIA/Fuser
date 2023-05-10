@@ -1809,9 +1809,12 @@ void FusionExecutor::deserialize(
   //  used_tvs : [ulong];
   // }
 
-  // Capture prescheduled fusion without lowered kernel IR
-  fusion_ = fusion;
-  is_cached_ = true;
+  lowered_ = std::make_unique<GpuLower>(
+      fusion, CompileParams(), true /* fast-lower */);
+  // We need to replace integers that are tensor sizes by named scalars as
+  // "T0.size[0]"
+  fusion_ = lowered_->kernel()->as<Fusion>();
+  setUsedTVs();
 
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();

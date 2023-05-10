@@ -1539,8 +1539,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
             parallel_ids.push_back(id);
           }
         } else {
-          // Non broadcast ids are directly added to the binding
-          //  ids.
+          // Non broadcast ids are directly added to the binding ids.
           parallel_ids.push_back(id);
         }
       }

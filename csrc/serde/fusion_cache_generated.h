@@ -3754,23 +3754,23 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_KERNEL_SUMMARY = 24,
     VT_USED_TVS = 26
   };
-  uint64_t device_smem_limit() const {
-    return GetField<uint64_t>(VT_DEVICE_SMEM_LIMIT, 0);
+  int64_t device_smem_limit() const {
+    return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
   }
   int64_t block_size_high_water_mark() const {
     return GetField<int64_t>(VT_BLOCK_SIZE_HIGH_WATER_MARK, 0);
   }
-  int32_t maxrregcount_high_water_mark() const {
-    return GetField<int32_t>(VT_MAXRREGCOUNT_HIGH_WATER_MARK, 0);
+  int64_t maxrregcount_high_water_mark() const {
+    return GetField<int64_t>(VT_MAXRREGCOUNT_HIGH_WATER_MARK, 0);
   }
-  int32_t warp_size() const {
-    return GetField<int32_t>(VT_WARP_SIZE, 0);
+  int64_t warp_size() const {
+    return GetField<int64_t>(VT_WARP_SIZE, 0);
   }
-  int32_t fusion_id() const {
-    return GetField<int32_t>(VT_FUSION_ID, 0);
+  int64_t fusion_id() const {
+    return GetField<int64_t>(VT_FUSION_ID, 0);
   }
-  int32_t fusion_id_counter() const {
-    return GetField<int32_t>(VT_FUSION_ID_COUNTER, 0);
+  int64_t fusion_id_counter() const {
+    return GetField<int64_t>(VT_FUSION_ID_COUNTER, 0);
   }
   const flatbuffers::String* kernel_code() const {
     return GetPointer<const flatbuffers::String*>(VT_KERNEL_CODE);
@@ -3796,12 +3796,12 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint64_t>(verifier, VT_DEVICE_SMEM_LIMIT) &&
+        VerifyField<int64_t>(verifier, VT_DEVICE_SMEM_LIMIT) &&
         VerifyField<int64_t>(verifier, VT_BLOCK_SIZE_HIGH_WATER_MARK) &&
-        VerifyField<int32_t>(verifier, VT_MAXRREGCOUNT_HIGH_WATER_MARK) &&
-        VerifyField<int32_t>(verifier, VT_WARP_SIZE) &&
-        VerifyField<int32_t>(verifier, VT_FUSION_ID) &&
-        VerifyField<int32_t>(verifier, VT_FUSION_ID_COUNTER) &&
+        VerifyField<int64_t>(verifier, VT_MAXRREGCOUNT_HIGH_WATER_MARK) &&
+        VerifyField<int64_t>(verifier, VT_WARP_SIZE) &&
+        VerifyField<int64_t>(verifier, VT_FUSION_ID) &&
+        VerifyField<int64_t>(verifier, VT_FUSION_ID_COUNTER) &&
         VerifyOffset(verifier, VT_KERNEL_CODE) &&
         verifier.VerifyString(kernel_code()) &&
         VerifyOffset(verifier, VT_EXECUTOR_ENTRY_LOOKUP_KEYS) &&
@@ -3822,8 +3822,8 @@ struct FusionExecutorBuilder {
   typedef FusionExecutor Table;
   flatbuffers::FlatBufferBuilder& fbb_;
   flatbuffers::uoffset_t start_;
-  void add_device_smem_limit(uint64_t device_smem_limit) {
-    fbb_.AddElement<uint64_t>(
+  void add_device_smem_limit(int64_t device_smem_limit) {
+    fbb_.AddElement<int64_t>(
         FusionExecutor::VT_DEVICE_SMEM_LIMIT, device_smem_limit, 0);
   }
   void add_block_size_high_water_mark(int64_t block_size_high_water_mark) {
@@ -3832,20 +3832,20 @@ struct FusionExecutorBuilder {
         block_size_high_water_mark,
         0);
   }
-  void add_maxrregcount_high_water_mark(int32_t maxrregcount_high_water_mark) {
-    fbb_.AddElement<int32_t>(
+  void add_maxrregcount_high_water_mark(int64_t maxrregcount_high_water_mark) {
+    fbb_.AddElement<int64_t>(
         FusionExecutor::VT_MAXRREGCOUNT_HIGH_WATER_MARK,
         maxrregcount_high_water_mark,
         0);
   }
-  void add_warp_size(int32_t warp_size) {
-    fbb_.AddElement<int32_t>(FusionExecutor::VT_WARP_SIZE, warp_size, 0);
+  void add_warp_size(int64_t warp_size) {
+    fbb_.AddElement<int64_t>(FusionExecutor::VT_WARP_SIZE, warp_size, 0);
   }
-  void add_fusion_id(int32_t fusion_id) {
-    fbb_.AddElement<int32_t>(FusionExecutor::VT_FUSION_ID, fusion_id, 0);
+  void add_fusion_id(int64_t fusion_id) {
+    fbb_.AddElement<int64_t>(FusionExecutor::VT_FUSION_ID, fusion_id, 0);
   }
-  void add_fusion_id_counter(int32_t fusion_id_counter) {
-    fbb_.AddElement<int32_t>(
+  void add_fusion_id_counter(int64_t fusion_id_counter) {
+    fbb_.AddElement<int64_t>(
         FusionExecutor::VT_FUSION_ID_COUNTER, fusion_id_counter, 0);
   }
   void add_kernel_code(flatbuffers::Offset<flatbuffers::String> kernel_code) {
@@ -3891,12 +3891,12 @@ struct FusionExecutorBuilder {
 
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t device_smem_limit = 0,
+    int64_t device_smem_limit = 0,
     int64_t block_size_high_water_mark = 0,
-    int32_t maxrregcount_high_water_mark = 0,
-    int32_t warp_size = 0,
-    int32_t fusion_id = 0,
-    int32_t fusion_id_counter = 0,
+    int64_t maxrregcount_high_water_mark = 0,
+    int64_t warp_size = 0,
+    int64_t fusion_id = 0,
+    int64_t fusion_id_counter = 0,
     flatbuffers::Offset<flatbuffers::String> kernel_code = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>>
         executor_entry_lookup_keys = 0,
@@ -3907,6 +3907,10 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint64_t>> used_tvs = 0) {
   FusionExecutorBuilder builder_(_fbb);
+  builder_.add_fusion_id_counter(fusion_id_counter);
+  builder_.add_fusion_id(fusion_id);
+  builder_.add_warp_size(warp_size);
+  builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
   builder_.add_used_tvs(used_tvs);
@@ -3915,21 +3919,17 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
   builder_.add_kernel_code(kernel_code);
-  builder_.add_fusion_id_counter(fusion_id_counter);
-  builder_.add_fusion_id(fusion_id);
-  builder_.add_warp_size(warp_size);
-  builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   return builder_.Finish();
 }
 
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t device_smem_limit = 0,
+    int64_t device_smem_limit = 0,
     int64_t block_size_high_water_mark = 0,
-    int32_t maxrregcount_high_water_mark = 0,
-    int32_t warp_size = 0,
-    int32_t fusion_id = 0,
-    int32_t fusion_id_counter = 0,
+    int64_t maxrregcount_high_water_mark = 0,
+    int64_t warp_size = 0,
+    int64_t fusion_id = 0,
+    int64_t fusion_id_counter = 0,
     const char* kernel_code = nullptr,
     const std::vector<uint64_t>* executor_entry_lookup_keys = nullptr,
     const std::vector<flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>*

@@ -545,6 +545,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
   //    kernel_cache_keys : [ulong];
   //    kernel_cache_values : [ulong];
   // }
+  //
   // table KernelRuntimes {
   //    device_id : ulong;
   //    has_dynamic_transform_info : bool;
@@ -605,6 +606,7 @@ void FusionExecutorCache::deserialize(
   //    kernel_cache_keys : [ulong];
   //    kernel_cache_values : [ulong];
   // }
+  //
   // table KernelRuntimes {
   //    device_id : ulong;
   //    has_dynamic_transform_info : bool;
@@ -777,7 +779,18 @@ void FusionKernelRuntime::deserialize(
 
   for (auto idx : c10::irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
-    fusions_.emplace_back(segmented_fusion_->makeFusion(sg));
+
+    // Schedule Fusion
+    auto group_id = sg->groupId();
+    auto scheduler_entry = schedulers().at(group_id).get();
+    TORCH_INTERNAL_ASSERT(
+        !sg || scheduler_entry->heuristic() == sg->heuristic(),
+        "Heuristics do not match.");
+    std::unique_ptr<Fusion> fusion_to_run = segmented_fusion_->makeFusion(sg);
+    FusionGuard fg(fusion_to_run.get());
+    scheduler_entry->schedule(fusion_to_run.get());
+    fusions_.emplace_back(std::move(fusion_to_run));
+
     executors_.at(idx).deserialize(
         buffer->executors()->Get(idx), fusions_.back().get());
   }
