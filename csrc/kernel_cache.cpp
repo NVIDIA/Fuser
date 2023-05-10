@@ -617,6 +617,8 @@ void FusionExecutorCache::deserialize(
   std::vector<FusionKernelRuntime*> all_runtimes;
 
   for (auto device_runtimes : *buffer->kernel_runtimes()) {
+    TORCH_INTERNAL_ASSERT(
+        has_dynamic_reshape_ == device_runtimes->has_dynamic_transform_info());
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
 
     std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
