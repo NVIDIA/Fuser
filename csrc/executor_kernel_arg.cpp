@@ -228,13 +228,10 @@ std::vector<std::pair<int64_t, int64_t>> getAllocationSizesAndStrides(
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  int64_t no_reduction_i = 0;
-  for (auto rf_id : rfactor_dom) {
-    if (!rf_id->isReduction()) {
-      active_ids[rf_id] = {
-          tensor.size(no_reduction_i), tensor.stride(no_reduction_i)};
-      no_reduction_i++;
-    }
+  TORCH_INTERNAL_ASSERT((int64_t)rfactor_dom.size() == tensor.dim());
+  for (auto i : c10::irange(rfactor_dom.size())) {
+    auto rf_id = rfactor_dom.at(i);
+    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
   }
   // traverse forward from rfactor to alloc
   auto forward_exprs = StmtSort::getExprsBetween(
