@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
-    return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
+    return fusion_id_ != -1 && compiled_kernel_.function != nullptr && (lowered_ || is_cached_);
   };
 
   void evictCache(size_t cache_id) {

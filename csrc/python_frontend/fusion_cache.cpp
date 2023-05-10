@@ -301,6 +301,7 @@ TrieNode* FusionCache::rootTriePtr() {
 }
 
 void FusionCache::serialize(std::string filename) const {
+  FUSER_PERF_SCOPE("FusionCache::Serialize");
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -426,6 +427,7 @@ void FusionCache::deserialize(std::string filename) {
   //  terminal_nodes: [ulong];
   //  auto_gen_schedules : [FusionExecutorCache];
   // }
+  FUSER_PERF_SCOPE("FusionCache::deserialize");
   TORCH_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
