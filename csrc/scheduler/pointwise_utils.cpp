@@ -15,30 +15,36 @@ namespace pointwise_utils {
 
 namespace {
 
-// Grab all exact set pairs of producer and consumer domains of
+// Grab all exact set mappings from consumer to producer domains of
 // indexed accesses, e.g., index_select
-std::vector<std::pair<
+std::unordered_map<
     std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>>
-getIndexedProducerConsumerPairs(Fusion* fusion, const ComputeAtMap& ca_map) {
-  std::vector<std::pair<
+    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
+  std::unordered_map<
       std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>>
-      indexed_ids;
+      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      indexed_id_map;
 
   for (auto expr : fusion->exprs()) {
     if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
       auto p_id = gather->getIndexedID();
       auto c_id = gather->getConsumerOfIndexedID();
-      indexed_ids.emplace_back(
-          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
-          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
+      TORCH_INTERNAL_ASSERT(
+          indexed_id_map
+              .emplace(
+                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
+              .second);
     } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
       auto p_id = index_select->getIndexedID();
       auto c_id = index_select->getConsumerOfIndexedID();
-      indexed_ids.emplace_back(
-          ca_map.disjointSetOf(p_id, IdMappingMode::EXACT),
-          ca_map.disjointSetOf(c_id, IdMappingMode::EXACT));
+      TORCH_INTERNAL_ASSERT(
+          indexed_id_map
+              .emplace(
+                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
+              .second);
     } else {
       // Note there's no consumer ID for select. This means we can't
       // just propagate from consumers to indexed producers. It seems
@@ -48,7 +54,7 @@ getIndexedProducerConsumerPairs(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  return indexed_ids;
+  return indexed_id_map;
 }
 
 // Check if a root ID of a fusion input tensor that is indirectly
@@ -62,6 +68,7 @@ bool canIgnoreIndexedInputDomainID(
     TensorView* input_tv,
     IterDomain* root_id,
     const ComputeAtMap& ca_map) {
+  TORCH_INTERNAL_ASSERT(input_tv->isFusionInput());
   for (auto use : input_tv->uses()) {
     if (auto select = dynamic_cast<SelectOp*>(use)) {
       if (root_id != select->getIndexedID()) {
@@ -165,7 +172,7 @@ void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
   });
 
   // Traverse through indexed domains.
-  const auto indexed_sets = getIndexedProducerConsumerPairs(fusion_, ca_map_);
+  const auto indexed_id_map = getIndexedConsumerToProducerMap(fusion_, ca_map_);
 
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       all_exact_sets_covered;
@@ -180,15 +187,10 @@ void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
 
     // Further traversal if any of the new producer sets is a producer
     // of indexed domains
-    for (const auto& exact_set : producer_sets) {
-      auto indexed_it = std::find_if(
-          indexed_sets.begin(),
-          indexed_sets.end(),
-          [&](const auto& producer_and_consumer) {
-            return producer_and_consumer.second == exact_set;
-          });
-      if (indexed_it != indexed_sets.end()) {
-        current_sets.pushBack(indexed_it->first);
+    for (const auto& producer_set : producer_sets) {
+      auto producer_of_producer_it = indexed_id_map.find(producer_set);
+      if (producer_of_producer_it != indexed_id_map.end()) {
+        current_sets.pushBack(producer_of_producer_it->second);
       }
     }
   }

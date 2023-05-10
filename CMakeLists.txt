@@ -218,10 +218,18 @@ if (PROJECT_IS_TOP_LEVEL)
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
-  add_custom_target(build_flatbuffer_config
-      COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
-      DEPENDS flatc
-      COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs")
+  add_custom_command(
+    OUTPUT
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
+    DEPENDS
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    DEPENDS flatc
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
+    VERBATIM
+    )
+  add_custom_target(build_flatbuffer_config ALL
+      DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
   add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
@@ -341,6 +349,7 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp

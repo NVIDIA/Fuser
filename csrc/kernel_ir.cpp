@@ -307,7 +307,7 @@ InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string InitMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -325,7 +325,7 @@ UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string UpdateMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -1058,7 +1058,7 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   // GroupCount
 
   int group_count = 1;
-  for (auto axis : out_tv->domain()->leaf()) {
+  for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->getInt();

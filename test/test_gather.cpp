@@ -75,34 +75,6 @@ at::Tensor generateScatter2DIndex(
   }
 }
 
-void validateSegmentation(
-    FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics) {
-  const auto& segment_groups = runtime->fusionSegments()->groups();
-
-  TORCH_CHECK(
-      segment_groups.size() == expected_heuristics.size(),
-      "Unexpected segments. Expected: ",
-      expected_heuristics.size(),
-      ". Actual: ",
-      segment_groups.size());
-
-  // Assumes up to two segments exist for simplicity
-  TORCH_INTERNAL_ASSERT(
-      segment_groups.size() <= 2, "True segment order analysis is required");
-
-  for (auto& group : segment_groups) {
-    int segment_order = group->producer_edges.empty() ? 0 : 1;
-    TORCH_CHECK(
-        group->heuristic() == expected_heuristics.at(segment_order),
-        "Expected to use the ",
-        expected_heuristics.at(segment_order),
-        " scheduler but ",
-        group->heuristic(),
-        " was used");
-  }
-}
-
 } // namespace
 
 TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
@@ -826,6 +798,51 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Similar to TakeAlongAxisIntermediateTensorReduction2, but no
+// squeeze of the consumer ID of the indexed domain. Should not be segmented.
+TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
+  GTEST_SKIP() << "Disabled due to a bug. See #292";
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape_before_gather({10, 10});
+  std::vector<int64_t> shape_after_gather({shape_before_gather[0]});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = take_along_axis(tv2, tv3, 1);
+  auto tv5 = sum(tv4, {0});
+  // TODO: remove this. Currently, validation fails without this
+  // likely because of a predication bug
+  auto tv6 = set(tv5);
+  fusion.addOutput(tv6);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape_before_gather, options);
+  auto t1 =
+      at::randint(0, shape_before_gather[1], shape_after_gather, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
+
+  auto ref =
+      at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1).sum({0});
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Normalization then take_along_axis
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1052,7 +1069,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1092,7 +1114,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1128,8 +1155,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape_before({11, 100, 101});
-  std::vector<int64_t> shape_after({shape_before[1], 99});
+  std::vector<int64_t> shape_before(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
+  std::vector<int64_t> shape_after({shape_before[1], shape_before[2] - 1});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1167,22 +1197,25 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  std::vector<int64_t> shape({8192, 32768});
-
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
   auto tv1 = makeContigTensor(1, DataType::Int);
   fusion->addInput(tv1);
   auto tv2 = max(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
-  auto tv5 = sub(tv0, tv3);
+
+  auto tv4 =
+      expand(tv3, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+  auto tv5 = sub(tv0, tv4);
   auto tv6 = exp(tv5);
   auto tv7 = sum(tv6, {1});
   auto tv8 = broadcast(tv7, {false, true});
-  auto tv10 = div(tv6, tv8);
+  auto tv9 =
+      expand(tv8, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+  auto tv10 = div(tv6, tv9);
   auto tv11 = log(tv10);
   auto tv12 = neg(tv11);
-  auto tv13 = unsqueeze(tv1, -1);
+  auto tv13 = reshape(tv1, {128}, {128, 1});
   auto tv14 = take_along_axis(tv12, tv13, 1);
   auto s15 = IrBuilder::create<Int>(5);
   auto tv16 = eq(tv13, s15);
@@ -1191,14 +1224,16 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   auto tv19 = sum(tv18, {0, 1});
   auto tv20 = castOp(DataType::Float, tv16);
   auto tv21 = sum(tv20, {0, 1});
-  auto s22 = IrBuilder::create<Double>(shape[0]);
+
+  auto s22 = IrBuilder::create<Double>(128.0);
   auto tv23 = sub(s22, tv21);
   auto tv24 = div(tv19, tv23);
   fusion->addOutput(tv24);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape, options);
-  auto t1 = at::randint(shape[1], {shape[0]}, options).to(at::ScalarType::Long);
+
+  auto t0 = at::randn({128, 371}, options);
+  auto t1 = at::randint(371, {128}, options).to(at::ScalarType::Long);
   std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -1215,10 +1250,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   //   sum  -> 2
   auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
   testValidate(fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-
-  for (int i = 0; i < 5; ++i) {
-    cg_outputs = fec.runFusionWithInputs(inputs);
-  }
 }
 
 TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss2_CUDA) {

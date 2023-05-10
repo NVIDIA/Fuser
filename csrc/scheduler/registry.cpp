@@ -441,12 +441,11 @@ class SchedulerTopologyChecker {
   }
 
   // Checks if there's any gather-like ops that result in non-resolved
-  // broadcast domains that appear before reduction TVs. For example,
-  // a pattern like gather to a size-1 domain and then squeeze.  The reduction
-  // scheduler uses reduction TVs as a scheduling reference, so that
-  // won't be able to schedule the unresolved broadcast ID and its
-  // corresponding index-accessed producer ID, and any IDs that the
-  // producer ID depends on.
+  // broadcast domains and then get squeezed before reaching reduction
+  // TVs. The reduction scheduler uses reduction TVs as a scheduling
+  // reference, so that won't be able to schedule the broadcast ID if
+  // squeezed and its corresponding index-accessed producer ID, and
+  // any IDs that the producer ID depends on.
   //
   // This analysis has some similarity as DomainMap. Can be
   // consolidated?
@@ -468,7 +467,7 @@ class SchedulerTopologyChecker {
       }
       // In the case of select, there's no consumer domain, and thus
       // there's no way to schedule the indexed producer domain
-      if (auto select = dynamic_cast<SelectOp*>(expr)) {
+      if (expr->isA<SelectOp>()) {
         return true;
       }
       if (auto consumer_of_indexed_producer =
@@ -484,19 +483,33 @@ class SchedulerTopologyChecker {
       return false;
     }
 
-    // Check if the broadcast domains are resolved. If any of them is
-    // not resolved, the reduction scheduler can't schedule the fusion
-    ConcretizedBroadcastDomains concretized_broadcast_domains(fusion);
-    if (std::any_of(
-            broadcast_consumer_of_indexed_ids.begin(),
-            broadcast_consumer_of_indexed_ids.end(),
-            [&concretized_broadcast_domains](auto id) {
-              return !concretized_broadcast_domains.isConcretized(id);
-            })) {
-      return true;
-    }
+    // If the broadcast IDs are mapped with the reduction TVs, the
+    // reduction scheduler should be able to schedule the gather
+    // output TVs. This mapping can be PERMISSIVE as the broadcast IDs
+    // may be concretized. ExactRootDomainMap may be enough as
+    // broadcasts should not be removed by rfactor exprs.
 
-    return false;
+    // Consider reusing a CA map
+    ComputeAtMap ca_map(fusion);
+    // All of reduction TVs are mapped, so doesn't matter which
+    // reduction tv to use
+    auto ref_tv = reduction_tvs.at(0);
+    return std::any_of(
+        broadcast_consumer_of_indexed_ids.begin(),
+        broadcast_consumer_of_indexed_ids.end(),
+        [&ca_map, &ref_tv](IterDomain* broadcast_consumer_id) {
+          // Check if this broadcast ID has no mapping
+          // with the reference TV.
+          return std::none_of(
+              ref_tv->getRootDomain().begin(),
+              ref_tv->getRootDomain().end(),
+              [&](IterDomain* red_tv_root_id) {
+                return ca_map.areMapped(
+                    broadcast_consumer_id,
+                    red_tv_root_id,
+                    IdMappingMode::PERMISSIVE);
+              });
+        });
   }
 };
 
@@ -1095,7 +1108,9 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
     }
 
     // Not contiguous
-    if (!*contiguity[root_i]) {
+    auto contiguity_opt = contiguity.at(root_i);
+    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+    if (!*contiguity_opt) {
       break;
     }
 
@@ -1187,7 +1202,9 @@ size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
   }
 
   // If the inner most dimension is not contiguous return 1
-  if (!*contiguity[id_pos]) {
+  auto contiguity_opt = contiguity.at(id_pos);
+  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
+  if (!*contiguity_opt) {
     return 1;
   }
 
@@ -1372,7 +1389,7 @@ class NoOpScheduler : public SchedulerEntry {
     // Check that all outputs are either broadcast or ignored reduction.
     for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
       auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->domain()->leaf()));
+          TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
       if (!concrete_dimension.empty()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::NoOp, "output has a concrete dimension");

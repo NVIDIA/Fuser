@@ -533,10 +533,10 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Clear unswitch
   IterDomain* unswitch_id = nullptr;
   auto unswitch_id_it = std::find_if(
-      reduction_tv_rf->domain()->leaf().begin(),
-      reduction_tv_rf->domain()->leaf().end(),
+      reduction_tv_rf->getLeafDomain().begin(),
+      reduction_tv_rf->getLeafDomain().end(),
       [](auto id) { return id->getParallelType() == ParallelType::Unswitch; });
-  if (unswitch_id_it != reduction_tv_rf->domain()->leaf().end()) {
+  if (unswitch_id_it != reduction_tv_rf->getLeafDomain().end()) {
     unswitch_id = *unswitch_id_it;
   }
 
