@@ -805,7 +805,7 @@ void reductionDynamicViewAddFusion(
         }
       }
       if (negone_dim >= 0) {
-        bias_shape[negone_dim] = at_x.numel() / other_numel;
+        bias_shape[negone_dim] = (int64_t)at_x.numel() / (int64_t)other_numel;
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
@@ -931,6 +931,7 @@ void reductionDynamicPadAddFusion(
 
 // Test dynamic pad for various inputs
 TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
+  // NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result)
   auto invocations = std::vector<dynamic_pad_invocation>{
       {{3, 5}, {0, 0}, true}, // trivial
 
@@ -960,6 +961,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       {{3, 0}, {1, 1}, false},
       //{{3, 0}, {-1, 1}, false}, // TODO: SIGFPE (see above)
   };
+  // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
   reductionDynamicPadAddFusion(invocations);
 }
 
