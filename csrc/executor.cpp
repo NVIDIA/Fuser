@@ -606,7 +606,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   // Allocate::shape().
   TORCH_INTERNAL_ASSERT(alloc != nullptr);
 
-  const auto& symbolic_sizes = alloc->shape();
+  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::vector<nvfuser::Val *> symbolic_sizes;
+  symbolic_sizes.reserve(alloc_dom.size());
+  for (auto id : alloc_dom) {
+    symbolic_sizes.emplace_back(id->extent());
+  }
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
