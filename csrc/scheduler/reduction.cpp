@@ -555,12 +555,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
     return std::move(rparams);
   }
-  std::cerr << "\n===== Reduction Stats ========\n"
-            << "total_reduction_numel: " << total_reduction_numel << "\n"
-            << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorize_factor << "\n"
-            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << std::endl;
   // WARNING: Current device for codegen may not be the target device
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
