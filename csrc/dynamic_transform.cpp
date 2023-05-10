@@ -126,9 +126,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
 void DynamicTransformInfoBuilder::handle(TensorView* tv) {
   const auto& rfd = tv->domain()->getMaybeRFactorDomain();
   for (auto id : rfd) {
-    if (id->getIterType() == IterType::Symbolic && id->definition()) {
-      auto def = id->definition();
-      if (def->isA<Resize>()) {
+    if (auto op = dynamic_cast<Resize>(id->definition()); id->getIterType() == IterType::Symbolic && op != nullptr) {
         auto op = def->as<Resize>();
 
         auto out_extent_val = expr_eval_->evaluate(id->extent());
