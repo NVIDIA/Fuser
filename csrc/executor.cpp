@@ -625,8 +625,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
-  // Allocate the rfactor domain
-  for (const auto id : tv->getMaybeRFactorDomain()) {
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
     }
@@ -645,14 +645,296 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-// Allocate output tensos for a given kernel. Outputs may alias inputs, in
+namespace {
+
+class ForwardTraverseFromAllocToRFactor {
+  at::Tensor tensor_;
+  TensorView* tv_;
+  ExpressionEvaluator& ee_;
+  std::list<IterDomain*>& frontier_;
+
+  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
+  void handle(Split* split) {
+    auto in = split->in();
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
+    auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
+    TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
+    // view tensor
+    int64_t dim = std::distance(frontier_.begin(), in_it);
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == dim) {
+        new_shape.emplace_back(-1);
+        new_shape.emplace_back(factor);
+      } else {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    frontier_.insert(in_it, outer);
+    frontier_.insert(in_it, inner);
+    frontier_.erase(in_it);
+  }
+
+  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
+  void handle(Merge* merge) {
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto out = merge->out();
+    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
+    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
+    int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
+    int64_t left = std::min(inner_dim, outer_dim);
+    // view the tensor
+    if (outer_dim + 1 != inner_dim) {
+      // need to permute the tensor in order to do a merging view
+      // before: [..., outer, ..., inner, ...]
+      // after: [..., outer, inner, ...]
+      std::vector<int64_t> dims;
+      int64_t i = 0;
+      while (i < tensor_.dim() && i != left) {
+        dims.emplace_back(i);
+        i++;
+      }
+      dims.emplace_back(outer_dim);
+      dims.emplace_back(inner_dim);
+      while (i < tensor_.dim()) {
+        if (i != outer_dim && i != inner_dim) {
+          dims.emplace_back(i);
+        }
+        i++;
+      }
+      tensor_ = tensor_.permute(dims);
+    }
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == left) {
+        new_shape.emplace_back(-1);
+      } else if (i != left + 1) {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    if (inner_dim < outer_dim) {
+      *inner_it = out;
+      frontier_.erase(outer_it);
+    } else {
+      *outer_it = out;
+      frontier_.erase(inner_it);
+    }
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  ForwardTraverseFromAllocToRFactor(
+      at::Tensor tensor,
+      TensorView* tv,
+      ExpressionEvaluator& ee,
+      std::list<IterDomain*>& frontier)
+      : tensor_(tensor), tv_(tv), ee_(ee), frontier_(frontier) {}
+
+  at::Tensor run(
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto forward_exprs = StmtSort::getExprsBetween(
+        tv_->fusion(),
+        {alloc.begin(), alloc.end()},
+        {rfactor.begin(), rfactor.end()});
+    for (auto expr : forward_exprs) {
+      handle(expr);
+    }
+    return tensor_;
+  }
+};
+
+// Backward traverse is similar to forward traverse, but we need to do opposite
+// transformations.
+class BackwardTraverseFromAllocToRFactor {
+  at::Tensor tensor_;
+  TensorView* tv_;
+  ExpressionEvaluator& ee_;
+  std::list<IterDomain*>& frontier_;
+
+  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
+  void handle(Split* split) {
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto in = split->in();
+    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
+    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
+    int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
+    int64_t left = std::min(inner_dim, outer_dim);
+    // view the tensor
+    if (outer_dim + 1 != inner_dim) {
+      // need to permute the tensor in order to do a merging view
+      // before: [..., outer, ..., inner, ...]
+      // after: [..., outer, inner, ...]
+      std::vector<int64_t> dims;
+      int64_t i = 0;
+      while (i < tensor_.dim() && i != left) {
+        dims.emplace_back(i);
+        i++;
+      }
+      dims.emplace_back(outer_dim);
+      dims.emplace_back(inner_dim);
+      while (i < tensor_.dim()) {
+        if (i != outer_dim && i != inner_dim) {
+          dims.emplace_back(i);
+        }
+        i++;
+      }
+      tensor_ = tensor_.permute(dims);
+    }
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == left) {
+        new_shape.emplace_back(-1);
+      } else if (i != left + 1) {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    if (inner_dim < outer_dim) {
+      *inner_it = in;
+      frontier_.erase(outer_it);
+    } else {
+      *outer_it = in;
+      frontier_.erase(inner_it);
+    }
+  }
+
+  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
+  void handle(Merge* merge) {
+    auto out = merge->out();
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
+    auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
+    TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
+    // view tensor
+    int64_t dim = std::distance(frontier_.begin(), out_it);
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == dim) {
+        new_shape.emplace_back(-1);
+        new_shape.emplace_back(factor);
+      } else {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    frontier_.insert(out_it, outer);
+    frontier_.insert(out_it, inner);
+    frontier_.erase(out_it);
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  BackwardTraverseFromAllocToRFactor(
+      at::Tensor tensor,
+      TensorView* tv,
+      ExpressionEvaluator& ee,
+      std::list<IterDomain*>& frontier)
+      : tensor_(tensor), tv_(tv), ee_(ee), frontier_(frontier) {}
+
+  at::Tensor run(
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto backward_exprs = StmtSort::getExprsBetween(
+        tv_->fusion(),
+        {rfactor.begin(), rfactor.end()},
+        {alloc.begin(), alloc.end()});
+    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    for (auto expr : backward_exprs) {
+      handle(expr);
+    }
+    return tensor_;
+  }
+};
+
+// Start from a tensor whose dimensions are consistent with the allocation
+// domain of tv, transform view/permute the tensor into a format whose
+// dimensions are consistent with the rFactor domain of tv.
+at::Tensor transformOutputFromAllocationToRFactor(
+    at::Tensor tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee) {
+  // Ignore reductions because reductions does not exist in tensor's definition
+  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  // Traverse all affine transformations from allocation domain. Because
+  // allocation domain can be before or after the rFactor domain, we need both a
+  // forward and a backward traverse.
+  std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
+  TORCH_INTERNAL_ASSERT(tensor.dim() == (int64_t)frontier.size());
+  tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+               .run(rfactor, alloc);
+  tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+               .run(rfactor, alloc);
+  TORCH_INTERNAL_ASSERT(frontier.size() == rfactor.size());
+  // Now that all affine transformations are handled, and frontiers should
+  // contain the same set of IDs as rfactor. We still need to do a final
+  // permutation so that their orders are also consistent.
+  std::unordered_map<IterDomain*, int64_t> current_dims;
+  int64_t counter = 0;
+  for (auto id : frontier) {
+    current_dims[id] = counter++;
+  }
+  std::vector<int64_t> dims;
+  dims.reserve(frontier.size());
+  for (auto id : rfactor) {
+    dims.emplace_back(current_dims.at(id));
+  }
+  return tensor.permute(dims);
+}
+
+} // namespace
+
+// Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
     const KernelArgumentHolder& inputs,
-    const c10::Device& device) {
+    const c10::Device& device,
+    ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
 
   std::vector<at::Tensor> outputs;
@@ -681,18 +963,25 @@ std::vector<at::Tensor> allocOutputs(
       // integration, see step 1 - note [trivial forwarding]
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty({0}, tensor_options));
+      outputs.emplace_back(at::empty(
+          std::vector<int64_t>(
+              TensorDomain::noReductions(buf_info.tv->getMaybeRFactorDomain())
+                  .size(),
+              0),
+          tensor_options));
     } else {
-      outputs.emplace_back(at::native::empty_strided_cuda(
+      auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
           buf_info.strides,
           buf_info.type,
           c10::nullopt,
           device,
-          c10::nullopt));
+          c10::nullopt);
       if (shouldFillAllocationWithNan()) {
-        fillTensorWithNan(outputs.back());
+        fillTensorWithNan(alloc_tensor);
       }
+      outputs.emplace_back(transformOutputFromAllocationToRFactor(
+          alloc_tensor, buf_info.tv, ee));
     }
   }
 
@@ -944,7 +1233,8 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
       output_info,
       output_to_input_aliases,
       kernel_inputs,
-      options_.device);
+      options_.device,
+      expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -960,16 +1250,17 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
     GlobalBufferInfo info;
-    if (kernel->outputs()[out_i]->isFusionInput()) {
+    auto out_val = kernel->outputs()[out_i];
+    info.tv = dynamic_cast<TensorView*>(out_val);
+    if (out_val->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
       info.type = at::kFloat;
       info.sizes = {0};
     } else {
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
-          "Cannot allocate outputs that are not tensors.");
-      auto output = kernel->outputs()[out_i]->as<TensorView>();
+          info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+      auto output = out_val->as<TensorView>();
       auto alias_it = std::find_if(
           output_to_input_aliases.begin(),
           output_to_input_aliases.end(),
@@ -1141,11 +1432,14 @@ void validateCooperativeLaunch(
   CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks_per_SM,
       kernel,
-      (int)(launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz()),
+      (int)(launch_params.bdimx() * launch_params.bdimy() *
+            launch_params.bdimz()),
       (size_t)launch_params.smem()));
 
   TORCH_INTERNAL_ASSERT(
-      (int64_t)(num_blocks_per_SM * at::cuda::getDeviceProperties(device_index)->multiProcessorCount) >=
+      (int64_t)(num_blocks_per_SM *
+                at::cuda::getDeviceProperties(device_index)
+                    ->multiProcessorCount) >=
           launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
@@ -1444,12 +1738,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // only allocate outputs when not given
   if (outputs.empty()) {
+    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
         args,
-        options_.device);
+        options_.device,
+        expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     TORCH_INTERNAL_ASSERT(
