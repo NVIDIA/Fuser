@@ -58,9 +58,8 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
       fd.defineRecord(new ScalarRecord<std::nullptr_t>(
           {fd.recordingState(s1())},
           serde::RecordType_ScalarInput,
-          nullptr,
-          DataType::Double,
-          true));
+          std::nullopt,
+          DataType::Double));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Scalar Record creation! " << e.what();
@@ -142,9 +141,8 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
       fd.defineRecord(new ScalarRecord<std::nullptr_t>(
           {fd.recordingState(s1())},
           serde::RecordType_ScalarInput,
-          nullptr,
-          DataType::Double,
-          true));
+          std::nullopt,
+          DataType::Double));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Scalar Record creation! " << e.what();

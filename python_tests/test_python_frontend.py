@@ -2126,7 +2126,6 @@ class TestNvFuserFrontend(TestCase):
 
         for mm_str, nvf_test_inputs, eager_test_inputs in tests:
             if prop.major == 8:
-                print("Uh Oh!")
                 nvf_out, _ = self.exec_nvfuser(
                     partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
                     nvf_test_inputs,
