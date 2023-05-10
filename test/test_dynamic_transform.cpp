@@ -867,7 +867,6 @@ void reductionDynamicPadAddFusion(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  // TODO: change symbolic size for padded dimension if start size is 1
   TensorView* x = makeSymbolicTensor(input_dims);
   fusion.addInput(x);
 
