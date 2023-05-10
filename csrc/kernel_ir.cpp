@@ -307,7 +307,7 @@ InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string InitMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -325,7 +325,7 @@ UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string UpdateMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
