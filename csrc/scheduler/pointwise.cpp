@@ -134,7 +134,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->domain()->leaf()))
+          TensorDomain::noBroadcasts(largest_out->getLeafDomain()))
           .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -329,7 +329,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         bdimx = std::min(
             ceilDiv(cur_right_elem_count, max_unroll_factor), kThreadX);
         bdimy = 1;
-        gdim_right = 1;
         // Put remainder in bdimy if there's at least a wave of grid level
         // parallelism.
         if (cur_left_elem_count > device_multiprocessor_count) {
@@ -502,8 +501,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getMaybeRFactorDomain().begin(),
          reference_tv->getMaybeRFactorDomain().begin() + params.break_point},
-        {reference_tv->domain()->leaf().begin(),
-         reference_tv->domain()->leaf().end()});
+        {reference_tv->getLeafDomain().begin(),
+         reference_tv->getLeafDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
@@ -511,8 +510,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getMaybeRFactorDomain().begin() + params.break_point,
          reference_tv->getMaybeRFactorDomain().end()},
-        {reference_tv->domain()->leaf().begin(),
-         reference_tv->domain()->leaf().end()});
+        {reference_tv->getLeafDomain().begin(),
+         reference_tv->getLeafDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
         rhs_all_vals.begin(), rhs_all_vals.end());

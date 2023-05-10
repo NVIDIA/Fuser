@@ -31,10 +31,10 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Install cuda
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
           sudo dpkg -i cuda-keyring_1.0-1_all.deb
           sudo apt-get update
-          sudo apt-get -y install cuda
+          sudo apt-get -y install cuda-toolkit-12-1
 
           # cmake environment variables
           export CUDAARCHS=86
@@ -42,22 +42,18 @@ jobs:
           export PATH=/usr/local/cuda/bin:${PATH}
           export CUDA_INSTALL_PATH=/usr/local/cuda
 
-          # pytorch environment variables
-          export TORCH_CUDA_ARCH_LIST="8.6"
-          export BUILD_NVFUSER=1
-          export USE_MKLDNN=0
-          export USE_CUDNN=0
-          export USE_DISTRIBUTED=0
-          export NVFUSER_SOURCE_DIR=$this_dir
+          # Install pytorch
+          pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
 
-          # Clone pytorch and run cmake build
-          git clone https://github.com/pytorch/pytorch.git
-          cd pytorch
-          python3 -m tools.linter.clang_tidy.generate_build_files
-          cd $this_dir
+          # Get submodules
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
-          # Run lintrunner on all csrc files
-          # find csrc/ -type f | xargs lintrunner --force-color
+          # Install other requirements
+          pip install -r requirements.txt
+
+          # Run cmake build
+          python setup.py --cmake-only
 
           # Run lintrunner on all csrc files exclude benchmark and test folders
           this_commit=$(git rev-parse HEAD)
