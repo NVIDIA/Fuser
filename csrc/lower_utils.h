@@ -63,9 +63,16 @@ class TORCH_CUDA_CU_API TVDomainGuard {
   ~TVDomainGuard();
 };
 
-// Create a TVDomainGuard that temporarily view a tensorview with specified
+// Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
 TORCH_CUDA_CU_API ir_utils::TVDomainGuard overrideContiguityGuard(
+    TensorView* tv,
+    bool contiguity);
+
+// Create a TVDomainGuard that temporarily setting allocation domain as
+// getMaybeRFactorDomain() from a TensorView, contiguity are filled all true or
+// all false
+TORCH_CUDA_CU_API ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
     TensorView* tv,
     bool contiguity);
 

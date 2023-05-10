@@ -404,7 +404,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
-      tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
+      tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
 
@@ -496,9 +496,9 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->getRootDomain());
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->getMaybeRFactorDomain())
+      ? updateIdVec(td->maybeRFactor())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
@@ -509,8 +509,8 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : c10::irange(td->getMaybeRFactorDomain().size())) {
-    auto original_id = td->getMaybeRFactorDomain().at(i);
+  for (const auto i : c10::irange(td->maybeRFactor().size())) {
+    auto original_id = td->maybeRFactor().at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -524,7 +524,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
-      contig.at(i) = c10::nullopt;
+      contig.at(i) = std::nullopt;
     }
   }
 
@@ -637,7 +637,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       expr_eval.bind(inpi, arg_val);
     } else if (inpi->isA<TensorView>()) {
       const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->getMaybeRFactorDomain();
+      const auto& dom = tv->domain()->maybeRFactor();
       TORCH_CHECK(
           argi->isType(ArgType::Tensor),
           "Expected CUDA tensor at position ",

@@ -15,11 +15,7 @@
 
 namespace nvfuser {
 
-class LoopRotationTest : public NVFuserTest {
- private:
-  // Please see note [Limitation of boundary assert]
-  EnableOutOfBoundAssert guard;
-};
+class LoopRotationTest : public NVFuserTest {};
 
 TEST_F(LoopRotationTest, RotateInner_CUDA) {
   Fusion fusion;
@@ -37,7 +33,7 @@ TEST_F(LoopRotationTest, RotateInner_CUDA) {
   scheduler_utils::rotateLoop(tv4, -1, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
   #pragma unroll 1
   for(nvfuser_index_t i21 = 0; i21 < T0.size[0]; ++i21) {
@@ -103,7 +99,7 @@ TEST_F(LoopRotationTest, RotateOuter_CUDA) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
   bool b144;
   b144 = 0 < T0.size[0];
@@ -204,7 +200,7 @@ TEST_F(LoopRotationTest, NonDivisibleSplit_CUDA) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
   int64_t i1117;
   i1117 = T0.size[0] * T0.size[1];
@@ -308,7 +304,7 @@ TEST_F(LoopRotationTest, DoubleBuffered_CUDA) {
   scheduler_utils::rotateLoop(tv4, 0, {tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
   int64_t i199;
   i199 = T0.stride[0] * 4;
@@ -419,7 +415,7 @@ TEST_F(LoopRotationTest, SelectDoubleBufferLoad_CUDA) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T4) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO
   int64_t i167;
   i167 = 4 * T0.stride[0];
@@ -573,7 +569,7 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer_CUDA) {
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T3) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO
