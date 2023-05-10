@@ -625,7 +625,15 @@ void validateAlignedVectorizedFusionInputOutput(
 
   ExpressionEvaluator eval;
   auto sizes_strides = getAllocationSizesAndStrides(aten_tensor, tv, eval);
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == tv->getMaybeAllocationDomain().size());
+
+  std::vector<int64_t> no_reduction_to_full;
+  for (int64_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
+    auto alloc_id = tv->getMaybeAllocationDomain().at(i);
+    if (!alloc_id->isReduction()) {
+      no_reduction_to_full.emplace_back(i);
+    }
+  }
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
@@ -633,9 +641,10 @@ void validateAlignedVectorizedFusionInputOutput(
   bool still_rightmost = true;
   for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
     const auto [size, stride] = sizes_strides.at(i);
-    auto root_id = tv->getMaybeAllocationDomain().at(i);
+    auto alloc_id =
+        tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
-        root_id->isBroadcast() && root_id->hasExpandedExtent();
+        alloc_id->isBroadcast() && alloc_id->hasExpandedExtent();
 
     if (is_expanded_broadcasting) {
       TORCH_INTERNAL_ASSERT(
