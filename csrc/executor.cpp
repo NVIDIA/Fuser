@@ -1229,9 +1229,9 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
         }
       }
     } else {
+      auto tv = dynamic_cast<TensorView*>(kernel->outputs().at(out_i));
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
-          "Cannot allocate outputs that are not tensors.");
+          tv != nullptr, "Cannot allocate outputs that are not tensors.");
       auto output = kernel->outputs()[out_i]->as<TensorView>();
       if (alias_indices.count((int)out_i) != 0) {
         // aliasing to inputs, no need to allocate real output
@@ -1240,7 +1240,11 @@ KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
       } else {
         // TODO: we are using meta here, which is bad since it doesn't account
         // for devices. Switch to fake tensor instead
-        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false));
+        auto output_tensor =
+            inferAndAllocOutput(output, expr_eval, meta_options, false);
+        // TODO: pass in an ExpressionEvaluator with input sizes bound
+        ExpressionEvaluator ee;
+        ret.push(output_tensor, tv, ee);
       }
     }
   }

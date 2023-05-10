@@ -5488,7 +5488,8 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
 
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
-  args.push(t0);
+  ExpressionEvaluator ee;
+  args.push(t0, tv0, ee);
 
   auto segmented_fusion =
       SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
@@ -5532,7 +5533,8 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
 
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
-  args.push(t0);
+  ExpressionEvaluator ee;
+  args.push(t0, tv0, ee);
   c10::IValue scalar = 1.0;
   args.push(scalar);
 
