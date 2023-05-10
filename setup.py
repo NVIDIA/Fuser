@@ -297,6 +297,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
             "-j",
             max_jobs,
         ]
+        print(f"Running CMake: {' '.join(cmd_str)}")
         subprocess.check_call(cmd_str)
 
 
