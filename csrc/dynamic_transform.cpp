@@ -124,7 +124,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
 }
 
 void DynamicTransformInfoBuilder::handle(TensorView* tv) {
-  auto rfd = tv->domain()->getMaybeRFactorDomain();
+  const auto& rfd = tv->domain()->getMaybeRFactorDomain();
   for (auto id : rfd) {
     if (id->getIterType() == IterType::Symbolic && id->definition()) {
       auto def = id->definition();
@@ -158,7 +158,7 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
             "Cannot evaluate the right expansion of an IterDomain resize: ",
             right->toString());
 
-        auto out_itertype = resizeOutputItertype(
+        auto out_itertype = ir_utils::resizeOutputIterType(
             in_extent_val->as<int64_t>(),
             out_extent_val->as<int64_t>(),
             left_val->as<int64_t>(),
@@ -327,59 +327,21 @@ void DynamicTransformConcretizer::concretizeReshape() {
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
   for (const auto& resize_info : info_.getResizeTransforms()) {
-    auto incomplete_out_tv = std::get<0>(resize_info);
     auto id = std::get<1>(resize_info);
     auto iter_type = std::get<2>(resize_info);
 
-    auto new_id = IterDomainBuilder(id).iter_type(iter_type).build();
+    TORCH_CHECK(
+        id->definition() && id->definition()->isA<Resize>(),
+        "Resized IterDomain must have a Resize definition");
+    auto def = id->definition()->as<Resize>();
+    auto new_id = IterDomain::resize(
+        def->in(),
+        def->leftExpand(),
+        def->rightExpand(),
+        id->isRFactorProduct(),
+        iter_type);
 
-    // swap in new IterDomain as output of the resize Expr
-    ir_utils::replaceValInExpr(id->definition(), id, new_id);
-
-    // We need to replace the TensorDomain of incomplete_out_tv with one where
-    // we've replaced id with new_id in the r-factor domain.
-    std::vector<IterDomain*> new_rfactor_domain;
-    if (incomplete_out_tv->domain()->hasRFactor()) {
-      auto old_rfactor_domain =
-          incomplete_out_tv->domain()->getMaybeRFactorDomain();
-      new_rfactor_domain.resize(old_rfactor_domain.size());
-      for (auto i : c10::irange(old_rfactor_domain.size())) {
-        new_rfactor_domain[i] =
-            old_rfactor_domain[i] == id ? new_id : old_rfactor_domain[i];
-      }
-    }
-
-    auto new_td = IrBuilder::create<TensorDomain>(
-        incomplete_out_tv->container(),
-        incomplete_out_tv->domain()->getRootDomain(),
-        new_rfactor_domain,
-        new_rfactor_domain, // TODO: add check that we don't have leaf
-                            // transforms
-        incomplete_out_tv->domain()->getContiguityFilledWith(
-            new_rfactor_domain, true));
-    auto new_out_tv = IrBuilder::create<TensorView>(
-        new_td, incomplete_out_tv->dtype(), incomplete_out_tv->getMemoryType());
-
-    TORCH_INTERNAL_ASSERT(
-        incomplete_out_tv->definition(),
-        "Cannot replace TensorView with resized IterDomain if it has no definition");
-
-    // This should set the definition of new_out_tv
-    ir_utils::replaceValInExpr(
-        incomplete_out_tv->definition(), incomplete_out_tv, new_out_tv);
-
-    // Replace the old tensor with the new concretized tensor
-    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
-      ir_utils::replaceValInExpr(use_of_old_tv, incomplete_out_tv, new_out_tv);
-    }
-
-    if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->replaceOutput(incomplete_out_tv, new_out_tv);
-    }
-
-    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv->domain());
-    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
-    incomplete_out_tv->fusion()->removeVal(id);
+    registerMutation(id, new_id);
   }
 }
 
@@ -396,80 +358,81 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // axes inherited from the producers
   auto propagated = propagateFromProducerToConsumer(tv);
 
-  // If no root domain is altered, nothing to do further
-  if (!propagated) {
-    return;
-  }
+  if (propagated) {
+    // Root IDs are altered. Need to propagate the changes to rfactor
+    // domain
 
-  // Root IDs are altered. Need to propagate the changes to rfactor
-  // domain
+    // At this point, there should be no expr beyond rfactor root
+    TORCH_INTERNAL_ASSERT(
+        tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
+        "Invalid tensor: ",
+        tv->toString());
 
-  // At this point, there should be no expr beyond rfactor root
-  TORCH_INTERNAL_ASSERT(
-      tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
-      "Invalid tensor: ",
-      tv->toString());
+    // If it has an rfactor root domain, the IterTypes of the rfactor
+    // IDs may need to be updated as well. Traverse the rfactor exprs
+    // and mutate the IterTypes of output IDs if symbolic.
+    if (tv->hasRFactor()) {
+      // Note that it is assumed that theres's no further expression
+      // beyond the rfactor domain as asserted above
+      auto all_id_exprs = StmtSort::getExprsBetween(
+          tv->fusion(),
+          {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+          {tv->getMaybeRFactorDomain().begin(),
+           tv->getMaybeRFactorDomain().end()});
+      for (auto expr : all_id_exprs) {
+        // Assume outputs of IterDomain exprs are always IterDomains. If
+        // the assumption is invalidated, the logic here would need to
+        // be updated. Assert the assumption to immediately detect such
+        // a case if happened.
+        for (auto out_val : expr->outputs()) {
+          TORCH_INTERNAL_ASSERT(
+              out_val->isA<IterDomain>(),
+              "Unexpected output: ",
+              out_val->toString(),
+              ". IterDomain was expected.");
+        }
 
-  // If it has an rfactor root domain, the IterTypes of the rfactor
-  // IDs may need to be updated as well. Traverse the rfactor exprs
-  // and mutate the IterTypes of output IDs if symbolic.
-  if (tv->hasRFactor()) {
-    // Note that it is assumed that theres's no further expression
-    // beyond the rfactor domain as asserted above
-    auto all_id_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
-        {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-        {tv->getMaybeRFactorDomain().begin(),
-         tv->getMaybeRFactorDomain().end()});
-    for (auto expr : all_id_exprs) {
-      // Assume outputs of IterDomain exprs are always IterDomains. If
-      // the assumption is invalidated, the logic here would need to
-      // be updated. Assert the assumption to immediately detect such
-      // a case if happened.
-      for (auto out_val : expr->outputs()) {
+        // If none of the output IDs is symbolic, nothing to concretize
+        if (std::all_of(
+                expr->outputs().begin(),
+                expr->outputs().end(),
+                [](Val* output) {
+                  return output->as<IterDomain>()->getIterType() !=
+                      IterType::Symbolic;
+                })) {
+          continue;
+        }
+        // If any of output IDs is symbolic, all outputs should be symbolic
+        TORCH_INTERNAL_ASSERT(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->as<IterDomain>()->getIterType() ==
+                  IterType::Symbolic;
+            }));
+
+        // Determine the output IterType
+        IterType iter_type = IterType::Symbolic;
+        for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+          auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
+          iter_type =
+              ops::promoteIterType(iter_type, updated_id->getIterType());
+        }
         TORCH_INTERNAL_ASSERT(
-            out_val->isA<IterDomain>(),
-            "Unexpected output: ",
-            out_val->toString(),
-            ". IterDomain was expected.");
-      }
+            iter_type != IterType::Symbolic,
+            "Failed to concretize an output IterType for expression: ",
+            expr->toString());
 
-      // If none of the output IDs is symbolic, nothing to concretize
-      if (std::all_of(
-              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                return output->as<IterDomain>()->getIterType() !=
-                    IterType::Symbolic;
-              })) {
-        continue;
-      }
-      // If any of output IDs is symbolic, all outputs should be symbolic
-      TORCH_INTERNAL_ASSERT(std::all_of(
-          expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-            return output->as<IterDomain>()->getIterType() ==
-                IterType::Symbolic;
-          }));
+        // Update the IterType of each output
+        for (auto out_id :
+             ir_utils::filterByType<IterDomain>(expr->outputs())) {
+          auto concreteized_out_id =
+              IterDomainBuilder(out_id).iter_type(iter_type).build();
+          registerMutation(out_id, concreteized_out_id);
+        }
 
-      // Determine the output IterType
-      IterType iter_type = IterType::Symbolic;
-      for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-        auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        iter_type = ops::promoteIterType(iter_type, updated_id->getIterType());
+        // Outputs are mutated. The expr itself needs to be mutated as
+        // well, which can be done by the mutate method
+        OptOutMutator::mutate(expr);
       }
-      TORCH_INTERNAL_ASSERT(
-          iter_type != IterType::Symbolic,
-          "Failed to concretize an output IterType for expression: ",
-          expr->toString());
-
-      // Update the IterType of each output
-      for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        auto concreteized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concreteized_out_id);
-      }
-
-      // Outputs are mutated. The expr itself needs to be mutated as
-      // well, which can be done by the mutate method
-      OptOutMutator::mutate(expr);
     }
   }
 

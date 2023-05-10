@@ -2452,7 +2452,8 @@ IterDomain* IterDomain::resize(
     IterDomain* in,
     Val* left_expansion,
     Val* right_expansion,
-    bool mark_as_rfactor) {
+    bool mark_as_rfactor,
+    std::optional<IterType> iter_type_opt) {
   TORCH_CHECK(
       left_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
@@ -2495,16 +2496,14 @@ IterDomain* IterDomain::resize(
         right_expansion);
   }
 
-  auto iter_type = in->getIterType();
-  if (resized_id_size->isConstInt()) {
-    auto in_extent = in->extent()->getInt().value();
+  // Output IterType is Symbolic unless provided, or if extent is a const Int,
+  // in which case we set it to either Broadcast or Iteration.
+  IterType iter_type = IterType::Symbolic;
+  if (iter_type_opt.has_value()) {
+    iter_type = iter_type_opt.value();
+  } else if (resized_id_size->isConstInt()) {
     auto out_extent = resized_id_size->getInt().value();
-    auto left = left_expansion->getInt().value();
-    auto right = right_expansion->getInt().value();
-    iter_type =
-        ir_utils::resizeOutputIterType(in_extent, out_extent, left, right);
-  } else {
-    iter_type = IterType::Symbolic;
+    iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
   }
 
   auto resized_id =
