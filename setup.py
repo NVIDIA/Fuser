@@ -23,6 +23,9 @@
 #   --debug
 #     Building nvfuser in debug mode
 #
+#   --debinfo
+#     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -74,6 +77,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
+        continue
+    if arg == "--debinfo":
+        BUILD_TYPE = "RelwithDebInfo"
         continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")

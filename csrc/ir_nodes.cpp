@@ -2594,12 +2594,13 @@ void validateContiguity(
       " but needed one of size ",
       allocation_domain.size());
   for (auto i : c10::irange(contiguity.size())) {
-    auto should_be_null = allocation_domain.at(i)->isBroadcast() ||
-        allocation_domain.at(i)->isReduction();
+    bool expect_null =
+        (allocation_domain.at(i)->isBroadcast() ||
+         allocation_domain.at(i)->isReduction());
     TORCH_CHECK(
-        should_be_null != contiguity.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
+        expect_null != contiguity.at(i).has_value(),
+        "The contiguity of a broadcast/reduction dimension must be None. "
+        "The contiguity of a non-broadcast/reduction dimension must be true/false");
   }
 }
 
