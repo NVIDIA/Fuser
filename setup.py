@@ -275,10 +275,6 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
-    if "CMAKE_CUDA_ARCHITECTURES" in os.environ:
-        cmd_str.append(
-            f"-DCMAKE_CUDA_ARCHITECTURES={os.environ['CMAKE_CUDA_ARCHITECTURES']}"
-        )
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
