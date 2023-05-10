@@ -1507,7 +1507,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-    std::cout << "Index type: " << kernel()->indexType() << std::endl;
+    std::cout << "Index type: " << indexType() << std::endl;
   }
 
   cudaEvent_t start_event = {};
@@ -1523,7 +1523,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto arg_buffer = args.getBuffer(kernel()->indexType());
+    auto arg_buffer = args.getBuffer(indexType());
     if (!kernel_summary_.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
