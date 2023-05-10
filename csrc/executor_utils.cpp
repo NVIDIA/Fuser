@@ -567,7 +567,7 @@ void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
   TORCH_INTERNAL_ASSERT(
-      !info.contig_root_ids.empty(),
+      !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
       info.consumer_tv->toString(),
       " and ",
@@ -575,7 +575,7 @@ void validateAlignedVectorizeExtents(
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
-  for (auto id : info.contig_root_ids) {
+  for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
@@ -975,7 +975,7 @@ std::vector<char> nvrtcGetCode(
 
 void dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    int fusion_id,
+    int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
@@ -1311,7 +1311,7 @@ void warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int id,
+    int64_t id,
     const std::string& full_src_code) {
   std::stringstream ss;
   ss << "__tmp_kernel" << id << ".cu";
@@ -1326,7 +1326,7 @@ void createNvrtcProgram(
 std::tuple<std::vector<char>, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1364,7 +1364,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     std::optional<int64_t> opt_block_size,
     const int64_t max_register_heuristic,
     bool return_compiled_binary) {

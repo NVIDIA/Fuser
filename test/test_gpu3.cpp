@@ -1979,13 +1979,8 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
-  // First compile gets a compiled kernel
-  fe.compileFusion(&fusion, {t0});
-
-  // Should be throwing because the kernel
-  //  requested absolute device limit
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(fe.runFusion({t0}));
+  //  NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
 }
 
 // Try to test alignment when multiple tensors are
@@ -2805,8 +2800,8 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync1_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
-  TensorView* tv1 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
+  TensorView* tv1 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -2971,7 +2966,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
