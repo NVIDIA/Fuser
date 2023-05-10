@@ -185,4 +185,58 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// A global->global copy kernel converting NCHW memory format into NHWC.
+TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
+
+  auto tv0 = makeContigTensor(3); // [N1, N2, H*W*C]
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(1), tv1->axis(2)}, true);
+  tv1->merge(0);
+  tv1->split(1, c);
+  tv1->split(1, w);
+  // [N, H, W, C]
+  tv1->reorder({{-1, 1}});
+  tv1->commitLeafToRFactor();
+  // [N, C, H, W]
+
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 128);
+  // [N*H*W*C/128, 128]
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({n1, n2, h * w * c}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {t0},
+      {t0.view({n1 * n2, h, w, c}).permute({0, 3, 1, 2})},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
