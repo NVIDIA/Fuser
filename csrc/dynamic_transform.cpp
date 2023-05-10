@@ -124,12 +124,13 @@ std::string DynamicTransformConcretizationInfo::toString() const {
 }
 
 void DynamicTransformInfoBuilder::handle(TensorView* tv) {
-  const auto& rfd = tv->domain()->getMaybeRFactorDomain();
+  const auto& rfd = tv->getMaybeRFactorDomain();
   for (auto id : rfd) {
-    if (auto op = dynamic_cast<Resize>(id->definition());
+    if (!id->definition()) {
+      continue;
+    }
+    if (auto op = dynamic_cast<Resize*>(id->definition());
         id->getIterType() == IterType::Symbolic && op != nullptr) {
-      auto op = def->as<Resize>();
-
       auto out_extent_val = expr_eval_->evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
           out_extent_val.has_value(),
@@ -166,7 +167,6 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
       info_.resize_transforms_.emplace_back(tv, id, out_itertype);
     }
   }
-}
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
