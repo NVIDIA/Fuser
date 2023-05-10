@@ -2504,14 +2504,23 @@ IterDomain* IterDomain::resize(
         right_expansion);
   }
 
-  // Output IterType is Symbolic unless provided, or if extent is a const Int,
-  // in which case we set it to either Broadcast or Iteration.
+  // If output IterType is provided, use it. Otherwise, if we can prove the
+  // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
+  // Iteration, and otherwise fall back to Symbolic.
   IterType iter_type = IterType::Symbolic;
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
-  } else if (resized_id_size->isConstInt()) {
-    auto out_extent = resized_id_size->getInt().value();
-    iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
+  } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    if (resized_id_size->isConstInt()) {
+      // Means input extent is also known
+      auto out_extent = resized_id_size->getInt().value();
+      iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else if (
+        left_expansion->getInt().value() + right_expansion->getInt().value() >
+        1) {
+      // Input extent is non-negative, so we know out_extent > 1
+      iter_type = IterType::Iteration;
+    }
   }
 
   auto resized_id =
