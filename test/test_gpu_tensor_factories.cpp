@@ -454,7 +454,7 @@ TEST_F(NVFuserTest, FusionARangeScalarHoisting1_CUDA) {
   at::Tensor t1 = at::full_like(t0, end - start, options);
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1> T0, Tensor<int64_t, 1> T1) {
+__global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
   i3 = i1 - i0;
   int64_t i4;

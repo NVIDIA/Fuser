@@ -126,46 +126,47 @@ std::string DynamicTransformConcretizationInfo::toString() const {
 void DynamicTransformInfoBuilder::handle(TensorView* tv) {
   const auto& rfd = tv->domain()->getMaybeRFactorDomain();
   for (auto id : rfd) {
-    if (auto op = dynamic_cast<Resize>(id->definition()); id->getIterType() == IterType::Symbolic && op != nullptr) {
-        auto op = def->as<Resize>();
+    if (auto op = dynamic_cast<Resize>(id->definition());
+        id->getIterType() == IterType::Symbolic && op != nullptr) {
+      auto op = def->as<Resize>();
 
-        auto out_extent_val = expr_eval_->evaluate(id->extent());
-        TORCH_INTERNAL_ASSERT(
-            out_extent_val.has_value(),
-            "Cannot evaluate the extent of a resized IterDomain: ",
-            id->toString());
+      auto out_extent_val = expr_eval_->evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          out_extent_val.has_value(),
+          "Cannot evaluate the extent of a resized IterDomain: ",
+          id->toString());
 
-        auto in_id = op->in()->as<IterDomain>();
-        auto in_extent_val = expr_eval_->evaluate(in_id->extent());
-        TORCH_INTERNAL_ASSERT(
-            in_extent_val.has_value(),
-            "Cannot evaluate the extent of input to an IterDomain resize: ",
-            in_id->toString());
+      auto in_id = op->in()->as<IterDomain>();
+      auto in_extent_val = expr_eval_->evaluate(in_id->extent());
+      TORCH_INTERNAL_ASSERT(
+          in_extent_val.has_value(),
+          "Cannot evaluate the extent of input to an IterDomain resize: ",
+          in_id->toString());
 
-        auto left = op->leftExpand()->as<Int>();
-        auto left_val = expr_eval_->evaluate(left);
-        TORCH_INTERNAL_ASSERT(
-            left_val.has_value(),
-            "Cannot evaluate the left expansion of an IterDomain resize: ",
-            left->toString());
+      auto left = op->leftExpand()->as<Int>();
+      auto left_val = expr_eval_->evaluate(left);
+      TORCH_INTERNAL_ASSERT(
+          left_val.has_value(),
+          "Cannot evaluate the left expansion of an IterDomain resize: ",
+          left->toString());
 
-        auto right = op->rightExpand()->as<Int>();
-        auto right_val = expr_eval_->evaluate(right);
-        TORCH_INTERNAL_ASSERT(
-            right_val.has_value(),
-            "Cannot evaluate the right expansion of an IterDomain resize: ",
-            right->toString());
+      auto right = op->rightExpand()->as<Int>();
+      auto right_val = expr_eval_->evaluate(right);
+      TORCH_INTERNAL_ASSERT(
+          right_val.has_value(),
+          "Cannot evaluate the right expansion of an IterDomain resize: ",
+          right->toString());
 
-        auto out_itertype = ir_utils::resizeOutputIterType(
-            in_extent_val->as<int64_t>(),
-            out_extent_val->as<int64_t>(),
-            left_val->as<int64_t>(),
-            right_val->as<int64_t>());
+      auto out_itertype = ir_utils::resizeOutputIterType(
+          in_extent_val->as<int64_t>(),
+          out_extent_val->as<int64_t>(),
+          left_val->as<int64_t>(),
+          right_val->as<int64_t>());
 
-        info_.resize_transforms_.emplace_back(tv, id, out_itertype);
-      }
+      info_.resize_transforms_.emplace_back(tv, id, out_itertype);
     }
   }
+}
 }
 
 void DynamicTransformInfoBuilder::handle(ViewOp* op) {
@@ -362,7 +363,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
     // At this point, there should be no expr beyond rfactor root
     TORCH_INTERNAL_ASSERT(
-        tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
+        tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
         "Invalid tensor: ",
         tv->toString());
 
@@ -459,9 +460,9 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->getRootDomain());
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->getMaybeRFactorDomain())
+      ? updateIdVec(td->maybeRFactor())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
@@ -472,8 +473,8 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : c10::irange(td->getMaybeRFactorDomain().size())) {
-    auto original_id = td->getMaybeRFactorDomain().at(i);
+  for (const auto i : c10::irange(td->maybeRFactor().size())) {
+    auto original_id = td->maybeRFactor().at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -487,7 +488,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
-      contig.at(i) = c10::nullopt;
+      contig.at(i) = std::nullopt;
     }
   }
 
@@ -600,7 +601,7 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       expr_eval.bind(inpi, arg_val);
     } else if (inpi->isA<TensorView>()) {
       const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->getMaybeRFactorDomain();
+      const auto& dom = tv->domain()->maybeRFactor();
       TORCH_CHECK(
           argi->isType(ArgType::Tensor),
           "Expected CUDA tensor at position ",

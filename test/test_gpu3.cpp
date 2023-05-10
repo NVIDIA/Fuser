@@ -1749,7 +1749,7 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
   auto cg_outputs = fe.runFusion({t0});
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2> T0, Tensor<float, 2> T2) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   int64_t i75;
   i75 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i7;
@@ -1979,13 +1979,8 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
-  // First compile gets a compiled kernel
-  fe.compileFusion(&fusion, {t0});
-
-  // Should be throwing because the kernel
-  //  requested absolute device limit
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(fe.runFusion({t0}));
+  //  NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
 }
 
 // Try to test alignment when multiple tensors are
@@ -2805,8 +2800,8 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync1_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
-  TensorView* tv1 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
+  TensorView* tv1 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -2971,7 +2966,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
@@ -4093,7 +4088,7 @@ TEST_F(NVFuserTest, FusionReproNoncontigBroadcast_CUDA) {
                  .build();
   auto tv1 = TensorViewBuilder()
                  .ndims(4)
-                 .contiguity({true, c10::nullopt, c10::nullopt, true})
+                 .contiguity({true, std::nullopt, std::nullopt, true})
                  .shape({-1, 1, 1, -1})
                  .dtype(DataType::Half)
                  .build();
@@ -4702,7 +4697,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(&fusion);
-  std::vector<c10::optional<bool>> contiguity(3, c10::nullopt);
+  std::vector<std::optional<bool>> contiguity(3, std::nullopt);
 
   std::vector<int64_t> shape{1, -1, -1};
   TensorView* tv0 = makeContigConcreteTensor(shape);
@@ -4861,7 +4856,7 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(&fusion);
-  std::vector<c10::optional<bool>> contiguity{false, c10::nullopt};
+  std::vector<std::optional<bool>> contiguity{false, std::nullopt};
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
@@ -5999,7 +5994,7 @@ TEST_F(NVFuserTest, FusionExpandedInput_CUDA) {
   TensorView* tv0 = TensorViewBuilder()
                         .ndims(3)
                         .shape({-1, -1, -1})
-                        .contiguity({false, c10::nullopt, true})
+                        .contiguity({false, std::nullopt, true})
                         .expanded({false, true, false})
                         .build();
   fusion->addInput(tv0);
@@ -6862,7 +6857,7 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
     auto dim1 = IterDomainBuilder(w1.avg->axis(1)).build();
     auto td = IrBuilder::create<TensorDomain>(
         std::vector<IterDomain*>{dim0, dim1},
-        std::vector<c10::optional<bool>>{true, true});
+        std::vector<std::optional<bool>>{true, std::nullopt});
     auto tv = IrBuilder::create<TensorView>(td, dtype);
     return tv;
   };
@@ -8134,7 +8129,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRootDomain(), tv1->domain()->leaf());
+      tv1->getRootDomain(), tv1->getLeafDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
@@ -8157,7 +8152,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   auto tv2 = reshape(tv0, {IrBuilder::create<Int>(), IrBuilder::create<Int>()});
 
   ir_utils::validateDomainEquivalence(
-      tv2->getRootDomain(), tv2->domain()->leaf());
+      tv2->getRootDomain(), tv2->getLeafDomain());
 
   // create a 2D tensor with one symbolid and another non-symbolic
   auto tv4 = broadcast(sum(tv2, {1}), {false, true});
@@ -8168,7 +8163,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRootDomain(), tv4->domain()->leaf());
+      tv4->getRootDomain(), tv4->getLeafDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]

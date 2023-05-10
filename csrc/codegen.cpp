@@ -210,6 +210,9 @@ class CudaKernelGenerator : private OptOutConstDispatch {
           code_
               << "Tensor<" << params[i]->dtype() << ", "
               << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
+              << ", "
+              << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+                     .size()
               << "> " << var_name_ss.str();
         }
       } else {
@@ -227,15 +230,13 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& maybe_rfactor_domain = tv->domain()->hasRFactor()
-          ? tv->domain()->getRFactorDomain()
-          : tv->domain()->getRootDomain();
+      const auto& alloc_domain = tv->getMaybeAllocationDomain();
       const auto nDims = std::count_if(
-          maybe_rfactor_domain.begin(),
-          maybe_rfactor_domain.end(),
-          [](const IterDomain* id) { return !id->isReduction(); });
-      code_ << ", Tensor<" << tv->dtype() << ", " << nDims << "> "
-            << ir_utils::varName(tv);
+          alloc_domain.begin(), alloc_domain.end(), [](const IterDomain* id) {
+            return !id->isReduction();
+          });
+      code_ << ", Tensor<" << tv->dtype() << ", " << nDims << ", " << nDims
+            << "> " << ir_utils::varName(tv);
     }
 
     // Kernels generating random numbers take extra (seed, offset) arguments
@@ -1163,8 +1164,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
       // dispatch mma initialization
       if (std::any_of(
-              out_tv->domain()->leaf().begin(),
-              out_tv->domain()->leaf().end(),
+              out_tv->getLeafDomain().begin(),
+              out_tv->getLeafDomain().end(),
               [&](IterDomain* id) { return id->isMma(); })) {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         TORCH_INTERNAL_ASSERT(
@@ -1179,7 +1180,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       size_t vector_word_size = 1;
 
       if (vectorize_scope_ && ldst->out()->isA<kir::TensorIndex>()) {
-        for (auto id : out_tv->domain()->leaf()) {
+        for (auto id : out_tv->getLeafDomain()) {
           if (!isParallelTypeVectorize(id->getParallelType())) {
             continue;
           }
@@ -2443,7 +2444,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       states[pt] = ReductionParallelTypeState::Iter;
     }
 
-    for (auto id : alloc_fused_reduction->out()->view()->domain()->leaf()) {
+    for (auto id : alloc_fused_reduction->out()->view()->getLeafDomain()) {
       auto pt = id->getParallelType();
       if (isParallelTypeThread(pt)) {
         auto state = id->isReduction() ? ReductionParallelTypeState::Reduce
