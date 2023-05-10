@@ -547,6 +547,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
   // }
   // table KernelRuntimes {
   //    device_id : ulong;
+  //    has_dynamic_transform_info : bool;
   //    values : [FusionKernelRuntime];
   // }
 
@@ -560,7 +561,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
   std::vector<fb_kernel_runtimes> kernel_runtimes;
   kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (auto&& [device_id, device_runtimes] : kernel_runtimes_) {
+  for (auto&& [config, device_runtimes] : kernel_runtimes_) {
     std::vector<fb_fusion_kernel_runtime> runtimes;
     runtimes.reserve(device_runtimes.size());
 
@@ -572,8 +573,9 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
           kernel_runtime_ptr, kernel_cache_ordering.size());
     }
 
-    kernel_runtimes.push_back(
-        CreateKernelRuntimesDirect(builder, device_id, &runtimes));
+    auto&& [device_id, dynamic_info] = config;
+    kernel_runtimes.push_back(CreateKernelRuntimesDirect(
+        builder, device_id, dynamic_info.has_value(), &runtimes));
   }
 
   std::vector<size_t> kernel_cache_keys;
@@ -605,6 +607,7 @@ void FusionExecutorCache::deserialize(
   // }
   // table KernelRuntimes {
   //    device_id : ulong;
+  //    has_dynamic_transform_info : bool;
   //    values : [FusionKernelRuntime];
   // }
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
@@ -615,21 +618,68 @@ void FusionExecutorCache::deserialize(
 
   for (auto device_runtimes : *buffer->kernel_runtimes()) {
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
+
+    std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
+    size_t conc_info_index = 0;
+    if (has_dynamic_reshape_) {
+      // Construct args from flatbuffer object
+      KernelArgumentHolder args;
+      args.deserialize(device_runtimes->runtimes()->begin()->args());
+
+      conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
+      TORCH_CHECK(
+          conc_info.has_value(),
+          "Unable to get concretization info for dynamic Fusion");
+      // We use the Fusion-managed data facility to allow conc_info to survive
+      // cloning fusion_.
+      // See note [Fusion managed data] in fusion.h for more information.
+      conc_info_index = fusion_->manage(
+          conc_info.value(),
+          [](IrCloner& ir_cloner, std::any data) -> std::any {
+            auto orig_conc_info =
+                std::any_cast<DynamicTransformConcretizationInfo>(data);
+            return orig_conc_info.clone(ir_cloner);
+          });
+    }
+
     for (auto runtime : *device_runtimes->runtimes()) {
       // Construct args from flatbuffer object
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
+      // concretize fusion_ for use in this runtime
+      auto fusion = std::make_unique<Fusion>(*fusion_);
+      FusionGuard fg(fusion.get());
+      if (has_dynamic_reshape_) {
+        const auto& cloned_conc_info =
+            fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
+                conc_info_index);
+        TORCH_INTERNAL_ASSERT(
+            cloned_conc_info.has_value(),
+            "Copied Fusion is missing managed concretization info");
+        DynamicTransform::concretizeFusion(
+            fusion.get(), cloned_conc_info.value());
+        // The information in cloned_conc_info refers to variables in the copied
+        // symbolic fusion which get replaced during concretization. Keeping
+        // these around during a subsequent fusion copy would lead to an attempt
+        // to clone them, ending in a segfault. Instead, we reset the object
+        // here, effectively as if it now describes a non-dynamic Fusion.
+        // cloned_conc_info.clear();
+        fusion->stopManaging(conc_info_index);
+      }
+
       // Create new FusionKernelRuntime
       runtimes.emplace_back(
-          std::make_unique<FusionKernelRuntime>(fusion_.get(), args));
+          std::make_unique<FusionKernelRuntime>(std::move(fusion), args));
 
       // Deserialize FusionExecutors in FusionKernelRuntime
       runtimes.back()->deserialize(runtime);
 
       all_runtimes.emplace_back(runtimes.back().get());
     }
-    kernel_runtimes_.emplace(device_runtimes->device_id(), std::move(runtimes));
+    kernel_runtimes_.emplace(
+        std::make_pair(device_runtimes->device_id(), conc_info),
+        std::move(runtimes));
   }
 
   for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
@@ -1036,7 +1086,7 @@ class ArgumentManager {
   void updateWithSegmentOutputs(
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs,
-      const int group_id) {
+      const int64_t group_id) {
     addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
     deleteUnusedArgs(group_id);
   }
@@ -1046,7 +1096,7 @@ class ArgumentManager {
   // map from val to args
   std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
-  std::unordered_map<int, std::vector<Val*>> vals_last_used_at_segment_;
+  std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
   void mapFusionInputsToArgs(
       const std::vector<Val*>& fusion_inputs,
@@ -1082,14 +1132,14 @@ class ArgumentManager {
       return val->isFusionInput() || val->isFusionOutput();
     };
     // map val to segment_id where arg is lastly used
-    std::unordered_map<Val*, int> last_used_segment_map;
-    const int n_groups = group_run_order.size();
+    std::unordered_map<Val*, int64_t> last_used_segment_map;
+    const int64_t num_groups = (int64_t)group_run_order.size();
     // only need to set lifetime of vals if there are more than 3 groups
-    if (n_groups >= 3) {
+    if (num_groups >= 3) {
       // start from the 2nd group, since the input of the first group is always
       // the global input and its outputs are always used by at least one of the
       // following groups
-      for (int group_id = 1; group_id < n_groups; ++group_id) {
+      for (auto group_id : c10::irange(1l, num_groups)) {
         auto group_to_run = group_run_order.at(group_id);
         // set/update life of vals in inputs of this group
         for (auto val : group_to_run->inputs()) {
@@ -1101,7 +1151,7 @@ class ArgumentManager {
         }
         // set/update life of vals in outputs of this group
         // skip the last group since its outputs are always the global outputs
-        if (group_id < n_groups - 1) {
+        if (group_id < num_groups - 1) {
           for (auto val : group_to_run->outputs()) {
             // skip fusion inputs and outputs, they may be used by other fusions
             // or code
@@ -1118,7 +1168,7 @@ class ArgumentManager {
       }
     }
   }
-  void deleteUnusedArgs(int group_id) {
+  void deleteUnusedArgs(int64_t group_id) {
     // erase args corresponding to vals lastly used in this segment
     if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
       for (auto val : vals_last_used_at_segment_[group_id]) {
@@ -1164,9 +1214,9 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
-  const int n_groups = runtime_workspace_.group_run_order.size();
-  num_live_args_after_segment_runs_.reserve(n_groups);
-  for (int group_id = 0; group_id < n_groups; ++group_id) {
+  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
+  num_live_args_after_segment_runs_.reserve(num_groups);
+  for (auto group_id : c10::irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1194,7 +1244,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       args_manager.updateWithSegmentOutputs(
           group_to_run->outputs(), group_runtime_outputs, group_id);
     }
-    num_live_args_after_segment_runs_.push_back(args.size());
+    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
   return args_manager.getTensorMap();

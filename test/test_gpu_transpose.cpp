@@ -922,7 +922,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeConcreteTensor({32, 32});
+  auto tv0 = makeContigConcreteTensor({32, 32});
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = transpose(tv1, 0, 1);
@@ -1058,7 +1058,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeConcreteTensor({32, 32, 2});
+  auto tv0 = makeContigConcreteTensor({32, 32, 2});
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = transpose(tv1, 0, 1);

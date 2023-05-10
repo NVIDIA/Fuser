@@ -3741,27 +3741,19 @@ CreateTensorCreationSymbolicDirect(
 struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_CONFIGURED_DEVICE_SMEM = 4,
-    VT_MAYBE_AVAILABLE_DYNAMIC_SMEM = 6,
-    VT_DEVICE_SMEM_LIMIT = 8,
-    VT_BLOCK_SIZE_HIGH_WATER_MARK = 10,
-    VT_MAXRREGCOUNT_HIGH_WATER_MARK = 12,
-    VT_WARP_SIZE = 14,
-    VT_FUSION_ID = 16,
-    VT_FUSION_ID_COUNTER = 18,
-    VT_KERNEL_CODE = 20,
-    VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 22,
-    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 24,
-    VT_LAUNCH_PARAMS = 26,
-    VT_KERNEL_SUMMARY = 28,
-    VT_USED_TVS = 30
+    VT_DEVICE_SMEM_LIMIT = 4,
+    VT_BLOCK_SIZE_HIGH_WATER_MARK = 6,
+    VT_MAXRREGCOUNT_HIGH_WATER_MARK = 8,
+    VT_WARP_SIZE = 10,
+    VT_FUSION_ID = 12,
+    VT_FUSION_ID_COUNTER = 14,
+    VT_KERNEL_CODE = 16,
+    VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
+    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
+    VT_LAUNCH_PARAMS = 22,
+    VT_KERNEL_SUMMARY = 24,
+    VT_USED_TVS = 26
   };
-  uint64_t configured_device_smem() const {
-    return GetField<uint64_t>(VT_CONFIGURED_DEVICE_SMEM, 0);
-  }
-  uint64_t maybe_available_dynamic_smem() const {
-    return GetField<uint64_t>(VT_MAYBE_AVAILABLE_DYNAMIC_SMEM, 0);
-  }
   uint64_t device_smem_limit() const {
     return GetField<uint64_t>(VT_DEVICE_SMEM_LIMIT, 0);
   }
@@ -3804,8 +3796,6 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
-        VerifyField<uint64_t>(verifier, VT_CONFIGURED_DEVICE_SMEM) &&
-        VerifyField<uint64_t>(verifier, VT_MAYBE_AVAILABLE_DYNAMIC_SMEM) &&
         VerifyField<uint64_t>(verifier, VT_DEVICE_SMEM_LIMIT) &&
         VerifyField<int64_t>(verifier, VT_BLOCK_SIZE_HIGH_WATER_MARK) &&
         VerifyField<int32_t>(verifier, VT_MAXRREGCOUNT_HIGH_WATER_MARK) &&
@@ -3832,16 +3822,6 @@ struct FusionExecutorBuilder {
   typedef FusionExecutor Table;
   flatbuffers::FlatBufferBuilder& fbb_;
   flatbuffers::uoffset_t start_;
-  void add_configured_device_smem(uint64_t configured_device_smem) {
-    fbb_.AddElement<uint64_t>(
-        FusionExecutor::VT_CONFIGURED_DEVICE_SMEM, configured_device_smem, 0);
-  }
-  void add_maybe_available_dynamic_smem(uint64_t maybe_available_dynamic_smem) {
-    fbb_.AddElement<uint64_t>(
-        FusionExecutor::VT_MAYBE_AVAILABLE_DYNAMIC_SMEM,
-        maybe_available_dynamic_smem,
-        0);
-  }
   void add_device_smem_limit(uint64_t device_smem_limit) {
     fbb_.AddElement<uint64_t>(
         FusionExecutor::VT_DEVICE_SMEM_LIMIT, device_smem_limit, 0);
@@ -3911,8 +3891,6 @@ struct FusionExecutorBuilder {
 
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t configured_device_smem = 0,
-    uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
     int64_t block_size_high_water_mark = 0,
     int32_t maxrregcount_high_water_mark = 0,
@@ -3931,8 +3909,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
-  builder_.add_maybe_available_dynamic_smem(maybe_available_dynamic_smem);
-  builder_.add_configured_device_smem(configured_device_smem);
   builder_.add_used_tvs(used_tvs);
   builder_.add_kernel_summary(kernel_summary);
   builder_.add_launch_params(launch_params);
@@ -3948,8 +3924,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
 
 inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
-    uint64_t configured_device_smem = 0,
-    uint64_t maybe_available_dynamic_smem = 0,
     uint64_t device_smem_limit = 0,
     int64_t block_size_high_water_mark = 0,
     int32_t maxrregcount_high_water_mark = 0,
@@ -3974,8 +3948,6 @@ inline flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
   auto used_tvs__ = used_tvs ? _fbb.CreateVector<uint64_t>(*used_tvs) : 0;
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
-      configured_device_smem,
-      maybe_available_dynamic_smem,
       device_smem_limit,
       block_size_high_water_mark,
       maxrregcount_high_water_mark,
@@ -4202,10 +4174,14 @@ struct KernelRuntimes FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef KernelRuntimesBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DEVICE_ID = 4,
-    VT_RUNTIMES = 6
+    VT_HAS_DYNAMIC_TRANSFORM_INFO = 6,
+    VT_RUNTIMES = 8
   };
   uint64_t device_id() const {
     return GetField<uint64_t>(VT_DEVICE_ID, 0);
+  }
+  bool has_dynamic_transform_info() const {
+    return GetField<uint8_t>(VT_HAS_DYNAMIC_TRANSFORM_INFO, 0) != 0;
   }
   const flatbuffers::Vector<
       flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>*
@@ -4217,6 +4193,7 @@ struct KernelRuntimes FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool Verify(flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_DEVICE_ID) &&
+        VerifyField<uint8_t>(verifier, VT_HAS_DYNAMIC_TRANSFORM_INFO) &&
         VerifyOffset(verifier, VT_RUNTIMES) &&
         verifier.VerifyVector(runtimes()) &&
         verifier.VerifyVectorOfTables(runtimes()) && verifier.EndTable();
@@ -4229,6 +4206,12 @@ struct KernelRuntimesBuilder {
   flatbuffers::uoffset_t start_;
   void add_device_id(uint64_t device_id) {
     fbb_.AddElement<uint64_t>(KernelRuntimes::VT_DEVICE_ID, device_id, 0);
+  }
+  void add_has_dynamic_transform_info(bool has_dynamic_transform_info) {
+    fbb_.AddElement<uint8_t>(
+        KernelRuntimes::VT_HAS_DYNAMIC_TRANSFORM_INFO,
+        static_cast<uint8_t>(has_dynamic_transform_info),
+        0);
   }
   void add_runtimes(
       flatbuffers::Offset<flatbuffers::Vector<
@@ -4249,25 +4232,29 @@ struct KernelRuntimesBuilder {
 inline flatbuffers::Offset<KernelRuntimes> CreateKernelRuntimes(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t device_id = 0,
+    bool has_dynamic_transform_info = false,
     flatbuffers::Offset<flatbuffers::Vector<
         flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>> runtimes =
         0) {
   KernelRuntimesBuilder builder_(_fbb);
   builder_.add_device_id(device_id);
   builder_.add_runtimes(runtimes);
+  builder_.add_has_dynamic_transform_info(has_dynamic_transform_info);
   return builder_.Finish();
 }
 
 inline flatbuffers::Offset<KernelRuntimes> CreateKernelRuntimesDirect(
     flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t device_id = 0,
+    bool has_dynamic_transform_info = false,
     const std::vector<flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>*
         runtimes = nullptr) {
   auto runtimes__ = runtimes
       ? _fbb.CreateVector<
             flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>>(*runtimes)
       : 0;
-  return nvfuser::serde::CreateKernelRuntimes(_fbb, device_id, runtimes__);
+  return nvfuser::serde::CreateKernelRuntimes(
+      _fbb, device_id, has_dynamic_transform_info, runtimes__);
 }
 
 struct FusionExecutorCache FLATBUFFERS_FINAL_CLASS

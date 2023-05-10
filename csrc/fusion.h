@@ -391,7 +391,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   }
 
   inline bool hasManaged(size_t index) const {
-    return index >= 0 && index < managed_data_.size() &&
+    return index < managed_data_.size() &&
         managed_data_[index].first.has_value();
   }
 

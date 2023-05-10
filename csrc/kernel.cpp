@@ -244,7 +244,7 @@ class ValidateAllocation : private OptOutConstDispatch {
         if (tv == nullptr) {
           continue;
         }
-        for (const auto& axis : tv->domain()->leaf()) {
+        for (const auto& axis : tv->getLeafDomain()) {
           if (!GpuLower::current()->caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;

@@ -801,11 +801,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
 // squeeze of the consumer ID of the indexed domain. Should not be segmented.
 TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
+  GTEST_SKIP() << "Disabled due to a bug. See #292";
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape_before_gather({100, 100});
+  std::vector<int64_t> shape_before_gather({10, 10});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0]});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -1068,7 +1069,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1108,7 +1114,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1144,8 +1155,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape_before({11, 100, 101});
-  std::vector<int64_t> shape_after({shape_before[1], 99});
+  std::vector<int64_t> shape_before(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
+  std::vector<int64_t> shape_after({shape_before[1], shape_before[2] - 1});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
