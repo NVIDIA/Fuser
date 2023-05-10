@@ -515,6 +515,10 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
 
   for (const auto alloc_domain_i : c10::irange(alloc_domain_.size())) {
     auto alloc_domain_id = alloc_domain_.at(alloc_domain_i);
+    if (alloc_domain_id->isBroadcast()) {
+      TORCH_INTERNAL_ASSERT(!alloc_contiguity_.at(alloc_domain_i).has_value());
+      continue;
+    }
     alloc_to_indexed_id_[alloc_domain_id] = alloc_domain_id;
     // Initialize to false
     is_contig_alloc_[alloc_domain_id] = false;
