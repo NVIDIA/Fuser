@@ -9,7 +9,6 @@ sudo apt-get update
 sudo rm /usr/share/keyrings/kitware-archive-keyring.gpg
 sudo apt-get -y install kitware-archive-keyring
 sudo apt-get -y install cmake
-
 cmake --version
 
 # Install cuda
@@ -25,6 +24,9 @@ export CUDA_INSTALL_PATH=/usr/local/cuda
 
 # Install pytorch
 pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
+
+# PyTorch's has a buildin Modules_CUDA which is super old. Remove it.
+rm -rf /opt/hostedtoolcache/Python/3.10.11/x64/lib/python3.10/site-packages/torch/share/cmake/Caffe2/Modules_CUDA_fix
 
 # Install other requirements
 pip install -r requirements.txt
