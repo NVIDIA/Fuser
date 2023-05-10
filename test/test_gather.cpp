@@ -1281,4 +1281,95 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss2_CUDA) {
   }
 }
 
+TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLossNoDivision_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape({8192, 32768});
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion->addInput(tv1);
+  auto tv2 = max(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = expand(
+      tv3,
+      {IrBuilder::create<Int>(shape[0]), IrBuilder::create<Int>(shape[1])});
+  auto tv5 = sub(tv0, tv4); // input_prime
+  auto tv6 = exp(tv5);
+  auto tv7 = sum(tv6, {1});
+#if 0
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 =
+      expand(tv8, {IrBuilder::create<Int>(shape[0]), IrBuilder::create<Int>(shape[1])}); // sumexp
+  // auto tv10 = div(tv6, tv9);
+  // auto tv11 = log(tv10);
+  auto tv11 = sub(tv5, log(tv9));
+  auto tv12 = neg(tv11);
+  auto tv13 = reshape(tv1, {shape[0]}, {shape[0], 1});
+  auto tv14 = take_along_axis(tv12, tv13, 1);
+#elif 0
+  auto tv8 = log(tv7);
+  auto tv9 = broadcast(tv8, {false, true});
+  auto tv10 = expand(
+      tv9,
+      {IrBuilder::create<Int>(shape[0]),
+       IrBuilder::create<Int>(shape[1])}); // sumexp
+  auto tv11 = sub(tv5, tv10);
+  auto tv12 = neg(tv11);
+  auto tv13 = reshape(tv1, {shape[0]}, {shape[0], 1});
+  auto tv14 = take_along_axis(tv12, tv13, 1);
+#else
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = expand(
+      tv8,
+      {IrBuilder::create<Int>(shape[0]),
+       IrBuilder::create<Int>(shape[1])}); // sumexp
+
+  auto tv13 = reshape(tv1, {shape[0]}, {shape[0], 1});
+
+  auto tv10 = take_along_axis(tv9, tv13, 1);
+  auto tv11 = take_along_axis(tv5, tv13, 1);
+
+  auto tv14 = neg(sub(tv11, log(tv10)));
+#endif
+  auto s15 = IrBuilder::create<Int>(5);
+  auto tv16 = eq(tv13, s15);
+  auto s17 = IrBuilder::create<Double>(0.0);
+  auto tv18 = where(tv16, s17, tv14);
+  auto tv19 = sum(tv18, {0, 1});
+  auto tv20 = castOp(DataType::Float, tv16);
+  auto tv21 = sum(tv20, {0, 1});
+  auto s22 = IrBuilder::create<Double>(shape[0]);
+  auto tv23 = sub(s22, tv21);
+  auto tv24 = div(tv19, tv23);
+  fusion->addOutput(tv24);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randint(shape[1], {shape[0]}, options).to(at::ScalarType::Long);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
+
+  // note: reduction arg
+  //   none -> 0
+  //   mean -> 1
+  //   sum  -> 2
+  auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
+  testValidate(fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+
+  for (int i = 0; i < 5; ++i) {
+    cg_outputs = fec.runFusionWithInputs(inputs);
+  }
+}
+
 } // namespace nvfuser

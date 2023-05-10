@@ -305,7 +305,7 @@ void FusionExecutor::compileFusion(
     return buffer.str();
   };
   auto external_code_path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
-  const auto structured_code = external_code_path
+  const auto structured_code = (external_code_path && fusion_id_ == 1)
       ? load_external_code(external_code_path)
       : getStructuredCode();
 

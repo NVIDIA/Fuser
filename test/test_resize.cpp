@@ -2043,4 +2043,27 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
       __FILE__);
 }
 
+TEST_F(NVFuserTest, TMP) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv2 = sum(tv1, {1});
+  fusion->addOutput(tv2);
+
+  fusion->printMath();
+  fusion->print();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 5}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion));
+  fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+}
+
 } // namespace nvfuser
