@@ -2792,25 +2792,22 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _outputs,
       serde::RecordType record_type,
-      std::vector<ValueType> val,
-      PrimDataType dtype,
-      bool is_input)
-      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
-        value_(std::move(val)),
-        dtype_(dtype),
-        is_input_(is_input) {}
+      std::vector<std::optional<ValueType>> value,
+      PrimDataType dtype)
+      : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
+        value_(std::move(value)),
+        dtype_(dtype) {}
   virtual ~VectorRecord() = default;
   virtual RecordFunctor* clone() final {
     return new VectorRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31       | 30 ---------------------------------------  0 |
-  //! | is_input | Dtype                                         |
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
-    result |= static_cast<size_t>(is_input_) << 31;
-    return result | (static_cast<size_t>(dtype_) & 0x7fffffff);
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
@@ -2818,7 +2815,7 @@ struct VectorRecord : RecordFunctor {
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (value_ == child_ptr->value_) &&
-          (dtype_ == child_ptr->dtype_) && (is_input_ == child_ptr->is_input_);
+          (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
@@ -2846,7 +2843,25 @@ struct VectorRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << "dtype=" << dtypeToPyString(dtype_);
+    os << "[";
+    bool first_arg = true;
+    for (auto &v : value_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      if constexpr (std::is_same_v<ValueType, nullptr_t>) {
+        os << "None";
+      } else if constexpr (std::is_same_v<ValueType, int64_t>) {
+        TORCH_CHECK(v.has_value(), "Vector value is null!");
+        os << v.value();
+      } else {
+        TORCH_CHECK(false, "Unsupported ValueType by Vector of Sizes.");
+      }
+    }
+        
+    os << "], dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
     }
@@ -2859,15 +2874,13 @@ struct VectorRecord : RecordFunctor {
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
-      const std::vector<ValueType>& value) const;
+      const std::vector<std::optional<ValueType>>& value) const;
 
  private:
   //! The vector's value.
-  std::vector<ValueType> value_;
+  std::vector<std::optional<ValueType>> value_;
   //! Scalar data type.
   PrimDataType dtype_;
-  //! Indicates scalar is a symbolic input
-  bool is_input_;
 };
 
 //! valueRecordData Specializations used by recordData() for VectorRecord
@@ -2877,7 +2890,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
     std::nullptr_t>::
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
-        const std::vector<std::nullptr_t>& value) const {
+        const std::vector<std::optional<std::nullptr_t>>& value) const {
   return {
       serde::RecordData_VectorInput,
       serde::CreateVectorInput(
@@ -2890,11 +2903,11 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
     int64_t>::
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
-        const std::vector<int64_t>& value) const {
+        const std::vector<std::optional<int64_t>>& value) const {
   return {
       serde::RecordData_VectorInt,
       serde::CreateVectorIntDirect(
-          builder, &value, value.size(), serde::mapToSerdeDtype(dtype_))
+          builder, &value, serde::mapToSerdeDtype(dtype_))
           .Union()};
 }
 

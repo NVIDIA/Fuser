@@ -532,9 +532,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.defineRecord(new VectorRecord<std::nullptr_t>(
             {self.recordingState(out())},
             serde::RecordType_VectorInput,
-            value,
-            dtype,
-            true));
+            size,
+            dtype));
         return out;
       },
       py::arg("size"),
@@ -548,26 +547,22 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(                                             \
       "define_vector",                                        \
       [](FusionDefinition& self,                              \
-         std::vector<CType> val,                              \
-         PrimDataType dtype,                                  \
-         bool is_input) -> Vector {                           \
+         std::vector<std::optional<CType>> value,             \
+         PrimDataType dtype) -> Vector {                      \
         FUSER_PERF_SCOPE("FusionDefinition.define_vector");   \
         Vector out = self.defineVector();                     \
         self.defineRecord(new VectorRecord<CType>(            \
             {self.recordingState(out())},                     \
             serde::mapToSerdeScalarRecordType(Nvfuser_DType), \
-            val,                                              \
-            dtype,                                            \
-            is_input));                                       \
+            value,                                            \
+            dtype));                                          \
         return out;                                           \
       },                                                      \
-      py::arg("val"),                                         \
+      py::arg("value"),                                       \
       py::arg("dtype") = Nvfuser_DType,                       \
-      py::arg("is_input") = false,                            \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_VECTOR(DataType::Int, int64_t);
-  NVFUSER_PYTHON_BINDING_VECTOR(DataType::Null, std::nullptr_t);
 #undef NVFUSER_PYTHON_BINDING_VECTOR
 
   //! The Operators class is a nested class of FusionDefinition to allow the
