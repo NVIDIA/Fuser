@@ -10,7 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
-#include <id_graphs.h>
+#include <id_model/id_graphs.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
