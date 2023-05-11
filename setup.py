@@ -35,6 +35,10 @@
 #     this is used for pip wheel build to specify package required for install
 #     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
 #
+#   -wheel-name=NAME
+#     Specify the wheel name this is used for pip wheel package where we want
+#     to identify the cuda toolkit version
+#
 
 import multiprocessing
 import os
@@ -57,6 +61,7 @@ PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
+WHEEL_NAME = "nvfuser"
 INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -87,6 +92,9 @@ for i, arg in enumerate(sys.argv):
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
         VERSION_TAG = arg.split("=")[1]
+        continue
+    if arg.startswith("-wheel-name="):
+        WHEEL_NAME = arg.split("=")[1]
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -231,7 +239,8 @@ def version_tag():
     if OVERWRITE_VERSION:
         version = version.split("+")[0]
         if len(VERSION_TAG) != 0:
-            version = "+".join([version, VERSION_TAG])
+            # use "." to be pypi friendly
+            version = ".".join([version, VERSION_TAG])
     return version
 
 
@@ -323,7 +332,7 @@ def main():
         ]
 
         setup(
-            name="nvfuser",
+            name=WHEEL_NAME,
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
