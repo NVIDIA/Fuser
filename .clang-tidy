@@ -9,6 +9,7 @@ bugprone-*,
 -bugprone-lambda-function-name,
 -bugprone-reserved-identifier,
 -bugprone-swapped-arguments,
+-bugprone-use-after-move
 cppcoreguidelines-*,
 -cppcoreguidelines-avoid-do-while,
 -cppcoreguidelines-avoid-magic-numbers,
