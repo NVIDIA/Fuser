@@ -599,19 +599,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 // Infer the shape of an intemediate tensor using kir::Allocate
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
-    const kir::Allocate* alloc,
     ExpressionEvaluator& expr_eval) {
-  // Allocate should be provided for intermediates. We just need to
-  // grab a chunk of memory of the size dicatated by
-  // Allocate::shape().
-  TORCH_INTERNAL_ASSERT(alloc != nullptr);
-
   auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  std::vector<nvfuser::Val *> symbolic_sizes;
+  std::vector<nvfuser::Val*> symbolic_sizes;
   symbolic_sizes.reserve(alloc_dom.size());
   for (auto id : alloc_dom) {
     symbolic_sizes.emplace_back(id->extent());
   }
+
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
@@ -1108,7 +1103,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     info.zero_init = alloc->zeroInit();
     info.tv = tv;
     std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval);
+        inferShapeOfIntermediate(tv, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
 
     // Remember the tensor buffer used for storing kernel profile
