@@ -771,7 +771,7 @@ class ForwardTraverseFromAllocToRFactor {
       TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(tensor), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
@@ -900,7 +900,7 @@ class BackwardTraverseFromAllocToRFactor {
       TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(tensor), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
