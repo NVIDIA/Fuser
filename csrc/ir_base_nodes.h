@@ -71,7 +71,7 @@ class ExprPasskey {
   friend class Expr;
 
  private:
-  explicit ExprPasskey() {}
+  explicit ExprPasskey() = default;
 };
 
 TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept;
@@ -443,11 +443,11 @@ class TORCH_CUDA_CU_API Attribute : public Val {
     return false;
   }
 
-  virtual std::string toString(int) const override {
+  std::string toString(int) const override {
     return Printer<T>::toString(value);
   }
 
-  virtual std::string toInlineString(int) const override {
+  std::string toInlineString(int) const override {
     return Printer<T>::toString(value);
   }
 };

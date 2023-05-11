@@ -295,7 +295,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
-  virtual std::vector<EvaluatorValue> evaluate(
+  std::vector<EvaluatorValue> evaluate(
       const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -332,7 +332,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
     return "BinaryOp";
   }
 
-  virtual std::vector<EvaluatorValue> evaluate(
+  std::vector<EvaluatorValue> evaluate(
       const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -378,7 +378,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
     return "TernaryOp";
   }
 
-  virtual std::vector<EvaluatorValue> evaluate(
+  std::vector<EvaluatorValue> evaluate(
       const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -414,7 +414,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class TORCH_CUDA_CU_API RNGOp : public Expr {
-  size_t getOutputDims() const;
+  int64_t getOutputDims() const;
 
  public:
   struct Attributes {
@@ -1352,7 +1352,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
-  virtual std::vector<EvaluatorValue> evaluate(
+  std::vector<EvaluatorValue> evaluate(
       const std::vector<EvaluatorValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;

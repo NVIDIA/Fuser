@@ -619,9 +619,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   }
 
  private:
-  int normalizeAxisPos(int pos) const {
+  int64_t normalizeAxisPos(int64_t pos) const {
     if (pos < 0) {
-      pos += nDims();
+      pos += (int64_t)nDims();
     }
     return pos;
   }

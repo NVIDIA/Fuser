@@ -205,7 +205,7 @@ struct TORCH_CUDA_CU_API IterDomainDependencySorter {
           concrete_id_dependencies,
       std::shared_ptr<const ComputeAtMap> compute_at_map)
       : concrete_id_dependencies_(concrete_id_dependencies),
-        compute_at_map_(compute_at_map) {}
+        compute_at_map_(std::move(compute_at_map)) {}
 
   // Return true if id0 should be before id1
   // Orders such that if x maps to {y}, x comes before y in final ordering.

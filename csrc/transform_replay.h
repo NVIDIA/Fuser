@@ -218,17 +218,17 @@ class TORCH_CUDA_CU_API TransformPropagator
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
  public:
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
   TransformPropagator(TensorView* from, int64_t pos = -1);
 };
 
 struct TORCH_CUDA_CU_API MostInlinedTransformPropagator
     : public MaxRootDomainInfoSpanningTree::Propagator {
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
 };
 
 } // namespace nvfuser

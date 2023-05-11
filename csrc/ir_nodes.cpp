@@ -737,10 +737,10 @@ std::string RNGOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-size_t RNGOp::getOutputDims() const {
-  size_t ndims = 0;
+int64_t RNGOp::getOutputDims() const {
+  int64_t ndims = 0;
   if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
-    ndims = tv_out->getRootDomain().size();
+    ndims = (int64_t)tv_out->getRootDomain().size();
   }
   return ndims;
 }
