@@ -918,8 +918,8 @@ class BackwardTraverseFromAllocToRFactor {
 };
 
 // Start from a tensor whose dimensions are consistent with the allocation
-// domain of tv, transform view/permute the tensor into a format whose
-// dimensions are consistent with the rFactor domain of tv.
+// domain of tv, apply a sequence of view/permute to the tensor to transform it
+// into a format whose dimensions are consistent with the rFactor domain of tv.
 at::Tensor transformOutputFromAllocationToRFactor(
     at::Tensor tensor,
     TensorView* tv,
