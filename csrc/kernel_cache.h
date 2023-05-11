@@ -304,8 +304,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! depend on those inputs and omitting them would lead to a collision.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::optional<std::vector<bool>> input_affects_concretization =
-          std::nullopt);
+      std::vector<bool>* input_affects_concretization = nullptr);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {

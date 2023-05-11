@@ -45,13 +45,16 @@ void encodeBuffer(size_t value, std::string& buffer) {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    const std::optional<std::vector<bool>> input_affects_concretization) {
+    std::vector<bool>* input_affects_concretization) {
   IdLookupReturn ret;
 
-  if (input_affects_concretization.has_value()) {
+  if (input_affects_concretization) {
     TORCH_CHECK(
-        input_affects_concretization.value().size() == inputs.size(),
-        "Size mismatch between inputs and input_affects_concretization");
+        input_affects_concretization->size() == inputs.size(),
+        "Size mismatch between inputs and input_affects_concretization: inputs has size ",
+        inputs.size(),
+        " but expected ",
+        input_affects_concretization->size());
   }
 
   // lock mutex_ because we are touching encoding_
@@ -82,13 +85,13 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
-      if (input_affects_concretization.has_value() &&
-          input_affects_concretization.value()[i]) {
-        // add value of integer scalars here only if it is one of the scalars
-        // provided, as these are used in determining concretization
-        TORCH_CHECK(
-            input.isInt(),
-            "Scalar input affects concretization but is not Int");
+      if (input.isInt() &&
+          (!input_affects_concretization ||
+           input_affects_concretization->at(i))) {
+        // Add value of integer scalars here only if it is one of the scalars
+        // provided, as these are used in determining concretization. If no
+        // inputs are provided, then any of them might determine the
+        // concretization, so include the scalar then.
         encodeBuffer(input.toInt(), encoding_);
       }
     }
@@ -166,7 +169,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, input_affects_concretization_);
+      inputs_id_lookup_.lookupId(inputs, &input_affects_concretization_);
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
