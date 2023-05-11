@@ -3012,7 +3012,7 @@ class PreferredMergeCandidatePicker {
   //! want to segment the fusion between the take_along_axis and the
   //! reduction, not between the softma and take_along_axis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
-      SegmentedGroup* group);
+      SegmentedGroup* group) const;
 
  private:
   const std::vector<SegmentedGroup*>& groups_;
@@ -3021,7 +3021,7 @@ class PreferredMergeCandidatePicker {
 };
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
-    mergeSelectLikeOpsWithProducers(SegmentedGroup* group) {
+    mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
   const auto& exprs = group->exprs();
 
   // I *think* it's enough to consider the initial merge of
