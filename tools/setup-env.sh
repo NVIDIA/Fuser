@@ -9,11 +9,13 @@ wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted
 echo 'deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main' | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
 sudo apt-get update
 
+clang-tidy --version
+
 # Install clang-tidy-16
 sudo apt-get -y remove "clang-tidy-*"
 sudo apt-get -y install clang-tidy-16 cuda-toolkit-12-1 libnccl-dev
 
-clang-tidy --version
+# clang-tidy --version
 
 # cmake environment variables
 export CUDACXX=/usr/local/cuda/bin/nvcc
