@@ -524,11 +524,11 @@ std::vector<EvaluatorValue> BinaryOp::evaluate(
     case BinaryOpType::LE:
       return {lhs <= rhs};
       break;
-    case BinaryOpType::Max:
-      return {max(lhs, rhs)};
+    case BinaryOpType::MaxIgnoreNan:
+      return {maxIgnoreNan(lhs, rhs)};
       break;
-    case BinaryOpType::Min:
-      return {min(lhs, rhs)};
+    case BinaryOpType::MinIgnoreNan:
+      return {minIgnoreNan(lhs, rhs)};
       break;
     default:
       TORCH_CHECK(

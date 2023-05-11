@@ -377,10 +377,14 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "div";
     case BinaryOpType::Fmod:
       return "fmod";
-    case BinaryOpType::Max:
-      return "fmax";
-    case BinaryOpType::Min:
-      return "fmin";
+    case BinaryOpType::MaxIgnoreNan:
+      return "fmaxIgnoreNan";
+    case BinaryOpType::MinIgnoreNan:
+      return "fminIgnoreNan";
+    case BinaryOpType::MaxPropagateNan:
+      return "fmaxPropagateNan";
+    case BinaryOpType::MinPropagateNan:
+      return "fminPropagateNan";
     case BinaryOpType::Mul:
       return "mul";
     case BinaryOpType::Nextafter:
@@ -430,9 +434,13 @@ static const char* binary_op_type2string(BinaryOpType t) {
 
 static const char* binary_op_integer_op2string(BinaryOpType t) {
   switch (t) {
-    case BinaryOpType::Max:
+    case BinaryOpType::MaxIgnoreNan:
       return "max";
-    case BinaryOpType::Min:
+    case BinaryOpType::MinIgnoreNan:
+      return "min";
+    case BinaryOpType::MaxPropagateNan:
+      return "max";
+    case BinaryOpType::MinPropagateNan:
       return "min";
     case BinaryOpType::Fmod:
       return "fmod";
@@ -444,9 +452,14 @@ static const char* binary_op_integer_op2string(BinaryOpType t) {
 
 static const char* binary_op_bool_op2string(BinaryOpType t) {
   switch (t) {
-    case BinaryOpType::Max:
+    // TODO: Translate these to || and && ?
+    case BinaryOpType::MaxIgnoreNan:
       return "max";
-    case BinaryOpType::Min:
+    case BinaryOpType::MinIgnoreNan:
+      return "min";
+    case BinaryOpType::MaxPropagateNan:
+      return "max";
+    case BinaryOpType::MinPropagateNan:
       return "min";
     default:
       break;

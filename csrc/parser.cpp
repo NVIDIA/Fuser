@@ -1059,8 +1059,10 @@ class IrParser {
           {
             static std::unordered_map<c10::Symbol, BinaryOpType> op_mapping(
                 {{at::aten::mul, BinaryOpType::Mul},
-                 {at::aten::min, BinaryOpType::Min},
-                 {at::aten::max, BinaryOpType::Max},
+                 {at::aten::min, BinaryOpType::MinPropagateNan},
+                 {at::aten::fmin, BinaryOpType::MinIgnoreNan},
+                 {at::aten::max, BinaryOpType::MaxPropagateNan},
+                 {at::aten::fmax, BinaryOpType::MaxIgnoreNan},
                  {at::aten::pow, BinaryOpType::Pow},
                  {at::aten::remainder, BinaryOpType::Remainder},
                  {at::aten::fmod, BinaryOpType::Fmod},

@@ -457,8 +457,10 @@ namespace assoc_comm {
 bool isAssociativeAndCommutative(BinaryOpType type) {
   return type == BinaryOpType::Add || type == BinaryOpType::Mul ||
       type == BinaryOpType::And || type == BinaryOpType::Or ||
-      type == BinaryOpType::Xor || type == BinaryOpType::Max ||
-      type == BinaryOpType::Min;
+      type == BinaryOpType::Xor || type == BinaryOpType::MaxIgnoreNan ||
+      type == BinaryOpType::MinIgnoreNan ||
+      type == BinaryOpType::MaxPropagateNan ||
+      type == BinaryOpType::MinPropagateNan;
 }
 
 // Identity `e` is a special number that, for all x:
@@ -553,9 +555,11 @@ class FlattenedAssocCommOp : public Expr {
         return "FlattenedOr";
       case BinaryOpType::Xor:
         return "FlattenedXor";
-      case BinaryOpType::Max:
+      case BinaryOpType::MaxIgnoreNan:
+      case BinaryOpType::MaxPropagateNan:
         return "FlattenedMax";
-      case BinaryOpType::Min:
+      case BinaryOpType::MinIgnoreNan:
+      case BinaryOpType::MinPropagateNan:
         return "FlattenedMin";
       default:
         TORCH_INTERNAL_ASSERT(false, "Unknown operator type ", getOpType());
@@ -715,14 +719,24 @@ class FlattenedAssocCommOp : public Expr {
           result = result ^ i;
         }
         break;
-      case BinaryOpType::Min:
+      case BinaryOpType::MinIgnoreNan:
         for (auto i : inputs_) {
-          result = min(result, i);
+          result = minIgnoreNan(result, i);
         }
         break;
-      case BinaryOpType::Max:
+      case BinaryOpType::MaxIgnoreNan:
         for (auto i : inputs_) {
-          result = max(result, i);
+          result = maxIgnoreNan(result, i);
+        }
+        break;
+      case BinaryOpType::MinPropagateNan:
+        for (auto i : inputs_) {
+          result = minPropagateNan(result, i);
+        }
+        break;
+      case BinaryOpType::MaxPropagateNan:
+        for (auto i : inputs_) {
+          result = maxPropagateNan(result, i);
         }
         break;
       default:

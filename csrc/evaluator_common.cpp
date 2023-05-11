@@ -499,11 +499,29 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::And:
       dest = lhs && rhs;
       break;
-    case BinaryOpType::Max:
+    case BinaryOpType::MaxIgnoreNan:
       dest = lhs > rhs ? lhs : rhs;
       break;
-    case BinaryOpType::Min:
+    case BinaryOpType::MinIgnoreNan:
       dest = lhs < rhs ? lhs : rhs;
+      break;
+    case BinaryOpType::MaxPropagateNan:
+      if (lhs != lhs) {
+        dest = lhs;
+      } else if (rhs != rhs) {
+        dest = rhs;
+      } else {
+        dest = lhs > rhs ? lhs : rhs;
+      }
+      break;
+    case BinaryOpType::MinPropagateNan:
+      if (lhs != lhs) {
+        dest = lhs;
+      } else if (rhs != rhs) {
+        dest = rhs;
+      } else {
+        dest = lhs < rhs ? lhs : rhs;
+      }
       break;
     default:
       TORCH_CHECK(!"Unexpected operator type");

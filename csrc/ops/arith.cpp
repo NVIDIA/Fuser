@@ -1225,26 +1225,40 @@ TensorView* max(
     TensorView* v1,
     const std::vector<int>& axes,
     bool keep_dim /*=false*/,
-    DataType dtype /* DataType::Null */) {
+    DataType dtype /* DataType::Null */,
+    bool propagate_nan /* true */) {
   TORCH_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
   Val* init = ops::getMinimumValue(v1->getDataType().value());
   TORCH_CHECK(init != nullptr, "Missing initial value");
-  return reductionOp(BinaryOpType::Max, axes, init, v1, keep_dim);
+  return reductionOp(
+      propagate_nan ? BinaryOpType::MaxPropagateNan
+                    : BinaryOpType::MaxIgnoreNan,
+      axes,
+      init,
+      v1,
+      keep_dim);
 }
 
 TensorView* min(
     TensorView* v1,
     const std::vector<int>& axes,
     bool keep_dim /*=false*/,
-    DataType dtype /* DataType::Null */) {
+    DataType dtype /* DataType::Null */,
+    bool propagate_nan /* true */) {
   TORCH_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
   Val* init = ops::getMaximumValue(v1->getDataType().value());
   TORCH_CHECK(init != nullptr, "Missing initial value");
-  return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
+  return reductionOp(
+      propagate_nan ? BinaryOpType::MaxPropagateNan
+                    : BinaryOpType::MaxIgnoreNan,
+      axes,
+      init,
+      v1,
+      keep_dim);
 }
 
 TensorView* broadcast(

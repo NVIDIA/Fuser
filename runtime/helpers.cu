@@ -87,8 +87,17 @@ __device__ constexpr int64_t max(int a, int64_t b) {
 __device__ constexpr int64_t max(int64_t a, int64_t b) {
   return a > b ? a : b;
 }
+}
 
-__device__ double fmax(double a, double b) {
+__device__ double fmaxIgnoreNan(double a, double b) {
+  return a > b ? a : b;
+}
+
+__device__ float fmaxIgnoreNan(float a, float b) {
+  return a > b ? a : b;
+}
+
+__device__ double fmaxPropagateNan(double a, double b) {
   // check and propagate NaN
   if (a != a) {
     return a;
@@ -99,7 +108,7 @@ __device__ double fmax(double a, double b) {
   }
 }
 
-__device__ float fmax(float a, float b) {
+__device__ float fmaxPropagateNan(float a, float b) {
   // check and propagate NaN
   if (a != a) {
     return a;
@@ -126,7 +135,15 @@ __device__ constexpr int64_t min(int64_t a, int64_t b) {
   return a > b ? b : a;
 }
 
-__device__ double fmin(double a, double b) {
+__device__ double fmin_ignore_nan(double a, double b) {
+  return a > b ? b : a;
+}
+
+__device__ float fmin_ignore_nan(float a, float b) {
+  return a > b ? b : a;
+}
+
+__device__ double fmin_propagate_nan(double a, double b) {
   // check and propagate NaN
   if (a != a) {
     return a;
@@ -137,7 +154,7 @@ __device__ double fmin(double a, double b) {
   }
 }
 
-__device__ float fmin(float a, float b) {
+__device__ float fmin_propagate_nan(float a, float b) {
   // check and propagate NaN
   if (a != a) {
     return a;

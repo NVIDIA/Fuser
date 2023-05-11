@@ -284,11 +284,27 @@ inline EvaluatorValue ceildiv(
   return EvaluatorValue(std::ceil((a / b).as<double>()));
 }
 
-inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
+inline EvaluatorValue maxIgnoreNan(
+    const EvaluatorValue& a,
+    const EvaluatorValue& b) {
   return EvaluatorValue((a > b).as<bool>() ? a : b);
 }
 
-inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
+inline EvaluatorValue minIgnoreNan(
+    const EvaluatorValue& a,
+    const EvaluatorValue& b) {
+  return EvaluatorValue((a < b).as<bool>() ? a : b);
+}
+
+inline EvaluatorValue maxIgnoreNan(
+    const EvaluatorValue& a,
+    const EvaluatorValue& b) {
+  return EvaluatorValue((a != a || a > b).as<bool>() ? a : b);
+}
+
+inline EvaluatorValue minIgnoreNan(
+    const EvaluatorValue& a,
+    const EvaluatorValue& b) {
   return EvaluatorValue((a < b).as<bool>() ? a : b);
 }
 

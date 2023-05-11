@@ -77,6 +77,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* divExpr(Val* lhs, Val* rhs);
   static Val* ceilDivExpr(Val* lhs, Val* rhs);
   static Val* modExpr(Val* lhs, Val* rhs);
+  // For floating point inputs, these will ignore NaNs instead of propagating
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
 

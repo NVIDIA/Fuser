@@ -539,13 +539,15 @@ TORCH_CUDA_CU_API TensorView* max(
     TensorView* v1,
     const std::vector<int>& reduction_axes,
     bool keep_dim = false,
-    DataType dtype = DataType::Null);
+    DataType dtype = DataType::Null,
+    bool propagate_nan = true);
 
 TORCH_CUDA_CU_API TensorView* min(
     TensorView* v1,
     const std::vector<int>& reduction_axes,
     bool keep_dim = false,
-    DataType dtype = DataType::Null);
+    DataType dtype = DataType::Null,
+    bool propagate_nan = true);
 
 // COMPOUND OPERATIONS
 // add_alpha

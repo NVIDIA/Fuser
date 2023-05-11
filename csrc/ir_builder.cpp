@@ -189,11 +189,11 @@ Val* IrBuilder::modExpr(Val* lhs, Val* rhs) {
 }
 
 Val* IrBuilder::maxExpr(Val* lhs, Val* rhs) {
-  return newArithmeticExpr(BinaryOpType::Max, lhs, rhs);
+  return newArithmeticExpr(BinaryOpType::MaxIgnoreNan, lhs, rhs);
 }
 
 Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
-  return newArithmeticExpr(BinaryOpType::Min, lhs, rhs);
+  return newArithmeticExpr(BinaryOpType::MinIgnoreNan, lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
