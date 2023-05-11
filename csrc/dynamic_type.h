@@ -244,6 +244,10 @@ inline EvaluatorValue::operator size_t() const {
   return as<int64_t>();
 }
 
+inline EvaluatorValue::operator int() const {
+  return (int)as<int64_t>();
+}
+
 inline EvaluatorValue::operator bool() const {
   return as<bool>();
 }
