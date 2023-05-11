@@ -90,9 +90,11 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
   // This is a helper struct that contains all the information about the next
   // step in the Prim's algorithm
   struct NextHop {
-    NextHopType type;
+    // default initialization for clang-tidy
+    // cppcoreguidelines-pro-type-member-init
+    NextHopType type = NextHopType::SIBLING;
     TensorView* from = nullptr;
-    TensorView* to;
+    TensorView* to = nullptr;
 
     NextHop() = default;
     NextHop(NextHopType type_, TensorView* from_, TensorView* to_)

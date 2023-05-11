@@ -751,7 +751,7 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   // number of attributes in the parent class
-  int numGroupedReductionOpAttr() const {
+  size_t numGroupedReductionOpAttr() const {
     return 2 + outputs().size();
   }
 
@@ -957,7 +957,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  int numGroupedWelfordOpAttr() const {
+  size_t numGroupedWelfordOpAttr() const {
     return 1 + outputs().size();
   }
 

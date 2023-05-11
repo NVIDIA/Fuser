@@ -418,9 +418,11 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
 
  public:
   struct Attributes {
-    RNGOpType rtype;
+    // default initialization for clang-tidy
+    // cppcoreguidelines-pro-type-member-init
+    RNGOpType rtype = RNGOpType::Uniform;
     DataType dtype;
-    int rng_offset;
+    int rng_offset = 0;
 
     // TODO: Enable the following in C++20:
     // bool operator==(const Attributes &other) const = default;
