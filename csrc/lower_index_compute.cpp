@@ -833,7 +833,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // Populate indexing through exact map from initial indexing
   auto consumer_root = index_producer ? consumer_tv->getRootDomain()
-                                      : consumer_tv->getMaybeRFactorDomain();
+                                      : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
@@ -911,7 +911,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
       target_tv->getLeafDomain(),
-      target_tv->getMaybeRFactorDomain(),
+      target_tv->getMaybeAllocationDomain(),
       target_tv->domain()->contiguity(),
       {},
       indexing.indexMap(),
@@ -920,16 +920,17 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
+
   auto target_indexing = indexing.updateIndexCompute(
       target_tv->domain(), index_update_map, contig_finder);
 
   // Fill validation info.
   // TODO: cleanup seems possible.
   if (index_producer) {
-    fillProducerVectorizedContigRootDomains(
-        producer_tv, consumer_tv, c2p_map, contig_finder);
+    fillProducerVectorizedContigAllocationDomains(
+        producer_tv, consumer_tv, contig_finder);
   } else {
-    fillConsumerVectorizedContigRootDomains(consumer_tv, contig_finder);
+    fillConsumerVectorizedContigAllocationDomains(consumer_tv, contig_finder);
   }
 
   return IndexFromIdGraph(
@@ -973,8 +974,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
-      {consumer_tv->getMaybeRFactorDomain().begin(),
-       consumer_tv->getMaybeRFactorDomain().end()},
+      {consumer_tv->getMaybeAllocationDomain().begin(),
+       consumer_tv->getMaybeAllocationDomain().end()},
       {consumer_tv->getLeafDomain().begin(),
        consumer_tv->getLeafDomain().end()});
 
@@ -1318,8 +1319,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
 
     // Annotate all ids
     auto all_original_ids = DependencyCheck::getAllValsBetween(
-        {original_tv->getMaybeRFactorDomain().begin(),
-         original_tv->getMaybeRFactorDomain().end()},
+        {original_tv->getMaybeAllocationDomain().begin(),
+         original_tv->getMaybeAllocationDomain().end()},
         {original_tv->getLeafDomain().begin(),
          original_tv->getLeafDomain().end()});
 

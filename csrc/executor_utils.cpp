@@ -566,7 +566,7 @@ void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
   TORCH_INTERNAL_ASSERT(
-      !info.contig_root_ids.empty(),
+      !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
       info.consumer_tv->toString(),
       " and ",
@@ -574,7 +574,7 @@ void validateAlignedVectorizeExtents(
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
-  for (auto id : info.contig_root_ids) {
+  for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),

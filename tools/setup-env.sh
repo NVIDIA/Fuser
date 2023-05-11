@@ -14,8 +14,6 @@ sudo apt-get -y install ninja-build cuda-compiler-12-1 cuda-command-line-tools-1
 wait $torch_pid
 
 # cmake environment variables
-export CUDAARCHS=86
-export CMAKE_CUDA_ARCHITECTURES=$CUDAARCHS
 export CUDACXX=/usr/local/cuda/bin/nvcc
 export PATH=/usr/local/cuda/bin:${PATH}
 export CUDA_INSTALL_PATH=/usr/local/cuda
