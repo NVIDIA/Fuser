@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
   static TensorView* recompute(TensorView* tv);
 
  private:
-  RecomputeTv(Fusion* fusion, std::vector<Expr*> exprs);
+  RecomputeTv(Fusion* fusion);
   virtual Statement* handle(const Statement* s) override;
   Statement* handle(const TensorDomain*);
 

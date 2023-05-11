@@ -1253,7 +1253,7 @@ TEST_F(NVFuserTest, FusionReshapeVectorize_CUDA) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->domain()->leaf()) {
+    for (auto i : tv->getLeafDomain()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }
@@ -2149,7 +2149,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv0 = TensorViewBuilder()
                  .shape({-1, 1, -1, -1})
                  .dtype(DataType::Bool)
-                 .contiguity({true, c10::nullopt, true, true})
+                 .contiguity({true, std::nullopt, true, true})
                  .build();
   fusion.addInput(tv0);
 
@@ -2256,7 +2256,7 @@ TEST_F(NVFuserTest, FusionIssue2076_v2_CUDA) {
   // sizes[4, 1, 128] strides[128, 128, 1]
   auto tv0 = TensorViewBuilder()
                  .shape({-1, 1, -1})
-                 .contiguity({true, c10::nullopt, true})
+                 .contiguity({true, std::nullopt, true})
                  .build();
   fusion.addInput(tv0);
 

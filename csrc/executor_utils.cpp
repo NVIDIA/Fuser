@@ -566,7 +566,7 @@ void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
   TORCH_INTERNAL_ASSERT(
-      !info.contig_root_ids.empty(),
+      !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
       info.consumer_tv->toString(),
       " and ",
@@ -574,7 +574,7 @@ void validateAlignedVectorizeExtents(
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
-  for (auto id : info.contig_root_ids) {
+  for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
@@ -970,7 +970,7 @@ std::vector<char> nvrtcGetCode(
 
 void dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    int fusion_id,
+    int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
@@ -985,23 +985,23 @@ void dumpCompiledCodeToFile(
 // Get the max register count passed as -maxrregcount ptxas
 // option. The count is determined based on block sizes, an optional
 // heuristic and an environment variable.
-c10::optional<int> getMaxRegCount(
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic) {
+std::optional<int64_t> getMaxRegCount(
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic) {
   // The maximum possible count allowed by ptxas is 255
-  constexpr int max_register_limit = 255;
+  constexpr int64_t max_register_limit = 255;
 
   // Temporary set the max register count to be larger than the
   // limit.
-  int max_register = max_register_limit + 1;
+  int64_t max_register = max_register_limit + 1;
 
   // If the block size is known, set the maximum that at least allows
   // one block to be resident on an SM
   if (opt_block_size.has_value() && opt_block_size.value() > 0) {
-    constexpr int block_per_sm = 1;
+    constexpr int64_t block_per_sm = 1;
     max_register = std::min(
         max_register_limit,
-        (int)getRegPerThreadGivenThreadsPerSM(
+        getRegPerThreadGivenThreadsPerSM(
             opt_block_size.value() * block_per_sm));
   }
 
@@ -1026,7 +1026,7 @@ c10::optional<int> getMaxRegCount(
   if (max_register <= max_register_limit) {
     return max_register;
   } else {
-    return c10::optional<int>();
+    return std::optional<int64_t>();
   }
 }
 
@@ -1178,8 +1178,8 @@ void fillCompileOptions(
     bool compile_to_sass,
     int major,
     int minor,
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic) {
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1262,7 +1262,7 @@ void fillCompileOptions(
       nvrtc_compile_driver.setOption(
           "--maxrregcount=" + std::to_string(*max_register));
     } else {
-      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, *max_register);
+      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
   }
 }
@@ -1306,7 +1306,7 @@ void warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int id,
+    int64_t id,
     const std::string& full_src_code) {
   std::stringstream ss;
   ss << "__tmp_kernel" << id << ".cu";
@@ -1321,7 +1321,7 @@ void createNvrtcProgram(
 std::tuple<std::vector<char>, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1359,9 +1359,9 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
-    c10::optional<int> opt_block_size,
-    const int max_register_heuristic,
+    int64_t id,
+    std::optional<int64_t> opt_block_size,
+    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
@@ -1522,7 +1522,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved

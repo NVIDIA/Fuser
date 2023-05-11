@@ -60,14 +60,14 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 4}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({4, 16}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,K,N]
+  // [M, K, N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -104,7 +104,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
 
   mma_builder.accumulatorTv(tv2c);
 
-  // [M,K,N]->[M,N,K]
+  // [M, K, N]->[M, N, K]
   tv0cr->reorder({{-2, -1}, {-1, -2}});
 
   // Schedule the instruction tile loops, which is the only
@@ -117,11 +117,11 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   //   mma input/output.
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
 
-  // [M,K,N]->[M,N,K]
+  // [M, K, N]->[M, N, K]
   tv1cr->reorder({{-2, -1}, {-1, -2}});
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
 
-  // [M,K,N]->[M,N,K]
+  // [M, K, N]->[M, N, K]
   tv2c->reorder({{-2, -1}, {-1, -2}});
 
   // Schedule the output instruction tile.
@@ -157,14 +157,14 @@ TEST_F(NVFuserTest, FusionVoltaMMATN_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [M,K]
+  // [M, K]
   auto tv0 = makeConcreteTensor({16, 4}, DataType::Half);
-  // [N,K]
+  // [N, K]
   auto tv1 = makeConcreteTensor({16, 4}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [M,N,K]
+  // [M, N, K]
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -224,14 +224,14 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [K,M]
+  // [K, M]
   auto tv0 = makeConcreteTensor({4, 16}, DataType::Half);
-  // [K,N]
+  // [K, N]
   auto tv1 = makeConcreteTensor({4, 16}, DataType::Half);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  // [K,M,N]
+  // [K, M, N]
   auto tv0b = broadcast(tv0, {false, false, true});
   auto tv1b = broadcast(tv1, {false, true, false});
 
@@ -290,10 +290,78 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
-#if 0
 TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [K, M]
+  auto tv0 = makeConcreteTensor({4, 16}, DataType::Half);
+  // [N, K]
+  auto tv1 = makeConcreteTensor({16, 4}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [N, K, M]
+  auto tv0b = broadcast(tv0, {true, false, false});
+  auto tv1b = broadcast(tv1, {false, false, true});
+
+  // Leaving both sets of mma inputs for volta outside
+  //  currently since they need to be swizzled.
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  // Add implicit permute N, K, M -> M, N, K
+  tv2->reorder({{-1, 0}});
+  tv2->commitLeafToRFactor();
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 16, 4);
+  gemm_tile.warp_tile = GemmTile(16, 16, 4);
+  gemm_tile.instruction_tile = GemmTile(16, 16, 4);
+
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NN);
+
+  mma_builder.configureMma(tv2);
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr = tv0cw->cacheAfter();
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr = tv1cw->cacheAfter();
+  auto tv2c = tv2->cacheBefore();
+
+  mma_builder.accumulatorTv(tv2c);
+
+  // To MNK
+  tv0cr->reorder({{-1, 0}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+
+  // To MNK
+  tv1cr->reorder({{-1, 0}});
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv2c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 16}, options);
+  auto t1 = at::randn({16, 4}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      7,
+      0,
+      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
+  testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
-#endif
 
 // Matmul test for Volta MMA: across supported layouts
 TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
@@ -696,7 +764,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -747,7 +815,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::BFloat16);
@@ -802,7 +870,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
 
   // Gmem pipeline stage
   for (auto stage : {3, 4}) {
-    for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+    for (auto layout : kAllSupportedMatmulLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -975,7 +1043,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
 
   // Gmem pipeline stage
   for (auto stage : {3, 4}) {
-    for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+    for (auto layout : kAllSupportedMatmulLayout) {
       Fusion fusion;
       FusionGuard fg(&fusion);
       auto tv0 = makeContigTensor(2, DataType::Half);
@@ -1033,11 +1101,11 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Fusion definition (Both gemms are TN)
   // [M,K1]
-  auto tv0 = makeConcreteTensor({M, K1}, DataType::Half);
+  auto tv0 = makeContigConcreteTensor({M, K1}, DataType::Half);
   // [K2,K1]
-  auto tv1 = makeConcreteTensor({K2, K1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({K2, K1}, DataType::Half);
   // [N,K2]
-  auto tv2 = makeConcreteTensor({N, K2}, DataType::Half);
+  auto tv2 = makeContigConcreteTensor({N, K2}, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -1318,11 +1386,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Fusion definition (Both gemms are TN)
   // [M,K1]
-  auto inp = makeConcreteTensor({M1, K1}, DataType::Half);
+  auto inp = makeContigConcreteTensor({M1, K1}, DataType::Half);
   // Query matrix
-  auto qk = makeConcreteTensor({N1, K1}, DataType::Half);
+  auto qk = makeContigConcreteTensor({N1, K1}, DataType::Half);
   // Second linear matrix
-  auto acc = makeConcreteTensor({N2, K2}, DataType::Half);
+  auto acc = makeContigConcreteTensor({N2, K2}, DataType::Half);
 
   fusion.addInput(inp);
   fusion.addInput(qk);
@@ -1965,7 +2033,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -2977,7 +3045,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3029,7 +3097,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3077,7 +3145,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     // Symmetric tile with 16x16x16 macro,
     //  supports mn_size of multiple of 32,
     //  and k size multiple of 16.
@@ -3140,7 +3208,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     // ASymmetric tile with 16x16x16 macro,
     for (int m_size : {256}) {
       for (int n_size : {32, 64, 96, 128}) {
@@ -3201,7 +3269,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
   REQUIRE_DEVICE_SMEM_SIZE(98384, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     for (int k_size : {32, 48, 64}) {
       Fusion fusion;
       FusionGuard fg(&fusion);
@@ -3256,7 +3324,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
 TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 2048;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -3360,7 +3428,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   const int M = 504, N = 136, K = 2048;
-  for (auto layout : kAllSupportedMatmulLayoutAndNN) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 

@@ -58,6 +58,8 @@ is_formatter = true
 code = 'CLANGTIDY'
 include_patterns = [
     '**/*.cpp',
+    '**/*.cu',
+    '**/*.h',
 ]
 exclude_patterns = [
     'pytorch/**/*.cpp',

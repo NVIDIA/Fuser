@@ -168,19 +168,19 @@ void scheduleContiguousVectorLoad(
 
 void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
   TORCH_CHECK(
-      tv->domain()->leaf().size() >= tile_sizes.size(),
+      tv->getLeafDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
   // Number of inner dimensions we are tiling.
-  const auto tile_dimension_size = tile_sizes.size();
+  const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
 
   // Split the inner dimensions:
-  for (auto idx : c10::irange(tile_dimension_size)) {
+  for (int64_t idx : c10::irange(tile_dimension_size)) {
     // Using negative indexing to accomodate potential batching
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
     // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
+    tv->split((int)(idx - tile_dimension_size), (int)tile_sizes.at(idx));
   }
 
   // The transformation happened should look like:
@@ -282,11 +282,11 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  not re-order any iterdomain beyond that point to keep the
   //  outer loop structure unchanged.
   for (int64_t i = static_cast<int64_t>(ndims) - 1; i >= 0; i--) {
-    auto leaf_id = tv->axis(i);
+    auto leaf_id = tv->axis((int)i);
     if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
       // Register this reduction or broadcast axis
       //  to reorder.
-      broadcast_or_reduction_pos.push_front(i);
+      broadcast_or_reduction_pos.push_front((int)i);
       leftmost_pos = i;
       continue;
     }
@@ -315,7 +315,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // pointer to the current target postion after
   //  repordering
-  int current_pos = leftmost_pos;
+  int current_pos = (int)leftmost_pos;
   std::unordered_map<int, int> reorder_map_old_to_new;
 
   // first place all the broadcast and reduction on the left:
@@ -541,7 +541,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (int id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : c10::irange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -1142,17 +1142,17 @@ bool isMmaInitLoop(const kir::Scope& loop_body) {
       if (!isMmaInitLoop(inner_loop->body())) {
         return false;
       }
-    } else if (expr->isA<LoadStoreOp>()) {
-      if (!ir_utils::isTvOp(expr)) {
+    } else if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (!ir_utils::isTvOp(ldst)) {
         return false;
       }
-      if (auto ti = dynamic_cast<kir::TensorIndex*>(expr->output(0))) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(ldst->output(0))) {
         if (!ti->view()->definition() ||
             !ti->view()->definition()->isA<MmaOp>()) {
           return false;
         }
       }
-      if (auto tv = dynamic_cast<TensorView*>(expr->output(0))) {
+      if (auto tv = dynamic_cast<TensorView*>(ldst->output(0))) {
         if (!tv->definition() || !tv->definition()->isA<MmaOp>()) {
           return false;
         }
@@ -1191,7 +1191,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
-  auto ndims = tv->nDims();
+  int ndims = (int)tv->nDims();
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
@@ -1241,8 +1241,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Id not completely categorized");
+  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);

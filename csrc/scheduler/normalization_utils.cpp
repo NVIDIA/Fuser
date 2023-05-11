@@ -12,7 +12,6 @@
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <queue>
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -573,41 +572,6 @@ bool hasSharedInput(
   return has_shared_input;
 }
 
-std::unordered_set<TensorView*> getAllTvsFrom(
-    const std::vector<TensorView*>& from_tvs,
-    const std::unordered_set<TensorView*>& cutoff_tv_set) {
-  std::unordered_set<TensorView*> tv_group;
-  std::queue<TensorView*> tensors_to_visit;
-  auto addIfNotVisited = [&](TensorView* tv) {
-    if (tv_group.find(tv) == tv_group.end() &&
-        cutoff_tv_set.find(tv) == cutoff_tv_set.end()) {
-      tv_group.emplace(tv);
-      tensors_to_visit.push(tv);
-    }
-  };
-
-  for (auto tv : from_tvs) {
-    tensors_to_visit.push(tv);
-  }
-  while (!tensors_to_visit.empty()) {
-    auto next_tv = tensors_to_visit.front();
-    tensors_to_visit.pop();
-    // visit consumers
-    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-    // visit siblings
-    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-    // visit producer
-    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
-      addIfNotVisited(tv);
-    }
-  }
-  return tv_group;
-}
-
 bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
@@ -615,15 +579,15 @@ bool isConnectedOnlyThroughReductionProducer(
       outer_reduction_tvs.begin(), outer_reduction_tvs.end()};
   // initialize disjoint sets with tvs connected to inner reduction tvs
   std::unordered_set<TensorView*> disjoint_tvs =
-      getAllTvsFrom(inner_reduction_tvs, outer_tv_set);
+      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, outer_tv_set);
   // get disjoint sets with tvs connected to outer reduction tvs
   // check if there is any intersection
   for (auto otv : outer_reduction_tvs) {
     const auto& producers = ir_utils::producerTvsOf(otv);
     // cutoff at producers of outer reduction tvs as they are computed with
     // inner reducitons
-    const auto& connected_tv_set =
-        getAllTvsFrom({otv}, {producers.begin(), producers.end()});
+    const auto& connected_tv_set = scheduler_utils::getAllTvsFrom(
+        {otv}, {producers.begin(), producers.end()});
     for (auto tv : connected_tv_set) {
       if (!disjoint_tvs.emplace(tv).second) {
         return false;

@@ -34,12 +34,19 @@ class DomainMap : public pointwise_utils::DomainMap {
  public:
   using pointwise_utils::DomainMap::DomainMap;
 
+  // Note that this may not be able to find any reference if any
+  // tensor in the group is only connected with an input through
+  // rfactor or gather-like indexing ops. It is because
+  // isValidReference is based a backward traversal, so there may not
+  // be a traversal path to an input. This type of analysis is
+  // expected to be possible much more easily with the new indexing
+  // graph (#32), so we should revisit once it becomes available.
   TensorView* findReferenceFor(const std::vector<TensorView*>& group) const {
     TensorView* result = nullptr;
-    int max_dims = -1;
+    int64_t max_dims = -1;
     for (auto tv : group) {
       if (isValidReference(tv)) {
-        int dims = pointwise_utils::nRootDims(tv);
+        int64_t dims = (int64_t)pointwise_utils::nRootDims(tv);
         if (dims > max_dims) {
           result = tv;
           max_dims = dims;
@@ -81,7 +88,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
   }
 
-  int getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+  size_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
     auto mapped_id = getMappedRootDimIn(tv, root_dim);
     TORCH_INTERNAL_ASSERT(
         mapped_id != nullptr,
@@ -107,7 +114,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       }
     }
     // Find the position of the leaf id
-    const auto& dom = tv->domain()->leaf();
+    const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
         return i;
@@ -154,7 +161,8 @@ class DomainMap : public pointwise_utils::DomainMap {
     auto output_tvs = ir_utils::filterByType<TensorView>(fusion_->outputs());
     auto input_tvs = ir_utils::filterByType<TensorView>(fusion_->inputs());
     std::unordered_set<TensorView*> grouped;
-    decltype(input_tvs)* tv_filtered_groups[2] = {&output_tvs, &input_tvs};
+    std::array<decltype(input_tvs)*, 2> tv_filtered_groups = {
+        &output_tvs, &input_tvs};
     for (auto tv_filtered_group : tv_filtered_groups) {
       for (auto tv : *tv_filtered_group) {
         if (tv->isFusionInput() && tv->uses().empty()) {
@@ -241,9 +249,9 @@ void maybeBuildVirtualInnerDims(
   int64_t merged_size2 = shape_in_ref1[inner_most2];
 
   int64_t actual_tile_size1 =
-      std::min<int64_t>(merged_size1, params.tile_size1);
+      std::min<int64_t>(merged_size1, (int64_t)params.tile_size1);
   int64_t actual_tile_size2 =
-      std::min<int64_t>(merged_size2, params.tile_size2);
+      std::min<int64_t>(merged_size2, (int64_t)params.tile_size2);
   int64_t wave_elements =
       device_multiprocessor_count * actual_tile_size1 * actual_tile_size2;
 
@@ -275,12 +283,12 @@ void maybeBuildVirtualInnerDims(
   unavailable_dims.insert(inner_most1);
   unavailable_dims.insert(inner_most2);
   for (auto i : params.dims_merged_with_1) {
-    unavailable_dims.insert(i);
+    unavailable_dims.insert((int64_t)i);
   }
   for (auto i : params.dims_merged_with_2) {
-    unavailable_dims.insert(i);
+    unavailable_dims.insert((int64_t)i);
   }
-  dim = shape_in_ref1.size() - 1;
+  dim = (int64_t)shape_in_ref1.size() - 1;
   while (dim >= 0 && merged_size1 < (int64_t)params.tile_size1) {
     if (unavailable_dims.count(dim) == 0) {
       params.dims_merged_with_1.push_back(dim);
@@ -289,7 +297,7 @@ void maybeBuildVirtualInnerDims(
     }
     dim--;
   }
-  dim = shape_in_ref1.size() - 1;
+  dim = (int64_t)shape_in_ref1.size() - 1;
   while (dim >= 0 && merged_size2 < (int64_t)params.tile_size2) {
     if (unavailable_dims.count(dim) == 0) {
       params.dims_merged_with_2.push_back(dim);
@@ -312,9 +320,9 @@ void maybeBuildVirtualInnerDims(
   //    T0[I0{1024*1024}, I1{2}]
   //    If this is the case, this means that we need to split the large
   //    inner-most dimension to satisfy the small innermost dimension
-  int64_t large_dim;
-  int64_t split_factor;
-  bool split_inner_most;
+  int64_t large_dim = -1;
+  int64_t split_factor = -1;
+  bool split_inner_most = false;
   if (merged_size1 < (int64_t)params.tile_size1) {
     if (params.dims_merged_with_2.empty()) {
 #if SUPPORT_SPLITTING_INNERMOST_DIM
@@ -330,9 +338,9 @@ void maybeBuildVirtualInnerDims(
     } else {
       // case 1
       split_inner_most = false;
-      large_dim = params.dims_merged_with_2.back();
+      large_dim = (int64_t)params.dims_merged_with_2.back();
       auto prev_merged_size2 = merged_size2 / shape_in_ref1[large_dim];
-      split_factor = ceilDiv(params.tile_size2, prev_merged_size2);
+      split_factor = ceilDiv((int64_t)params.tile_size2, prev_merged_size2);
     }
   } else {
     if (params.dims_merged_with_1.empty()) {
@@ -349,12 +357,12 @@ void maybeBuildVirtualInnerDims(
     } else {
       // case 1
       split_inner_most = false;
-      large_dim = params.dims_merged_with_1.back();
+      large_dim = (int64_t)params.dims_merged_with_1.back();
       auto prev_merged_size1 = merged_size1 / shape_in_ref1[large_dim];
-      split_factor = ceilDiv(params.tile_size1, prev_merged_size1);
+      split_factor = ceilDiv((int64_t)params.tile_size1, prev_merged_size1);
     }
   }
-  params.split_before_tiling.push_back({large_dim, split_factor});
+  params.split_before_tiling.emplace_back(large_dim, split_factor);
   // adjust all dims to after-split
   for (auto& i : params.dims_merged_with_1) {
     if ((int64_t)i > large_dim) {
@@ -442,8 +450,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
-    auto id = ref_root[ref_i];
+  for (auto id : ref_root) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -451,7 +458,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     TORCH_INTERNAL_ASSERT(
         inferred_val.has_value(),
         "Error inferring size for pointwise scheduler: ",
-        ref_root[ref_i]->extent()->toInlineString());
+        id->extent()->toInlineString());
     int64_t size = inferred_val->as<int64_t>();
     n_elems *= size;
     shape_in_ref.push_back(size);
@@ -677,13 +684,14 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // Don't unroll at the cost of getting a full wave on the GPU
   auto max_unroll_factor_occupancy = ceilDiv(
       n_elems,
-      device_multiprocessor_count * params->tile_size1 * params->tile_size2);
+      device_multiprocessor_count * (int64_t)params->tile_size1 *
+          (int64_t)params->tile_size2);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_occupancy);
 
   // Don't unroll at the cost of getting a full warp, useful for the case where
   // tile sizes are small
   auto max_unroll_factor_block =
-      ceilDiv(params->tile_size1 * params->tile_size2, 32);
+      ceilDiv((int64_t)params->tile_size1 * (int64_t)params->tile_size2, 32l);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_block);
 
   // Compute maximum vectorize factor that can be used
@@ -706,9 +714,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   }
 
   params->vectorize_factor1 = scheduler_utils::lastPow2(
-      std::min(static_cast<size_t>(max_unroll_factor), vectorize_factor1));
+      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
   params->vectorize_factor2 = scheduler_utils::lastPow2(
-      std::min(static_cast<size_t>(max_unroll_factor), vectorize_factor2));
+      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
@@ -903,7 +911,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     if (merged2.has_value() && *merged2 > inner_most_pos1_in_ref1) {
       (*merged2)--;
     }
-    reference1->merge(*merged1, inner_most_pos1_in_ref1);
+    reference1->merge((int)*merged1, (int)inner_most_pos1_in_ref1);
     inner_most_pos1_in_ref1 = *merged1;
   }
   if (merged2.has_value()) {
@@ -916,7 +924,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     if (inner_most_pos1_in_ref1 > inner_most_pos2_in_ref1) {
       inner_most_pos1_in_ref1--;
     }
-    reference1->merge(*merged2, inner_most_pos2_in_ref1);
+    reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
     inner_most_pos2_in_ref1 = *merged2;
   }
 
@@ -926,9 +934,9 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // make tile
   // [..., I1, .., I2, ...]
-  reference1->split(inner_most_pos1_in_ref1, params.tile_size1);
+  reference1->split((int)inner_most_pos1_in_ref1, params.tile_size1);
   reference1->reorder({{inner_most_pos1_in_ref1 + 1, -1}});
-  reference1->split(inner_most_pos2_in_ref1, params.tile_size2);
+  reference1->split((int)inner_most_pos2_in_ref1, params.tile_size2);
   reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
   // [..., I1/tile1, .., I2/tile2, ..., tile1, tile2]
 
@@ -971,7 +979,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // transform tile for vectorization/unroll
   // See note [vectorization and unroll of input and output]
 
-  int pos = reference2->nDims() - 2;
+  int pos = (int)reference2->nDims() - 2;
   // [..., tile1, tile2]
   reference2->merge(pos);
   reference2->split(pos, params.vectorize_factor2);
@@ -1013,8 +1021,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-1), IdMappingMode::EXACT);
@@ -1035,8 +1043,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-3), IdMappingMode::EXACT);
@@ -1057,7 +1065,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // schedule group 1
   reference1->reorder({{-2, -1}});
   // [..., tile2, tile1]
-  pos = reference1->nDims() - 2;
+  pos = (int)reference1->nDims() - 2;
   reference1->merge(pos);
   reference1->split(pos, params.vectorize_factor1);
   reference1->split(pos, params.getThreadsPerBlock());
@@ -1099,8 +1107,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-1), IdMappingMode::EXACT);
@@ -1121,8 +1129,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-3), IdMappingMode::EXACT);
@@ -1145,7 +1153,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inputs
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
-      for (auto id : tv->domain()->leaf()) {
+      for (auto id : tv->getLeafDomain()) {
         id->parallelize(ParallelType::Serial);
       }
     }
@@ -1154,8 +1162,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Inline
   inlineMost();
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser

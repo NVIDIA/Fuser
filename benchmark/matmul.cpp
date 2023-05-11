@@ -336,9 +336,11 @@ static void Nvfuser_Matmul_8warp4stage(
   run(TT_Legacy, MatmulLayout::TT, LegacyMatmulShapes); \
   run(TN_Legacy, MatmulLayout::TN, LegacyMatmulShapes); \
   run(NT_Legacy, MatmulLayout::NT, LegacyMatmulShapes); \
+  run(NN_Legacy, MatmulLayout::NN, LegacyMatmulShapes); \
   run(TT_TIMM, MatmulLayout::TT, TIMMMatmulShapes);     \
   run(TN_TIMM, MatmulLayout::TN, TIMMMatmulShapes);     \
-  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes)
+  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes);     \
+  run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
 
 // Instantiations:
 #define Nvfuser_4warp3stage_test(layout_label, layout, shapes) \
