@@ -23,7 +23,7 @@ jobs:
         working-directory: ${{ env.working_directory }}
         run: |
           source tools/setup-env.sh
-          python setup.py build
+          python setup.py build --debug
 
   clang-tidy:
     runs-on: ubuntu-latest
