@@ -44,6 +44,15 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
 //! Can be used to produce fusions
 class TORCH_CUDA_CU_API SegmentedGroup {
  public:
+  //! Utility struct to represent a group connection
+  //!  both the group to connect with and the edge
+  //!  to connect through
+  struct NeighborGroup {
+    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
+    SegmentedGroup* group;
+    SegmentedEdge* edge;
+  };
+  
   SegmentedGroup(SegmentedFusion* segmented_fusion)
       : segmented_fusion_(segmented_fusion) {}
 
@@ -186,19 +195,6 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
 
-  // Is this class really necessary?
-  // temporarily make it public
- public:
-  //! Utility struct to represent a group connection
-  //!  both the group to connect with and the edge
-  //!  to connect through
-  struct NeighborGroup {
-    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
-    SegmentedGroup* group;
-    SegmentedEdge* edge;
-  };
-
- private:
   //! TODO: May want to sort this based on size of connections between this and
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
@@ -571,6 +567,10 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   void findSegments();
 
+  //! Find a group found in candidates that can be merged with the
+  //! given group and set them to be merged if found. When no
+  //! candidate is given, SegmentedGroup::getMergeCandidates is used
+  //! to get candidates.
   void trySetUpMerge(
       SegmentedGroup* group,
       std::vector<SegmentedGroup::NeighborGroup> candidates = {});
