@@ -237,7 +237,8 @@ class TORCH_CUDA_CU_API FusionHeuristics {
   explicit FusionHeuristics(
       ScheduleHeuristic schedule_heuristic,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr): is_segmented_(false) {
+      HeuristicSummary* data_cache = nullptr)
+      : is_segmented_(false) {
     heuristics_.emplace_back(SchedulerEntry::makeEntry(
         schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
   }
