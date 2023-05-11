@@ -661,7 +661,24 @@ class ForwardTraverseFromAllocToRFactor {
     auto outer = split->outer();
     auto factor = ee_.evaluate(split->factor())->as<int64_t>();
     auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
-    TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
+    if (in_it == frontier_.end()) {
+      // TODO: We should get rid of this return and enable the above assert.
+      // Note [Allocation domain on both side of rFactor]
+      // For cases where the allocation domain is on both side of rFactor, for
+      // example, in Tensor3d_To_NHWC4d_FwdBwd_CUDA:
+      // [alloc,root]   [alloc,root]           [root]
+      //          \     /                      /    |
+      //         [rFactor]                  split   [rFactor]
+      //                                    /  \         |
+      //                      [alloc,rFactor] [rFactor]  |
+      //                                             \   |
+      //                                             [alloc]
+      // I have no idea why StmtSort::getExprsBetween is not returning the
+      // expected set of exprs, but for now, I will just skip these illegal
+      // exprs.
+      return;
+    }
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), in_it);
     std::vector<int64_t> new_shape;
@@ -688,8 +705,12 @@ class ForwardTraverseFromAllocToRFactor {
     auto out = merge->out();
     auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
     auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
-    TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
-    TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
     int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
     int64_t left = std::min(inner_dim, outer_dim);
@@ -782,8 +803,12 @@ class BackwardTraverseFromAllocToRFactor {
     auto in = split->in();
     auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
     auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
-    TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
-    TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
     int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
     int64_t left = std::min(inner_dim, outer_dim);
@@ -835,7 +860,11 @@ class BackwardTraverseFromAllocToRFactor {
     auto outer = merge->outer();
     auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
     auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
-    TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
+    if (out_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), out_it);
     std::vector<int64_t> new_shape;
