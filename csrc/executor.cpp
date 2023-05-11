@@ -1468,10 +1468,10 @@ void validateCooperativeLaunch(
 
   auto grid_size =
       launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
+  auto max_active_blocks = num_blocks_per_SM *
+      at::cuda::getDeviceProperties(device_index)->multiProcessorCount;
   TORCH_INTERNAL_ASSERT(
-      (int64_t)(num_blocks_per_SM *
-                at::cuda::getDeviceProperties(device_index)
-                    ->multiProcessorCount) >= grid_size,
+      (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
