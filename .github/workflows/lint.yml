@@ -77,6 +77,9 @@ jobs:
           # Install dependencies
           sudo apt install -y libtinfo5
 
+          which clang-tidy
+          apt search clang-tidy
+
           # Run lintrunner except clang-tidy
           lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK --all-files
 
