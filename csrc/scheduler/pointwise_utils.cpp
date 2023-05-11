@@ -19,32 +19,23 @@ namespace {
 // indexed accesses, e.g., index_select
 std::unordered_map<
     std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-    std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+    VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>>
 getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_map<
       std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
-      std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
+      VectorOfUniqueEntries<
+          std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>>
       indexed_id_map;
 
   for (auto expr : fusion->exprs()) {
+    IterDomain* p_id = nullptr;
+    IterDomain* c_id = nullptr;
     if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
-      auto p_id = gather->getIndexedID();
-      auto c_id = gather->getConsumerOfIndexedID();
-      TORCH_INTERNAL_ASSERT(
-          indexed_id_map
-              .emplace(
-                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
-              .second);
+      p_id = gather->getIndexedID();
+      c_id = gather->getConsumerOfIndexedID();
     } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
-      auto p_id = index_select->getIndexedID();
-      auto c_id = index_select->getConsumerOfIndexedID();
-      TORCH_INTERNAL_ASSERT(
-          indexed_id_map
-              .emplace(
-                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
-              .second);
+      p_id = index_select->getIndexedID();
+      c_id = index_select->getConsumerOfIndexedID();
     } else {
       // Note there's no consumer ID for select. This means we can't
       // just propagate from consumers to indexed producers. It seems
@@ -52,6 +43,9 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
       // in those cases.
       continue;
     }
+    auto& producer_sets =
+        indexed_id_map[ca_map.disjointSetOf(c_id, IdMappingMode::EXACT)];
+    producer_sets.pushBack(ca_map.disjointSetOf(p_id, IdMappingMode::EXACT));
   }
 
   return indexed_id_map;

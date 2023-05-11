@@ -52,7 +52,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
     SegmentedGroup* group;
     SegmentedEdge* edge;
   };
-  
+
   SegmentedGroup(SegmentedFusion* segmented_fusion)
       : segmented_fusion_(segmented_fusion) {}
 

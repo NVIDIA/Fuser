@@ -2973,21 +2973,66 @@ bool areDirectlyConnected(SegmentedGroup* group1, SegmentedGroup* group2) {
   return false;
 }
 
-// TODO:
+//! Allow the segmentation algorithm to prefer certain exprs to merge
+class PreferredMergeCandidatePicker {
+ public:
+  static std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+  get(const std::vector<SegmentedGroup*>& groups) {
+    return PreferredMergeCandidatePicker(groups).candidates_;
+  }
 
-std::optional<SegmentedGroup::NeighborGroup> getPreferredGroupToMerge(SegmentedGroup* group) {
-  // Prefer merging groups with gather-like exprs with producer
-  // groups. It should be sufficient to just prioritize groups
-  // when they just consist of a single gather-like expr since once
-  // they are merged with producers, they would not be merged with
-  // reduction-like consumers
+ private:
+  PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
+      : groups_(groups) {
+    for (auto& group : groups_) {
+      // Currently there's only one preference for select-like
+      // ops. Additional preferences can be added similarly.
+      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+      if (!neighbor_to_merge.has_value()) {
+        continue;
+      }
+      candidates_.emplace_back(group, *neighbor_to_merge);
+    }
+  }
+
+  //! Prefer merging groups with select-like exprs with producer
+  //! groups, including index_select, torch_gather and take_along_axis
+  //! where only one element is selected/gathered/taken, producing a
+  //! broadcast domain. Fusing these exprs with producers is
+  //! straightforward, but may not be always possible with consumers as
+  //! consumer reference tensors may not know about the gathered
+  //! domain, much like reduction domains. Moreover, if segmentation is
+  //! necessary, it would be more efficient to segment a kernel after
+  //! these exprs as the segment output tensors would become smaller.
+  //!
+  //! A motivating example is cross-entropy loss, where softmax is
+  //! followed by take_along_axis, and then is followed by a
+  //! reduction. Currently, it's not possible to fuse the softmax and
+  //! the reduction, so it must be segmented to two groups, and we
+  //! want to segment the fusion between the take_along_axis and the
+  //! reduction, not between the softma and take_along_axis.
+  std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
+      SegmentedGroup* group);
+
+ private:
+  const std::vector<SegmentedGroup*>& groups_;
+  std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+      candidates_;
+};
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergeSelectLikeOpsWithProducers(SegmentedGroup* group) {
   const auto& exprs = group->exprs();
+
+  // I *think* it's enough to consider the initial merge of
+  // select-like ops.
   if (exprs.size() != 1) {
     return std::nullopt;
   }
-  
+
   auto expr = exprs.at(0);
-  // Gather-like exprs have a producer ID that is indirectly
+
+  // Select-like exprs have a producer ID that is indirectly
   // accessed with an index input
   if (ir_utils::getIndexedProducerID(expr) == nullptr) {
     return std::nullopt;
@@ -3000,28 +3045,16 @@ std::optional<SegmentedGroup::NeighborGroup> getPreferredGroupToMerge(SegmentedG
     return std::nullopt;
   }
 
-  // If the corresponding consumer is a broadcast, prefer merging
-  // with its producer expr rather than the consumer. When merged
-  // with the consumer, since the indexed domain may be squeezed, it
-  // may not be fused with any more exprs unless the lookup tensor
-  // of the gather-like expr is kept as a fusion input, thereby
-  // preventing any of the producer exprs to be merged with the
-  // gather like expr.
-  //
-  // A motivating example is cross-entropy loss, where softmax is
-  // followed by take_along_axis, and then is followed by a
-  // reduction. Currently, it's not possible to fuse the softmax and
-  // the reduction, so it must be segmented to two groups, and we
-  // want to segment the fusion between the take_along_axis and the
-  // reduction, not between the softma and take_along_axis.
+  auto consumer_of_indexed_id = ir_utils::getConsumerOfIndexedProducerID(expr);
 
-  auto consumer_of_indexed_id =
-      ir_utils::getConsumerOfIndexedProducerID(expr);
+  // There must be a consumer ID unless it's a Select expr
+  TORCH_INTERNAL_ASSERT(
+      consumer_of_indexed_id != nullptr || expr->isA<SelectOp>(),
+      "Consumer of indexed ID not found: ",
+      expr->toString());
 
-  // If there's no consumer, that means the expr is select, and it
-  // has the same effect as broadcast
-  if (consumer_of_indexed_id != nullptr &&
-      !consumer_of_indexed_id->isBroadcast()) {
+  // In case of non select expr, make sure the consumer ID is a broadcat
+  if (!expr->isA<SelectOp>() && !consumer_of_indexed_id->isBroadcast()) {
     return std::nullopt;
   }
 
@@ -3032,16 +3065,14 @@ std::optional<SegmentedGroup::NeighborGroup> getPreferredGroupToMerge(SegmentedG
       group->producer_edges.end(),
       [&lookup_tv](SegmentedEdge* edge) { return edge->val == lookup_tv; });
 
-  // Could this happen?
+  // Not sure this could happen happen. Just assert for now.
   if (producer_edge_it == group->producer_edges.end()) {
     TORCH_INTERNAL_ASSERT(false, "Unexpected");
-    return std::nullopt;    
+    return std::nullopt;
   }
 
-  // Insert the group and its producer edge to the preferred_groups
-  SegmentedGroup::NeighborGroup neighbor_group(
+  return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
-  return neighbor_group;
 }
 
 } // namespace
@@ -3230,13 +3261,10 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
-      for (auto& group : groups()) {
-        auto neighbor_to_merge = getPreferredGroupToMerge(group);
-        if (!neighbor_to_merge.has_value()) {
-          continue;
-        }
-        std::cerr << "Try preferred merge: " << group << std::endl;
-        trySetUpMerge(group, {neighbor_to_merge.value()});
+      // Try preferred merge first
+      for (auto& [group, neighbor] :
+           PreferredMergeCandidatePicker::get(groups())) {
+        trySetUpMerge(group, {neighbor});
       }
 
       for (auto& group : groups()) {
