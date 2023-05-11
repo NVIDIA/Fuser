@@ -232,12 +232,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
       const auto tv = allocate->buffer()->as<TensorView>();
       const auto& alloc_domain =
           TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-      const auto nDims = std::count_if(
-          alloc_domain.begin(), alloc_domain.end(), [](const IterDomain* id) {
-            return !id->isReduction();
-          });
-      code_ << ", Tensor<" << tv->dtype() << ", " << nDims << ", " << nDims
-            << "> " << ir_utils::varName(tv);
+      code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
+            << alloc_domain.size() << "> " << ir_utils::varName(tv);
     }
 
     // Kernels generating random numbers take extra (seed, offset) arguments
