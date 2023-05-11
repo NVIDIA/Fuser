@@ -8,7 +8,7 @@
 #include <executor.h>
 #include <fusion.h>
 #include <ir_builder.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 

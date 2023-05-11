@@ -15,8 +15,8 @@
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_double_buffer.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/double_buffer.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 

@@ -16,7 +16,7 @@
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <lower_bank_conflict.h>
+#include <device_lower/bank_conflict.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>

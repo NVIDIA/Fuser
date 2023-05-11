@@ -12,8 +12,8 @@
 #include <fusion.h>
 #include <ir_base_nodes.h>
 #include <ir_builder.h>
-#include <lower_sync_information.h>
-#include <lower_warp_reduce.h>
+#include <device_lower/sync_information.h>
+#include <device_lower/warp_reduce.h>
 #include <parallel_dimension_map.h>
 #include <utils.h>
 #include <vectorization_info.h>

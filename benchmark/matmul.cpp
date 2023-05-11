@@ -9,7 +9,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
-#include <lower_bank_conflict.h>
+#include <device_lower/bank_conflict.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>

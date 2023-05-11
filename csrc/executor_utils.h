@@ -21,7 +21,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <kernel.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 
 #include <string>
 #include <vector>

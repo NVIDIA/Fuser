@@ -10,7 +10,7 @@
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <ops/arith.h>
 
 #include <limits>

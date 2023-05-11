@@ -12,8 +12,8 @@
 #include <ir_iostream.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <lower_utils.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <type.h>
 
 #include <iostream>

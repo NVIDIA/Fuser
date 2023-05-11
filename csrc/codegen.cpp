@@ -10,7 +10,7 @@
 #include <ir_utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>

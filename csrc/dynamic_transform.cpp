@@ -9,7 +9,7 @@
 #include <expr_evaluator.h>
 #include <ir_cloner.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>

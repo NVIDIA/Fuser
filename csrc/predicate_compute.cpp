@@ -12,7 +12,7 @@
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 #include <ops/arith.h>
 #include <transform_iter.h>
 

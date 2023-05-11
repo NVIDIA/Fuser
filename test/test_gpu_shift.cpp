@@ -22,7 +22,7 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>

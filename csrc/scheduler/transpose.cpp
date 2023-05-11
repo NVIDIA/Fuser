@@ -12,7 +12,7 @@
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>

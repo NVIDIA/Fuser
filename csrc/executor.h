@@ -13,7 +13,7 @@
 #include <ir_all_nodes.h>
 #include <ir_cloner.h>
 #include <ir_printer.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>

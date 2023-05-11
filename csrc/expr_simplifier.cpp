@@ -12,7 +12,7 @@
 #include <ir_cloner.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower_magic_zero.h>
+#include <device_lower/magic_zero.h>
 #include <utils.h>
 
 #include <cmath>

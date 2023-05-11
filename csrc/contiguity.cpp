@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 
 #include <contiguity.h>
 

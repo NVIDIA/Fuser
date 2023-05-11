@@ -9,7 +9,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 

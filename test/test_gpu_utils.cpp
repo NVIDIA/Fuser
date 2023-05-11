@@ -10,7 +10,7 @@
 
 #include <executor_utils.h>
 #include <fusion.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>

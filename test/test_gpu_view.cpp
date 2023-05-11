@@ -25,8 +25,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_divisible_split.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/divisible_split.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>

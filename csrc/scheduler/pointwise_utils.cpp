@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ir_utils.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <utils.h>
 

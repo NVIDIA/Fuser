@@ -10,7 +10,7 @@
 #include <ir_iostream.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
 

@@ -13,7 +13,7 @@
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
 #include <kernel.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <utils.h>
 
 #include <c10/util/irange.h>

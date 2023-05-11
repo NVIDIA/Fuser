@@ -12,7 +12,7 @@
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_cloner.h>
-#include <lower_loop_rotation.h>
+#include <device_lower/loop_rotation.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 

@@ -17,8 +17,8 @@
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/bank_conflict.h>
 #include <ops/arith.h>
 
 #include <iterator>

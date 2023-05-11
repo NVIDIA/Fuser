@@ -10,7 +10,7 @@
 #include <ir_all_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
+#include <device_lower/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
