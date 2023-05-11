@@ -10,6 +10,7 @@ echo 'deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main' | sudo tee /e
 sudo apt-get update
 
 # Install clang-tidy-16
+sudo apt-get -y remove clang-tidy
 sudo apt-get -y install clang-tidy-16 cuda-toolkit-12-1 libnccl-dev
 
 # cmake environment variables
