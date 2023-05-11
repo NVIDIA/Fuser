@@ -920,6 +920,12 @@ class BackwardTraverseFromAllocToRFactor {
 // Start from a tensor whose dimensions are consistent with the allocation
 // domain of tv, apply a sequence of view/permute to the tensor to transform it
 // into a format whose dimensions are consistent with the rFactor domain of tv.
+// For example, if the rFactor domain is [I1, I2], and the allocation domain is
+// [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
+// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
+// Another example, if the rFactor domain is [I1*I2] and the allocation domain
+// is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
+// get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
 at::Tensor transformOutputFromAllocationToRFactor(
     at::Tensor tensor,
     TensorView* tv,
@@ -992,12 +998,7 @@ std::vector<at::Tensor> allocOutputs(
       // integration, see step 1 - note [trivial forwarding]
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty(
-          std::vector<int64_t>(
-              TensorDomain::noReductions(buf_info.tv->getMaybeRFactorDomain())
-                  .size(),
-              0),
-          tensor_options));
+      outputs.emplace_back(at::empty({0}, tensor_options));
     } else {
       auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
