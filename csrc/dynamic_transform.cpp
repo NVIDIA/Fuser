@@ -87,21 +87,20 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformConcretizationInfo cloned_info(
       (Fusion*)ir_cloner.container());
-  for (auto& pair : reshape_transforms_) {
+  for (const auto& [tv, analyze_result] : reshape_transforms_) {
     cloned_info.reshape_transforms_.emplace_back(
-        ir_cloner.clone(pair.first),
+        ir_cloner.clone(tv),
         // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
         // AnalyzeViewResult can be copied directly as it holds no references to
         // Statements that would need cloning, only integer indices of axes.
-        pair.second);
+        analyze_result);
   }
-  for (auto& tx : resize_transforms_) {
+  for (const auto& [id, iter_type] : resize_transforms_) {
     cloned_info.resize_transforms_.emplace_back(
-        ir_cloner.clone(std::get<0>(tx)),
-        ir_cloner.clone(std::get<1>(tx)),
-        // Similar to reshape_transforms_, we only clone the TensorViews and
-        // IterDomains in resize_transforms_
-        std::get<2>(tx));
+        ir_cloner.clone(id),
+        // Similar to reshape_transforms_, we only clone the IterDomains in
+        // resize_transforms_
+        iter_type);
   }
   return cloned_info;
 }
@@ -116,9 +115,8 @@ std::string DynamicTransformConcretizationInfo::toString() const {
        << kv.second.toString() << "\n";
   }
   ss << indent << "Resize:\n";
-  for (const auto& kv : resize_transforms_) {
-    ss << indent << indent << std::get<0>(kv)->toString() << ", "
-       << std::get<1>(kv)->toString() << ", " << std::get<2>(kv) << "\n";
+  for (const auto& [id, iter_type] : resize_transforms_) {
+    ss << indent << indent << id->toString() << ", " << iter_type << "\n";
   }
   return ss.str();
 }
@@ -164,7 +162,7 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
           left_val->as<int64_t>(),
           right_val->as<int64_t>());
 
-      info_.resize_transforms_.emplace_back(tv, id, out_itertype);
+      info_.resize_transforms_.emplace_back(id, out_itertype);
     }
   }
 }
@@ -325,10 +323,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& resize_info : info_.getResizeTransforms()) {
-    auto id = std::get<1>(resize_info);
-    auto iter_type = std::get<2>(resize_info);
-
+  for (const auto& [id, iter_type] : info_.getResizeTransforms()) {
     TORCH_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
