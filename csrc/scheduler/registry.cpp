@@ -519,10 +519,10 @@ bool tryingToMergeSegmenterLoad(Fusion* fusion) {
     if (expr->isA<LoadStoreOp>() &&
         expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterLoad) {
       if (!std::any_of(
-	    fusion->outputs().begin(),
-	    fusion->outputs().end(),
-            [expr](Val* val) { return val == expr->output(0); })) {
-         return true;
+                 fusion->outputs().begin
+                    fusion->outputs().
+                    [expr](Val* val) { return val == expr->output(0);
+              return true;
       }
     }
   }
