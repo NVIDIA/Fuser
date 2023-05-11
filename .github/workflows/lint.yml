@@ -10,6 +10,21 @@ env:
   working_directory: .
 
 jobs:
+  standalone-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Run standalone build
+        working-directory: ${{ env.working_directory }}
+        run: |
+          source tools/setup-env.sh
+          python setup.py build
+
   clang-tidy:
     runs-on: ubuntu-latest
     steps:
@@ -22,35 +37,13 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
-          this_dir=$(pwd)
+          source tools/setup-env.sh
 
           # Install lintrunner
           pip install lintrunner
 
           # Initialize lintrunner
           lintrunner init 2> /dev/null
-
-          # Install cuda
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
-          sudo dpkg -i cuda-keyring_1.0-1_all.deb
-          sudo apt-get update
-          sudo apt-get -y install cuda-toolkit-12-1
-
-          # cmake environment variables
-          export CUDAARCHS=86
-          export CUDACXX=/usr/local/cuda/bin/nvcc
-          export PATH=/usr/local/cuda/bin:${PATH}
-          export CUDA_INSTALL_PATH=/usr/local/cuda
-
-          # Install pytorch
-          pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
-
-          # Get submodules
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
-          # Install other requirements
-          pip install -r requirements.txt
 
           # Run cmake build
           python setup.py --cmake-only
