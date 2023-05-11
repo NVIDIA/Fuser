@@ -69,9 +69,7 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  TensorView* lookupTv() const {
-    return input(0)->as<TensorView>();
-  }
+  TensorView* lookupTv() const;
 
   int64_t dim() const {
     return attribute(0)->as<Attribute<int64_t>>()->value;
@@ -99,13 +97,9 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  TensorView* lookupTv() const {
-    return input(0)->as<TensorView>();
-  }
+  TensorView* lookupTv() const;
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
-  }
+  TensorView* indexTv() const;
 
   IterDomain* getIndexedID() const;
 
@@ -142,13 +136,9 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  TensorView* lookupTv() const {
-    return input(0)->as<TensorView>();
-  }
+  TensorView* lookupTv() const;
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
-  }
+  TensorView* indexTv() const;
 
   int64_t dim() const {
     return attribute(0)->as<Attribute<int64_t>>()->value;
@@ -184,17 +174,11 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  TensorView* selfTv() const {
-    return input(0)->as<TensorView>();
-  }
+  TensorView* selfTv() const;
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
-  }
+  TensorView* indexTv() const;
 
-  TensorView* srcTv() const {
-    return input(2)->as<TensorView>();
-  }
+  TensorView* srcTv() const;
 
   int64_t dim() const {
     return attribute(0)->as<Attribute<int64_t>>()->value;
@@ -705,10 +689,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
     return get(ValName::Avg);
   }
 
-  TensorView* avgTv() const {
-    TORCH_INTERNAL_ASSERT(avg()->isA<TensorView>());
-    return avg()->as<TensorView>();
-  }
+  TensorView* avgTv() const;
 
   Val* const& var() const {
     return get(ValName::Var);
@@ -718,10 +699,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
     return get(ValName::Var);
   }
 
-  TensorView* varTv() const {
-    TORCH_INTERNAL_ASSERT(var()->isA<TensorView>());
-    return var()->as<TensorView>();
-  }
+  TensorView* varTv() const;
 
   Val* const& N() const {
     return get(ValName::N);
@@ -731,10 +709,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
     return get(ValName::N);
   }
 
-  TensorView* NTv() const {
-    TORCH_INTERNAL_ASSERT(N()->isA<TensorView>());
-    return N()->as<TensorView>();
-  }
+  TensorView* NTv() const;
 
   //! Get the i-th val. Ordering is defined by ValName.
   Val* const& get(int i) const {
@@ -1160,13 +1135,9 @@ class TORCH_CUDA_CU_API ExpandOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  TensorView* out() const {
-    return output(0)->as<TensorView>();
-  }
+  TensorView* out() const;
 
-  TensorView* in() const {
-    return input(0)->as<TensorView>();
-  }
+  TensorView* in() const;
 
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};

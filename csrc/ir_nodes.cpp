@@ -171,6 +171,10 @@ IterDomain* SelectOp::getIndexedID() const {
       .at(dim());
 }
 
+TensorView* SelectOp::lookupTv() const {
+  return input(0)->as<TensorView>();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
@@ -209,6 +213,14 @@ IterDomain* IndexSelectOp::getIndexedID() const {
 
 IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+TensorView* IndexSelectOp::lookupTv() const {
+  return input(0)->as<TensorView>();
+}
+
+TensorView* IndexSelectOp::indexTv() const {
+  return input(1)->as<TensorView>();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -258,6 +270,14 @@ IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
+TensorView* TorchGatherOp::lookupTv() const {
+  return input(0)->as<TensorView>();
+}
+
+TensorView* TorchGatherOp::indexTv() const {
+  return input(1)->as<TensorView>();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
 
 ScatterOp::ScatterOp(
@@ -296,6 +316,18 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 
 IterDomain* ScatterOp::getIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+TensorView* ScatterOp::selfTv() const {
+  return input(0)->as<TensorView>();
+}
+
+TensorView* ScatterOp::indexTv() const {
+  return input(1)->as<TensorView>();
+}
+
+TensorView* ScatterOp::srcTv() const {
+  return input(2)->as<TensorView>();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -1036,6 +1068,21 @@ std::vector<WelfordTriplet> WelfordTriplet::clone(
   return cloned;
 }
 
+TensorView* WelfordTriplet::avgTv() const {
+  TORCH_INTERNAL_ASSERT(avg()->isA<TensorView>());
+  return avg()->as<TensorView>();
+}
+
+TensorView* WelfordTriplet::varTv() const {
+  TORCH_INTERNAL_ASSERT(var()->isA<TensorView>());
+  return var()->as<TensorView>();
+}
+
+TensorView* WelfordTriplet::NTv() const {
+  TORCH_INTERNAL_ASSERT(N()->isA<TensorView>());
+  return N()->as<TensorView>();
+}
+
 WelfordOp::WelfordOp(
     IrBuilderPasskey passkey,
     const WelfordTriplet& output,
@@ -1748,6 +1795,14 @@ std::string ExpandOp::toString(int indent_size) const {
 
 std::string ExpandOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+TensorView* ExpandOp::out() const {
+  return output(0)->as<TensorView>();
+}
+
+TensorView* ExpandOp::in() const {
+  return input(0)->as<TensorView>();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
