@@ -61,7 +61,8 @@ TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// A global->global copy kernel converting NCHW memory format into NHWC, with a
+// 4d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -104,7 +105,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// A global->global copy kernel converting NCHW memory format into NHWC, with a
+// 1d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -144,7 +146,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// A global->global copy kernel converting NCHW memory format into NHWC, with a
+// 2d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -185,7 +188,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// Reshape and transpose a 3d tensor into an NHWC tensor with a 3d allocation
+// domain in fusion output.
 TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -239,7 +243,9 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d_CUDA) {
       __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// Reshape a 3d tensor into an NHWC tensor with a 4d allocation domain in fusion
+// output. The allocation domain is on both the producer and the consumer side
+// of the rFactor domain.
 TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();

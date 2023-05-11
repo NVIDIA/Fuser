@@ -1458,21 +1458,23 @@ void validateCooperativeLaunch(
     const LaunchParams& launch_params,
     int64_t device_index) {
   int num_blocks_per_SM = -1;
+  auto block_size =
+      launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz();
   CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks_per_SM,
       kernel,
-      (int)(launch_params.bdimx() * launch_params.bdimy() *
-            launch_params.bdimz()),
+      (int)block_size,
       (size_t)launch_params.smem()));
 
+  auto grid_size =
+      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
   TORCH_INTERNAL_ASSERT(
       (int64_t)(num_blocks_per_SM *
                 at::cuda::getDeviceProperties(device_index)
-                    ->multiProcessorCount) >=
-          launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+                    ->multiProcessorCount) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
-      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      grid_size,
       " (",
       launch_params.gdimx(),
       " * ",
