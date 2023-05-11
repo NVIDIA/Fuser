@@ -85,6 +85,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
     SIBLING,
     C_AS_P,
     P_AS_C,
+    UNDEFINED,
   };
 
   // This is a helper struct that contains all the information about the next
@@ -92,7 +93,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
   struct NextHop {
     // default initialization for clang-tidy
     // cppcoreguidelines-pro-type-member-init
-    NextHopType type = NextHopType::SIBLING;
+    NextHopType type = NextHopType::UNDEFINED;
     TensorView* from = nullptr;
     TensorView* to = nullptr;
 

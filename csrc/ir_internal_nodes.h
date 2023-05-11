@@ -420,7 +420,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   struct Attributes {
     // default initialization for clang-tidy
     // cppcoreguidelines-pro-type-member-init
-    RNGOpType rtype = RNGOpType::Uniform;
+    RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
     int rng_offset = 0;
 

@@ -48,6 +48,8 @@ using StmtNameType = unsigned int;
 constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
+class NonCopyable;
+class PolymorphicBase;
 class Fusion;
 class FusionGuard;
 class Expr;
