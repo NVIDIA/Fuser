@@ -1,10 +1,17 @@
 #!/bin/bash
 
-# Install cuda
+# Add cuda repo
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
 sudo dpkg -i cuda-keyring_1.0-1_all.deb
 sudo apt-get update
-sudo apt-get -y install cuda-toolkit-12-1 libnccl-dev
+
+# Add LLVM repo
+wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+echo 'deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main' | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+sudo apt-get update
+
+# Install clang-tidy-16
+sudo apt-get -y install clang-tidy-16 cuda-toolkit-12-1 libnccl-dev
 
 # cmake environment variables
 export CUDACXX=/usr/local/cuda/bin/nvcc
