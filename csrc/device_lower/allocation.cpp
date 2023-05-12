@@ -158,13 +158,17 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   std::vector<Val*> getGlobalAllocationSizes(AllocationInformation& info) {
-    const auto& domain = info.buffer->domain();
-    const auto& maybe_rfactor_domain = domain->maybeRFactor();
+    const auto& maybe_rfactor_domain = info.buffer->getMaybeAllocationDomain();
 
     std::vector<Val*> alloc_dims;
 
     for (const auto id : maybe_rfactor_domain) {
-      if (id->isReduction() || id->isStride() || id->isBroadcast()) {
+      if (id->isReduction() || id->isStride()) {
+        continue;
+      } else if (id->isBroadcast()) {
+        // No matter whether this broadcast is expanded or not, we always
+        // allocate size 1
+        alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
       auto extent = id->extent();
@@ -174,7 +178,7 @@ class AllocationInserter : public kir::ExprMutator {
         extent = IrBuilder::addExpr(
             extent, IrBuilder::create<Int>(halo_extent.width()));
       }
-      alloc_dims.push_back(extent);
+      alloc_dims.emplace_back(extent);
     }
 
     return alloc_dims;
