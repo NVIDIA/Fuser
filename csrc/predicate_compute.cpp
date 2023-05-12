@@ -7,12 +7,12 @@
 // clang-format on
 #include <predicate_compute.h>
 
+#include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
-#include <device_lower/lower2device.h>
 #include <ops/arith.h>
 #include <transform_iter.h>
 

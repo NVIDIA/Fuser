@@ -7,14 +7,14 @@
 // clang-format on
 #include <device_lower/misaligned_vectorization.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <predicate_compute.h>
 
 namespace nvfuser {

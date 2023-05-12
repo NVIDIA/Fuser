@@ -9,6 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
+#include <device_lower/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
@@ -16,7 +17,6 @@
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <device_lower/bank_conflict.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>

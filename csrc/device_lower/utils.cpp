@@ -9,12 +9,12 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/irange.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/thread_predicate.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/thread_predicate.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
 

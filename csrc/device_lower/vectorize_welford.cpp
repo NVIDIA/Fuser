@@ -7,12 +7,12 @@
 // clang-format on
 #include <device_lower/vectorize_welford.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <ops/arith.h>
 
 namespace nvfuser {

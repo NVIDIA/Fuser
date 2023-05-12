@@ -6,14 +6,14 @@
  */
 // clang-format on
 #include <compute_at_map.h>
+#include <device_lower/expr_sort.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/expr_sort.h>
-#include <device_lower/utils.h>
 #include <utils.h>
 
 #include <deque>

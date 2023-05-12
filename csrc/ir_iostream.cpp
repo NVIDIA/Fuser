@@ -8,12 +8,12 @@
 #include <ir_iostream.h>
 #include <ir_printer.h>
 
+#include <device_lower/utils.h>
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
 #include <kernel.h>
-#include <device_lower/utils.h>
 #include <utils.h>
 
 #include <c10/util/irange.h>

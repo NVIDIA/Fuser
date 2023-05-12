@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <ir_utils.h>
 #include <kernel_ir.h>
-#include <device_lower/lower2device.h>
 
 #include <device_lower/double_buffer.h>
 

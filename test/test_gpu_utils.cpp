@@ -8,9 +8,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <fusion.h>
-#include <device_lower/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>

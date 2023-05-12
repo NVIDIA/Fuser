@@ -8,9 +8,9 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/divisible_split.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
-#include <device_lower/divisible_split.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
 #include <ir_builder.h>

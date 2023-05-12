@@ -8,12 +8,12 @@
 #include <device_lower/validation.h>
 
 #include <contiguity.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>

@@ -7,14 +7,14 @@
 // clang-format on
 #include <device_lower/unroll.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/misaligned_vectorization.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/misaligned_vectorization.h>
-#include <device_lower/utils.h>
 #include <ops/arith.h>
 #include <predicate_compute.h>
 

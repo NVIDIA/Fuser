@@ -7,12 +7,12 @@
 // clang-format on
 #include <device_lower/predicate_elimination.h>
 
-#include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/shift.h>
 #include <device_lower/utils.h>
+#include <instrumentation.h>
+#include <ir_iostream.h>
+#include <ir_utils.h>
 #include <ops/arith.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>

@@ -11,10 +11,10 @@
 #include <c10/macros/Export.h>
 
 #include <compute_at_map.h>
+#include <device_lower/thread_predicate.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <kernel_ir.h>
-#include <device_lower/thread_predicate.h>
 
 namespace nvfuser {
 

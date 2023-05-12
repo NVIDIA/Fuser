@@ -16,12 +16,12 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
+#include <device_lower/lower2device.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <kernel.h>
-#include <device_lower/lower2device.h>
 
 #include <string>
 #include <vector>

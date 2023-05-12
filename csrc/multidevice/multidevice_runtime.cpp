@@ -6,9 +6,9 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <ir_utils.h>
-#include <device_lower/utils.h>
 #include <multidevice/multicluster_fusion.h>
 #include <multidevice/multidevice_runtime.h>
 

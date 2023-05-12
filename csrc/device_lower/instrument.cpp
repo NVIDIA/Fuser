@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <iter_visitor.h>
-#include <kernel_ir_dispatch.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/magic_zero.h>
+#include <iter_visitor.h>
+#include <kernel_ir_dispatch.h>
 
 #include <device_lower/instrument.h>
 

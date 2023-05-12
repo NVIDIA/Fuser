@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/insert_syncs.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/insert_syncs.h>
-#include <device_lower/utils.h>
 
 #include <unordered_set>
 

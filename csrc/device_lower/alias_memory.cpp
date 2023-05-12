@@ -7,14 +7,14 @@
 // clang-format on
 #include <device_lower/alias_memory.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 
 #include <sstream>
 #include <unordered_map>

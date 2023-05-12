@@ -8,11 +8,6 @@
 #include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <expr_simplifier.h>
-#include <fusion.h>
-#include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
 #include <device_lower/alias_memory.h>
 #include <device_lower/allocation.h>
 #include <device_lower/divisible_split.h>
@@ -34,6 +29,11 @@
 #include <device_lower/validation.h>
 #include <device_lower/vectorize_welford.h>
 #include <device_lower/warp_reduce.h>
+#include <expr_simplifier.h>
+#include <fusion.h>
+#include <instrumentation.h>
+#include <ir_iostream.h>
+#include <ir_utils.h>
 
 #include <list>
 #include <unordered_map>

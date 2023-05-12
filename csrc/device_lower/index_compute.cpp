@@ -6,13 +6,13 @@
  */
 // clang-format on
 #include <contiguity.h>
-#include <index_compute.h>
-#include <ir_utils.h>
-#include <device_lower/lower2device.h>
 #include <device_lower/index_compute.h>
+#include <device_lower/lower2device.h>
 #include <device_lower/magic_zero.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
+#include <index_compute.h>
+#include <ir_utils.h>
 #include <transform_iter.h>
 
 namespace nvfuser {

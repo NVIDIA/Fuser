@@ -8,10 +8,10 @@
 #pragma once
 #include <c10/macros/Export.h>
 
-#include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
 #include <device_lower/thread_predicate.h>
 #include <device_lower/utils.h>
+#include <kernel_ir.h>
+#include <kernel_ir_dispatch.h>
 #include <root_domain_map.h>
 
 #include <bitset>

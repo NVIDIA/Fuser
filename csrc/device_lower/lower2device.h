@@ -10,10 +10,6 @@
 #include <c10/macros/Export.h>
 
 #include <compute_at_map.h>
-#include <executor_params.h>
-#include <ir_all_nodes.h>
-#include <kernel.h>
-#include <kernel_ir.h>
 #include <device_lower/allocation.h>
 #include <device_lower/double_buffer.h>
 #include <device_lower/fused_reduction.h>
@@ -25,6 +21,10 @@
 #include <device_lower/thread_predicate.h>
 #include <device_lower/trivial_broadcast.h>
 #include <device_lower/warp_reduce.h>
+#include <executor_params.h>
+#include <ir_all_nodes.h>
+#include <kernel.h>
+#include <kernel_ir.h>
 #include <non_divisible_split.h>
 #include <parallel_dimension_map.h>
 #include <partial_split_map.h>

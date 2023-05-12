@@ -7,11 +7,11 @@
 // clang-format on
 #include <device_lower/thread_predicate.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <ops/arith.h>
 
 #include <c10/util/irange.h>

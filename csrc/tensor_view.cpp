@@ -7,6 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/double_buffer.h>
+#include <device_lower/lower2device.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir_all_nodes.h>
@@ -15,8 +17,6 @@
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/double_buffer.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 

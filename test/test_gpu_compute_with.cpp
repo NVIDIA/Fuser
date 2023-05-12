@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -26,8 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>

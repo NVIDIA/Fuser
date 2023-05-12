@@ -7,12 +7,12 @@
 // clang-format on
 #include <device_lower/loops.h>
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <ops/arith.h>
 #include <transform_replay.h>
 

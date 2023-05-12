@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
+#include <device_lower/magic_zero.h>
 #include <expr_simplifier.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
 
 #include <device_lower/scalar_hoist.h>
 
