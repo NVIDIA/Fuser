@@ -68,8 +68,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(at::Tensor tensor) {
   return nullptr;
 }
 
-std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
-    at::Tensor tensor) {
+std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(at::Tensor tensor) {
   return std::make_unique<TensorArgAbstract>(std::move(tensor));
 }
 
