@@ -600,7 +600,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
     ExpressionEvaluator& expr_eval) {
-  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  auto alloc_dom = TensorDomain::noBroadcasts(
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
   std::vector<nvfuser::Val*> symbolic_sizes;
   symbolic_sizes.reserve(alloc_dom.size());
   for (auto id : alloc_dom) {

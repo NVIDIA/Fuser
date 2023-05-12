@@ -230,8 +230,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& alloc_domain =
-          TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+      const auto& alloc_domain = TensorDomain::noBroadcasts(
+          TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
       code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
             << alloc_domain.size() << "> " << ir_utils::varName(tv);
     }
