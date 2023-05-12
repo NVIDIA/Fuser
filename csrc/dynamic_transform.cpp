@@ -393,26 +393,42 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             ". IterDomain was expected.");
       }
 
-      // If any output ID is symbolic, all output IDs should be symbolic
-      if (std::any_of(
-              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                return output->as<IterDomain>()->getIterType() ==
+      // If all inputs are concrete, all outputs should be concrete, and there
+      // is nothing to concretize.
+      if (std::all_of(
+              expr->inputs().begin(), expr->inputs().end(), [](Val* output) {
+                return output->as<IterDomain>()->getIterType() !=
                     IterType::Symbolic;
               })) {
         TORCH_INTERNAL_ASSERT(std::all_of(
             expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-              return output->as<IterDomain>()->getIterType() ==
+              return output->as<IterDomain>()->getIterType() !=
                   IterType::Symbolic;
             }));
-      } else if (std::all_of(
-                     expr->inputs().begin(),
-                     expr->inputs().end(),
-                     [](Val* output) {
-                       return output->as<IterDomain>()->getIterType() !=
-                           IterType::Symbolic;
-                     })) {
-        // If no inputs or outputs are symbolic, nothing to concretize
         continue;
+      }
+
+      // If any output ID is symbolic, all output IDs should be symbolic
+      if (std::any_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->as<IterDomain>()->getIterType() !=
+                    IterType::Symbolic;
+              })) {
+        TORCH_INTERNAL_ASSERT(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->as<IterDomain>()->getIterType() !=
+                  IterType::Symbolic;
+            }));
+        // NOTE: We do not return early at this point. Even though all outputs
+        // are concrete, there may still be concrete inputs. For example, a
+        // Symbolic IterDomain might be padded with constant pad widths (1, 1),
+        // in which case although we do not know the exact extent of the output,
+        // we know it is at least as large as the sum of the pad widths, 2. In
+        // such cases, the output IterDomain is concrete at definition, since if
+        // the extent is >1 we know the IterType is Iteration. In these cases,
+        // we must continue to concretize intermediate expressions between the
+        // root and R-factor domain. See test DynamicTransform5_CUDA which
+        // demonstrates this behavior.
       }
 
       // Determine the output IterType
