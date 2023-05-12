@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
 #include <ir_cloner.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
