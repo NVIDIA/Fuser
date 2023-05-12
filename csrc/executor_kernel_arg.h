@@ -191,6 +191,10 @@ struct TensorArgAbstract : ArgAbstract {
   }
 
   virtual int64_t getStride(int64_t i) const {
+    // TODO: in order to support allocation domain, we need to make sure that
+    // this is method is only called for TensorArg.
+    // TORCH_INTERNAL_ASSERT(
+    //     false, "The stride of an abstract tensor arg is not known.");
     return tensor_.stride(i);
   }
 
@@ -203,11 +207,7 @@ struct TensorArgAbstract : ArgAbstract {
   }
 
   int64_t numel() const {
-    int64_t ret = 1;
-    for (auto i : c10::irange(getRank())) {
-      ret *= getSize(i);
-    }
-    return ret;
+    return tensor_.numel();
   }
 
   at::Tensor getTensor() const {
@@ -222,6 +222,8 @@ struct TensorArgAbstract : ArgAbstract {
     TORCH_INTERNAL_ASSERT(
         false, "The index type of an abstract tensor arg is not known.");
   }
+
+  PrimDataType getSmallestIndexType() const;
 
   bool isType(ArgType t) const {
     return type() == t;

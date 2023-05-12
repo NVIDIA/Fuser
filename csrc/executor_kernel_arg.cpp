@@ -14,6 +14,18 @@
 
 namespace nvfuser {
 
+PrimDataType TensorArgAbstract::getSmallestIndexType() const {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto dim_i : c10::irange(tensor_.ndimension())) {
+    auto size = tensor_.size(dim_i);
+    auto stride = tensor_.stride(dim_i);
+    if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+      return PrimDataType::Int;
+    }
+  }
+  return PrimDataType::Int32;
+}
+
 namespace {
 
 template <typename nvfuser_index_t>
@@ -263,15 +275,8 @@ std::string KernelArgumentHolder::toString() const {
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
-    auto tensor_arg = dynamic_cast<const TensorArgAbstract*>(arg.get());
-    if (tensor_arg == nullptr) {
-      continue;
-    }
-    KernelIndexTypeCompute index_type_helper;
-    for (const auto dim_i : c10::irange(tensor_arg->getRank())) {
-      auto size = tensor_arg->getSize(dim_i);
-      auto stride = tensor_arg->getStride(dim_i);
-      if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+    if (auto tensor_arg = dynamic_cast<const TensorArgAbstract*>(arg.get())) {
+      if (tensor_arg->getSmallestIndexType() == PrimDataType::Int) {
         return PrimDataType::Int;
       }
     }
