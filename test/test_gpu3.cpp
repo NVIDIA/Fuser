@@ -8365,9 +8365,21 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
 
   TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  auto groups = optimized_fusion->fusionSegments()->groups();
   TORCH_CHECK(
-      optimized_fusion->fusionSegments()->groups().size() == 2,
-      "segmentation didn't happen as expected");
+      groups.size() == 2, "segmentation hint isn't working as expected");
+  // with the hint, segment_set should be grouped with its producer
+  // [relu, segment_set], [neg]
+  for (auto& group : groups) {
+    // we only check the group with a single node
+    if (group->exprs().size() == 1) {
+      auto relu_expr = group->exprs()[0];
+      TORCH_CHECK(
+          relu_expr->isA<UnaryOp>() &&
+              relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
+          "segmentation result is not expected");
+    }
+  }
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }

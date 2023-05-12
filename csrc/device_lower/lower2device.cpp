@@ -237,12 +237,13 @@ void GpuLower::collectPaddedParallelDims() {
     }
   }
 }
+
 void segmenterHintCleanup(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<LoadStoreOp>())
+    if (expr->isA<LoadStoreOp>()) {
       auto op = expr->as<LoadStoreOp>();
-      if (op->opType() == LoadStoreOpType::SegmenterLoad) {
-        op->isetOpType(LoadStoreOpType::Set);
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        op->setOpType(LoadStoreOpType::Set);
       }
     }
   }

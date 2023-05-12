@@ -513,18 +513,21 @@ class SchedulerTopologyChecker {
   }
 };
 
-// SegmenterSet hints a kernel break. We shouldn't be consuming the output of
-// the node within the graph
+// SegmenterSet hints a kernel break
 bool tryingToMergeSegmenterSet(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<LoadStoreOp>() &&
         expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
       auto out = expr->output(0);
-      printf("is output: %d, uses: %d\n", out.isFusionOutput(), out.uses().size());
-      if (std::none_of(
-              fusion->outputs().begin(),
-              fusion->outputs().end(),
-              [expr](Val* val) { return val == expr->output(0); })) {
+      printf(
+          "is output: %d, uses: %d\n",
+          out->isFusionOutput(),
+          out->uses().size());
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || out->uses().size() != 0) {
         return true;
       }
     }
