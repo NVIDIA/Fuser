@@ -86,7 +86,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
     ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
     ${NVFUSER_SRCS_DIR}/index_compute.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index_compute.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/index_compute.cpp
     ${NVFUSER_SRCS_DIR}/instrumentation.cpp
     ${NVFUSER_SRCS_DIR}/ir_base_nodes.cpp
     ${NVFUSER_SRCS_DIR}/ir_builder.cpp
@@ -103,35 +103,35 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
     ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
     ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
-    ${NVFUSER_SRCS_DIR}/lower_alias_memory.cpp
-    ${NVFUSER_SRCS_DIR}/lower_allocation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_double_buffer.cpp
-    ${NVFUSER_SRCS_DIR}/lower_divisible_split.cpp
-    ${NVFUSER_SRCS_DIR}/lower_expr_sort.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fused_reduction.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fusion_simplifier.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index.cpp
-    ${NVFUSER_SRCS_DIR}/lower_scalar_hoist.cpp
-    ${NVFUSER_SRCS_DIR}/lower_insert_syncs.cpp
-    ${NVFUSER_SRCS_DIR}/lower_instrument.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loop_rotation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loops.cpp
-    ${NVFUSER_SRCS_DIR}/lower_magic_zero.cpp
-    ${NVFUSER_SRCS_DIR}/lower_misaligned_vectorization.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate_elimination.cpp
-    ${NVFUSER_SRCS_DIR}/lower_replace_size.cpp
-    ${NVFUSER_SRCS_DIR}/lower_shift.cpp
-    ${NVFUSER_SRCS_DIR}/lower_sync_information.cpp
-    ${NVFUSER_SRCS_DIR}/lower_thread_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_trivial_broadcast.cpp
-    ${NVFUSER_SRCS_DIR}/lower_unroll.cpp
-    ${NVFUSER_SRCS_DIR}/lower_utils.cpp
-    ${NVFUSER_SRCS_DIR}/lower_validation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_vectorize_welford.cpp
-    ${NVFUSER_SRCS_DIR}/lower_warp_reduce.cpp
-    ${NVFUSER_SRCS_DIR}/lower2device.cpp
-    ${NVFUSER_SRCS_DIR}/lower_bank_conflict.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/alias_memory.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/allocation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/double_buffer.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/divisible_split.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/expr_sort.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/fused_reduction.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/fusion_simplifier.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/index.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/scalar_hoist.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/insert_syncs.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/instrument.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/loop_rotation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/loops.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/magic_zero.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/misaligned_vectorization.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/predicate.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/predicate_elimination.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/replace_size.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/shift.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/sync_information.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/thread_predicate.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/trivial_broadcast.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/unroll.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/utils.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/vectorize_welford.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/warp_reduce.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/bank_conflict.cpp
     ${NVFUSER_SRCS_DIR}/manager.cpp
     ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
     ${NVFUSER_SRCS_DIR}/multidevice/aggregate_dag.cpp
