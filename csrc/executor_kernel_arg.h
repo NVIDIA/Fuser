@@ -14,6 +14,7 @@
 #include <type.h>
 #include <array>
 #include <optional>
+#include <cstddef>
 
 namespace nvfuser {
 
@@ -57,21 +58,15 @@ inline std::string argTypeToString(ArgType type) {
 }
 
 // This should match the tensor used in the code generation (almost exactly)
-template <typename T, int N, typename nvfuser_index_t>
+template <int ndims, typename nvfuser_index_t>
 struct TensorArgCodegen {
-  using data_type = T;
   using index_type = nvfuser_index_t;
-  static constexpr int ndims = N;
 
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
-
-  T* data;
-  std::array<nvfuser_index_t, N> size;
-  std::array<nvfuser_index_t, N> stride;
+  void* data;
+  std::array<nvfuser_index_t, ndims> size;
+  std::array<nvfuser_index_t, ndims> stride;
   constexpr int nDims() const {
-    return N;
+    return ndims;
   }
   void setSize(int64_t i, nvfuser_index_t s) {
     size[i] = s;
@@ -88,17 +83,12 @@ struct TensorArgCodegen {
 };
 
 // 0-Dim GPU based tensor
-template <typename T, typename nvfuser_index_t>
-struct TensorArgCodegen<T, 0, nvfuser_index_t> {
-  using data_type = T;
+template <typename nvfuser_index_t>
+struct TensorArgCodegen<0, nvfuser_index_t> {
   using index_type = nvfuser_index_t;
   static constexpr int ndims = 0;
 
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
-
-  T* data;
+  void* data;
   constexpr int nDims() const {
     return 0;
   }
@@ -114,17 +104,6 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   nvfuser_index_t getStride(int64_t i) const {
     TORCH_INTERNAL_ASSERT(false, "Tried to get stride of a 0-dim tensor");
   }
-};
-
-// Specialization for 0-dim case that's easy to pass in a CPU based tensor
-// without memcpy
-template <typename T>
-struct CpuScalarTensorCodegen {
-  T& operator[](int) {
-    return data;
-  };
-
-  T data;
 };
 
 struct ArgAbstract {
@@ -254,8 +233,7 @@ struct TensorArg : public TensorArgAbstract {
     return instance_.data;
   }
   DataType getDataType() const override {
-    return NativeTypeWithC10ComplexToDataType<
-        typename TENSOR_TYPE::data_type>::type;
+    return aten_to_data_type(tensor_.scalar_type());
   }
   at::Tensor getTensor() const override {
     return tensor_;
@@ -304,16 +282,9 @@ struct TensorArg : public TensorArgAbstract {
   }
 };
 
-template <typename CPU_TENSOR_TYPE>
+template <size_t size, size_t align>
 struct CpuScalarTensorArg : public ArgAbstract {
-  CPU_TENSOR_TYPE instance_;
-
-  CpuScalarTensorArg() = delete;
-
-  explicit CpuScalarTensorArg(decltype(CPU_TENSOR_TYPE::data) _data) {
-    instance_.data = _data;
-  }
-
+  std::array<std::byte, size> instance_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
 };
 
