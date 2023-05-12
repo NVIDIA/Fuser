@@ -386,6 +386,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
               ". IterDomain was expected.");
         }
 
+        // Mutate the expression, in case inputs or outputs are symbolic
+        OptOutMutator::mutate(expr);
+
         // If none of the output IDs is symbolic, nothing to concretize
         if (std::all_of(
                 expr->outputs().begin(),
