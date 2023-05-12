@@ -186,7 +186,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
       Val* size,
       bool zero_init = false);
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Allocate";
   }
 
@@ -239,7 +239,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
   explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "BlockSync";
   }
 
@@ -277,7 +277,7 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridSync";
   }
 
@@ -302,7 +302,7 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "CpAsyncWait";
   }
 
@@ -327,7 +327,7 @@ class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "CpAsyncCommit";
   }
 
@@ -345,7 +345,7 @@ class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "InitMagicZero";
   }
 
@@ -363,7 +363,7 @@ class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "UpdateMagicZero";
   }
 
@@ -379,7 +379,7 @@ class TORCH_CUDA_CU_API BaseAddress final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "BaseAddress";
   }
 
@@ -528,7 +528,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ForLoop";
   }
 
@@ -625,7 +625,7 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "IfThenElse";
   }
 
@@ -683,7 +683,7 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridReduction";
   }
 
@@ -751,11 +751,11 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   // number of attributes in the parent class
-  int numGroupedReductionOpAttr() const {
+  size_t numGroupedReductionOpAttr() const {
     return 2 + outputs().size();
   }
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedGridReduction";
   }
 
@@ -838,7 +838,7 @@ class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridBroadcast";
   }
 
@@ -883,7 +883,7 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridWelford";
   }
 
@@ -957,11 +957,11 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  int numGroupedWelfordOpAttr() const {
+  size_t numGroupedWelfordOpAttr() const {
     return 1 + outputs().size();
   }
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedGridWelford";
   }
 
@@ -1050,7 +1050,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "VectorizedWelfordOp";
   }
 
@@ -1103,7 +1103,7 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "AllocateFusedReduction";
   }
 

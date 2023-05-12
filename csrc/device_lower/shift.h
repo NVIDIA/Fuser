@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 
+#include <compute_at_map.h>
 #include <dispatch.h>
 #include <ir_all_nodes.h>
 #include <kernel_ir.h>
