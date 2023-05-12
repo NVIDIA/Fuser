@@ -1267,6 +1267,10 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   //   sum  -> 2
   auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
   testValidate(fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+
+  for (int i = 0; i < 5; ++i) {
+    cg_outputs = fec.runFusionWithInputs(inputs);
+  }
 }
 
 TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLossNoDivision_CUDA) {
