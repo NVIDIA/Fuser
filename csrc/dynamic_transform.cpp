@@ -352,88 +352,87 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // axes inherited from the producers
   auto propagated = propagateFromProducerToConsumer(tv);
 
-  if (propagated) {
-    // Root IDs are altered. Need to propagate the changes to rfactor
-    // domain
+  // If no root domain is altered, nothing to do further
+  if (!propagated) {
+    return;
+  }
 
-    // At this point, there should be no expr beyond rfactor root
-    TORCH_INTERNAL_ASSERT(
-        tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
-        "Invalid tensor: ",
-        tv->toString());
+  // Root IDs are altered. Need to propagate the changes to rfactor
+  // domain
 
-    // If it has an rfactor root domain, the IterTypes of the rfactor
-    // IDs may need to be updated as well. Traverse the rfactor exprs
-    // and mutate the IterTypes of output IDs if symbolic.
-    if (tv->hasRFactor()) {
-      // Note that it is assumed that theres's no further expression
-      // beyond the rfactor domain as asserted above
-      auto all_id_exprs = StmtSort::getExprsBetween(
-          tv->fusion(),
-          {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-          {tv->getMaybeRFactorDomain().begin(),
-           tv->getMaybeRFactorDomain().end()});
-      for (auto expr : all_id_exprs) {
-        // Assume outputs of IterDomain exprs are always IterDomains. If
-        // the assumption is invalidated, the logic here would need to
-        // be updated. Assert the assumption to immediately detect such
-        // a case if happened.
-        for (auto out_val : expr->outputs()) {
-          TORCH_INTERNAL_ASSERT(
-              out_val->isA<IterDomain>(),
-              "Unexpected output: ",
-              out_val->toString(),
-              ". IterDomain was expected.");
-        }
+  // At this point, there should be no expr beyond rfactor root
+  TORCH_INTERNAL_ASSERT(
+      tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
+      "Invalid tensor: ",
+      tv->toString());
 
-        // If any output ID is symbolic, all output IDs should be symbolic
-        if (std::any_of(
-                expr->outputs().begin(),
-                expr->outputs().end(),
-                [](Val* output) {
-                  return output->as<IterDomain>()->getIterType() ==
-                      IterType::Symbolic;
-                })) {
-          TORCH_INTERNAL_ASSERT(std::all_of(
+  // If it has an rfactor root domain, the IterTypes of the rfactor
+  // IDs may need to be updated as well. Traverse the rfactor exprs
+  // and mutate the IterTypes of output IDs if symbolic.
+  if (tv->hasRFactor()) {
+    // Note that it is assumed that theres's no further expression
+    // beyond the rfactor domain as asserted above
+    auto all_id_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+        {tv->getMaybeRFactorDomain().begin(),
+         tv->getMaybeRFactorDomain().end()});
+    for (auto expr : all_id_exprs) {
+      // Assume outputs of IterDomain exprs are always IterDomains. If
+      // the assumption is invalidated, the logic here would need to
+      // be updated. Assert the assumption to immediately detect such
+      // a case if happened.
+      for (auto out_val : expr->outputs()) {
+        TORCH_INTERNAL_ASSERT(
+            out_val->isA<IterDomain>(),
+            "Unexpected output: ",
+            out_val->toString(),
+            ". IterDomain was expected.");
+      }
+
+      // If any output ID is symbolic, all output IDs should be symbolic
+      if (std::any_of(
               expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
                 return output->as<IterDomain>()->getIterType() ==
                     IterType::Symbolic;
-              }));
-        } else if (std::all_of(
-                       expr->inputs().begin(),
-                       expr->inputs().end(),
-                       [](Val* output) {
-                         return output->as<IterDomain>()->getIterType() !=
-                             IterType::Symbolic;
-                       })) {
-          // If no inputs or outputs are symbolic, nothing to concretize
-          continue;
-        }
-
-        // Determine the output IterType
-        IterType iter_type = IterType::Symbolic;
-        for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-          auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-          iter_type =
-              ops::promoteIterType(iter_type, updated_id->getIterType());
-        }
-        TORCH_INTERNAL_ASSERT(
-            iter_type != IterType::Symbolic,
-            "Failed to concretize an output IterType for expression: ",
-            expr->toString());
-
-        // Update the IterType of each output
-        for (auto out_id :
-             ir_utils::filterByType<IterDomain>(expr->outputs())) {
-          auto concreteized_out_id =
-              IterDomainBuilder(out_id).iter_type(iter_type).build();
-          registerMutation(out_id, concreteized_out_id);
-        }
-
-        // Outputs are mutated. The expr itself needs to be mutated as
-        // well, which can be done by the mutate method
-        OptOutMutator::mutate(expr);
+              })) {
+        TORCH_INTERNAL_ASSERT(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->as<IterDomain>()->getIterType() ==
+                  IterType::Symbolic;
+            }));
+      } else if (std::all_of(
+                     expr->inputs().begin(),
+                     expr->inputs().end(),
+                     [](Val* output) {
+                       return output->as<IterDomain>()->getIterType() !=
+                           IterType::Symbolic;
+                     })) {
+        // If no inputs or outputs are symbolic, nothing to concretize
+        continue;
       }
+
+      // Determine the output IterType
+      IterType iter_type = IterType::Symbolic;
+      for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+        auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
+        iter_type = ops::promoteIterType(iter_type, updated_id->getIterType());
+      }
+      TORCH_INTERNAL_ASSERT(
+          iter_type != IterType::Symbolic,
+          "Failed to concretize an output IterType for expression: ",
+          expr->toString());
+
+      // Update the IterType of each output
+      for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        auto concreteized_out_id =
+            IterDomainBuilder(out_id).iter_type(iter_type).build();
+        registerMutation(out_id, concreteized_out_id);
+      }
+
+      // Outputs are mutated. The expr itself needs to be mutated as
+      // well, which can be done by the mutate method
+      OptOutMutator::mutate(expr);
     }
   }
 
