@@ -386,7 +386,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
               ". IterDomain was expected.");
         }
 
-        // If none of the output IDs is symbolic, nothing to concretize
+        // If any output ID is symbolic, all output IDs should be symbolic
         if (std::any_of(
                 expr->outputs().begin(),
                 expr->outputs().end(),
@@ -394,12 +394,20 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
                   return output->as<IterDomain>()->getIterType() ==
                       IterType::Symbolic;
                 })) {
-          // If any of output IDs is symbolic, all outputs should be symbolic
           TORCH_INTERNAL_ASSERT(std::all_of(
               expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
                 return output->as<IterDomain>()->getIterType() ==
                     IterType::Symbolic;
               }));
+        } else if (std::all_of(
+                       expr->inputs().begin(),
+                       expr->inputs().end(),
+                       [](Val* output) {
+                         return output->as<IterDomain>()->getIterType() !=
+                             IterType::Symbolic;
+                       })) {
+          // If no inputs or outputs are symbolic, nothing to concretize
+          continue;
         }
 
         // Determine the output IterType
