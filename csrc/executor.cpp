@@ -1853,7 +1853,21 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto arg_buffer = args.getBuffer(kernel()->indexType());
+    std::vector<TensorView*> tvs;
+    for (auto val : kernel()->inputs()) {
+      tvs.emplace_back(dynamic_cast<TensorView*>(val));
+    }
+    for (auto val : kernel()->outputs()) {
+      tvs.emplace_back(dynamic_cast<TensorView*>(val));
+    }
+    for (auto alloc : kernel()->summary().global_allocations) {
+      auto tv = alloc->buffer()->as<TensorView>();
+      if (tv->isFusionOutput()) {
+        continue;
+      }
+      tvs.emplace_back(tv);
+    }
+    auto arg_buffer = args.getBuffer(kernel()->indexType(), tvs);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1967,6 +1981,7 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
+  std::vector<TensorView*> tvs(args.size(), nullptr);
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
@@ -1977,7 +1992,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type),
+      kernel_arguments.getBuffer(index_type, tvs),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

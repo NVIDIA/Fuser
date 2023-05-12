@@ -191,11 +191,8 @@ struct TensorArgAbstract : ArgAbstract {
   }
 
   virtual int64_t getStride(int64_t i) const {
-    // TODO: in order to support allocation domain, we need to make sure that
-    // this is method is only called for TensorArg.
-    // TORCH_INTERNAL_ASSERT(
-    //     false, "The stride of an abstract tensor arg is not known.");
-    return tensor_.stride(i);
+    TORCH_INTERNAL_ASSERT(
+        false, "The stride of an abstract tensor arg is not known.");
   }
 
   void* getPointer() const {
@@ -263,13 +260,36 @@ template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
 
-  TensorArg(const at::Tensor& tensor) : TensorArgAbstract(tensor) {
+  TensorArg(const at::Tensor& tensor, TensorView* tv)
+      : TensorArgAbstract(tensor) {
+    auto rfactor_dom =
+        (tv == nullptr
+             ? std::vector<IterDomain*>{}
+             : TensorDomain::noReductions(tv->getMaybeRFactorDomain()));
+    TORCH_CHECK(
+        tv == nullptr || tensor.ndimension() == (int64_t)rfactor_dom.size(),
+        "The dimensionality of the tensor does not match with the dimensionality of the rFactor domain");
     instance_.data = tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
+      auto stride = tensor.stride(i);
+      if (tv != nullptr) {
+        if (auto rfactor_id = rfactor_dom.at(i);
+            rfactor_id->hasExpandedExtent()) {
+          TORCH_CHECK(
+              stride == 0,
+              "Expecting an expanded dimension on dimension ",
+              i,
+              " but found stride ",
+              stride);
+        }
+      }
       instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
-      instance_.setStride(
-          i, (typename TENSOR_TYPE::index_type)tensor.stride(i));
+      instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
     }
+  }
+
+  int64_t getStride(int64_t i) const override {
+    return instance_.getStride(i);
   }
 
   //! Returns the address of an tensor argument struct.
@@ -357,7 +377,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
-  void** getBuffer(PrimDataType index_type);
+  void** getBuffer(PrimDataType index_type, std::vector<TensorView*> tvs);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 
