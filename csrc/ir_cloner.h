@@ -33,7 +33,7 @@ class TORCH_CUDA_CU_API IrCloner {
  public:
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   explicit IrCloner(IrContainer* container);
-  virtual ~IrCloner() {}
+  virtual ~IrCloner() = default;
 
   Statement* clone(const Statement* statement);
 
@@ -108,7 +108,7 @@ class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
 
  private:
   RecomputeTv(Fusion* fusion);
-  virtual Statement* handle(const Statement* s) override;
+  Statement* handle(const Statement* s) override;
   Statement* handle(const TensorDomain*);
 
   Fusion* fusion_;

@@ -154,7 +154,7 @@ class LoopIndexing {
   std::vector<kir::ForLoop*> loops_;
 
   //! Consumer tv, where the view related info was derived from.
-  const TensorView* consumer_tv_;
+  const TensorView* consumer_tv_ = nullptr;
 
   //! The source iterdomains that all the Iterdomain transforms
   //!   in this loop nest originated from.
