@@ -996,9 +996,15 @@ std::vector<at::Tensor> allocOutputs(
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
+      auto alloc_dom =
+          TensorDomain::noReductions(kernel->outputs()
+                                         .at(output_idx)
+                                         ->as<TensorView>()
+                                         ->getMaybeAllocationDomain());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty({0}, tensor_options));
+      outputs.emplace_back(
+          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
     } else {
       auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
