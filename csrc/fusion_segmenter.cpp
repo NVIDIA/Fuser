@@ -3010,7 +3010,7 @@ class PreferredMergeCandidatePicker {
   //! reduction. Currently, it's not possible to fuse the softmax and
   //! the reduction, so it must be segmented to two groups, and we
   //! want to segment the fusion between the take_along_axis and the
-  //! reduction, not between the softma and take_along_axis.
+  //! reduction, not between the softmax and take_along_axis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
 
@@ -3065,7 +3065,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       group->producer_edges.end(),
       [&lookup_tv](SegmentedEdge* edge) { return edge->val == lookup_tv; });
 
-  // Not sure this could happen happen. Just assert for now.
+  // Not sure this could happen. Just assert for now.
   if (producer_edge_it == group->producer_edges.end()) {
     TORCH_INTERNAL_ASSERT(false, "Unexpected");
     return std::nullopt;
@@ -3267,8 +3267,12 @@ void SegmentCandidateFinder::findSegments() {
         trySetUpMerge(group, {neighbor});
       }
 
-      for (auto& group : groups()) {
-        trySetUpMerge(group);
+      // If there are preferred groups to merge, merge them first
+      // without considering the rest of groups
+      if (to_merge_.empty()) {
+        for (auto& group : groups()) {
+          trySetUpMerge(group);
+        }
       }
 
       if (to_merge_.empty()) {
