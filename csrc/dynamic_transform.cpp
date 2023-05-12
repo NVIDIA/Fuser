@@ -352,8 +352,11 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // axes inherited from the producers
   auto propagated = propagateFromProducerToConsumer(tv);
 
-  // If no root domain is altered, nothing to do further
+  // If no root domain is altered by producer, we don't need to propagate back
+  // up to rfactor, so do a simple mutation.
   if (!propagated) {
+    mutate(tv->domain());
+    OptOutMutator::mutate(tv);
     return;
   }
 
@@ -547,7 +550,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     TORCH_INTERNAL_ASSERT(
         id_type.has_value(),
-        "Did not find id_type. Perhaps TensorView def has no inputs.");
+        "Did not find id_type for consumer root domain ",
+        root_id->toString(),
+        ". Perhaps consumer def has no inputs. Consumer definition = ",
+        def->toString());
 
     TORCH_INTERNAL_ASSERT(
         id_type != IterType::Symbolic,
