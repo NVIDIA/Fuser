@@ -364,7 +364,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// A global->global copy kernel converting NCHW memory format into NHWC.
+// A global->global copy kernel converting NCHW memory format into NHWC, with a
+// 4d allocation domain in output.
 TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
