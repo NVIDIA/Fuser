@@ -386,25 +386,21 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
               ". IterDomain was expected.");
         }
 
-        // Mutate the expression, in case inputs or outputs are symbolic
-        OptOutMutator::mutate(expr);
-
         // If none of the output IDs is symbolic, nothing to concretize
-        if (std::all_of(
+        if (std::any_of(
                 expr->outputs().begin(),
                 expr->outputs().end(),
                 [](Val* output) {
-                  return output->as<IterDomain>()->getIterType() !=
+                  return output->as<IterDomain>()->getIterType() ==
                       IterType::Symbolic;
                 })) {
-          continue;
+          // If any of output IDs is symbolic, all outputs should be symbolic
+          TORCH_INTERNAL_ASSERT(std::all_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->as<IterDomain>()->getIterType() ==
+                    IterType::Symbolic;
+              }));
         }
-        // If any of output IDs is symbolic, all outputs should be symbolic
-        TORCH_INTERNAL_ASSERT(std::all_of(
-            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-              return output->as<IterDomain>()->getIterType() ==
-                  IterType::Symbolic;
-            }));
 
         // Determine the output IterType
         IterType iter_type = IterType::Symbolic;
