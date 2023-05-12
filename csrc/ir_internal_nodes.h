@@ -23,6 +23,13 @@
 //! \todo Add testing of sameAs functions for these nodes
 //!
 
+//! IR header hierarchy
+//! 1. utils.h - PolymorphicBase and NonCopyable
+//! 2. ir_base_nodes.h - Statement, Expr, and Val
+//! 3. ir_internal_base_nodes.h -- IterDomain and TensorDomain
+//! 4. ir_interface_nodes.h - TensorView and Scalar
+//! 5. ** ir_internal_nodes.h ** - Any internal-only IR nodes
+
 namespace nvfuser {
 
 class ViewTransform;
