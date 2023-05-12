@@ -1918,9 +1918,10 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       bool new_contiguity) {
+    auto contiguity_flags =
+        getContiguityFilledWith(new_allocation_domain, new_contiguity);
     setAllocationDomain(
-        std::move(new_allocation_domain),
-        getContiguityFilledWith(new_allocation_domain, new_contiguity));
+        std::move(new_allocation_domain), std::move(contiguity_flags));
   }
 
   void resetDomains() {

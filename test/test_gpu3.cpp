@@ -8351,6 +8351,50 @@ TEST_F(NVFuserTest, FusionScheduleReduceZeroElementTensor_CUDA) {
   }
 }
 
+// Test nan propagation during min/max with floats and doubles
+TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
+  for (auto dtype : {DataType::Float, DataType::Double}) {
+    for (auto do_min : {true, false}) {
+      auto fusion = std::make_unique<Fusion>();
+      FusionGuard fg(fusion.get());
+
+      auto tv0 = makeSymbolicTensor(2, dtype);
+      fusion->addInput(tv0);
+      auto tv1 = do_min ? min(tv0, {1}) : max(tv0, {1});
+      fusion->addOutput(tv1);
+
+      FusionExecutorCache executor_cache(std::move(fusion));
+
+      auto options =
+          at::TensorOptions()
+              .dtype(dtype == DataType::Float ? at::kFloat : at::kDouble)
+              .device(at::kCUDA, 0);
+      // Test size 1 since it will have a single comparison, which checks
+      // missing propagation in one position even if it propagates properly in
+      // the other position
+      for (auto size : {1, 2, 5}) {
+        // To check nans in multiple positions along reduction axis create a 2D
+        // tensor that is ones except the diagonal, which are nans
+        auto at_x = at::eye(size, options);
+        at_x = (1 - at_x) / (1 - at_x);
+        std::vector<c10::IValue> inputs{at_x};
+
+        std::vector<at::Tensor> at_outputs(
+            {do_min ? at_x.amin(1) : at_x.amax(1)});
+        auto nvf_outputs = executor_cache.runFusionWithInputs(inputs);
+
+        testValidate(
+            executor_cache.fusion(),
+            nvf_outputs,
+            inputs,
+            at_outputs,
+            __LINE__,
+            __FILE__);
+      }
+    }
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
