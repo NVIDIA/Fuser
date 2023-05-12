@@ -225,11 +225,11 @@ struct TensorArgAbstract : ArgAbstract {
 
   PrimDataType getSmallestIndexType() const;
 
-  bool isType(ArgType t) const {
+  bool isType(ArgType t) const override {
     return type() == t;
   }
 
-  ArgType type() const {
+  ArgType type() const override {
     return ArgType::Tensor;
   }
 
@@ -243,7 +243,7 @@ struct TensorArgAbstract : ArgAbstract {
     TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
   }
 
-  std::string toString() const {
+  std::string toString() const override {
     std::stringstream ss;
     auto rank = getRank();
     ss << "tensor dtype: " << getDataType() << " sizes: (";
@@ -282,7 +282,7 @@ struct TensorArg : public TensorArgAbstract {
     return &instance_;
   }
 
-  bool isAbstract() const {
+  bool isAbstract() const override {
     return false;
   }
 
@@ -290,7 +290,7 @@ struct TensorArg : public TensorArgAbstract {
     return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
   }
 
-  std::string toString() const {
+  std::string toString() const override {
     std::stringstream ss;
     ss << TensorArgAbstract::toString();
     ss << " stride: (";
