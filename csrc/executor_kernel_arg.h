@@ -282,7 +282,7 @@ struct TensorArg : public TensorArgAbstract {
   }
 };
 
-template <size_t size, size_t align>
+template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
   std::array<std::byte, size> instance_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)

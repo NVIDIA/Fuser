@@ -37,40 +37,31 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
     bool index_type_resolved) {
   switch (tensor.ndimension()) {
     case (0):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (1):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (2):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (3):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (4):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (5):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (6):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (7):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     case (8):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
+      return std::make_unique<TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
           tensor, index_type_resolved);
     default:
       TORCH_INTERNAL_ASSERT(
@@ -122,16 +113,13 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
 
 namespace {
 
-struct MakeCpuScalarTensor {
-  template <typename T>
-  std::unique_ptr<ArgAbstract> operator()(const at::Tensor& tensor) const {
-    auto ptr =
-        std::make_unique<CpuScalarTensorArg<sizeof(T), alignof(T)>>();
-    static_assert(sizeof(ptr->instance_) == sizeof(T));
-    std::memcpy(&(ptr->instance_), tensor.data_ptr<T>(), sizeof(T));
-    return ptr;
-  }
-};
+template <size_t size>
+std::unique_ptr<ArgAbstract> makeCpuScalarTensorArg(const at::Tensor& tensor) {
+  auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
+  static_assert(sizeof(ptr->instance_) == size);
+  std::memcpy(&(ptr->instance_), tensor.data_ptr(), size);
+  return ptr;
+}
 
 PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
@@ -146,8 +134,23 @@ PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
 // Push a tensor to the arguments
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
   if (is_cpu_scalar(tensor)) {
-    arguments_.push_back(atenTypeDispatchWithC10Complex(
-        tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
+    switch (tensor.element_size()) {
+      case 1:
+        arguments_.push_back(makeCpuScalarTensorArg<1>(tensor));
+        break;
+      case 2:
+        arguments_.push_back(makeCpuScalarTensorArg<2>(tensor));
+        break;
+      case 4:
+        arguments_.push_back(makeCpuScalarTensorArg<4>(tensor));
+        break;
+      case 8:
+        arguments_.push_back(makeCpuScalarTensorArg<8>(tensor));
+        break;
+      case 16:
+        arguments_.push_back(makeCpuScalarTensorArg<16>(tensor));
+        break;
+    }
   } else {
     arguments_.push_back(getTensorArg(tensor, std::nullopt));
   }
