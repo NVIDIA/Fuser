@@ -25,14 +25,14 @@ TensorView* set(TensorView* tv) {
   return set(tv->as<Val>())->as<TensorView>();
 }
 
-Val* segment_alias(Val* v) {
+Val* segment_set(Val* v) {
   Val* out = ops::newValLike(v, v->getDataType().value());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterLoad, out, v);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
   return out;
 }
 
-TensorView* segment_alias(TensorView* tv) {
-  return segment_alias(tv->as<Val>())->as<TensorView>();
+TensorView* segment_set(TensorView* tv) {
+  return segment_set(tv->as<Val>())->as<TensorView>();
 }
 
 TensorView* view(TensorView* x, DataType dtype) {

@@ -513,12 +513,15 @@ class SchedulerTopologyChecker {
   }
 };
 
-// we only block merging of SegmenterLoad
-bool tryingToMergeSegmenterLoad(Fusion* fusion) {
+// SegmenterSet hints a kernel break. We shouldn't be consuming the output of
+// the node within the graph
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<LoadStoreOp>() &&
-        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterLoad) {
-      if (!std::any_of(
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      printf("is output: %d, uses: %d\n", out.isFusionOutput(), out.uses().size());
+      if (std::none_of(
               fusion->outputs().begin(),
               fusion->outputs().end(),
               [expr](Val* val) { return val == expr->output(0); })) {
@@ -2547,7 +2550,7 @@ bool checkCanSchedule(
   //  it has to pass all the compile time checks to create a data cache for this
   //  fusion.
   if (!data_cache) {
-    if (tryingToMergeSegmenterLoad(fusion)) {
+    if (tryingToMergeSegmenterSet(fusion)) {
       return false;
     }
     if (!isConnectedFusionGraph(fusion)) {

@@ -1159,23 +1159,6 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
 
-    // Note: segmenter load is just a WAR to allow segmenter to breka kernel
-    if (optype == LoadStoreOpType::SegmenterLoad) {
-      if (!print_inline_) {
-        indent() << gen(ldst->out());
-        if (!ldst->out()->isScalar() && !ldst->in()->isScalar()) {
-          code_ << "\n";
-          indent() << kTab;
-        }
-        code_ << " = ";
-      }
-      code_ << gen(ldst->in());
-      if (!print_inline_) {
-        code_ << ";\n";
-      }
-      return;
-    }
-
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
       auto out_tv = out_ti->view();

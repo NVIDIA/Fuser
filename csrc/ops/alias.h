@@ -23,7 +23,8 @@ namespace nvfuser {
 TORCH_CUDA_CU_API Val* set(Val*);
 TORCH_CUDA_CU_API TensorView* set(TensorView*);
 
-TORCH_CUDA_CU_API TensorView* segment_alias(TensorView*);
+// segment_set hints segmenter to break kernel
+TORCH_CUDA_CU_API TensorView* segment_set(TensorView*);
 
 TORCH_CUDA_CU_API TensorView* view(TensorView* x, DataType dtype);
 

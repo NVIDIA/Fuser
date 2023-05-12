@@ -237,6 +237,16 @@ void GpuLower::collectPaddedParallelDims() {
     }
   }
 }
+void segmenterHintCleanup(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>())
+      auto op = expr->as<LoadStoreOp>();
+      if (op->opType() == LoadStoreOpType::SegmenterLoad) {
+        op->isetOpType(LoadStoreOpType::Set);
+      }
+    }
+  }
+}
 
 void assignRNGOffset(Fusion* fusion) {
   int counter = 0;
@@ -301,6 +311,8 @@ void GpuLower::lower(Fusion* fusion) {
       tv->resolveIndexDtype();
     }
   }
+  segmenterHintCleanup(fusion_);
+
   assignRNGOffset(fusion_);
 
   FusionGuard fg(fusion_);
