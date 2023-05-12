@@ -1237,9 +1237,26 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
 
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
+  auto kernel_runtime = fec.getMostRecentKernelRuntime();
+
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      kernel_runtime,
       {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
+
+  // Make sure take_along_axis is in the persistent group
+  for (const auto group : kernel_runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::Persistent) {
+      TORCH_CHECK(std::any_of(
+          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+            return expr->isA<TorchGatherOp>();
+          }));
+    } else {
+      TORCH_CHECK(std::none_of(
+          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+            return expr->isA<TorchGatherOp>();
+          }));
+    }
+  }
 
   // note: reduction arg
   //   none -> 0

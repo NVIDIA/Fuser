@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir_cloner.h>
 #include <ir_interface_nodes.h>
@@ -12,7 +13,6 @@
 #include <ir_utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>

@@ -9,10 +9,10 @@
 
 #include <compute_at_map.h>
 #include <contiguity.h>
+#include <device_lower/divisible_split.h>
 #include <expr_evaluator.h>
 #include <ir_builder.h>
 #include <iter_visitor.h>
-#include <lower_divisible_split.h>
 #include <scheduler/registry.h>
 
 #include <c10/util/irange.h>

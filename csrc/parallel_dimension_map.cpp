@@ -9,11 +9,11 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <assume.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <lower2device.h>
 
 #include <functional>
 #include <sstream>
