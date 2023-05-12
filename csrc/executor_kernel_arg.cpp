@@ -29,35 +29,35 @@ PrimDataType TensorArgAbstract::getSmallestIndexType() const {
 namespace {
 
 template <typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
+std::unique_ptr<TensorArgAbstract> getTensorArg(at::Tensor tensor) {
   switch (tensor.ndimension()) {
     case (0):
       return std::make_unique<TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (1):
       return std::make_unique<TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (2):
       return std::make_unique<TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (3):
       return std::make_unique<TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (4):
       return std::make_unique<TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (5):
       return std::make_unique<TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (6):
       return std::make_unique<TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (7):
       return std::make_unique<TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     case (8):
       return std::make_unique<TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
-          tensor);
+          std::move(tensor));
     default:
       TORCH_INTERNAL_ASSERT(
           false,
@@ -69,25 +69,25 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(const at::Tensor& tensor) {
 }
 
 std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
-    const at::Tensor& tensor) {
-  return std::make_unique<TensorArgAbstract>(tensor);
+    at::Tensor tensor) {
+  return std::make_unique<TensorArgAbstract>(std::move(tensor));
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
+    at::Tensor tensor,
     std::optional<PrimDataType> index_type) {
   if (index_type.has_value()) {
     switch (index_type.value()) {
       case PrimDataType::Int32:
-        return getTensorArg<int>(tensor);
+        return getTensorArg<int>(std::move(tensor));
       case PrimDataType::Int:
-        return getTensorArg<int64_t>(tensor);
+        return getTensorArg<int64_t>(std::move(tensor));
       default:
         TORCH_INTERNAL_ASSERT(false, "unknown index mode");
         break;
     }
   } else {
-    return getAbstractTensorArg(tensor);
+    return getAbstractTensorArg(std::move(tensor));
   }
 }
 
@@ -118,14 +118,6 @@ std::unique_ptr<ArgAbstract> makeCpuScalarTensorArg(const at::Tensor& tensor) {
   static_assert(sizeof(ptr->instance_) == size);
   std::memcpy(&(ptr->instance_), tensor.data_ptr(), size);
   return ptr;
-}
-
-PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
-  KernelIndexTypeCompute index_type_helper;
-  for (const auto i : c10::irange(tensor.ndimension())) {
-    index_type_helper.addDim(tensor.sizes()[i], tensor.strides()[i]);
-  }
-  return index_type_helper.getType();
 }
 
 } // namespace

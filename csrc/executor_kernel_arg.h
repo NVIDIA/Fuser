@@ -179,7 +179,7 @@ struct BoolArg : public ArgAbstract {
 struct TensorArgAbstract : ArgAbstract {
   at::Tensor tensor_;
 
-  TensorArgAbstract(const at::Tensor& tensor) : tensor_(tensor) {}
+  TensorArgAbstract(at::Tensor tensor) : tensor_(std::move(tensor)) {}
   TensorArgAbstract(const TensorArgAbstract&) = default;
 
   int64_t getRank() const {
