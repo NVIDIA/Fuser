@@ -1469,7 +1469,7 @@ class TestNvFuserFrontend(TestCase):
             T1 = fd.ops.neg(T0)
             T2 = fd.ops.segment_set(T1)
             T3 = fd.ops.relu(T2)
-            fd.add_output(T4)
+            fd.add_output(T3)
 
         eager_out = inputs[0].neg().relu()
 
