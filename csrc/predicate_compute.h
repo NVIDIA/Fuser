@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/thread_predicate.h>
+#include <device_lower/utils.h>
 #include <index_compute.h>
 #include <kernel_ir.h>
-#include <lower_thread_predicate.h>
-#include <lower_utils.h>
 #include <root_domain_map.h>
 
 namespace nvfuser {

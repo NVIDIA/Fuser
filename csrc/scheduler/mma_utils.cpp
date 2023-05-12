@@ -6,9 +6,9 @@
  */
 // clang-format on
 
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir_printer.h>
-#include <lower_utils.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
