@@ -13,8 +13,8 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
-#include <optional>
 #include <cstddef>
+#include <optional>
 
 namespace nvfuser {
 
@@ -177,104 +177,125 @@ struct BoolArg : public ArgAbstract {
 };
 
 struct TensorArgAbstract : ArgAbstract {
-  virtual int64_t getRank() const = 0;
-  virtual int64_t getSize(int64_t i) const = 0;
-  virtual int64_t getStride(int64_t i) const = 0;
-  virtual void* getPointer() const = 0;
-  virtual DataType getDataType() const = 0;
-  virtual int64_t numel() const = 0;
-  virtual at::Tensor getTensor() const = 0;
-  virtual bool isIndexTypeResolved() const = 0;
-  //! Returns the index type of the tensor. It's an error if the
-  //! tensor does not have a resolved index type.
-  virtual PrimDataType getIndexType() const = 0;
+  at::Tensor tensor_;
 
-  std::string toString() const override;
+  TensorArgAbstract(const at::Tensor& tensor) : tensor_(tensor) {}
+  TensorArgAbstract(const TensorArgAbstract&) = default;
+
+  int64_t getRank() const {
+    return tensor_.ndimension();
+  }
+
+  int64_t getSize(int64_t i) const {
+    return tensor_.size(i);
+  }
+
+  virtual int64_t getStride(int64_t i) const {
+    return tensor_.stride(i);
+  }
+
+  void* getPointer() const {
+    return tensor_.data_ptr();
+  }
+
+  DataType getDataType() const {
+    return aten_to_data_type(tensor_.scalar_type());
+  }
+
+  int64_t numel() const {
+    int64_t ret = 1;
+    for (auto i : c10::irange(getRank())) {
+      ret *= getSize(i);
+    }
+    return ret;
+  }
+
+  at::Tensor getTensor() const {
+    return tensor_;
+  }
+
+  virtual bool isAbstract() const {
+    return true;
+  }
+
+  virtual PrimDataType getIndexType() const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The index type of an abstract tensor arg is not known.");
+  }
+
+  bool isType(ArgType t) const {
+    return type() == t;
+  }
+
+  ArgType type() const {
+    return ArgType::Tensor;
+  }
+
+  //! Returns the address of an tensor argument struct.
+  const void* arg() const override {
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
+  }
+
+  //! Returns the address of an tensor argument struct.
+  void* arg() override {
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    auto rank = getRank();
+    ss << "tensor dtype: " << getDataType() << " sizes: (";
+    for (auto i = 0; i < rank; i++) {
+      ss << getSize(i) << ", ";
+    }
+    ss << ") pointer: " << getPointer();
+    return ss.str();
+  }
+
+  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+    return std::make_unique<TensorArgAbstract>(*this);
+  }
 };
 
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
-  at::Tensor tensor_;
-  bool index_type_resolved_ = false;
 
-  TensorArg(const at::Tensor& tensor, bool index_type_resolved)
-      : tensor_(tensor), index_type_resolved_(index_type_resolved) {
-    setPointer(tensor.data_ptr());
+  TensorArg(const at::Tensor& tensor) : TensorArgAbstract(tensor) {
+    instance_.data = tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
-      setSize(i, tensor.sizes()[i]);
-      setStride(i, tensor.strides()[i]);
+      instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
+      instance_.setStride(
+          i, (typename TENSOR_TYPE::index_type)tensor.stride(i));
     }
   }
 
-  void setSize(int64_t i, int64_t size) {
-    instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
-  }
-  void setStride(int64_t i, int64_t stride) {
-    instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
-  }
-  void setPointer(void* ptr) {
-    instance_.data = static_cast<decltype(TENSOR_TYPE::data)>(ptr);
-  }
-  void setTensor(at::Tensor tensor) {
-    tensor_ = tensor;
+  //! Returns the address of an tensor argument struct.
+  const void* arg() const override {
+    return &instance_;
   }
 
-  int64_t getSize(int64_t i) const override {
-    return instance_.getSize(i);
-  }
-  int64_t getStride(int64_t i) const override {
-    return instance_.getStride(i);
-  }
-  int64_t getRank() const override {
-    return instance_.nDims();
-  }
-  void* getPointer() const override {
-    return instance_.data;
-  }
-  DataType getDataType() const override {
-    return aten_to_data_type(tensor_.scalar_type());
-  }
-  at::Tensor getTensor() const override {
-    return tensor_;
-  }
-  int64_t numel() const override {
-    int64_t ret = 1;
-    for (auto i : c10::irange(instance_.nDims())) {
-      ret *= instance_.getSize(i);
-    }
-    return ret;
+  //! Returns the address of an tensor argument struct.
+  void* arg() override {
+    return &instance_;
   }
 
-  bool isIndexTypeResolved() const override {
-    return index_type_resolved_;
+  bool isAbstract() const {
+    return false;
   }
 
   PrimDataType getIndexType() const override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
     return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
   }
 
-  bool isType(ArgType t) const override {
-    return type() == t;
-  }
-
-  ArgType type() const override {
-    return ArgType::Tensor;
-  }
-
-  //! Returns the address of an tensor argument struct. It's an error
-  //! if called with a tensor with no resolved index type
-  const void* arg() const override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
-    return &instance_;
-  }
-
-  //! Returns the address of an tensor argument struct. It's an error
-  //! if called with a tensor with no resolved index type
-  void* arg() override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
-    return &instance_;
+  std::string toString() const {
+    std::stringstream ss;
+    ss << TensorArgAbstract::toString();
+    ss << " stride: (";
+    for (auto i = 0; i < getRank(); i++) {
+      ss << getStride(i) << ", ";
+    }
+    return ss.str();
   }
 
   std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
