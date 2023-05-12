@@ -2743,11 +2743,11 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   void handle(const kir::InitMagicZero*) final {
-    indent() << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+    indent() << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   }
 
   void handle(const kir::UpdateMagicZero*) final {
-    indent() << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+    indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
   void handle(const CatOp* cat) final {
