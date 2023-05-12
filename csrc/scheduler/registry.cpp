@@ -519,10 +519,6 @@ bool tryingToMergeSegmenterSet(Fusion* fusion) {
     if (expr->isA<LoadStoreOp>() &&
         expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
       auto out = expr->output(0);
-      printf(
-          "is output: %d, uses: %d\n",
-          out->isFusionOutput(),
-          out->uses().size());
       // output from SegmenterSet node should be:
       //   1. an output from the given fusion, and
       //   2. not be used by any node within the graph

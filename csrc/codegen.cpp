@@ -1158,7 +1158,6 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
   void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
-
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
       auto out_tv = out_ti->view();
