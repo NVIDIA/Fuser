@@ -202,6 +202,9 @@ class BackwardTraverseFromRFactorToAlloc {
 
 } // namespace
 
+// Given an ATen tensor, whose sizes and strides are w.r.t to the rFactor domain
+// of its corresponding TensorView, compute the sizes and strides of the tensor
+// with respect to its allocation domain.
 std::vector<std::pair<int64_t, int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
@@ -223,7 +226,7 @@ inferAndValidateAllocationSizesAndStrides(
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   TORCH_INTERNAL_ASSERT((int64_t)rfactor.size() == tensor.dim());
-  for (auto i : c10::irange(rfactor.size())) {
+  for (int64_t i : c10::irange((int64_t)rfactor.size())) {
     auto rf_id = rfactor.at(i);
     active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
   }
@@ -241,7 +244,7 @@ inferAndValidateAllocationSizesAndStrides(
   // validate final strides with contiguity
   int64_t contiguous_stride = 1;
   std::vector<std::optional<bool>> contiguity = tv->getContiguity();
-  for (int64_t i = sizes_strides.size() - 1; i >= 0; i--) {
+  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; i--) {
     if (alloc.at(i)->isBroadcast()) {
       continue;
     }
@@ -250,6 +253,10 @@ inferAndValidateAllocationSizesAndStrides(
       continue;
     }
     auto [size, stride] = sizes_strides.at(i);
+    TORCH_INTERNAL_ASSERT(
+        contiguity.back().has_value(),
+        "I don't think this check makes sense, but unfortunately ",
+        "clang-tidy can not infer from the context that this is always true.");
     if (*contiguity.back()) {
       TORCH_CHECK(
           stride == contiguous_stride,
@@ -269,7 +276,7 @@ inferAndValidateAllocationSizesAndStrides(
     contiguity.pop_back();
   }
   // validate final strides with expand
-  for (int64_t i : c10::irange(sizes_strides.size())) {
+  for (int64_t i : c10::irange((int64_t)sizes_strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
       auto [_, stride] = sizes_strides.at(i);
       TORCH_CHECK(
@@ -358,7 +365,7 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
   // target format.
   int64_t alloc_size =
       (tv != nullptr
-           ? TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()
+           ? (int64_t)TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()
            : tensor.dim());
   switch (alloc_size) {
     case (0):

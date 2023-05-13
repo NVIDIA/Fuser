@@ -19,7 +19,7 @@ namespace nvfuser {
 
 class PrecomputedValues;
 class KernelArgumentHolder;
-class TensorArgAbstract;
+struct TensorArgAbstract;
 
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a
