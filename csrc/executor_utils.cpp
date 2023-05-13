@@ -912,8 +912,10 @@ ExpressionEvaluator bindInputs(
     bool check_consistency) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
+  // args may contains more than just inputs, but inputs are always at the
+  // beginning.
   TORCH_INTERNAL_ASSERT(
-      kernel->inputs().size() == args.size(),
+      kernel->inputs().size() <= args.size(),
       "Something went wrong configuring launch. Inputs no longer match.");
 
   ExpressionEvaluator expr_eval;
