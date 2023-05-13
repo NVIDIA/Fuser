@@ -55,7 +55,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     auto s1 = fd.defineScalar();
     try {
-      fd.defineRecord(new ScalarRecord<std::nullptr_t>(
+      fd.defineRecord(new ScalarRecord<double>(
           {fd.recordingState(s1())},
           serde::RecordType_ScalarInput,
           std::nullopt,
@@ -138,7 +138,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     auto s1 = fd.defineScalar();
     try {
-      fd.defineRecord(new ScalarRecord<std::nullptr_t>(
+      fd.defineRecord(new ScalarRecord<double>(
           {fd.recordingState(s1())},
           serde::RecordType_ScalarInput,
           std::nullopt,

@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir_iostream.h>
-#include <lower_utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -276,7 +276,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
     // Roughly taken from executor.cpp/computeLaunchParams
     auto tv = val->as<TensorView>();
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       if (!(id->isThread() && id->extent()->definition() == nullptr)) {
         continue;
       }

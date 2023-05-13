@@ -104,13 +104,12 @@ serde::RecordType mapToSerdeScalarRecordType(PrimDataType t) {
       return serde::RecordType_ScalarConstantDouble;
     case PrimDataType::Int:
       return serde::RecordType_ScalarConstantInt;
-    case PrimDataType::Null:
-      return serde::RecordType_ScalarInput;
     case PrimDataType::ComplexFloat:
     case PrimDataType::Float:
     case PrimDataType::Half:
     case PrimDataType::BFloat16:
     case PrimDataType::Int32:
+    case PrimDataType::Null:
       TORCH_CHECK(
           false, "Unsupported nvFuser ScalarRecord type for DataType:", t);
       break;
@@ -720,7 +719,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_ScalarInput();
-    return new python_frontend::ScalarRecord<std::nullptr_t>(
+    return new python_frontend::ScalarRecord<double>(
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ScalarInput,
         std::nullopt,

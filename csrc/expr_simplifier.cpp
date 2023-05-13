@@ -7,12 +7,12 @@
 // clang-format on
 #include <expr_simplifier.h>
 
+#include <device_lower/magic_zero.h>
 #include <ir_all_nodes.h>
 #include <ir_builder.h>
 #include <ir_cloner.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower_magic_zero.h>
 #include <utils.h>
 
 #include <cmath>
@@ -94,23 +94,28 @@ class Logger : public NoOpLogger {
       : NoOpLogger(value), init_val_(value), current_val_(value) {}
 
   ~Logger() override {
-    if (!shouldPrint()) {
-      return;
-    }
+    try {
+      if (!shouldPrint()) {
+        return;
+      }
 
-    auto str = [](Val* v) {
-      std::stringstream ss;
-      ss << ir_utils::varName(v) << " = " << v->toInlineString();
-      return ss.str();
-    };
+      auto str = [](Val* v) {
+        std::stringstream ss;
+        ss << ir_utils::varName(v) << " = " << v->toInlineString();
+        return ss.str();
+      };
 
-    std::string header = "Simplifying expression:\n" + str(init_val_);
-    std::cout << header << std::endl;
-    for (auto r : record_) {
-      std::cout << r.name << ":\n" << str(r.result) << std::endl;
+      std::string header = "Simplifying expression:\n" + str(init_val_);
+      std::cout << header << std::endl;
+      for (auto r : record_) {
+        std::cout << r.name << ":\n" << str(r.result) << std::endl;
+      }
+      std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
+                << std::endl;
+    } catch (...) {
+      // clang-tidy don't want this function to throw, but this is just a
+      // debugging helper, I don't really care if it has throw or not.
     }
-    std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
-              << std::endl;
   }
 
   void record(const char* name, Val* value) override {
@@ -1355,8 +1360,17 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   if (x->isZero() && isPositiveHelper(y, context)) {
     return true;
   }
+  // i1 % i2 < i2
+  if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
+      bop != nullptr && bop->getBinaryOpType() == BinaryOpType::Mod) {
+    auto denominator = bop->rhs();
+    if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
+        isNonNegative(y, context)) {
+      return true;
+    }
+  }
+  // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
-    // x <= a & a < b & b <= y  -->  x < y
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
       return true;
     }
@@ -1737,6 +1751,38 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
     } else if (prove::greaterEqual(lhs, rhs, context)) {
       return value->fusion()->falseVal();
     }
+  }
+  return value;
+}
+
+// Apply rule 1 in [Simplification of boolean predicates] to convert
+// i / d < D into i < d * D
+Val* convertDivToMulInPredicate(Val* value, const Context& context) {
+  auto bop = dynamic_cast<BinaryOp*>(value->definition());
+  if (!bop) {
+    return value;
+  }
+  if (bop->getBinaryOpType() != BinaryOpType::LT) {
+    return value;
+  }
+  auto lhs = bop->lhs();
+  auto rhs = bop->rhs();
+  bop = dynamic_cast<BinaryOp*>(lhs->definition());
+  if (!bop) {
+    return value;
+  }
+  if (bop->getBinaryOpType() != BinaryOpType::Div) {
+    return value;
+  }
+  auto numerator = bop->lhs();
+  auto denominator = bop->rhs();
+  if (isValidDenominator(denominator, context) &&
+      prove::isNonNegative(numerator, context) &&
+      prove::isNonNegative(denominator, context)) {
+    auto new_rhs = maybeFlattenedOpOf(BinaryOpType::Mul, {rhs, denominator});
+    auto out = IrBuilder::newScalar(DataType::Bool);
+    IrBuilder::create<BinaryOp>(BinaryOpType::LT, out, numerator, new_rhs);
+    return out;
   }
   return value;
 }
@@ -2378,6 +2424,7 @@ Val* simplifyExpr(
     RUN_PASS(simplifyDivisibleDivMod);
     RUN_PASS(cancelDivMod);
     RUN_PASS(fundamentalDivisionWithRemainderProperty);
+    RUN_PASS(convertDivToMulInPredicate);
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
     RUN_PASS(distributeGcdRemainderDivMod);
