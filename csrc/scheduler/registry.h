@@ -6,8 +6,8 @@
  */
 // clang-format on
 #pragma once
-#include <evaluator_common.h>
 #include <executor_kernel_arg.h>
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
