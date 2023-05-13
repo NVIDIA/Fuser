@@ -1941,7 +1941,10 @@ struct ScalarRecord : RecordFunctor {
 
   virtual void operator()(FusionState& fd) final {
     Val* output = nullptr;
-    if constexpr (std::is_same_v<ValueType, std::nullptr_t>) {
+    if (value_.has_value()) {
+      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(
+          value_.value(), dtype_);
+    } else {
       if (dtype_ == DataType::Double) {
         output = IrBuilder::create<Double>();
       } else if (dtype_ == DataType::ComplexDouble) {
@@ -1954,9 +1957,6 @@ struct ScalarRecord : RecordFunctor {
         TORCH_CHECK(false, "Dtype is not supported:", dtype_);
       }
       fd.addInput(output);
-    } else {
-      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(
-          value_.value(), dtype_);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -2027,10 +2027,18 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
         std::optional<bool> value) const {
-  return {
-      serde::RecordData_Bool,
-      serde::CreateBool(builder, value.value(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Bool,
+        serde::CreateBool(
+            builder, value.value(), serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 }
 
 template <>
@@ -2039,14 +2047,21 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
         std::optional<std::complex<double>> value) const {
-  return {
-      serde::RecordData_ComplexDouble,
-      serde::CreateComplexDouble(
-          builder,
-          value.value().real(),
-          value.value().imag(),
-          serde::mapToSerdeDtype(dtype_))
-          .Union()};
+  if (value.has_value()) {
+    return {
+        serde::RecordData_ComplexDouble,
+        serde::CreateComplexDouble(
+            builder,
+            value.value().real(),
+            value.value().imag(),
+            serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 }
 
 template <>
@@ -2055,11 +2070,18 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
         std::optional<double> value) const {
-  return {
-      serde::RecordData_Double,
-      serde::CreateDouble(
-          builder, value.value(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Double,
+        serde::CreateDouble(
+            builder, value.value(), serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 }
 
 template <>
@@ -2068,22 +2090,17 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
         std::optional<int64_t> value) const {
-  return {
-      serde::RecordData_Int,
-      serde::CreateInt(builder, value.value(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    std::nullptr_t>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<std::nullptr_t> value) const {
-  return {
-      serde::RecordData_ScalarInput,
-      serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-          .Union()};
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Int,
+        serde::CreateInt(builder, value.value(), serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 }
 
 //! Specialized Record Functor for the slice operation.
