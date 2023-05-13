@@ -163,7 +163,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
-  
+
   py::class_<Vector> vector_class(nvfuser, "Vector");
   scalar_class.def("__repr__", [](Vector& self) {
     std::stringstream ss;
@@ -545,30 +545,30 @@ void initNvFuserPythonBindings(PyObject* module) {
 // or a vector of values to indicate either an input or a constant for use
 // when printing out the associated Fusion Record.
 #define NVFUSER_PYTHON_BINDING_CANONICAL_VECTOR(Nvfuser_DType, CType)   \
-  fusion_def.def(                                             \
-      "define_vector",                                        \
-      [](FusionDefinition& self,                              \
-         std::optional<std::vector<CType>> value,             \
-         int64_t size,                                        \
-         PrimDataType dtype) -> Vector {                      \
-        FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");   \
-        TORCH_CHECK(size > 0, "Vector size should be >0.");   \
-        if (value.has_value()) {                              \
-          TORCH_CHECK(value.value().size() == static_cast<size_t>(size), "value size and input size do not  match!");\
-        }                                                     \
-        Vector out = self.defineVector();                     \
-        auto rtype = value.has_value() ? serde::mapToSerdeVectorRecordType(Nvfuser_DType) : serde::RecordType_VectorInput; \
-        self.defineRecord(new VectorRecord<CType>(            \
-            {self.recordingState(out())},                     \
-            rtype, \
-            value,                                            \
-            size,                                             \
-            dtype));                                          \
-        return out;                                           \
-      },                                                      \
-      py::arg("value"),                                       \
-      py::arg("size"),                                        \
-      py::arg("dtype") = Nvfuser_DType,                       \
+  fusion_def.def(                                                       \
+      "define_vector",                                                  \
+      [](FusionDefinition& self,                                        \
+         std::optional<std::vector<CType>> value,                       \
+         int64_t size,                                                  \
+         PrimDataType dtype) -> Vector {                                \
+        FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)"); \
+        TORCH_CHECK(size > 0, "Vector size should be >0.");             \
+        if (value.has_value()) {                                        \
+          TORCH_CHECK(                                                  \
+              value.value().size() == static_cast<size_t>(size),        \
+              "value size and input size do not  match!");              \
+        }                                                               \
+        Vector out = self.defineVector();                               \
+        auto rtype = value.has_value()                                  \
+            ? serde::mapToSerdeVectorRecordType(Nvfuser_DType)          \
+            : serde::RecordType_VectorInput;                            \
+        self.defineRecord(new VectorRecord<CType>(                      \
+            {self.recordingState(out())}, rtype, value, size, dtype));  \
+        return out;                                                     \
+      },                                                                \
+      py::arg("value"),                                                 \
+      py::arg("size"),                                                  \
+      py::arg("dtype") = Nvfuser_DType,                                 \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_CANONICAL_VECTOR(DataType::Int, int64_t);
@@ -577,23 +577,23 @@ void initNvFuserPythonBindings(PyObject* module) {
 // This is the constant version of define_vector when given a vector
 // of constant values.
 #define NVFUSER_PYTHON_BINDING_CONSTANT_VECTOR(Nvfuser_DType, CType)   \
-  fusion_def.def(                                             \
-      "define_vector",                                        \
-      [](FusionDefinition& self,                              \
-         std::vector<CType> value,             \
-         PrimDataType dtype) -> Vector {                      \
-        FUSER_PERF_SCOPE("FusionDefinition.define_vector (constant)");   \
-        Vector out = self.defineVector();                     \
-        self.defineRecord(new VectorRecord<CType>(            \
-            {self.recordingState(out())},                     \
-            serde::mapToSerdeScalarRecordType(Nvfuser_DType), \
-            value,                                            \
-            value.size(),                                     \
-            dtype));                                          \
-        return out;                                           \
-      },                                                      \
-      py::arg("value"),                                       \
-      py::arg("dtype") = Nvfuser_DType,                       \
+  fusion_def.def(                                                      \
+      "define_vector",                                                 \
+      [](FusionDefinition& self,                                       \
+         std::vector<CType> value,                                     \
+         PrimDataType dtype) -> Vector {                               \
+        FUSER_PERF_SCOPE("FusionDefinition.define_vector (constant)"); \
+        Vector out = self.defineVector();                              \
+        self.defineRecord(new VectorRecord<CType>(                     \
+            {self.recordingState(out())},                              \
+            serde::mapToSerdeScalarRecordType(Nvfuser_DType),          \
+            value,                                                     \
+            value.size(),                                              \
+            dtype));                                                   \
+        return out;                                                    \
+      },                                                               \
+      py::arg("value"),                                                \
+      py::arg("dtype") = Nvfuser_DType,                                \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_CONSTANT_VECTOR(DataType::Int, int64_t);

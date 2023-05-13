@@ -2818,8 +2818,7 @@ struct VectorRecord : RecordFunctor {
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (value_ == child_ptr->value_) &&
-          (size_ == child_ptr->size_) &&
-          (dtype_ == child_ptr->dtype_);
+          (size_ == child_ptr->size_) && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
@@ -2848,7 +2847,7 @@ struct VectorRecord : RecordFunctor {
     os << "[";
     bool first_arg = true;
     if (value_.has_value()) {
-      for (auto &v : value_.value()) {
+      for (auto& v : value_.value()) {
         if (first_arg) {
           first_arg = false;
         } else {
@@ -2860,7 +2859,7 @@ struct VectorRecord : RecordFunctor {
     } else {
       os << "None";
     }
-        
+
     os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
@@ -2902,8 +2901,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
   } else {
     return {
         serde::RecordData_VectorInput,
-        serde::CreateVectorInput(
-            builder, size_, serde::mapToSerdeDtype(dtype_))
+        serde::CreateVectorInput(builder, size_, serde::mapToSerdeDtype(dtype_))
             .Union()};
   }
 }

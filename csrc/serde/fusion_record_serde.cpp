@@ -796,6 +796,30 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(
       serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
+
+  auto deserializeVectorConstantIntRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_VectorInt();
+        return new python_frontend::VectorRecord<int64_t>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_VectorConstantInt,
+            std::optional<std::vector<int64_t>>(parseVector(data->int_vals())),
+            data->size(),
+            mapToNvfuserDtype(data->dtype()));
+      };
+  registerParser(
+      serde::RecordType_VectorConstantInt, deserializeVectorConstantIntRecord);
+
+  auto deserializeVectorInputRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_VectorInput();
+    return new python_frontend::VectorRecord<int64_t>(
+        parseStateArgs(buffer->outputs()),
+        serde::RecordType_VectorInput,
+        std::nullopt,
+        data->size(),
+        mapToNvfuserDtype(data->dtype()));
+  };
+  registerParser(serde::RecordType_VectorInput, deserializeVectorInputRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
