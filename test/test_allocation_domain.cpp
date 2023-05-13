@@ -303,4 +303,307 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd_CUDA) {
       __FILE__);
 }
 
+// A global->global copy kernel where both inputs are NHWC memory format
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the input as a 1d tensor.
+TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h * w * c});
+  fusion.addInput(tv0);
+
+  std::vector<IterDomain*> tv0_1d = {tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_1d, true);
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
+  tv0->reorder({{-1, 1}});
+  tv0->commitLeafToRFactor();
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(0);
+  // [N*H*W*C]
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the output as a 1d tensor.
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  // TODO: making this symbolic size
+  auto tv0 = makeContigConcreteTensor({n, c, h, w});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  // [N, C, H, W] -> [N, H, W, C]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C] -> [N*H*W*C]
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->merge(0);
+
+  std::vector<IterDomain*> tv1_1d = {tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_1d, true);
+
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  // EXPECT_THAT(
+  //     [&]() { fe.runFusion({t0_wrong_format}); },
+  //     ::testing::ThrowsMessage<c10::Error>(
+  //         ::testing::HasSubstr("Stride mismatch with contiguity info")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view both the input and the output as a 1d tensors.
+TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h * w * c});
+  fusion.addInput(tv0);
+
+  std::vector<IterDomain*> tv0_1d = {tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_1d, true);
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
+  tv0->reorder({{-1, 1}});
+  tv0->commitLeafToRFactor();
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [N, C, H, W] -> [N, H, W, C]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C] -> [N*H*W*C]
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->merge(0);
+
+  std::vector<IterDomain*> tv1_1d = {tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_1d, true);
+
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "Splitting one dimension into discontiguous dimensions is not")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// A global->global copy kernel where both inputs are NHWC memory format. The
+// allocation domain view the input as a 2d tensor of shape [N*H/8, 8*W*C], and
+// view the output as a 2d tensor of shape [N*H*W*C/4, 4]
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h / 8, 8 * w * c});
+  fusion.addInput(tv0);
+
+  std::vector<IterDomain*> tv0_2d = {tv0->axis(0), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_2d, true);
+  tv0->merge(0);
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
+  // [N, H, W, C]
+  tv0->reorder({{-1, 1}});
+  // [N, C, H, W]
+  tv0->commitLeafToRFactor();
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->merge(0);
+  // [N*H*W*C]
+
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  // [N*H*W*C/4, 4]
+
+  std::vector<IterDomain*> tv1_2d = {tv1->axis(0), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_2d, true);
+
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 = t0_wrong_format.contiguous(at::MemoryFormat::ChannelsLast);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
