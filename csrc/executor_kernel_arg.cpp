@@ -16,7 +16,9 @@ namespace nvfuser {
 
 namespace {
 
-// helper class for getAllocationSizesAndStrides
+// Forward traverse from rFactor domain to allocation domain, compute frontier
+// sizes and strides, validate that splits are divisible and merges are
+// contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromRFactorToAlloc {
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
@@ -107,7 +109,7 @@ class ForwardTraverseFromRFactorToAlloc {
   }
 };
 
-// helper class for getAllocationSizesAndStrides
+// Similar to ForwardTraverseFromRFactorToAlloc, but in the opposite direction.
 class BackwardTraverseFromRFactorToAlloc {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
@@ -205,6 +207,12 @@ class BackwardTraverseFromRFactorToAlloc {
 // Given an ATen tensor, whose sizes and strides are w.r.t to the rFactor domain
 // of its corresponding TensorView, compute the sizes and strides of the tensor
 // with respect to its allocation domain.
+// For example, if the rFactor domain is [I1, I2], and the allocation domain is
+// [I2*I1], and the tensor's size is [5, 3] and stride is [2, 10], then the
+// resulting size will be [15] and stride will be [2]
+// Another example, if the rFactor domain is [I1*I2] and the allocation domain
+// is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
+// of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
 std::vector<std::pair<int64_t, int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
@@ -234,14 +242,15 @@ inferAndValidateAllocationSizesAndStrides(
   ForwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
   BackwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
 
-  // compute final result
+  // Now active_ids should contain the final sizes and strides, unordered. We
+  // need to put them to the correct order.
   std::vector<std::pair<int64_t, int64_t>> sizes_strides;
   sizes_strides.reserve(alloc.size());
   for (auto i : c10::irange(alloc.size())) {
     auto id = alloc.at(i);
     sizes_strides.emplace_back(active_ids.at(id));
   }
-  // validate final strides with contiguity
+  // Validate final sizes and strides with contiguity
   int64_t contiguous_stride = 1;
   std::vector<std::optional<bool>> contiguity = tv->getContiguity();
   for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; i--) {
@@ -275,7 +284,7 @@ inferAndValidateAllocationSizesAndStrides(
     contiguous_stride = stride * size;
     contiguity.pop_back();
   }
-  // validate final strides with expand
+  // Validate that for expanded broadcast, the stride must be zero.
   for (int64_t i : c10::irange((int64_t)sizes_strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
       auto [_, stride] = sizes_strides.at(i);
@@ -365,7 +374,8 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
   // target format.
   int64_t alloc_size =
       (tv != nullptr
-           ? (int64_t)TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()
+           ? (int64_t)TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+                 .size()
            : tensor.dim());
   switch (alloc_size) {
     case (0):
