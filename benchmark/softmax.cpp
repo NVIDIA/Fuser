@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
-#include <lower2device.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
@@ -150,7 +150,7 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->domain()->leaf()) {
+    for (IterDomain* id : tv->getLeafDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

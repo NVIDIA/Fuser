@@ -8,12 +8,12 @@
 #include <ir_iostream.h>
 #include <ir_printer.h>
 
+#include <device_lower/utils.h>
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
 #include <kernel.h>
-#include <lower_utils.h>
 #include <utils.h>
 
 #include <c10/util/irange.h>
@@ -109,7 +109,7 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
   const auto& from = tv->getMaybeRFactorDomain();
-  const auto& leaf = tv->domain()->leaf();
+  const auto& leaf = tv->getLeafDomain();
   auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 

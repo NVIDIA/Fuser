@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir_cloner.h>
 #include <ir_interface_nodes.h>
@@ -12,7 +13,6 @@
 #include <ir_utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
@@ -737,10 +737,10 @@ std::string RNGOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-size_t RNGOp::getOutputDims() const {
-  size_t ndims = 0;
+int64_t RNGOp::getOutputDims() const {
+  int64_t ndims = 0;
   if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
-    ndims = tv_out->getRootDomain().size();
+    ndims = (int64_t)tv_out->getRootDomain().size();
   }
   return ndims;
 }
@@ -1391,7 +1391,7 @@ struct TensorViewDetails {
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  for (size_t pos = 0; pos < dims.size(); ++pos) {
+  for (auto pos : c10::irange((int64_t)dims.size())) {
     const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
@@ -2590,31 +2590,44 @@ Val* IterDomain::stop() const {
   return sub(extent(), stopOffset());
 }
 
+namespace {
+
+void validateContiguity(
+    const std::vector<IterDomain*>& allocation_domain,
+    const std::vector<std::optional<bool>>& contiguity) {
+  TORCH_CHECK(
+      contiguity.size() == allocation_domain.size(),
+      "Invalid contiguity information provided, incorrect size. Received vector of size ",
+      contiguity.size(),
+      " but needed one of size ",
+      allocation_domain.size());
+  for (auto i : c10::irange(contiguity.size())) {
+    bool expect_null =
+        (allocation_domain.at(i)->isBroadcast() ||
+         allocation_domain.at(i)->isReduction());
+    TORCH_CHECK(
+        expect_null != contiguity.at(i).has_value(),
+        "The contiguity of a broadcast/reduction dimension must be None. "
+        "The contiguity of a non-broadcast/reduction dimension must be true/false");
+  }
+}
+
+} // namespace
+
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
-                             : std::move(contiguity)) {
-  TORCH_CHECK(
-      contiguity_.size() == maybeRFactor().size(),
-      "Invalid contiguity information provided, incorrect size. Received vector of size ",
-      contiguity_.size(),
-      " but needed one of size ",
-      maybeRFactor().size());
-  for (auto i : c10::irange(contiguity_.size())) {
-    TORCH_CHECK(
-        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)),
+      has_reduction_(false) {
+  validateContiguity(maybeAllocation(), contiguity_);
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
-  leaf_domain_ = root_domain_;
   resetDomains();
 }
 
@@ -2627,20 +2640,9 @@ TensorDomain::TensorDomain(
       root_domain_(std::move(root_domain)),
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(root_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
-  TORCH_CHECK(
-      contiguity_.size() == maybeRFactor().size(),
-      "Invalid contiguity information provided, incorrect size. Received vector of size ",
-      contiguity_.size(),
-      " but needed one of size ",
-      root_domain_.size());
-  for (auto i : c10::irange(contiguity_.size())) {
-    TORCH_CHECK(
-        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
+  validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
     TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
@@ -2663,20 +2665,9 @@ TensorDomain::TensorDomain(
       rfactor_domain_(std::move(rfactor_domain)),
       leaf_domain_(std::move(leaf_domain)),
       contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(rfactor_domain_, false)
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
-  TORCH_CHECK(
-      contiguity_.size() == maybeRFactor().size(),
-      "Invalid contiguity information provided, incorrect size. Received vector of size ",
-      contiguity_.size(),
-      " but needed one of size ",
-      maybeRFactor().size());
-  for (auto i : c10::irange(contiguity_.size())) {
-    TORCH_CHECK(
-        maybeRFactor().at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
+  validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
     TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
@@ -2684,6 +2675,41 @@ TensorDomain::TensorDomain(
     if (!rfactor_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
       ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+    }
+  }
+
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> rfactor_domain,
+    std::vector<IterDomain*> allocation_domain,
+    std::vector<IterDomain*> leaf_domain,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      rfactor_domain_(std::move(rfactor_domain)),
+      allocation_domain_(std::move(allocation_domain)),
+      leaf_domain_(std::move(leaf_domain)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+    }
+    if (!allocation_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, allocation_domain_);
+      ir_utils::validateDomainEquivalence(allocation_domain_, leaf_domain_);
     }
   }
 
@@ -2817,11 +2843,11 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
   TORCH_INTERNAL_ASSERT(
-      maybeRFactor().size() == contig.size(),
+      maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : c10::irange(contig.size())) {
     TORCH_CHECK(
-        maybeRFactor().at(i)->isBroadcast() != contig.at(i).has_value(),
+        maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
   }
@@ -3090,7 +3116,7 @@ std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
-    if (id->isBroadcast()) {
+    if (id->isBroadcast() || id->isReduction()) {
       contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
@@ -3199,21 +3225,15 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setAllocationDomain(
-    std::vector<IterDomain*> new_allocation_domain) {
-  TORCH_CHECK(false, "setAllocationDomain build-out is not finished yet");
+    std::vector<IterDomain*> new_allocation_domain,
+    std::vector<std::optional<bool>> new_contiguity) {
+  validateContiguity(new_allocation_domain, new_contiguity);
 
   ir_utils::validateDomainEquivalence(root_domain_, new_allocation_domain);
   ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
 
-  // TODO: lift this restriction
-  TORCH_CHECK(
-      std::unordered_set<IterDomain*>(
-          new_allocation_domain.begin(), new_allocation_domain.end()) ==
-          std::unordered_set<IterDomain*>(
-              maybeRFactor().begin(), maybeRFactor().end()),
-      "Currently, allocation domain can only be a reorder of rFactor domain");
-
   allocation_domain_ = std::move(new_allocation_domain);
+  contiguity_ = std::move(new_contiguity);
 }
 
 Split::Split(

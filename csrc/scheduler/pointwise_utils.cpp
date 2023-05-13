@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <utils.h>
 

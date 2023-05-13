@@ -23,6 +23,9 @@
 #   --debug
 #     Building nvfuser in debug mode
 #
+#   --debinfo
+#     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -31,6 +34,10 @@
 #   -install_requires=pkg0[,pkg1...]
 #     this is used for pip wheel build to specify package required for install
 #     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
+#
+#   -wheel-name=NAME
+#     Specify the wheel name this is used for pip wheel package where we want
+#     to identify the cuda toolkit version
 #
 
 import multiprocessing
@@ -54,6 +61,7 @@ PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
+WHEEL_NAME = "nvfuser"
 INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -75,12 +83,18 @@ for i, arg in enumerate(sys.argv):
     if arg == "--debug":
         BUILD_TYPE = "Debug"
         continue
+    if arg == "--debinfo":
+        BUILD_TYPE = "RelwithDebInfo"
+        continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
         VERSION_TAG = arg.split("=")[1]
+        continue
+    if arg.startswith("-wheel-name="):
+        WHEEL_NAME = arg.split("=")[1]
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -225,7 +239,8 @@ def version_tag():
     if OVERWRITE_VERSION:
         version = version.split("+")[0]
         if len(VERSION_TAG) != 0:
-            version = "+".join([version, VERSION_TAG])
+            # use "." to be pypi friendly
+            version = ".".join([version, VERSION_TAG])
     return version
 
 
@@ -271,7 +286,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
     cmd_str.append(".")
 
-    print(f"Configuraing CMake with {' '.join(cmd_str)}")
+    print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
 
     if not CMAKE_ONLY:
@@ -317,7 +332,7 @@ def main():
         ]
 
         setup(
-            name="nvfuser",
+            name=WHEEL_NAME,
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
