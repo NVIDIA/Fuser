@@ -1873,6 +1873,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       tvs.emplace_back(tv);
     }
+    if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
+      tvs.emplace_back(nullptr);
+    }
     auto arg_buffer = args.getBuffer(kernel()->indexType(), tvs);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
