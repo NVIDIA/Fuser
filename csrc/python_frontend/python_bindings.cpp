@@ -481,9 +481,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
 
-// This is the canonical version of define_scalar, therefore, it is possible
-// to also define a scalar input with type Null/std::nullptr_t
-// The ScalarRecord will be responsible for checking if is_input is valid.
+// This is the canonical version of define_scalar
 #define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(Nvfuser_DType, CType) \
   fusion_def.def(                                                     \
       "define_scalar",                                                \

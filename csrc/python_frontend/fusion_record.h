@@ -1922,17 +1922,19 @@ struct ScalarRecord : RecordFunctor {
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       if (result) {
-        if constexpr (
-            std::is_same_v<ValueType, float> ||
-            std::is_same_v<ValueType, double>) {
-          if (std::isnan(value_.value()) &&
-              std::isnan(child_ptr->value_.value())) {
-            return true;
+        if (value_.has_value()) {
+          if constexpr (
+              std::is_same_v<ValueType, float> ||
+              std::is_same_v<ValueType, double>) {
+            if (std::isnan(value_.value()) &&
+                std::isnan(child_ptr->value_.value())) {
+              return true;
+            } else {
+              result = (value_ == child_ptr->value_);
+            }
           } else {
             result = (value_ == child_ptr->value_);
           }
-        } else {
-          result = (value_ == child_ptr->value_);
         }
       }
     }
