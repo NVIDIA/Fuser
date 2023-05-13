@@ -614,7 +614,8 @@ void validateAlignedVectorizedFusionInputOutput(
       inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
+  for (int64_t i :
+       c10::irange((int64_t)tv->getMaybeAllocationDomain().size())) {
     auto alloc_id = tv->getMaybeAllocationDomain().at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);

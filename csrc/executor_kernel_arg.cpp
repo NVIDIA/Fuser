@@ -262,11 +262,12 @@ inferAndValidateAllocationSizesAndStrides(
       continue;
     }
     auto [size, stride] = sizes_strides.at(i);
+    auto last_contiguity = contiguity.back();
     TORCH_INTERNAL_ASSERT(
-        contiguity.back().has_value(),
+        last_contiguity.has_value(),
         "I don't think this check makes sense, but unfortunately ",
-        "clang-tidy can not infer from the context that this is always true.");
-    if (*contiguity.back()) {
+        "clang-tidy is not smart enough to infer from the context that this is always true.");
+    if (*last_contiguity) {
       TORCH_CHECK(
           stride == contiguous_stride,
           "Stride mismatch with contiguity info. ",
