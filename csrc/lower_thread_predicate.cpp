@@ -601,44 +601,11 @@ class ConcretizedBroadcastRedundantWriteRemover {
         {root_domain_.begin(), root_domain_.end()}, {ld});
     for (auto expr : all_exp) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
-        auto outer_iter_im = std::find(
-            intermediate_domains.begin(),
-            intermediate_domains.end(),
-            merge->outer());
-        auto inner_iter_im = std::find(
-            intermediate_domains.begin(),
-            intermediate_domains.end(),
-            merge->inner());
-        TORCH_INTERNAL_ASSERT(
-            outer_iter_im != intermediate_domains.end(),
-            "Couldn't find ",
-            merge->outer());
-        TORCH_INTERNAL_ASSERT(
-            inner_iter_im != intermediate_domains.end(),
-            "Couldn't find ",
-            merge->inner());
-        int dist = std::distance(inner_iter_im, outer_iter_im);
-        if (std::abs(dist) != 1) {
-          // if the merged domains are not adjacent, return empty so the
-          // predication is not applied.
-          return std::vector<IterDomain*>();
-        }
-        // insert after erase so the beg iter is not invalidated
-        auto beg = dist > 0 ? inner_iter_im : outer_iter_im;
-        auto end = dist > 0 ? outer_iter_im : inner_iter_im;
-        intermediate_domains.erase(beg, end + 1);
-        intermediate_domains.insert(beg, merge->out());
-
         auto outer_iter =
             std::find(root_domain_.begin(), root_domain_.end(), merge->outer());
         auto inner_iter =
             std::find(root_domain_.begin(), root_domain_.end(), merge->inner());
-        // outer_iter and inner_iter should be neighbors in root_domain
-        if (inner_iter != root_domain_.end() &&
-            outer_iter != root_domain_.end() &&
-            std::distance(outer_iter, inner_iter) != 1) {
-          return std::vector<IterDomain*>();
-        }
+
         if (outer_iter != root_domain_.end()) {
           merged_root_domains.emplace_back(*outer_iter);
           index_root_domain.emplace_back(
@@ -658,6 +625,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     int n_elements = merged_root_domains.size();
+    TORCH_INTERNAL_ASSERT(n_elements, "The number of merged root domains should > 0");
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
@@ -678,7 +646,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     const int ndim = (int)merged_root_domains.size();
     // get the stride if we index the leaf domain using its root domains
     std::vector<Val*> root_stride(ndim);
-    root_stride[ndim - 1] = IrBuilder::create<Int>(1);
+    root_stride[ndim - 1] = GpuLower::current()->kernel()->oneVal();
     for (int i = ndim - 2; i >= 0; i--) {
       auto pre_crd = merged_root_domains[i + 1];
       Val* pre_extent = pre_crd->isBroadcast()
@@ -713,9 +681,11 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
   ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
   const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
-  thread_predicates_[out_tv].write_index_map = write_index_map;
-  for (auto iter : write_index_map) {
-    thread_predicates_[out_tv].redundant_types.set(iter.first);
+  if(!write_index_map.empty()) {
+    thread_predicates_[out_tv].write_index_map = write_index_map;
+    for (auto iter : write_index_map) {
+      thread_predicates_[out_tv].redundant_types.set(iter.first);
+    }    
   }
 }
 
@@ -732,9 +702,9 @@ void ThreadPredicateMap::build(Fusion* fusion) {
     updateBitSet(expr);
   }
 
-  for (auto out_val : fusion->outputs()) {
-    if (auto out_tv = dynamic_cast<const TensorView*>(out_val)) {
-      avoidConcretizedBroadcastRedundantWrite(out_tv);
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (tv->getMemoryType() == MemoryType::Global) {
+      avoidConcretizedBroadcastRedundantWrite(tv);
     }
   }
 

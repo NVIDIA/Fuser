@@ -8240,6 +8240,145 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
   runTest({true, true, true, false});
 }
 
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = add(tv3, IrBuilder::create<Double>(1));
+  tv5->setMemoryType(MemoryType::Global);
+  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  fusion.addOutput(tv6);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->merge(0);
+  }
+
+  tv2->inlineAt(1);
+  tv3->inlineAt(1);
+  tv5->inlineAt(1);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({32}, options);
+  at::Tensor t1 = at::randn({32,64}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  // check thread_pred
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->name() == 5 || tv->name() == 6) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.write_index_map.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted,
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a write_index_map!");
+    }
+  }
+
+  // validate outputs
+  at::Tensor tb = t0.unsqueeze(1);
+  auto ref_1 = tb + t1;
+  auto ref_2 = tb + 2.0;
+  testValidate(fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+}
+
+// Test case where the merge order is random
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+  const int ndim = 5;
+  const std::vector<bool> is_broadcast = {false, true, false, false, true};
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(ndim);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, is_broadcast);
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = add(tv3, IrBuilder::create<Double>(1));
+  tv5->setMemoryType(MemoryType::Global);
+  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  fusion.addOutput(tv6);
+
+  // merge first and last domain
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->merge(0, -1);
+  }
+
+  tv2->inlineAt(-1);
+  tv3->inlineAt(-1);
+  tv5->inlineAt(-1);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({8, 10, 12}, options);
+  at::Tensor t1 = at::randn({8, 7, 10, 12, 9}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  // check thread_pred
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->name() == 5 || tv->name() == 6) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.write_index_map.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted,
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a write_index_map!");
+    }
+  }
+
+  // validate outputs
+  at::Tensor tb = t0;
+  for (int i = 0; i < ndim; i++) {
+    if (is_broadcast[i]) {
+      tb = tb.unsqueeze(i);
+    }
+  }
+  auto ref_1 = tb + t1;
+  auto ref_2 = tb + 2.0;
+  testValidate(fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+}
+
 // Test for ir_utils::validateDomainEquivalence. We could consider
 // it well tested as it's always used when TensorDomain is created, but
 // here's some corner cases.
