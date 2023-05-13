@@ -2792,10 +2792,12 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _outputs,
       serde::RecordType record_type,
-      std::vector<std::optional<ValueType>> value,
+      std::optional<std::vector<ValueType>> value,
+      int64_t size,
       PrimDataType dtype)
       : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
         value_(std::move(value)),
+        size_(size),
         dtype_(dtype) {}
   virtual ~VectorRecord() = default;
   virtual RecordFunctor* clone() final {
@@ -2803,11 +2805,12 @@ struct VectorRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 ---------------------------------------  0 |
-  //! | Dtype                                         |
+  //! | 31 --------------- 16 | 15 ---------------  0 |
+  //! | Dtype                 | Size                  |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+    result |= (static_cast<size_t>(dtype_) & 0xffff) << 16;
+    return result | (static_cast<size_t>(size_) & 0xffff);
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
@@ -2815,28 +2818,27 @@ struct VectorRecord : RecordFunctor {
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (value_ == child_ptr->value_) &&
+          (size_ == child_ptr->size_) &&
           (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
 
   virtual void operator()(FusionState& fd) final {
-    std::vector<Val*> output(value_.size(), nullptr);
+    std::vector<Val*> output(size_, nullptr);
     TORCH_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
-    if constexpr (std::is_same<ValueType, std::nullptr_t>::value) {
-      for (size_t i = 0; i < value_.size(); ++i) {
-        output[i] = IrBuilder::create<Int>();
-        fd.addInput(output[i]);
-      }
-    } else if constexpr (std::is_same<ValueType, int64_t>::value) {
-      for (size_t i = 0; i < value_.size(); ++i) {
-        output[i] = IrBuilder::create<Int>(value_[i]);
+    if (value_.has_value()) {
+      for (int64_t i = 0; i < size_; ++i) {
+        output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
       }
     } else {
-      TORCH_CHECK(false, "Unsupported ValueType by Vector of Sizes.");
+      for (int64_t i = 0; i < size_; ++i) {
+        output[i] = IrBuilder::create<Int>();
+        fd.addInput(output.at(i));
+      }
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -2845,23 +2847,21 @@ struct VectorRecord : RecordFunctor {
     RecordFunctor::print(os, false);
     os << "[";
     bool first_arg = true;
-    for (auto &v : value_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
+    if (value_.has_value()) {
+      for (auto &v : value_.value()) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << v;
       }
-      if constexpr (std::is_same_v<ValueType, nullptr_t>) {
-        os << "None";
-      } else if constexpr (std::is_same_v<ValueType, int64_t>) {
-        TORCH_CHECK(v.has_value(), "Vector value is null!");
-        os << v.value();
-      } else {
-        TORCH_CHECK(false, "Unsupported ValueType by Vector of Sizes.");
-      }
+      os << "]";
+    } else {
+      os << "None";
     }
         
-    os << "], dtype=" << dtypeToPyString(dtype_);
+    os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
     }
@@ -2874,11 +2874,13 @@ struct VectorRecord : RecordFunctor {
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
-      const std::vector<std::optional<ValueType>>& value) const;
+      const std::optional<std::vector<ValueType>>& value) const;
 
  private:
   //! The vector's value.
-  std::vector<std::optional<ValueType>> value_;
+  std::optional<std::vector<ValueType>> value_;
+  //! Since the vector's value is optional, the size is stored here
+  int64_t size_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
@@ -2887,28 +2889,23 @@ struct VectorRecord : RecordFunctor {
 
 template <>
 inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
-    std::nullptr_t>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        const std::vector<std::optional<std::nullptr_t>>& value) const {
-  return {
-      serde::RecordData_VectorInput,
-      serde::CreateVectorInput(
-          builder, value.size(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> VectorRecord<
     int64_t>::
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
-        const std::vector<std::optional<int64_t>>& value) const {
-  return {
-      serde::RecordData_VectorInt,
-      serde::CreateVectorIntDirect(
-          builder, &value, serde::mapToSerdeDtype(dtype_))
-          .Union()};
+        const std::optional<std::vector<int64_t>>& value) const {
+  if (value.has_value()) {
+    return {
+        serde::RecordData_VectorInt,
+        serde::CreateVectorIntDirect(
+            builder, &(value.value()), size_, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_VectorInput,
+        serde::CreateVectorInput(
+            builder, size_, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 }
 
 } // namespace nvfuser::python_frontend

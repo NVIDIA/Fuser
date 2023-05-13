@@ -131,8 +131,8 @@ union RecordData {
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
-  VectorInput,
   VectorInt,
+  VectorInput,
 }
 
 // Data for Scalar Constant Bool
@@ -268,7 +268,7 @@ table TensorCreationSymbolic {
   dtype: DataType;
 }
 
-// Data for Vector Input
+// Data for Input Vector
 table VectorInput {
   size: long;
   dtype: DataType;

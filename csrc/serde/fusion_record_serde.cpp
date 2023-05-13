@@ -121,6 +121,29 @@ serde::RecordType mapToSerdeScalarRecordType(PrimDataType t) {
   return serde::RecordType_Base;
 }
 
+serde::RecordType mapToSerdeVectorRecordType(PrimDataType t) {
+  switch (t) {
+    case PrimDataType::Int:
+      return serde::RecordType_VectorConstantInt;
+    case PrimDataType::Bool:
+    case PrimDataType::ComplexDouble:
+    case PrimDataType::ComplexFloat:
+    case PrimDataType::Double:
+    case PrimDataType::Float:
+    case PrimDataType::Half:
+    case PrimDataType::BFloat16:
+    case PrimDataType::Int32:
+    case PrimDataType::Null:
+      TORCH_CHECK(
+          false, "Unsupported nvFuser VectorRecord type for DataType:", t);
+      break;
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unsupported nvFuser DataType.", t);
+      break;
+  }
+  return serde::RecordType_Base;
+}
+
 std::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:

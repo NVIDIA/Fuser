@@ -529,9 +529,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             !self.completed(), "Attempting to add to a completed definition!");
         Vector out = self.defineVector();
         std::vector<nullptr_t> value(size, nullptr);
-        self.defineRecord(new VectorRecord<std::nullptr_t>(
+        self.defineRecord(new VectorRecord<std::int64_t>(
             {self.recordingState(out())},
             serde::RecordType_VectorInput,
+            std::nullopt,
             size,
             dtype));
         return out;
@@ -540,21 +541,54 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
-// This is the canonical version of define_scalar, therefore, it is possible
-// to also define a scalar input with type Null/std::nullptr_t
-// The ScalarRecord will be responsible for checking if is_input is valid.
-#define NVFUSER_PYTHON_BINDING_VECTOR(Nvfuser_DType, CType)   \
+// This is the canonical version of define_vector that accepts either a nullptr
+// or a vector of values to indicate either an input or a constant for use
+// when printing out the associated Fusion Record.
+#define NVFUSER_PYTHON_BINDING_CANONICAL_VECTOR(Nvfuser_DType, CType)   \
   fusion_def.def(                                             \
       "define_vector",                                        \
       [](FusionDefinition& self,                              \
-         std::vector<std::optional<CType>> value,             \
+         std::optional<std::vector<CType>> value,             \
+         int64_t size,                                        \
          PrimDataType dtype) -> Vector {                      \
-        FUSER_PERF_SCOPE("FusionDefinition.define_vector");   \
+        FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");   \
+        TORCH_CHECK(size > 0, "Vector size should be >0.");   \
+        if (value.has_value()) {                              \
+          TORCH_CHECK(value.value().size() == static_cast<size_t>(size), "value size and input size do not  match!");\
+        }                                                     \
+        Vector out = self.defineVector();                     \
+        auto rtype = value.has_value() ? serde::mapToSerdeVectorRecordType(Nvfuser_DType) : serde::RecordType_VectorInput; \
+        self.defineRecord(new VectorRecord<CType>(            \
+            {self.recordingState(out())},                     \
+            rtype, \
+            value,                                            \
+            size,                                             \
+            dtype));                                          \
+        return out;                                           \
+      },                                                      \
+      py::arg("value"),                                       \
+      py::arg("size"),                                        \
+      py::arg("dtype") = Nvfuser_DType,                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_CANONICAL_VECTOR(DataType::Int, int64_t);
+#undef NVFUSER_PYTHON_BINDING_CANONICAL_VECTOR
+
+// This is the constant version of define_vector when given a vector
+// of constant values.
+#define NVFUSER_PYTHON_BINDING_CONSTANT_VECTOR(Nvfuser_DType, CType)   \
+  fusion_def.def(                                             \
+      "define_vector",                                        \
+      [](FusionDefinition& self,                              \
+         std::vector<CType> value,             \
+         PrimDataType dtype) -> Vector {                      \
+        FUSER_PERF_SCOPE("FusionDefinition.define_vector (constant)");   \
         Vector out = self.defineVector();                     \
         self.defineRecord(new VectorRecord<CType>(            \
             {self.recordingState(out())},                     \
             serde::mapToSerdeScalarRecordType(Nvfuser_DType), \
             value,                                            \
+            value.size(),                                     \
             dtype));                                          \
         return out;                                           \
       },                                                      \
@@ -562,8 +596,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dtype") = Nvfuser_DType,                       \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_VECTOR(DataType::Int, int64_t);
-#undef NVFUSER_PYTHON_BINDING_VECTOR
+  NVFUSER_PYTHON_BINDING_CONSTANT_VECTOR(DataType::Int, int64_t);
+#undef NVFUSER_PYTHON_BINDING_CONSTANT_VECTOR
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
