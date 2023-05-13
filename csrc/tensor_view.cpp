@@ -7,6 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/double_buffer.h>
+#include <device_lower/lower2device.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir_all_nodes.h>
@@ -15,8 +17,6 @@
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_double_buffer.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -436,7 +436,7 @@ unsigned int getConsumerPosAlignedToProducerCA(
   unsigned int consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->domain()->leaf();
+    auto p_dom = producer->getLeafDomain();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -1018,11 +1018,11 @@ TensorView* TensorView::multiOutputRfactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(domain()->leaf(), id_map);
+    ReplayTransformations replay(getLeafDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : domain()->leaf()) {
+    for (auto id : getLeafDomain()) {
       TORCH_INTERNAL_ASSERT(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
@@ -1190,10 +1190,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
       container(),
       IrBuilder::create<TensorDomain>(
           container(),
-          domain()->root(),
-          domain()->rfactor(),
-          domain()->leaf(),
-          domain()->contiguity()),
+          getRootDomain(),
+          getRFactorDomain(),
+          getLeafDomain(),
+          getContiguity()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1373,7 +1373,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   TORCH_INTERNAL_ASSERT(
-      domain()->leaf() == getRootDomain(),
+      getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
@@ -1443,11 +1443,14 @@ void TensorView::commitLeafToRFactor() {
       container(),
       domain_->root(),
       domain_->leaf(),
+      domain_->allocation(),
       domain_->leaf(),
       // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
       // allow customizing contiguity. But there is no such need now, so I will
       // just fill the contiguity with true.
-      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
+      TensorDomain::getContiguityFilledWith(
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          true)));
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

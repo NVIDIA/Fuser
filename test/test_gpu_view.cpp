@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/divisible_split.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -25,8 +27,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_divisible_split.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
@@ -1253,7 +1253,7 @@ TEST_F(NVFuserTest, FusionReshapeVectorize_CUDA) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->domain()->leaf()) {
+    for (auto i : tv->getLeafDomain()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }

@@ -92,9 +92,7 @@ __device__ double fmax(double a, double b) {
   // check and propagate NaN
   if (a != a) {
     return a;
-  } else if (b != b) {
-    return b;
-  } else {
+  } else { // If b is nan, it will be returned in the next line
     return a > b ? a : b;
   }
 }
@@ -103,9 +101,7 @@ __device__ float fmax(float a, float b) {
   // check and propagate NaN
   if (a != a) {
     return a;
-  } else if (b != b) {
-    return b;
-  } else {
+  } else { // If b is nan, it will be returned in the next line
     return a > b ? a : b;
   }
 }
@@ -128,22 +124,18 @@ __device__ constexpr int64_t min(int64_t a, int64_t b) {
 
 __device__ double fmin(double a, double b) {
   // check and propagate NaN
-  if (a != a) {
-    return a;
-  } else if (b != b) {
+  if (b != b) {
     return b;
-  } else {
+  } else { // If a is nan, it will be returned in the next line
     return a > b ? b : a;
   }
 }
 
 __device__ float fmin(float a, float b) {
   // check and propagate NaN
-  if (a != a) {
-    return a;
-  } else if (b != b) {
+  if (b != b) {
     return b;
-  } else {
+  } else { // If a is nan, it will be returned in the next line
     return a > b ? b : a;
   }
 }

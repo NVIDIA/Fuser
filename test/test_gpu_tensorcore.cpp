@@ -8,6 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -22,8 +24,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
@@ -1101,11 +1101,11 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Fusion definition (Both gemms are TN)
   // [M,K1]
-  auto tv0 = makeConcreteTensor({M, K1}, DataType::Half);
+  auto tv0 = makeContigConcreteTensor({M, K1}, DataType::Half);
   // [K2,K1]
-  auto tv1 = makeConcreteTensor({K2, K1}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({K2, K1}, DataType::Half);
   // [N,K2]
-  auto tv2 = makeConcreteTensor({N, K2}, DataType::Half);
+  auto tv2 = makeContigConcreteTensor({N, K2}, DataType::Half);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -1386,11 +1386,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Fusion definition (Both gemms are TN)
   // [M,K1]
-  auto inp = makeConcreteTensor({M1, K1}, DataType::Half);
+  auto inp = makeContigConcreteTensor({M1, K1}, DataType::Half);
   // Query matrix
-  auto qk = makeConcreteTensor({N1, K1}, DataType::Half);
+  auto qk = makeContigConcreteTensor({N1, K1}, DataType::Half);
   // Second linear matrix
-  auto acc = makeConcreteTensor({N2, K2}, DataType::Half);
+  auto acc = makeContigConcreteTensor({N2, K2}, DataType::Half);
 
   fusion.addInput(inp);
   fusion.addInput(qk);

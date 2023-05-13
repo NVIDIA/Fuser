@@ -97,7 +97,7 @@ struct DataType {
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
-  DataType(const VariantOfSupportedTypes& type) : type(type) {}
+  DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
   DataType(const PrimDataType& type) : type(type) {}
   DataType(const ArrayOf& type) : type(type) {}
   DataType(const PointerOf& type) : type(type) {}
@@ -424,6 +424,7 @@ enum class RNGOpType {
   UniformRange, // Uniform in [low, high]
   NormalStandard, // Normal with mean 0, std 1
   NormalGeneral, // Normal with given mean and std
+  Undefined,
 };
 
 // Return if output of operator should be a boolean
@@ -633,9 +634,9 @@ inline DataType promoteType(
 }
 
 inline DataType promoteType(const std::vector<DataType>& types) {
-  TORCH_CHECK(types.size() > 0, "Can not promote empty type vector")
+  TORCH_CHECK(!types.empty(), "Can not promote empty type vector")
   DataType result = types.at(0);
-  for (auto t : types) {
+  for (const auto& t : types) {
     result = promoteType(result, t);
   }
   return result;

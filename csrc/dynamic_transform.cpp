@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
 #include <ir_cloner.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -280,7 +280,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
-      tv->domain()->leaf() == tv->getMaybeRFactorDomain(),
+      tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
 

@@ -18,9 +18,9 @@
  * Index compute takes in a list of indices typically generated from the
  * surrounding for loop nest. The number of indicies are intended to match the
  * number of dimensions of the incomming TensorView which may have less or more
- * dimensions than its root due to split/merge operations.
+ * dimensions than its allocation domain due to split/merge operations.
  * Split/merge operations are then replayed backwards produce resulting
- * indices (based on input indices) that match the root dimension.
+ * indices (based on input indices) that match the allocation dimension.
  *
  * For example with GLOBAL tensor:
  * TV[I, K]
@@ -103,7 +103,7 @@ class IndexCompute : public BackwardVisitor {
   //!    2. the output id is found in permissive map.
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
 
-  // Tensor domain we're mapping back to root
+  // Tensor domain we're mapping back to allocation
   const TensorDomain* td_; // NOLINT
 
   // Map we update as we propagate backward, containing all IDs in the
@@ -131,9 +131,6 @@ class IndexCompute : public BackwardVisitor {
 
   // IDs that are a result of contiguous merges
   std::unordered_set<IterDomain*> contig_ids_;
-
-  // Map from root to indexed domains
-  std::unordered_map<IterDomain*, IterDomain*> root_to_indexed_id_;
 
   // Mentions if we should propagate an index down a particular IterDomain path
   // if there's an option
@@ -180,10 +177,6 @@ class IndexCompute : public BackwardVisitor {
     return zero_merged_in_;
   }
 
-  const std::unordered_map<IterDomain*, IterDomain*>& rootToContigID() const {
-    return root_to_indexed_id_;
-  }
-
   // Propagate back from _td using initial_index_map
   IndexCompute(
       const TensorDomain* _td,
@@ -227,7 +220,7 @@ class IndexCompute : public BackwardVisitor {
   virtual void run();
 };
 
-//! Apply swizzle and update root indices accordingly
+//! Apply swizzle and update allocation indices accordingly
 class IndexSwizzle : public IndexCompute {
  public:
   IndexSwizzle(
@@ -328,14 +321,14 @@ class Index {
   // get the strides of a tensor used for the index lowering
   static std::vector<Val*> getStrides(const TensorView* tv);
 
-  // get the root indices of a consumer tensor
-  static std::vector<Val*> getConsumerRootIndices(
+  // get the allocation indices of a consumer tensor
+  static std::vector<Val*> getConsumerAllocationIndices(
       const TensorView* tv,
       const std::vector<kir::ForLoop*>& loops,
       const IndexFromIdGraph& index_from_id_graph);
 
-  // get the root indices of a producer tensor
-  static std::vector<Val*> getProducerRootIndices(
+  // get the allocation indices of a producer tensor
+  static std::vector<Val*> getProducerAllocationIndices(
       TensorView* producer,
       const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
@@ -386,9 +379,9 @@ class Index {
       bool generate_pointer = false);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
-  //! root domain of a producer tensor. The size of the returned
+  //! allocation domain of a producer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
-  //! indexing root domain.
+  //! indexing allocation domain.
   static Val* getProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
@@ -398,9 +391,9 @@ class Index {
       bool generate_pointer = false);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
-  //! root domain of a consumer tensor. The size of the returned
+  //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
-  //! indexing root domain.
+  //! indexing allocation domain.
   static Val* getConsumerStridedIndices(
       TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,

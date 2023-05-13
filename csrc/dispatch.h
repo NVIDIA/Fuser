@@ -307,7 +307,7 @@ class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
   using OptOutConstDispatch::handle;
 
  protected:
-  virtual void unhandled(const Statement* stmt) final;
+  void unhandled(const Statement* stmt) final;
 };
 
 class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
@@ -315,7 +315,7 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
   using OptOutDispatch::handle;
 
  protected:
-  virtual void unhandled(Statement* stmt) final;
+  void unhandled(Statement* stmt) final;
 };
 
 // Class to perform mutations on Fusion IR. Exprs can simply be redefined, but

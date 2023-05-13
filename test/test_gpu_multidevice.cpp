@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -23,7 +24,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <mma_type.h>
 #include <multidevice/aggregate_dag.h>
 #include <multidevice/multicluster_fusion.h>
