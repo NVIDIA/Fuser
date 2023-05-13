@@ -14,6 +14,275 @@
 
 namespace nvfuser {
 
+namespace {
+
+// helper class for getAllocationSizesAndStrides
+class ForwardTraverseFromRFactorToAlloc {
+  ExpressionEvaluator& ee_;
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+
+  void handle(Split* split) {
+    auto in = split->in();
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto in_it = active_ids_.find(in);
+    // TORCH_INTERNAL_ASSERT(in_it != active_ids_.end())
+    if (in_it == active_ids_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    auto [in_size, in_stride] = in_it->second;
+    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
+    TORCH_INTERNAL_ASSERT(
+        in_size % factor == 0,
+        "non-divisible split is not allowed in allocation domain");
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(in) == 1);
+    TORCH_INTERNAL_ASSERT(
+        active_ids_
+            .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
+            .second);
+    TORCH_INTERNAL_ASSERT(active_ids_
+                              .emplace(
+                                  outer,
+                                  std::pair<int64_t, int64_t>{
+                                      in_size / factor, in_stride * factor})
+                              .second);
+  }
+
+  void handle(Merge* merge) {
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto out = merge->out();
+    auto inner_it = active_ids_.find(inner);
+    auto outer_it = active_ids_.find(outer);
+    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
+    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
+    if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    auto [inner_size, inner_stride] = inner_it->second;
+    auto [outer_size, outer_stride] = outer_it->second;
+    TORCH_INTERNAL_ASSERT(
+        inner_stride * inner_size == outer_stride,
+        "Merging of discontiguous dimensions is not allowed in allocation domain");
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
+    TORCH_INTERNAL_ASSERT(active_ids_
+                              .emplace(
+                                  out,
+                                  std::pair<int64_t, int64_t>{
+                                      inner_size * outer_size, inner_stride})
+                              .second);
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  ForwardTraverseFromRFactorToAlloc(
+      ExpressionEvaluator& ee,
+      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
+      : ee_(ee), active_ids_(active_ids) {}
+
+  void run(
+      TensorView* tv,
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto forward_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {rfactor.begin(), rfactor.end()},
+        {alloc.begin(), alloc.end()});
+    for (auto expr : forward_exprs) {
+      handle(expr);
+    }
+  }
+};
+
+// helper class for getAllocationSizesAndStrides
+class BackwardTraverseFromRFactorToAlloc {
+  at::Tensor tensor_;
+  ExpressionEvaluator& ee_;
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+
+  void handle(Split* split) {
+    auto in = split->in();
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto inner_it = active_ids_.find(inner);
+    auto outer_it = active_ids_.find(outer);
+    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
+    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
+    if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    auto [inner_size, inner_stride] = inner_it->second;
+    auto [outer_size, outer_stride] = outer_it->second;
+    TORCH_INTERNAL_ASSERT(
+        inner_stride * inner_size == outer_stride,
+        "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
+    TORCH_INTERNAL_ASSERT(active_ids_
+                              .emplace(
+                                  in,
+                                  std::pair<int64_t, int64_t>{
+                                      inner_size * outer_size, inner_stride})
+                              .second);
+  }
+
+  void handle(Merge* merge) {
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto out = merge->out();
+    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
+    auto out_it = active_ids_.find(out);
+    // TORCH_INTERNAL_ASSERT(out_it != active_ids_.end())
+    if (out_it == active_ids_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    auto [out_size, out_stride] = out_it->second;
+    TORCH_INTERNAL_ASSERT(
+        out_size % factor == 0,
+        "The size of the output must divisible by the size of inner dimension");
+    TORCH_INTERNAL_ASSERT(active_ids_.erase(out) == 1);
+    TORCH_INTERNAL_ASSERT(
+        active_ids_
+            .emplace(inner, std::pair<int64_t, int64_t>{factor, out_stride})
+            .second);
+    TORCH_INTERNAL_ASSERT(active_ids_
+                              .emplace(
+                                  outer,
+                                  std::pair<int64_t, int64_t>{
+                                      out_size / factor, out_stride * factor})
+                              .second);
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  BackwardTraverseFromRFactorToAlloc(
+      ExpressionEvaluator& ee,
+      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
+      : ee_(ee), active_ids_(active_ids) {}
+
+  void run(
+      TensorView* tv,
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto backward_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {alloc.begin(), alloc.end()},
+        {rfactor.begin(), rfactor.end()});
+    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    for (auto expr : backward_exprs) {
+      handle(expr);
+    }
+  }
+};
+
+} // namespace
+
+std::vector<std::pair<int64_t, int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee) {
+  if (tv == nullptr || !tv->hasAllocation()) {
+    // When tv is nullptr, or tv does not have allocation, the given sizes and
+    // strides should already be in the target format. So nothing to do here.
+    std::vector<std::pair<int64_t, int64_t>> result;
+    for (auto i : c10::irange(tensor.dim())) {
+      result.emplace_back(tensor.size(i), tensor.stride(i));
+    }
+    return result;
+  }
+  const auto& alloc =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+
+  // active IDs and their shape and stride
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
+  TORCH_INTERNAL_ASSERT((int64_t)rfactor.size() == tensor.dim());
+  for (auto i : c10::irange(rfactor.size())) {
+    auto rf_id = rfactor.at(i);
+    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
+  }
+
+  ForwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
+  BackwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
+
+  // compute final result
+  std::vector<std::pair<int64_t, int64_t>> sizes_strides;
+  sizes_strides.reserve(alloc.size());
+  for (auto i : c10::irange(alloc.size())) {
+    auto id = alloc.at(i);
+    sizes_strides.emplace_back(active_ids.at(id));
+  }
+  // validate final strides with contiguity
+  int64_t contiguous_stride = 1;
+  std::vector<std::optional<bool>> contiguity = tv->getContiguity();
+  for (int64_t i = sizes_strides.size() - 1; i >= 0; i--) {
+    if (alloc.at(i)->isBroadcast()) {
+      continue;
+    }
+    while (!contiguity.back().has_value()) {
+      contiguity.pop_back();
+      continue;
+    }
+    auto [size, stride] = sizes_strides.at(i);
+    if (*contiguity.back()) {
+      TORCH_CHECK(
+          stride == contiguous_stride,
+          "Stride mismatch with contiguity info. ",
+          "tv: ",
+          tv->toString(),
+          " allocation domain: ",
+          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          " dim: ",
+          i,
+          " expected stride: ",
+          contiguous_stride,
+          " actual stride: ",
+          stride);
+    }
+    contiguous_stride = stride * size;
+    contiguity.pop_back();
+  }
+  // validate final strides with expand
+  for (int64_t i : c10::irange(sizes_strides.size())) {
+    if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
+      auto [_, stride] = sizes_strides.at(i);
+      TORCH_CHECK(
+          stride == 0,
+          "Expecting an expanded dimension on dimension ",
+          i,
+          " but found stride ",
+          stride);
+    }
+  }
+  return sizes_strides;
+}
+
 PrimDataType TensorArgAbstract::getSmallestIndexType() const {
   KernelIndexTypeCompute index_type_helper;
   for (const auto dim_i : c10::irange(tensor_.ndimension())) {
@@ -28,38 +297,88 @@ PrimDataType TensorArgAbstract::getSmallestIndexType() const {
 
 namespace {
 
+template <int nalloc, typename nvfuser_index_t>
+std::unique_ptr<TensorArgAbstract> getTensorArg(
+    at::Tensor tensor,
+    TensorView* tv,
+    ExpressionEvaluator& eval) {
+  switch (tensor.ndimension()) {
+    case (0):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<0, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (1):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<1, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (2):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<2, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (3):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<3, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (4):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<4, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (5):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<5, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (6):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<6, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (7):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<7, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    case (8):
+      return std::make_unique<
+          TensorArg<TensorArgCodegen<8, nalloc, nvfuser_index_t>>>(
+          std::move(tensor), tv, eval);
+    default:
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Tried to generate a tensor to run a generated kernel with ",
+          tensor.ndimension(),
+          " dimensions, however only 0 to 8 dimensional tensor are supported.");
+  }
+  return nullptr;
+}
+
 template <typename nvfuser_index_t>
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     at::Tensor tensor,
-    TensorView* tv) {
-  switch (tensor.ndimension()) {
+    TensorView* tv,
+    ExpressionEvaluator& eval) {
+  // When tv is nullptr, the given sizes and strides should already be in the
+  // target format.
+  int64_t alloc_size =
+      (tv != nullptr
+           ? TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()
+           : tensor.dim());
+  switch (alloc_size) {
     case (0):
-      return std::make_unique<TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<0, nvfuser_index_t>(tensor, tv, eval);
     case (1):
-      return std::make_unique<TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<1, nvfuser_index_t>(tensor, tv, eval);
     case (2):
-      return std::make_unique<TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<2, nvfuser_index_t>(tensor, tv, eval);
     case (3):
-      return std::make_unique<TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<3, nvfuser_index_t>(tensor, tv, eval);
     case (4):
-      return std::make_unique<TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<4, nvfuser_index_t>(tensor, tv, eval);
     case (5):
-      return std::make_unique<TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<5, nvfuser_index_t>(tensor, tv, eval);
     case (6):
-      return std::make_unique<TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<6, nvfuser_index_t>(tensor, tv, eval);
     case (7):
-      return std::make_unique<TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<7, nvfuser_index_t>(tensor, tv, eval);
     case (8):
-      return std::make_unique<TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
-          std::move(tensor), tv);
+      return getTensorArg<8, nvfuser_index_t>(tensor, tv, eval);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
@@ -77,19 +396,16 @@ std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(at::Tensor tensor) {
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     at::Tensor tensor,
     TensorView* tv,
-    std::optional<PrimDataType> index_type) {
-  if (index_type.has_value()) {
-    switch (index_type.value()) {
-      case PrimDataType::Int32:
-        return getTensorArg<int>(std::move(tensor), tv);
-      case PrimDataType::Int:
-        return getTensorArg<int64_t>(std::move(tensor), tv);
-      default:
-        TORCH_INTERNAL_ASSERT(false, "unknown index mode");
-        break;
-    }
-  } else {
-    return getAbstractTensorArg(std::move(tensor));
+    ExpressionEvaluator& eval,
+    PrimDataType index_type) {
+  switch (index_type) {
+    case PrimDataType::Int32:
+      return getTensorArg<int>(std::move(tensor), tv, eval);
+    case PrimDataType::Int:
+      return getTensorArg<int64_t>(std::move(tensor), tv, eval);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "unknown index mode");
+      break;
   }
 }
 
@@ -145,7 +461,7 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
         break;
     }
   } else {
-    arguments_.push_back(getTensorArg(tensor, nullptr, std::nullopt));
+    arguments_.push_back(getAbstractTensorArg(tensor));
   }
 }
 
@@ -192,7 +508,8 @@ void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
 // in the buffer
 void** KernelArgumentHolder::getBuffer(
     PrimDataType index_type,
-    std::vector<TensorView*> tvs) {
+    std::vector<TensorView*> tvs,
+    ExpressionEvaluator& eval) {
   TORCH_INTERNAL_ASSERT(
       arguments_.size() == tvs.size(),
       "The size of arguments and the size of tvs does not match.");
@@ -205,7 +522,7 @@ void** KernelArgumentHolder::getBuffer(
       if (tensor_arg->isAbstract() ||
           tensor_arg->getIndexType() != index_type) {
         auto resolved_arg =
-            getTensorArg(tensor_arg->getTensor(), tvs.at(i), index_type);
+            getTensorArg(tensor_arg->getTensor(), tvs.at(i), eval, index_type);
         arguments_.at(i) = std::move(resolved_arg);
       }
     }
