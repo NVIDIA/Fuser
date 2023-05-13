@@ -8,7 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <maxinfo_propagator.h>

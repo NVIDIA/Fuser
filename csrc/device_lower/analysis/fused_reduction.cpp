@@ -10,7 +10,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 
-#include <device_lower/fused_reduction.h>
+#include <device_lower/analysis/fused_reduction.h>
 
 #include <algorithm>
 

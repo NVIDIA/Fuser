@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/index_compute.h>
+#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
 
-#include <device_lower/sync_information.h>
+#include <device_lower/analysis/sync_information.h>
 
 namespace nvfuser {
 
