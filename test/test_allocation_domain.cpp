@@ -428,8 +428,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
 
   int n = 31, h = 64, w = 103, c = 21;
 
-  // TODO: making this symbolic size
-  auto tv0 = makeContigConcreteTensor({n, c, h, w});
+  auto tv0 = makeContigTensor(4);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
