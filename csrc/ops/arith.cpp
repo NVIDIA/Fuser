@@ -434,6 +434,17 @@ TensorView* abs(TensorView* tv) {
   return abs(tv->as<Val>())->as<TensorView>();
 }
 
+// The output of abs(complex_tensor) are real numbers
+Val* signbit(Val* v) {
+  Val* out = ops::newValLike(v, DataType::Bool);
+  IrBuilder::create<UnaryOp>(UnaryOpType::Signbit, out, v);
+  return out;
+}
+
+TensorView* signbit(TensorView* tv) {
+  return signbit(tv->as<Val>())->as<TensorView>();
+}
+
 // The output of real(complex_tensor) are real numbers
 Val* real(Val* v) {
   if (v->getDataType() == DataType::ComplexDouble) {

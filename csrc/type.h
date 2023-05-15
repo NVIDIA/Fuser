@@ -348,6 +348,7 @@ enum class UnaryOpType {
   Rsqrt,
   Round,
   Sigmoid,
+  Signbit,
   Sin,
   Sinh,
   Sqrt,

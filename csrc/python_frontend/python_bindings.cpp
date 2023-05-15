@@ -643,6 +643,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("signbit", signbit)
   NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sin", sin)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sinh", sinh)
