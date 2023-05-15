@@ -1470,6 +1470,19 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
+bool SegmentCandidateFinder::hasSegmentHints() {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      // SegmenterSet is a segmenter hint that needs explicit segment call
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void SegmentCandidateFinder::resetTraversal() {
   for (auto group : groups()) {
     // Start traversal at input groups

@@ -544,6 +544,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
     return std::move(scf.segmented_fusion_);
   }
 
+  static bool hasSegmentHints(const Fusion* fusion);
+
   static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
