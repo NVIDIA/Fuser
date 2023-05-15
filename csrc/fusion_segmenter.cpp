@@ -1470,8 +1470,8 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
-bool SegmentCandidateFinder::hasSegmentHints(const Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
+bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
+  for (const auto& expr : fusion->exprs()) {
     if (expr->isA<LoadStoreOp>()) {
       auto op = expr->as<LoadStoreOp>();
       // SegmenterSet is a segmenter hint that needs explicit segment call
