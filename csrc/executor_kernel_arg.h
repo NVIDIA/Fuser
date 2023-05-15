@@ -280,7 +280,7 @@ struct TensorArg : public TensorArgAbstract {
         if (auto rfactor_id = rfactor_dom.at(i);
             rfactor_id->hasExpandedExtent()) {
           TORCH_CHECK(
-              stride == 0,
+              stride == 0 || tensor.size(i) == 1,
               "Expecting an expanded dimension on dimension ",
               i,
               " but found stride ",
