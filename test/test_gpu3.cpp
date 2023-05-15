@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -26,8 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_magic_zero.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
@@ -1979,13 +1979,8 @@ TEST_F(NVFuserTest, FusionTooLargeSmem_CUDA) {
   auto t0 = at::randn({(int)(12288 * 4)}, options);
   FusionExecutor fe;
 
-  // First compile gets a compiled kernel
-  fe.compileFusion(&fusion, {t0});
-
-  // Should be throwing because the kernel
-  //  requested absolute device limit
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(fe.runFusion({t0}));
+  //  NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion, {t0}));
 }
 
 // Try to test alignment when multiple tensors are
@@ -2805,8 +2800,8 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync1_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
-  TensorView* tv1 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
+  TensorView* tv1 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -2971,7 +2966,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeConcreteTensor({m, n});
+  TensorView* tv0 = makeContigConcreteTensor({m, n});
 
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
@@ -6862,7 +6857,7 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
     auto dim1 = IterDomainBuilder(w1.avg->axis(1)).build();
     auto td = IrBuilder::create<TensorDomain>(
         std::vector<IterDomain*>{dim0, dim1},
-        std::vector<std::optional<bool>>{true, true});
+        std::vector<std::optional<bool>>{true, std::nullopt});
     auto tv = IrBuilder::create<TensorView>(td, dtype);
     return tv;
   };
@@ -8301,6 +8296,101 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t4}, __LINE__, __FILE__);
 }
+
+// Test nan propagation during min/max with floats and doubles
+TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
+  for (auto dtype : {DataType::Float, DataType::Double}) {
+    for (auto do_min : {true, false}) {
+      auto fusion = std::make_unique<Fusion>();
+      FusionGuard fg(fusion.get());
+
+      auto tv0 = makeSymbolicTensor(2, dtype);
+      fusion->addInput(tv0);
+      auto tv1 = do_min ? min(tv0, {1}) : max(tv0, {1});
+      fusion->addOutput(tv1);
+
+      FusionExecutorCache executor_cache(std::move(fusion));
+
+      auto options =
+          at::TensorOptions()
+              .dtype(dtype == DataType::Float ? at::kFloat : at::kDouble)
+              .device(at::kCUDA, 0);
+      // Test size 1 since it will have a single comparison, which checks
+      // missing propagation in one position even if it propagates properly in
+      // the other position
+      for (auto size : {1, 2, 5}) {
+        // To check nans in multiple positions along reduction axis create a 2D
+        // tensor that is ones except the diagonal, which are nans
+        auto at_x = at::eye(size, options);
+        at_x = (1 - at_x) / (1 - at_x);
+        std::vector<c10::IValue> inputs{at_x};
+
+        std::vector<at::Tensor> at_outputs(
+            {do_min ? at_x.amin(1) : at_x.amax(1)});
+        auto nvf_outputs = executor_cache.runFusionWithInputs(inputs);
+
+        testValidate(
+            executor_cache.fusion(),
+            nvf_outputs,
+            inputs,
+            at_outputs,
+            __LINE__,
+            __FILE__);
+      }
+    }
+  }
+}
+
+class ExpandedBroadcastGlobalIntermediateTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    // Do not fill allocation with NaN. The logical output size of this test is
+    // huge, although they are just because of expand, the pointwise kernel in
+    // PyTorch eager mode is not smart enough to not iterating on the entire
+    // logical space
+    setFillAllocationWithNan(false);
+  }
+};
+
+TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 1, 2});
+  fusion.addInput(tv0);
+  auto tv1 = expand(
+      tv0,
+      {IrBuilder::create<Int>(2),
+       IrBuilder::create<Int>(1L << 60L),
+       IrBuilder::create<Int>(2)});
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+  tv1->setMemoryType(MemoryType::Global);
+
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({2, 1, 2}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_output = fe.runFusion({t0}).at(0);
+
+  ASSERT_EQ(cg_output.size(0), 2);
+  ASSERT_EQ(cg_output.size(1), (1L << 60L));
+  ASSERT_EQ(cg_output.size(2), 2);
+  ASSERT_EQ(cg_output.stride(0), 2);
+  ASSERT_EQ(cg_output.stride(1), 0);
+  ASSERT_EQ(cg_output.stride(2), 1);
+  ASSERT_TRUE(at::eq(t0.squeeze(1), cg_output.select(1, 0)).all().item<bool>());
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

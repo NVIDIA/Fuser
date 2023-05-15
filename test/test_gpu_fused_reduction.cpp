@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -24,7 +25,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
@@ -2299,7 +2299,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     std::vector<bool> bcast_pattern{true, true, true, false};
     std::vector<int> reduction_dims{2, 1, 0};
 
-    auto tv0 = makeSymbolicTensor(4);
+    auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
 
     auto tv1 = set(tv0);

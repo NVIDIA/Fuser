@@ -1069,7 +1069,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1109,7 +1114,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape({11, 100, 101});
+  // Make sure the shape is large enough to trigger the Transpose
+  // scheduler. See also getTransposeRuntimeRejectReason for more details.
+  std::vector<int64_t> shape(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1145,8 +1155,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  std::vector<int64_t> shape_before({11, 100, 101});
-  std::vector<int64_t> shape_after({shape_before[1], 99});
+  std::vector<int64_t> shape_before(
+      {deviceSMCount(),
+       TransposeParams::getDefaultTileSize(),
+       TransposeParams::getDefaultTileSize()});
+  std::vector<int64_t> shape_after({shape_before[1], shape_before[2] - 1});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
@@ -1224,9 +1237,26 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
 
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
+  auto kernel_runtime = fec.getMostRecentKernelRuntime();
+
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
+      kernel_runtime,
       {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
+
+  // Make sure take_along_axis is in the persistent group
+  for (const auto group : kernel_runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::Persistent) {
+      TORCH_CHECK(std::any_of(
+          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+            return expr->isA<TorchGatherOp>();
+          }));
+    } else {
+      TORCH_CHECK(std::none_of(
+          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+            return expr->isA<TorchGatherOp>();
+          }));
+    }
+  }
 
   // note: reduction arg
   //   none -> 0

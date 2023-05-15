@@ -39,8 +39,8 @@ class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
  protected:
   using OptOutDispatch::handle;
 
-  virtual void handle(ForLoop*) override;
-  virtual void handle(IfThenElse*) override;
+  void handle(ForLoop*) override;
+  void handle(IfThenElse*) override;
 
  protected:
   std::vector<ForLoop*> for_loops_;
@@ -57,8 +57,8 @@ class TORCH_CUDA_CU_API ConstIrVisitor : public OptOutConstDispatch {
  protected:
   using OptOutConstDispatch::handle;
 
-  virtual void handle(const ForLoop*) override;
-  virtual void handle(const IfThenElse*) override;
+  void handle(const ForLoop*) override;
+  void handle(const IfThenElse*) override;
 
  protected:
   std::vector<const ForLoop*> for_loops_;

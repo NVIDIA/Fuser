@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir_builder.h>
-#include <lower2device.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
