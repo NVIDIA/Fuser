@@ -491,7 +491,7 @@ FusionKernelRuntime::FusionKernelRuntime(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
     }
   }
-  if (!segmented_fusion_) {
+  if (fusion) {
     segmented_fusion_ =
         SegmentCandidateFinder::segment(std::move(fusion), args);
   }
