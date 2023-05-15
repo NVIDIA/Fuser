@@ -1094,14 +1094,14 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       continue;
     }
 
-    // NOTE: Are we expecting a contiguity flag here? Would a nullopt be
-    // equivalent to a False for the analysis?
-    TORCH_INTERNAL_ASSERT(
-        contiguity.at(root_i).has_value(),
-        "contiguity flat at root_i can't be null");
-    // Not contiguous
-    if (!contiguity.at(root_i).value()) {
-      break;
+    auto contiguity_i = contiguity.at(root_i);
+    if (!contiguity_i.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "contiguity flag at root_i can't be null");
+    } else {
+      // Not contiguous
+      if (!contiguity_i.value()) {
+        break;
+      }
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
