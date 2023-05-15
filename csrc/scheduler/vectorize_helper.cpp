@@ -9,7 +9,7 @@
 
 #include <compute_at_map.h>
 #include <contiguity.h>
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <ir_builder.h>
 #include <iter_visitor.h>
@@ -1094,9 +1094,14 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       continue;
     }
 
-    // Not contiguous
-    if (!*contiguity[root_i]) {
-      break;
+    auto contiguity_i = contiguity.at(root_i);
+    if (!contiguity_i.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "contiguity flag at root_i can't be null");
+    } else {
+      // Not contiguous
+      if (!contiguity_i.value()) {
+        break;
+      }
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.

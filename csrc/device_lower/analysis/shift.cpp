@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/index_compute.h>
+#include <device_lower/analysis/index_compute.h>
+#include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/shift.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <index_compute.h>

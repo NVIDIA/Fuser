@@ -8,7 +8,7 @@
 #pragma once
 #include <c10/macros/Export.h>
 
-#include <device_lower/thread_predicate.h>
+#include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>

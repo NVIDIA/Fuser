@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
-#include <device_lower/bank_conflict.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
