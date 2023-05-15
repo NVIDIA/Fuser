@@ -424,6 +424,7 @@ enum class RNGOpType {
   UniformRange, // Uniform in [low, high]
   NormalStandard, // Normal with mean 0, std 1
   NormalGeneral, // Normal with given mean and std
+  Undefined,
 };
 
 // Return if output of operator should be a boolean

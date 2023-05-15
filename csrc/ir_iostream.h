@@ -44,7 +44,7 @@ class TORCH_CUDA_CU_API IrPrinter {
  public:
   explicit IrPrinter(std::ostream& os, int indent_size = 0)
       : os_(os), indent_size_(indent_size) {}
-  virtual ~IrPrinter() {}
+  virtual ~IrPrinter() = default;
 
   void resetIndent() {
     indent_size_ = 0;
