@@ -408,28 +408,21 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         continue;
       }
 
-      // If any output ID is symbolic, all output IDs should be symbolic
-      if (std::any_of(
-              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                return output->as<IterDomain>()->getIterType() !=
-                    IterType::Symbolic;
-              })) {
-        TORCH_INTERNAL_ASSERT(std::all_of(
-            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-              return output->as<IterDomain>()->getIterType() !=
-                  IterType::Symbolic;
-            }));
-        // NOTE: We do not return early at this point. Even though all outputs
-        // are concrete, there may still be concrete inputs. For example, a
-        // Symbolic IterDomain might be padded with constant pad widths (1, 1),
-        // in which case although we do not know the exact extent of the output,
-        // we know it is at least as large as the sum of the pad widths, 2. In
-        // such cases, the output IterDomain is concrete at definition, since if
-        // the extent is >1 we know the IterType is Iteration. In these cases,
-        // we must continue to concretize intermediate expressions between the
-        // root and R-factor domain. See test DynamicTransform5_CUDA which
-        // demonstrates this behavior.
-      }
+      // NOTE: We do not return early if all outputs are concrete as there may
+      // still be concrete inputs. For example, a Symbolic IterDomain might be
+      // padded with constant pad widths (1, 1), in which case although we do
+      // not know the exact extent of the output, we know it is at least as
+      // large as the sum of the pad widths, 2. In such cases, the output
+      // IterDomain is concrete at definition, since if the extent is >1 we know
+      // the IterType is Iteration. In these cases, we must continue to
+      // concretize intermediate expressions between the root and R-factor
+      // domain. See test DynamicTransform5_CUDA which demonstrates this
+      // behavior.
+      // NOTE: We also do not assume that if one output ID is symbolic, that
+      // they all must be. See test FusionSliceForNanoGPT3_CUDA for an example
+      // that does a static split by a factor of 16 of a symbolic input domain.
+      // The static split in that case results in a concrete IterDomain with
+      // extent 16 along with a symbolic one (extent ceilDiv(n / 16)).
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
