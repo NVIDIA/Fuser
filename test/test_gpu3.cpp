@@ -8395,6 +8395,56 @@ TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
   }
 }
 
+class ExpandedBroadcastGlobalIntermediateTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    // Do not fill allocation with NaN. The logical output size of this test is
+    // huge, although they are just because of expand, the pointwise kernel in
+    // PyTorch eager mode is not smart enough to not iterating on the entire
+    // logical space
+    setFillAllocationWithNan(false);
+  }
+};
+
+TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 1, 2});
+  fusion.addInput(tv0);
+  auto tv1 = expand(
+      tv0,
+      {IrBuilder::create<Int>(2),
+       IrBuilder::create<Int>(1L << 60L),
+       IrBuilder::create<Int>(2)});
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+  tv1->setMemoryType(MemoryType::Global);
+
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({2, 1, 2}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_output = fe.runFusion({t0}).at(0);
+
+  ASSERT_EQ(cg_output.size(0), 2);
+  ASSERT_EQ(cg_output.size(1), (1L << 60L));
+  ASSERT_EQ(cg_output.size(2), 2);
+  ASSERT_EQ(cg_output.stride(0), 2);
+  ASSERT_EQ(cg_output.stride(1), 0);
+  ASSERT_EQ(cg_output.stride(2), 1);
+  ASSERT_TRUE(at::eq(t0.squeeze(1), cg_output.select(1, 0)).all().item<bool>());
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
