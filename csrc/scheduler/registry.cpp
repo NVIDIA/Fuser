@@ -513,24 +513,6 @@ class SchedulerTopologyChecker {
   }
 };
 
-// SegmenterSet hints a kernel break
-bool tryingToMergeSegmenterSet(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<LoadStoreOp>() &&
-        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
-      auto out = expr->output(0);
-      // output from SegmenterSet node should be:
-      //   1. an output from the given fusion, and
-      //   2. not be used by any node within the graph
-      // This ensures no segment spans across the data flow from SegmenterSet
-      if (!out->isFusionOutput() || !out->uses().empty()) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 bool isConnectedFusionGraph(Fusion* fusion) {
   if (fusion->outputs().empty()) {
     // Trivial case interpreted as connected
@@ -2549,9 +2531,6 @@ bool checkCanSchedule(
   //  it has to pass all the compile time checks to create a data cache for this
   //  fusion.
   if (!data_cache) {
-    if (tryingToMergeSegmenterSet(fusion)) {
-      return false;
-    }
     if (!isConnectedFusionGraph(fusion)) {
       return false;
     }

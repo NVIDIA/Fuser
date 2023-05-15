@@ -1986,6 +1986,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -1998,6 +2001,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -3073,6 +3079,24 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
+}
+
+// SegmenterSet hints a kernel break
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || !out->uses().empty()) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 } // namespace
