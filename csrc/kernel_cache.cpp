@@ -486,7 +486,7 @@ FusionKernelRuntime::FusionKernelRuntime(
         "***Runtime***: Try to schedule fusion un-segmented:\n");
     const auto maybe_complete_fusion_heuristic =
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
-    if (!maybe_complete_fusion_heuristic.has_value()) {
+    if (maybe_complete_fusion_heuristic.has_value()) {
       segmented_fusion_ = SegmentedFusion::fromCompleteFusion(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
     }
