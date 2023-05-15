@@ -1729,6 +1729,27 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
+  std::vector<TensorView*> tvs;
+  for (auto val : kernel()->inputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto val : kernel()->outputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto alloc : kernel()->summary().global_allocations) {
+    auto tv = alloc->buffer()->as<TensorView>();
+    if (tv->isFusionOutput()) {
+      continue;
+    }
+    tvs.emplace_back(tv);
+  }
+  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
+    tvs.emplace_back(nullptr);
+  }
+  return tvs;
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1863,24 +1884,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    std::vector<TensorView*> tvs;
-    for (auto val : kernel()->inputs()) {
-      tvs.emplace_back(dynamic_cast<TensorView*>(val));
-    }
-    for (auto val : kernel()->outputs()) {
-      tvs.emplace_back(dynamic_cast<TensorView*>(val));
-    }
-    for (auto alloc : kernel()->summary().global_allocations) {
-      auto tv = alloc->buffer()->as<TensorView>();
-      if (tv->isFusionOutput()) {
-        continue;
-      }
-      tvs.emplace_back(tv);
-    }
-    if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-      tvs.emplace_back(nullptr);
-    }
-    auto arg_buffer = args.getBuffer(kernel()->indexType(), tvs);
+    auto arg_buffer =
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1994,6 +1999,8 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
+  // runRtc does not have a fusion, so no analysis needs to be done. So we just
+  // leave all tensor views as empty.
   std::vector<TensorView*> tvs(args.size(), nullptr);
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,

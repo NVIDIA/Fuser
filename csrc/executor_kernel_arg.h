@@ -263,6 +263,9 @@ struct TensorArg : public TensorArgAbstract {
 
   TensorArg(const at::Tensor& tensor, TensorView* tv)
       : TensorArgAbstract(tensor) {
+    // tv == nullptr can happen at runRtc, where the C++ code instead of the
+    // fusion is provided. For that case, we just skip all the checks and
+    // analyses on TensorViews.
     auto rfactor_dom =
         (tv == nullptr
              ? std::vector<IterDomain*>{}
