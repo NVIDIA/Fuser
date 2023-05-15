@@ -436,7 +436,7 @@ TensorView* abs(TensorView* tv) {
 
 // The output of signbit(tensor) are boolean values
 Val* signbit(Val* v) {
-  uto cast_v = promoteValues(TypePromotion::default_op_config, {v}).front();
+  auto cast_v = promoteValues(TypePromotion::default_op_config, {v}).front();
   Val* out = ops::newValLike(v, DataType::Bool);
   IrBuilder::create<UnaryOp>(UnaryOpType::Signbit, out, cast_v);
   return out;
