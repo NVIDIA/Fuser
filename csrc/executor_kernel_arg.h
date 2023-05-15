@@ -112,27 +112,27 @@ struct ArgAbstract {
   virtual void* arg() = 0;
   virtual bool isType(ArgType type) const = 0;
   virtual ArgType type() const = 0;
-  virtual std::unique_ptr<ArgAbstract> copy_unique_ptr() const = 0;
+  virtual std::unique_ptr<ArgAbstract> clone() const = 0;
   virtual std::string toString() const {
     return "input type: " + argTypeToString(type());
   };
 };
 
-#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                    \
-  bool isType(ArgType type) const override {                      \
-    return ArgType::TARGET_TYPE == type;                          \
-  }                                                               \
-  ArgType type() const override {                                 \
-    return ArgType::TARGET_TYPE;                                  \
-  }                                                               \
-  const void* arg() const override {                              \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  void* arg() override {                                          \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override { \
-    return std::make_unique<TARGET_TYPE##Arg>(*this);             \
+#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
+  bool isType(ArgType type) const override {            \
+    return ArgType::TARGET_TYPE == type;                \
+  }                                                     \
+  ArgType type() const override {                       \
+    return ArgType::TARGET_TYPE;                        \
+  }                                                     \
+  const void* arg() const override {                    \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  void* arg() override {                                \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  std::unique_ptr<ArgAbstract> clone() const override { \
+    return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
 #define DEF_TOSTRING_FUNC                 \
@@ -254,7 +254,7 @@ struct TensorArgAbstract : ArgAbstract {
     return ss.str();
   }
 
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+  std::unique_ptr<ArgAbstract> clone() const override {
     return std::make_unique<TensorArgAbstract>(*this);
   }
 };
@@ -300,7 +300,7 @@ struct TensorArg : public TensorArgAbstract {
     return ss.str();
   }
 
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+  std::unique_ptr<ArgAbstract> clone() const override {
     return std::make_unique<TensorArg>(*this);
   }
 };
