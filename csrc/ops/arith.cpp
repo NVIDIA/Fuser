@@ -434,10 +434,11 @@ TensorView* abs(TensorView* tv) {
   return abs(tv->as<Val>())->as<TensorView>();
 }
 
-// The output of abs(complex_tensor) are real numbers
+// The output of signbit(tensor) are boolean values
 Val* signbit(Val* v) {
+  uto cast_v = promoteValues(TypePromotion::default_op_config, {v}).front();
   Val* out = ops::newValLike(v, DataType::Bool);
-  IrBuilder::create<UnaryOp>(UnaryOpType::Signbit, out, v);
+  IrBuilder::create<UnaryOp>(UnaryOpType::Signbit, out, cast_v);
   return out;
 }
 
