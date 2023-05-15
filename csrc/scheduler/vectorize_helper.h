@@ -243,7 +243,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     numerator_ = nullptr;
 
-    auto const_numerator_factor = 1;
+    int64_t const_numerator_factor = 1;
     for (auto factor : const_numerator_vals_) {
       const_numerator_factor *= factor;
     }
@@ -267,7 +267,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     denominator_ = nullptr;
 
-    auto const_denominator_factor = 1;
+    int64_t const_denominator_factor = 1;
     for (auto factor : const_denominator_vals_) {
       const_denominator_factor *= factor;
     }
