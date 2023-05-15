@@ -234,7 +234,7 @@ void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
 }
 
 void KernelArgumentHolder::push(const ArgAbstract* arg) {
-  arguments_.emplace_back(arg->copy_unique_ptr());
+  arguments_.emplace_back(arg->clone());
 }
 
 void KernelArgumentHolder::erase(const ArgAbstract* arg_to_delete) {
@@ -248,7 +248,7 @@ void KernelArgumentHolder::erase(const ArgAbstract* arg_to_delete) {
 }
 
 void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
-  auto holder = arg->copy_unique_ptr();
+  auto holder = arg->clone();
   arguments_[i].swap(holder);
 }
 
