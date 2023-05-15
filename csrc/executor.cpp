@@ -9,7 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
-#include <device_lower/bank_conflict.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>

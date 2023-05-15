@@ -10,11 +10,11 @@
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 #include <contiguity.h>
+#include <device_lower/analysis/index_compute.h>
+#include <device_lower/analysis/shift.h>
 #include <device_lower/double_buffer.h>
-#include <device_lower/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/magic_zero.h>
-#include <device_lower/shift.h>
 #include <device_lower/unroll.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
