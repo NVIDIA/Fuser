@@ -1788,7 +1788,26 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
   joined_group->setHeuristic(deriveHeuristic(joined_group));
   return joined_group;
 }
+
 namespace {
+
+// SegmenterSet hints a kernel break
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || !out->uses().empty()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Guard to temporarily change the inputs and outputs of a
 // fusion. Cast expressions to fp32 and fp16 are also inserted. On
@@ -3079,24 +3098,6 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
-}
-
-// SegmenterSet hints a kernel break
-bool tryingToMergeSegmenterSet(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<LoadStoreOp>() &&
-        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
-      auto out = expr->output(0);
-      // output from SegmenterSet node should be:
-      //   1. an output from the given fusion, and
-      //   2. not be used by any node within the graph
-      // This ensures no segment spans across the data flow from SegmenterSet
-      if (!out->isFusionOutput() || !out->uses().empty()) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 } // namespace
