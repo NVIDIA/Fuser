@@ -8,7 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <maxinfo_propagator.h>
@@ -243,7 +243,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     numerator_ = nullptr;
 
-    auto const_numerator_factor = 1;
+    int64_t const_numerator_factor = 1;
     for (auto factor : const_numerator_vals_) {
       const_numerator_factor *= factor;
     }
@@ -267,7 +267,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     denominator_ = nullptr;
 
-    auto const_denominator_factor = 1;
+    int64_t const_denominator_factor = 1;
     for (auto factor : const_denominator_vals_) {
       const_denominator_factor *= factor;
     }

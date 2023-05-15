@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/thread_predicate.h>
+#include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>
 #include <index_compute.h>
 #include <kernel_ir.h>

@@ -10,7 +10,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/alias_memory.h>
 #include <device_lower/allocation.h>
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/shift.h>
 #include <device_lower/double_buffer.h>
 #include <device_lower/expr_sort.h>
 #include <device_lower/fusion_simplifier.h>
@@ -23,7 +24,6 @@
 #include <device_lower/misaligned_vectorization.h>
 #include <device_lower/predicate.h>
 #include <device_lower/replace_size.h>
-#include <device_lower/shift.h>
 #include <device_lower/unroll.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
