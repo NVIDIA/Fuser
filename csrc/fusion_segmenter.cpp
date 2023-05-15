@@ -1470,7 +1470,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
-bool SegmentCandidateFinder::hasSegmentHints() {
+bool SegmentCandidateFinder::hasSegmentHints(const Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<LoadStoreOp>()) {
       auto op = expr->as<LoadStoreOp>();
