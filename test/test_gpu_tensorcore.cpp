@@ -3426,7 +3426,8 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 // Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
 //   with relaxed result verification
 TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  // skip until we have Hopper support
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 504, N = 136, K = 2048;
   for (auto layout : kAllSupportedMatmulLayout) {
     auto fusion = std::make_unique<Fusion>();
