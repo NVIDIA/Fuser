@@ -523,7 +523,7 @@ bool tryingToMergeSegmenterSet(Fusion* fusion) {
       //   1. an output from the given fusion, and
       //   2. not be used by any node within the graph
       // This ensures no segment spans across the data flow from SegmenterSet
-      if (!out->isFusionOutput() || out->uses().size() != 0) {
+      if (!out->isFusionOutput() || !out->uses().empty()) {
         return true;
       }
     }
