@@ -481,20 +481,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  if (!SegmentCandidateFinder::hasSegmentHints(fusion.get())) {
-    scheduler_debug_utils::canScheduleMessage(
-        "***Runtime***: Try to schedule fusion un-segmented:\n");
-    const auto maybe_complete_fusion_heuristic =
-        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
-    if (maybe_complete_fusion_heuristic.has_value()) {
-      segmented_fusion_ = SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
-    }
-  }
-  if (fusion) {
-    segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args);
-  }
+  segmented_fusion_ =
+      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
 
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 

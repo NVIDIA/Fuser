@@ -278,6 +278,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     ScheduleHeuristic heuristic,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
+  TORCH_INTERNAL_ASSERT(
+      !SegmentCandidateFinder::hasSegmentHints(fusion),
+      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with segment hints!");
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
@@ -1468,6 +1471,27 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   }
 
   return fusion_segment;
+}
+
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!hasSegmentHints(fusion.get())) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Try to schedule fusion un-segmented:\n");
+    const auto maybe_complete_fusion_heuristic =
+        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+    if (maybe_complete_fusion_heuristic.has_value()) {
+      return SegmentedFusion::fromCompleteFusion(
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
+    }
+  }
+  if (fusion) {
+    return SegmentCandidateFinder::segment(std::move(fusion), args);
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "unreachable!");
+  }
 }
 
 bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
