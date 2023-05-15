@@ -11,15 +11,15 @@
 
 #include <compute_at_map.h>
 #include <device_lower/allocation.h>
+#include <device_lower/analysis/fused_reduction.h>
+#include <device_lower/analysis/predicate_elimination.h>
+#include <device_lower/analysis/shift.h>
+#include <device_lower/analysis/sync_information.h>
+#include <device_lower/analysis/thread_predicate.h>
+#include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/double_buffer.h>
-#include <device_lower/fused_reduction.h>
 #include <device_lower/predicate.h>
-#include <device_lower/predicate_elimination.h>
 #include <device_lower/scalar_hoist.h>
-#include <device_lower/shift.h>
-#include <device_lower/sync_information.h>
-#include <device_lower/thread_predicate.h>
-#include <device_lower/trivial_broadcast.h>
 #include <device_lower/warp_reduce.h>
 #include <executor_params.h>
 #include <ir_all_nodes.h>
