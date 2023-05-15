@@ -1484,11 +1484,11 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
     }
   }
   if (fusion) {
-    return SegmentCandidateFinder::segment(std::move(fusion), args);
+    return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
     TORCH_INTERNAL_ASSERT(false, "unreachable!");
   }
