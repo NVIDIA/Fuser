@@ -80,6 +80,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
+  for (const auto i : c10::irange(resize_transforms_.size())) {
+    const auto& transform = resize_transforms_.at(i);
+    const auto& other_transform = other.resize_transforms_.at(i);
+    if (transform != other_transform) {
+      return false;
+    }
+  }
+
   return true;
 }
 
