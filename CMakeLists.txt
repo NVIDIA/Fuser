@@ -41,11 +41,7 @@ else() # PROJECT_IS_TOP_LEVEL
     return()
   endif()
 
-  if(NOT USE_ROCM)
-    set(TORCHLIB_FLAVOR torch_cuda)
-  else()
-    set(TORCHLIB_FLAVOR torch_hip)
-  endif()
+  set(TORCHLIB_FLAVOR torch_cuda)
 
   # TODO: have TORCH_ROOT setup as a variable instead
   # currently we are expecting nvfuser to be added from the pytorch root cmake file.
