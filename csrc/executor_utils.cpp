@@ -293,9 +293,8 @@ bool validateKernelArg(
   if (auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg)) {
     // TODO: don't use get tensor here. We would want to remove tensor reference
     // for async compilation
-    auto at_tensor_opt = tensor_arg_abstract->getTensor();
-    TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
-    return validateKernelArgTensor(at_tensor_opt.value(), param, device, msg);
+    return validateKernelArgTensor(
+        tensor_arg_abstract->getTensor(), param, device, msg);
   } else if (arg->isType(ArgType::CpuScalarTensor)) {
     // TODO: merge this one with above
     // TODO: we need to check cpu scalar dtyp matches param
@@ -701,10 +700,8 @@ void validateAlignedVectorizedTensors(
     auto tensor_arg_abstract =
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
-    auto at_tensor_opt = tensor_arg_abstract->getTensor();
-    TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
     validateAlignedVectorizedFusionInputOutput(
-        at_tensor_opt.value(), word_size, tv);
+        tensor_arg_abstract->getTensor(), word_size, tv);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
@@ -747,9 +744,7 @@ void validateMisalignedVectorizedTensors(
             dynamic_cast<const TensorArgAbstract*>(args[idx]);
         TORCH_INTERNAL_ASSERT(
             tensor_arg_abstract, "alias io only supports tensor");
-        auto at_tensor_opt = tensor_arg_abstract->getTensor();
-        TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
-        return at_tensor_opt.value();
+        return tensor_arg_abstract->getTensor();
       });
 
   const auto& out_misaligned_tensors_pos =
@@ -851,15 +846,8 @@ void bindInputForExprEvaluation(
 
       for (const auto dim : c10::irange(root_domain.size())) {
         const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
-        const auto tensor_arg_stride = tensor_arg_abstract->getStride((int)dim);
         const auto extent = root_domain[dim]->extent();
         if (root_domain[dim]->hasExpandedExtent()) {
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_stride == 0,
-              "Expecting an expanded dimension on dimension ",
-              dim,
-              " but found stride ",
-              tensor_arg_stride);
           // Could support dynamic size on expanded dimension, so may not have
           // an inferable expanded extent here. This check might be better to do
           // once all values are bound.

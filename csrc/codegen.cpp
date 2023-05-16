@@ -6,11 +6,11 @@
  */
 // clang-format on
 #include <codegen.h>
+#include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower_utils.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -230,13 +230,10 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     for (auto allocate : kernel_summary.global_allocations) {
       TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
       const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& alloc_domain = tv->getMaybeAllocationDomain();
-      const auto nDims = std::count_if(
-          alloc_domain.begin(), alloc_domain.end(), [](const IterDomain* id) {
-            return !id->isReduction();
-          });
-      code_ << ", Tensor<" << tv->dtype() << ", " << nDims << ", " << nDims
-            << "> " << ir_utils::varName(tv);
+      const auto& alloc_domain =
+          TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+      code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
+            << alloc_domain.size() << "> " << ir_utils::varName(tv);
     }
 
     // Kernels generating random numbers take extra (seed, offset) arguments
@@ -2743,11 +2740,11 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   void handle(const kir::InitMagicZero*) final {
-    indent() << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+    indent() << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   }
 
   void handle(const kir::UpdateMagicZero*) final {
-    indent() << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+    indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
   void handle(const CatOp* cat) final {

@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
+#include <dynamic_transform.h>
 #include <ir_cloner.h>
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
@@ -737,10 +738,10 @@ std::string RNGOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-size_t RNGOp::getOutputDims() const {
-  size_t ndims = 0;
+int64_t RNGOp::getOutputDims() const {
+  int64_t ndims = 0;
   if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
-    ndims = tv_out->getRootDomain().size();
+    ndims = (int64_t)tv_out->getRootDomain().size();
   }
   return ndims;
 }
@@ -2101,9 +2102,12 @@ IterDomain::IterDomain(
       is_padded_dimension_(is_padded_dimension),
       padded_to_size_(padded_to_size),
       is_mma_swizzled_(is_mma_swizzled) {
-  TORCH_CHECK(
-      !(isRFactorProduct() && isBroadcast()),
-      "IterDomain cannot be both a broadcast and rfactor domain.");
+  // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
+  // that an IterDomain could not be both a broadcast and an rfactor domain.
+  // However, since the introduction of the resize op, we now have a legitimate
+  // case where this may be true; namely, whenever we resize an IterDomain to
+  // size 1, we will mark it as Broadcast, but the resize must lie between root
+  // and rfactor.
 
   TORCH_INTERNAL_ASSERT(
       extent->isIntegralScalar(),
@@ -2459,7 +2463,8 @@ IterDomain* IterDomain::resize(
     IterDomain* in,
     Val* left_expansion,
     Val* right_expansion,
-    bool mark_as_rfactor) {
+    bool mark_as_rfactor,
+    std::optional<IterType> iter_type_opt) {
   TORCH_CHECK(
       left_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
@@ -2502,10 +2507,28 @@ IterDomain* IterDomain::resize(
         right_expansion);
   }
 
+  // If output IterType is provided, use it. Otherwise, if we can prove the
+  // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
+  // Iteration, and otherwise fall back to Symbolic.
+  IterType iter_type = IterType::Symbolic;
+  if (iter_type_opt.has_value()) {
+    iter_type = iter_type_opt.value();
+  } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    if (resized_id_size->isConstInt()) {
+      // Means input extent is also known
+      auto out_extent = resized_id_size->evaluateInt();
+      iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else if (
+        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+      // Input extent is non-negative, so we know out_extent > 1
+      iter_type = IterType::Iteration;
+    }
+  }
+
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
           .is_rfactor_domain(mark_as_rfactor)
-          .iter_type(in->getIterType())
+          .iter_type(iter_type)
           .build();
 
   IrBuilder::create<Resize>(
@@ -2602,10 +2625,13 @@ void validateContiguity(
       " but needed one of size ",
       allocation_domain.size());
   for (auto i : c10::irange(contiguity.size())) {
+    bool expect_null =
+        (allocation_domain.at(i)->isBroadcast() ||
+         allocation_domain.at(i)->isReduction());
     TORCH_CHECK(
-        allocation_domain.at(i)->isBroadcast() != contiguity.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
+        expect_null != contiguity.at(i).has_value(),
+        "The contiguity of a broadcast/reduction dimension must be None. "
+        "The contiguity of a non-broadcast/reduction dimension must be true/false");
   }
 }
 
@@ -3113,7 +3139,7 @@ std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
-    if (id->isBroadcast()) {
+    if (id->isBroadcast() || id->isReduction()) {
       contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);

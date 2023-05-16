@@ -313,6 +313,9 @@ TORCH_CUDA_CU_API TensorView* round(TensorView*);
 // sigmoid
 TORCH_CUDA_CU_API Val* sigmoid(Val*);
 TORCH_CUDA_CU_API TensorView* sigmoid(TensorView*);
+// signbit
+TORCH_CUDA_CU_API Val* signbit(Val*);
+TORCH_CUDA_CU_API TensorView* signbit(TensorView*);
 // sin
 TORCH_CUDA_CU_API Val* sin(Val*);
 TORCH_CUDA_CU_API TensorView* sin(TensorView*);

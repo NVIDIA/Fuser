@@ -255,8 +255,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 }
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
-    : fusion_(std::move(fusion)),
-      has_dynamic_reshape_(fusion_->hasDynamicTransform()) {}
+    : fusion_(std::move(fusion)) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -274,7 +273,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ has_dynamic_reshape_);
+      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ isDynamic());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -513,7 +512,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   size_t conc_info_index = 0;
-  if (has_dynamic_reshape_) {
+  if (isDynamic()) {
     conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
     TORCH_CHECK(
         conc_info.has_value(),
@@ -564,7 +563,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (has_dynamic_reshape_) {
+    if (isDynamic()) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -589,7 +588,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (has_dynamic_reshape_) {
+  if (isDynamic()) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.
@@ -619,24 +618,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  //! Try to schedule the complete fusion
-  scheduler_debug_utils::canScheduleMessage(
-      "***Runtime***: Try to schedule fusion un-segmented:\n");
-
-  const auto maybe_complete_fusion_heuristic =
-      SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
-
-  //! Decide if this fusion is segmented or not
-  const bool segmented = !maybe_complete_fusion_heuristic.has_value();
-
-  if (segmented) {
-    // Take ownership and segment transformed fusion
-    segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args);
-  } else {
-    segmented_fusion_ = SegmentedFusion::fromCompleteFusion(
-        std::move(fusion), maybe_complete_fusion_heuristic.value(), args);
-  }
+  segmented_fusion_ =
+      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
 
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
@@ -911,9 +894,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       auto tensor_arg_abstract =
           dynamic_cast<const TensorArgAbstract*>(iter->second);
       TORCH_INTERNAL_ASSERT(tensor_arg_abstract != nullptr);
-      auto at_tensor_opt = tensor_arg_abstract->getTensor();
-      TORCH_INTERNAL_ASSERT(at_tensor_opt.has_value());
-      fusion_outputs.push_back(at_tensor_opt.value());
+      fusion_outputs.push_back(tensor_arg_abstract->getTensor());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;

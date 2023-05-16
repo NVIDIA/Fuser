@@ -747,7 +747,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (int i : c10::irange(output_dims)) {
+  for (size_t i : c10::irange(output_dims)) {
     output_shape[i] = IrBuilder::create<Int>();
     fusion.addInput(output_shape[i]);
   }
@@ -784,6 +784,9 @@ void reductionDynamicViewAddFusion(
     auto output_shape = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
 
+    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
+    TORCH_INTERNAL_ASSERT(output_shape.size() == output_dims);
+
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
@@ -802,14 +805,14 @@ void reductionDynamicViewAddFusion(
         }
       }
       if (negone_dim >= 0) {
-        bias_shape[negone_dim] = at_x.numel() / other_numel;
+        bias_shape[negone_dim] = (int64_t)at_x.numel() / (int64_t)other_numel;
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (int i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+    for (size_t i : c10::irange(output_dims)) {
+      aten_inputs.emplace_back(output_shape[i]);
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
@@ -838,11 +841,117 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
        {8, 3, 4 * 7, 5},
        false}, // merge(1) merge(2) osplit(1, 3)
       {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
+
       // test passing -1 dynamically for dimension size
+      // This currently fails. see https://github.com/NVIDIA/Fuser/issues/249
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
   };
   reductionDynamicViewAddFusion(
       invocations, true /* reshape_before_reduction */);
+}
+
+using dynamic_pad_invocation = std::tuple<
+    std::vector<int64_t>, // input_shape
+    std::vector<int64_t>, // pad_widths
+    bool // expect miss
+    >;
+
+void reductionDynamicPadAddFusion(
+    std::vector<dynamic_pad_invocation>& invocations) {
+  constexpr int kReductionAxis = -1;
+
+  auto input_dims = std::get<0>(invocations[0]).size();
+  auto num_pad_widths = std::get<1>(invocations[0]).size();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(input_dims);
+  fusion.addInput(x);
+
+  std::vector<Val*> pad_width_vals(num_pad_widths);
+  for (auto i : c10::irange(num_pad_widths)) {
+    pad_width_vals[i] = IrBuilder::create<Int>();
+    fusion.addInput(pad_width_vals[i]);
+  }
+  auto x_pad = pad(x, pad_width_vals);
+  auto y = sum(x_pad, {kReductionAxis});
+  fusion.addOutput(y);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  // Return pair of: number of concretizations & total number of kernel runtimes
+  auto countConcretizations = [&fusion_executor_cache]() {
+    return fusion_executor_cache.getKernelRuntimes().size();
+  };
+  size_t num_concretizations = countConcretizations();
+  // Check that concretizations and runtimes are cache misses only when they
+  // should be
+  auto checkCache = [&countConcretizations,
+                     &num_concretizations](bool expect_miss) {
+    auto current = countConcretizations();
+    ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
+    num_concretizations = current;
+  };
+
+  for (auto& inv : invocations) {
+    auto input_shape = std::get<0>(inv);
+    auto pad_widths = std::get<1>(inv);
+    auto expect_miss = std::get<2>(inv);
+
+    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
+    TORCH_INTERNAL_ASSERT(pad_widths.size() == num_pad_widths);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    at::Tensor at_x = at::randn(input_shape, options);
+    std::vector<c10::IValue> aten_inputs = {at_x};
+    // Add input scalars describing the reshape size for concretization
+    for (size_t i : c10::irange(pad_widths.size())) {
+      aten_inputs.emplace_back(pad_widths[i]);
+    }
+
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+    checkCache(expect_miss);
+
+    auto at_x_pad = at::pad(at_x, pad_widths);
+    auto at_y = at::sum(at_x_pad, kReductionAxis);
+
+    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+  }
+}
+
+// Test dynamic pad for various inputs
+TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
+  // NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result)
+  auto invocations = std::vector<dynamic_pad_invocation>{
+      {{3, 5}, {0, 0}, true}, // trivial
+
+      {{3, 5}, {2, 1}, false}, // simple pad of both sides
+      {{3, 5}, {-1, 1}, false}, // shift by one
+      // The following fails with a SIGFPE in innerReductionHeuristic
+      // See https://github.com/NVIDIA/Fuser/issues/264
+      //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
+
+      // Output has size 1 so is set to broadcast.
+      {{3, 5}, {0, -4}, true},
+
+      // Test full negative shifts, so output doesn't overlap input
+      {{3, 5}, {-5, 2}, false},
+      {{3, 5}, {2, -5}, false}, // full shift the other direction, re-use
+
+      // The following reuses the schedule of {3, 5} inputs, and does not set
+      // broadcast on the second input dimension.
+      {{3, 1}, {1, 1}, false},
+
+      // Test zero-dimensional input
+      //{{3, 0}, {0, 0}, false}, // SIGFPE (see #264 above)
+      {{3, 0}, {1, 1}, false},
+      //{{3, 0}, {-1, 1}, false}, // SIGFPE (see #264 above)
+  };
+  // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
+  reductionDynamicPadAddFusion(invocations);
 }
 
 } // namespace nvfuser
