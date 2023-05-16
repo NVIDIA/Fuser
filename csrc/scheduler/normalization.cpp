@@ -685,9 +685,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // blocks and buffers
   if (vectorize && blocksPerKernel > device_multiprocessor_count &&
       batches_per_block_inner_reduction > 1) {
+    // Estimate register per thread based on buffer size, since inner reduction
+    // dim is fully parallelized, the buffer size of each element equals the
+    // total buffer size divide by inner_most_dimension_numel. Each thread will
+    // hold batches_per_block_inner_reduction * inner_reduction_unroll_factor
+    // elements.
     const int64_t persistent_buffer_size = max_persistent_buffer_size /
         inner_most_dimension_numel * batches_per_block_inner_reduction *
         inner_reduction_unroll_factor;
+
     // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
     // register_used_on_a100  = 27,  40,  62,   73,   105
     // register_used_on_v100  = xx,  xx,  45,   62,   93
@@ -695,7 +701,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // safe for both v100 & a100
     constexpr int64_t bytes_per_register = 4;
     constexpr int64_t overhead_register = 40;
-    const int64_t estimated_register_count =
+    int64_t estimated_register_count =
         persistent_buffer_size / bytes_per_register + overhead_register;
 
     // check occupancy using blocks per sm
@@ -704,6 +710,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t blocks_per_sm_estimated =
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
+    // recalculate estimated_register_count using blocks_per_sm_estimated
+    // this may increase estimated_register_count due to allocation granularity
+    // e.g. 104 -> 128, didn't see a performance increase on a100
+    estimated_register_count = getRegPerThreadGivenThreadsPerSM(
+        blocks_per_sm_estimated * threads_per_block);
 
     // only allow adjust to 85% of estimated_register_count to avoid too much
     // spills. initially we used 80%, however, the drop from 160 to 128 leads to
@@ -716,11 +727,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // estimated register for this case is 104 adjusting it to 64 is too
     // aggressive.
     constexpr double max_adjust_fraction = 0.85;
-    const int64_t register_count_minimum = static_cast<int64_t>(
+    int64_t register_count_minimum = static_cast<int64_t>(
         max_adjust_fraction * static_cast<double>(estimated_register_count));
     const int64_t blocks_per_sm_maximum =
         getThreadsPerSMGivenRegPerThread(register_count_minimum) /
         threads_per_block;
+
+    register_count_minimum = getRegPerThreadGivenThreadsPerSM(
+        blocks_per_sm_maximum * threads_per_block);
 
     // minimum occupancy we want to achieve
     constexpr double occupancy_ratio = 0.4;
