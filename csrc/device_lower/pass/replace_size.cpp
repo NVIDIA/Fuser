@@ -12,7 +12,7 @@
 #include <ir_utils.h>
 #include <root_domain_map.h>
 
-#include <device_lower/replace_size.h>
+#include <device_lower/pass/replace_size.h>
 
 namespace nvfuser {
 

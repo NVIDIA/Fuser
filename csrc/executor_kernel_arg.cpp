@@ -14,64 +14,52 @@
 
 namespace nvfuser {
 
-std::string TensorArgAbstract::toString() const {
-  std::stringstream ss;
-  auto rank = getRank();
-  ss << "tensor dtype: " << getDataType() << " sizes: (";
-  for (auto i = 0; i < rank; i++) {
-    ss << getSize(i) << ", ";
+PrimDataType TensorArgAbstract::getSmallestIndexType() const {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto dim_i : c10::irange(tensor_.ndimension())) {
+    auto size = tensor_.size(dim_i);
+    auto stride = tensor_.stride(dim_i);
+    if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+      return PrimDataType::Int;
+    }
   }
-  ss << ") stride: (";
-  for (auto i = 0; i < rank; i++) {
-    ss << getStride(i) << ", ";
-  }
-  ss << ") pointer: " << getPointer();
-  return ss.str();
+  return PrimDataType::Int32;
 }
 
 namespace {
 
-template <typename T, typename nvfuser_index_t>
+template <typename nvfuser_index_t>
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
-    bool index_type_resolved) {
+    at::Tensor tensor,
+    TensorView* tv) {
   switch (tensor.ndimension()) {
     case (0):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (1):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (2):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (3):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (4):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (5):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (6):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (7):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     case (8):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(
-          tensor, index_type_resolved);
+      return std::make_unique<TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
+          std::move(tensor), tv);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
@@ -82,43 +70,26 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
   return nullptr;
 }
 
-template <typename nvfuser_index_t>
-struct GetTensorArgWithNativeType {
-  template <typename T>
-  std::unique_ptr<TensorArgAbstract> operator()(
-      const at::Tensor& tensor,
-      bool index_type_resolved) {
-    return getTensorArg<T, nvfuser_index_t>(tensor, index_type_resolved);
-  };
-};
-
-template <typename INDEX_TYPE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
-    bool index_type_resolved) {
-  return atenTypeDispatchWithC10Complex(
-      tensor.scalar_type(),
-      GetTensorArgWithNativeType<INDEX_TYPE>(),
-      tensor,
-      index_type_resolved);
+std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(at::Tensor tensor) {
+  return std::make_unique<TensorArgAbstract>(std::move(tensor));
 }
 
 std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const at::Tensor& tensor,
+    at::Tensor tensor,
+    TensorView* tv,
     std::optional<PrimDataType> index_type) {
   if (index_type.has_value()) {
     switch (index_type.value()) {
       case PrimDataType::Int32:
-        return getTensorArg<int>(tensor, true);
+        return getTensorArg<int>(std::move(tensor), tv);
       case PrimDataType::Int:
-        return getTensorArg<int64_t>(tensor, true);
+        return getTensorArg<int64_t>(std::move(tensor), tv);
       default:
         TORCH_INTERNAL_ASSERT(false, "unknown index mode");
         break;
     }
   } else {
-    // Tentatively create TensorArgAbstract with int64_t
-    return getTensorArg<int64_t>(tensor, false);
+    return getAbstractTensorArg(std::move(tensor));
   }
 }
 
@@ -143,20 +114,12 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
 
 namespace {
 
-struct MakeCpuScalarTensor {
-  template <typename T>
-  std::unique_ptr<ArgAbstract> operator()(const at::Tensor& tensor) const {
-    return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(
-        tensor.data_ptr<T>()[0]);
-  }
-};
-
-PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
-  KernelIndexTypeCompute index_type_helper;
-  for (const auto i : c10::irange(tensor.ndimension())) {
-    index_type_helper.addDim(tensor.sizes()[i], tensor.strides()[i]);
-  }
-  return index_type_helper.getType();
+template <size_t size>
+std::unique_ptr<ArgAbstract> makeCpuScalarTensorArg(const at::Tensor& tensor) {
+  auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
+  static_assert(sizeof(ptr->instance_) == size);
+  std::memcpy(&(ptr->instance_), tensor.data_ptr(), size);
+  return ptr;
 }
 
 } // namespace
@@ -164,10 +127,25 @@ PrimDataType getIndexTypeOfAtenTensor(const at::Tensor& tensor) {
 // Push a tensor to the arguments
 void KernelArgumentHolder::push(const at::Tensor& tensor) {
   if (is_cpu_scalar(tensor)) {
-    arguments_.push_back(atenTypeDispatchWithC10Complex(
-        tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
+    switch (tensor.element_size()) {
+      case 1:
+        arguments_.push_back(makeCpuScalarTensorArg<1>(tensor));
+        break;
+      case 2:
+        arguments_.push_back(makeCpuScalarTensorArg<2>(tensor));
+        break;
+      case 4:
+        arguments_.push_back(makeCpuScalarTensorArg<4>(tensor));
+        break;
+      case 8:
+        arguments_.push_back(makeCpuScalarTensorArg<8>(tensor));
+        break;
+      case 16:
+        arguments_.push_back(makeCpuScalarTensorArg<16>(tensor));
+        break;
+    }
   } else {
-    arguments_.push_back(getTensorArg(tensor, std::nullopt));
+    arguments_.push_back(getTensorArg(tensor, nullptr, std::nullopt));
   }
 }
 
@@ -212,16 +190,22 @@ void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
 
 // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
 // in the buffer
-void** KernelArgumentHolder::getBuffer(PrimDataType index_type) {
+void** KernelArgumentHolder::getBuffer(
+    PrimDataType index_type,
+    std::vector<TensorView*> tvs) {
+  TORCH_INTERNAL_ASSERT(
+      arguments_.size() == tvs.size(),
+      "The size of arguments and the size of tvs does not match.");
   if (void_ptrs_.size() < arguments_.size()) {
     void_ptrs_.resize(arguments_.size());
   }
   for (const auto i : c10::irange(arguments_.size())) {
     if (auto tensor_arg =
             dynamic_cast<TensorArgAbstract*>(arguments_.at(i).get())) {
-      if (!tensor_arg->isIndexTypeResolved() ||
+      if (tensor_arg->isAbstract() ||
           tensor_arg->getIndexType() != index_type) {
-        auto resolved_arg = getTensorArg(tensor_arg->getTensor(), index_type);
+        auto resolved_arg =
+            getTensorArg(tensor_arg->getTensor(), tvs.at(i), index_type);
         arguments_.at(i) = std::move(resolved_arg);
       }
     }
@@ -250,7 +234,7 @@ void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
 }
 
 void KernelArgumentHolder::push(const ArgAbstract* arg) {
-  arguments_.emplace_back(arg->copy_unique_ptr());
+  arguments_.emplace_back(arg->clone());
 }
 
 void KernelArgumentHolder::erase(const ArgAbstract* arg_to_delete) {
@@ -264,7 +248,7 @@ void KernelArgumentHolder::erase(const ArgAbstract* arg_to_delete) {
 }
 
 void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
-  auto holder = arg->copy_unique_ptr();
+  auto holder = arg->clone();
   arguments_[i].swap(holder);
 }
 
@@ -291,15 +275,8 @@ std::string KernelArgumentHolder::toString() const {
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
-    auto tensor_arg = dynamic_cast<const TensorArgAbstract*>(arg.get());
-    if (tensor_arg == nullptr) {
-      continue;
-    }
-    KernelIndexTypeCompute index_type_helper;
-    for (const auto dim_i : c10::irange(tensor_arg->getRank())) {
-      auto size = tensor_arg->getSize(dim_i);
-      auto stride = tensor_arg->getStride(dim_i);
-      if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+    if (auto tensor_arg = dynamic_cast<const TensorArgAbstract*>(arg.get())) {
+      if (tensor_arg->getSmallestIndexType() == PrimDataType::Int) {
         return PrimDataType::Int;
       }
     }

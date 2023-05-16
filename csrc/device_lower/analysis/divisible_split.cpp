@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
 
 #include <disjoint_set.h>
 #include <ir_utils.h>

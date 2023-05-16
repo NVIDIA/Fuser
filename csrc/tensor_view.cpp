@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
-#include <device_lower/double_buffer.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/pass/double_buffer.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir_all_nodes.h>

@@ -9,7 +9,7 @@
 
 #include <codegen.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <executor.h>
 #include <expr_evaluator.h>
 #include <ir_all_nodes.h>
