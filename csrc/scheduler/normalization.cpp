@@ -711,23 +711,22 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
 
-    // only allow adjust to 85% of estimated_register_count to avoid too much
+    // only allow adjust to 90% of estimated_register_count to avoid too much
     // spills. initially we used 80%, however, the drop from 160 to 128 leads to
     // too much spills in Layer Norm with fused ops, see
     // https://github.com/NVIDIA/Fuser/issues/335
-    // 85% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
+    // 90% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
     // where batch = 8. With this change, however, we lost 10 % performance on
     // Softmax_Inner_fp16/16384/4096, where the perf is best when using 64
     // registers with 232 bytes spill stores and 276 bytes spill loads. The
     // estimated register for this case is 104 adjusting it to 64 is too
     // aggressive.
-    constexpr double max_adjust_fraction = 0.85;
+    constexpr double max_adjust_fraction = 0.9;
     int64_t register_count_minimum = static_cast<int64_t>(
         max_adjust_fraction * static_cast<double>(estimated_register_count));
     const int64_t blocks_per_sm_maximum =
         getThreadsPerSMGivenRegPerThread(register_count_minimum) /
         threads_per_block;
-
     register_count_minimum = getRegPerThreadGivenThreadsPerSM(
         blocks_per_sm_maximum * threads_per_block);
 
