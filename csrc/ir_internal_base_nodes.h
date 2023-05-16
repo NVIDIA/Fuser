@@ -28,9 +28,6 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-// Friends for modifying IterDomains in place
-class DynamicTransformConcretizer;
-
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
 // IterDomain::IterDomain(IrBuilderPasskey IterDomainBuildArgs)
@@ -155,18 +152,12 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! is marked as an rfactor domain. For example, expressions such as
   //! PadOp and SliceOp resize IterDomains and generate rfactor
   //! resized domains.
-  //!
-  //! Note that this operation might result in outputs with IterDomains having
-  //! IterType::Symbolic iteration type. This is because unless the expansion
-  //! arguments are known at compile time, we cannot infer that the output
-  //! extent is not 1, in which case we would set the iter_type to Broadcast. In
-  //! such a case, the proper iter_type will be set during concretization
-  //! (inside FusionExecutorCache::runFusionWithInputs) using setIterType.
   static IterDomain* resize(
       IterDomain* in,
       Val* left_expansion,
       Val* right_expansion,
-      bool mark_as_rfactor = false);
+      bool mark_as_rfactor = false,
+      std::optional<IterType> iter_type = std::nullopt);
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
@@ -371,12 +362,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   friend TensorDomain;
   friend ReplayTransformations;
   friend IndexReferenceReplay;
-  friend DynamicTransformConcretizer;
-
-  //! Set the iter_type
-  void setIterType(IterType iter_type) {
-    iter_type_ = iter_type;
-  }
 
  private:
   //! Valid range is defined as [start:-stop_offset]
