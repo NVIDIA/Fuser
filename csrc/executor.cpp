@@ -1009,8 +1009,6 @@ std::vector<at::Tensor> allocOutputs(
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(
           at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
-      outputs.emplace_back(
-          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
     } else {
       auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
