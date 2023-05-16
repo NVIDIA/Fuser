@@ -10,13 +10,13 @@
 #include <c10/macros/Export.h>
 
 #include <compute_at_map.h>
-#include <device_lower/pass/allocation.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>

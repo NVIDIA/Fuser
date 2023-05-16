@@ -8,10 +8,10 @@
 #include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <device_lower/pass/alias_memory.h>
-#include <device_lower/pass/allocation.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/analysis/shift.h>
+#include <device_lower/pass/alias_memory.h>
+#include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
@@ -25,10 +25,10 @@
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
 #include <device_lower/pass/unroll.h>
-#include <device_lower/utils.h>
-#include <device_lower/validation.h>
 #include <device_lower/pass/vectorize_welford.h>
 #include <device_lower/pass/warp_reduce.h>
+#include <device_lower/utils.h>
+#include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <instrumentation.h>
