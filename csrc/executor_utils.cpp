@@ -930,7 +930,7 @@ ExpressionEvaluator bindInputs(
   // beginning.
   TORCH_INTERNAL_ASSERT(
       kernel->inputs().size() <= args.size(),
-      "Something went wrong configuring launch. Inputs no longer match.");
+      "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
