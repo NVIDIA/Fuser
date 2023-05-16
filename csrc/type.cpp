@@ -686,6 +686,8 @@ static const char* thread_size2string(ParallelType t) {
 
 const char* load_store_type2string(LoadStoreOpType t) {
   switch (t) {
+    case LoadStoreOpType::SegmenterSet:
+      return "SegmenterSet";
     case LoadStoreOpType::Set:
       return "Set";
     case LoadStoreOpType::LdMatrix:
