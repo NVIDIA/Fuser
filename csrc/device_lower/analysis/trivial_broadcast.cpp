@@ -9,7 +9,7 @@
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 
-#include <device_lower/trivial_broadcast.h>
+#include <device_lower/analysis/trivial_broadcast.h>
 
 namespace nvfuser {
 

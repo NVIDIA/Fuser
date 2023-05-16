@@ -1459,6 +1459,23 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_segment_set(self):
+        inputs = [
+            torch.randn(5, 5, 5, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.neg(T0)
+            T2 = fd.ops.segment_set(T1)
+            T3 = fd.ops.relu(T2)
+            fd.add_output(T3)
+
+        eager_out = inputs[0].neg().relu()
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_fix_2549(self):
         a = torch.ones(4, 1, dtype=torch.double, device="cuda")
         b = torch.ones(4, 4, dtype=torch.double, device="cuda")

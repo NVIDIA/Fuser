@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <device_lower/sync_information.h>
+#include <device_lower/analysis/sync_information.h>
 #include <device_lower/warp_reduce.h>
 #include <fusion.h>
 #include <ir_base_nodes.h>

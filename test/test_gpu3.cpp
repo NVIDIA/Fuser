@@ -8391,6 +8391,49 @@ TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
   ASSERT_TRUE(at::eq(t0.squeeze(1), cg_output.select(1, 0)).all().item<bool>());
 }
 
+// Test forced segmentation hint
+TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> input_shape{32, 64, 8, 128};
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = relu(tv0);
+  auto tv2 = segment_set(tv1);
+  auto tv3 = neg(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto ref_out = at_x.clone().relu().neg();
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+
+  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  auto groups = optimized_fusion->fusionSegments()->groups();
+  TORCH_CHECK(
+      groups.size() == 2, "segmentation hint isn't working as expected");
+  // with the hint, segment_set should be grouped with its producer
+  // [relu, segment_set], [neg]
+  for (auto& group : groups) {
+    // we only check the group with a single node
+    if (group->exprs().size() == 1) {
+      auto relu_expr = group->exprs()[0];
+      TORCH_CHECK(
+          relu_expr->isA<UnaryOp>() &&
+              relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
+          "segmentation result is not expected");
+    }
+  }
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

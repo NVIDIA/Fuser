@@ -506,10 +506,14 @@ static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
     IdMappingMode::PERMISSIVE,
     IdMappingMode::PERMISSIVE_RESIZE};
 
-// Used to annotate the special memory intrinsics that a loadstore
-//  op will be lowered to.
+//! Used to annotate the special memory intrinsics that a loadstore op will be
+//!  lowered to.
+//!
+//!  SegmenterSet here is used to hint segmenter to break kernel on the output
+//!  of the node
 enum class LoadStoreOpType {
   Set,
+  SegmenterSet,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,
