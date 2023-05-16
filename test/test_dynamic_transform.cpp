@@ -947,9 +947,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       //{{3, 5}, {0, -4}, true},
 
       // Test full negative shifts, so output doesn't overlap input
-      {{3, 5},
-       {-5, 2},
-       false}, // TODO: why doesn't this miss due to concretize to broadcast?
+      {{3, 5}, {-5, 2}, false},
       {{3, 5}, {2, -5}, false}, // full shift the other direction, re-use
 
       // The following reuses the schedule of {3, 5} inputs, and does not set
