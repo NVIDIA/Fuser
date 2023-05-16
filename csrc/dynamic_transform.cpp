@@ -156,12 +156,9 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
           "Cannot evaluate the right expansion of an IterDomain resize: ",
           right->toString());
 
-      auto out_itertype = ir_utils::resizeOutputIterType(
-          in_extent_val->as<int64_t>(),
-          out_extent_val->as<int64_t>(),
-          left_val->as<int64_t>(),
-          right_val->as<int64_t>());
-
+      auto out_itertype = out_extent_val->as<int64_t>() == 1
+          ? IterType::Broadcast
+          : IterType::Iteration;
       info_.resize_transforms_.emplace_back(id, out_itertype);
     }
   }
