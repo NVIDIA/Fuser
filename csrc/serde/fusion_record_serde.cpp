@@ -875,6 +875,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("set", set)
   NVFUSER_UNARY_TV_OP("sign", sign)
   NVFUSER_UNARY_TV_OP("sigmoid", sigmoid)
+  NVFUSER_UNARY_TV_OP("signbit", signbit)
   NVFUSER_UNARY_TV_OP("silu", silu)
   NVFUSER_UNARY_TV_OP("sin", sin)
   NVFUSER_UNARY_TV_OP("sinh", sinh)

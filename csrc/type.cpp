@@ -303,6 +303,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "nearbyint";
     case UnaryOpType::Sigmoid:
       return "sigmoid";
+    case UnaryOpType::Signbit:
+      return "signbit";
     case UnaryOpType::Sin:
       return "sin";
     case UnaryOpType::Sinh:
