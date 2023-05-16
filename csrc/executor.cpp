@@ -13,8 +13,8 @@
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <utils.h>

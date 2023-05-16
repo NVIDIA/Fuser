@@ -32,8 +32,8 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 
 #include <list>
 #include <unordered_map>

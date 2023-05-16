@@ -13,7 +13,7 @@
 #include <c10/util/Optional.h>
 
 #include <dynamic_type.h>
-#include <ir_builder_passkey.h>
+#include <ir/builder_passkey.h>
 #include <type.h>
 #include <utils.h>
 

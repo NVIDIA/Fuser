@@ -11,7 +11,7 @@
 #include <executor_kernel_arg.h>
 #include <executor_params.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>

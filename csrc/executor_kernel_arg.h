@@ -10,7 +10,7 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>

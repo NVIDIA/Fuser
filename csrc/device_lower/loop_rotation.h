@@ -8,7 +8,7 @@
 #pragma once
 
 #include <executor_params.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 namespace nvfuser {
 

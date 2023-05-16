@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_iostream.h>
-#include <ir_printer.h>
+#include <ir/iostream.h>
+#include <ir/printer.h>
 
 #include <device_lower/utils.h>
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <utils.h>
 

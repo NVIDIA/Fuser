@@ -10,7 +10,7 @@
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 

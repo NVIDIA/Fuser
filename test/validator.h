@@ -11,7 +11,7 @@
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 
 #include <ATen/cuda/CUDAContext.h>
 

@@ -11,7 +11,7 @@
 #include <device_lower/lower2device.h>
 #include <dispatch.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 
 namespace nvfuser {

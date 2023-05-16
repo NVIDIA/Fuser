@@ -9,15 +9,15 @@
 
 #include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 #include <transform_replay.h>
 
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
