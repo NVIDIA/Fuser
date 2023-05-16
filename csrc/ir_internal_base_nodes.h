@@ -152,6 +152,19 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! is marked as an rfactor domain. For example, expressions such as
   //! PadOp and SliceOp resize IterDomains and generate rfactor
   //! resized domains.
+  //!
+  //! Usually, the IterType of the output IterDomain will be Symbolic. This is
+  //! because unless the left and right expansions are known at Fusion
+  //! definition we cannot be sure that the output will have an extent != 1. In
+  //! case the output extent is in fact 1, we will set the IterType to
+  //! Broadcast. If the left and right expansions are constant, and sum to at
+  //! least two, then even an empty input will result in an Iteration IterType.
+  //! In these cases, we will set the output IterType to Iteration at
+  //! definition. Otherwise, it will be set to Symbolic and will be resolved
+  //! when concretization is performed by FusionExecutorCache.
+  //!
+  //! The optional iter_type argument can be used to force the output IterType,
+  //! but for safety its use should typically be confined to concretization.
   static IterDomain* resize(
       IterDomain* in,
       Val* left_expansion,
