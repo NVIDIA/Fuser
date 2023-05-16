@@ -62,6 +62,16 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
 
+  const std::vector<bool>& inputsAffectConcretization() const {
+    return input_affects_concretization_;
+  }
+
+ protected:
+  //! Whether each input to the fusion affects concretization. True for every
+  //! TensorView, or any scalar that appears in an extent to the input of a
+  //! dynamic operation.
+  std::vector<bool> input_affects_concretization_;
+
  private:
   DynamicTransformInitialInfo(Fusion* fusion) : fusion_(fusion) {}
 

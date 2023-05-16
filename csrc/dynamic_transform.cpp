@@ -109,6 +109,18 @@ DynamicTransformInitialInfoBuilder::DynamicTransformInitialInfoBuilder(
   traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
 
   finalizeDynamicVals();
+
+  // initial_info_ provides a set of input Vals that are used for
+  // concretization. Here we check which inputs, if any, correspond to any of
+  // those Vals. These will be the inputs that are explicitly used in the cache
+  // Id for KernelArgumentHolder.
+  info_.input_affects_concretization_.resize(fusion->inputs().size(), false);
+  auto dyn_vals = info_.getRootDynamicVals();
+  for (const auto i : c10::irange(fusion->inputs().size())) {
+    auto input = fusion->inputs().at(i);
+    info_.input_affects_concretization_[i] =
+        input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
+  }
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(

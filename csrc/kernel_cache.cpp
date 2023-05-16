@@ -45,7 +45,7 @@ void encodeBuffer(size_t value, std::string& buffer) {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    std::vector<bool>* input_affects_concretization) {
+    const std::vector<bool>* input_affects_concretization) {
   IdLookupReturn ret;
 
   if (input_affects_concretization) {
@@ -127,31 +127,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 }
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
-    : fusion_(std::move(fusion)),
-      initial_info_(DynamicTransform::getInitialInfo(fusion_.get())) {
-  // Track initial concretization info in initial_info_ for quick access. We
-  // also allow fusion_ to manage it so that when it is copied, we can extract
-  // the cloned version.
-  fusion_->manage(
-      "initial_info",
-      initial_info_,
-      [](IrCloner& ir_cloner, std::any data) -> std::any {
-        auto orig_info = std::any_cast<DynamicTransformInitialInfo>(data);
-        return orig_info.clone(ir_cloner);
-      });
-
-  // initial_info_ provides a set of input Vals that are used for
-  // concretization. Here we check which inputs, if any, correspond to any of
-  // those Vals. These will be the inputs that are explicitly used in the cache
-  // Id for KernelArgumentHolder.
-  input_affects_concretization_.resize(fusion_->inputs().size(), false);
-  auto dyn_vals = initial_info_.getRootDynamicVals();
-  for (const auto i : c10::irange(fusion_->inputs().size())) {
-    auto input = fusion_->inputs().at(i);
-    input_affects_concretization_[i] =
-        input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
-  }
-}
+    : fusion_(std::move(fusion)) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -168,8 +144,8 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // fusions. This may not be ideal in all cases, since it will prevent
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
-  auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, &input_affects_concretization_);
+  auto id_lookup_ret = inputs_id_lookup_.lookupId(
+      inputs, &(initialInfo().inputsAffectConcretization()));
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -389,6 +365,13 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
   id_to_kernel_runtime_.erase(it);
 }
 
+DynamicTransformInitialInfo FusionExecutorCache::initialInfo() {
+  if (!initial_info_.has_value()) {
+    initial_info_ = DynamicTransform::getInitialInfo(fusion());
+  }
+  return initial_info_.value();
+}
+
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
@@ -408,9 +391,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  // Get precomputed initial concretization info
-  const auto& initial_info =
-      fusion_->getManaged<DynamicTransformInitialInfo>("initial_info");
+  // Compute or get cached initial concretization info
+  const auto& initial_info = initialInfo();
 
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
@@ -469,7 +451,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (initial_info_.hasDynamicTransforms()) {
+    if (initial_info.hasDynamicTransforms()) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -495,7 +477,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (initial_info_.hasDynamicTransforms()) {
+  if (initial_info.hasDynamicTransforms()) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.

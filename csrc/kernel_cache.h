@@ -304,7 +304,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! depend on those inputs and omitting them would lead to a collision.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      std::vector<bool>* input_affects_concretization = nullptr);
+      const std::vector<bool>* input_affects_concretization = nullptr);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
@@ -522,6 +522,12 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
+  //! Get initial concretization info (without inputs). This computes the info
+  //! if it has not yet been computed, then caches it for later use. This means
+  //! this method should not be called until the definition of the Fusion is
+  //! finalized.
+  DynamicTransformInitialInfo initialInfo();
+
  private:
   //! original un-scheduled `Fusion`. This may contain dynamic transforms and
   //! Symbolic IterDomains.
@@ -558,12 +564,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
 
   //! Initial concretization info
-  DynamicTransformInitialInfo initial_info_;
-
-  //! Whether each input to the fusion affects concretization. True for every
-  //! TensorView, or any scalar that appears in an extent to the input of a
-  //! dynamic operation.
-  std::vector<bool> input_affects_concretization_;
+  std::optional<DynamicTransformInitialInfo> initial_info_;
 };
 
 class GraphCache {
