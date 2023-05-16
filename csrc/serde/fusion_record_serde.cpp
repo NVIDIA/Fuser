@@ -871,6 +871,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("reciprocal", reciprocal)
   NVFUSER_UNARY_TV_OP("round", round)
   NVFUSER_UNARY_TV_OP("rsqrt", rsqrt)
+  NVFUSER_UNARY_TV_OP("segment_set", segment_set)
   NVFUSER_UNARY_TV_OP("set", set)
   NVFUSER_UNARY_TV_OP("sign", sign)
   NVFUSER_UNARY_TV_OP("sigmoid", sigmoid)
