@@ -10,7 +10,7 @@
 #include <ir_builder.h>
 #include <kernel_ir_dispatch.h>
 
-#include <device_lower/fusion_simplifier.h>
+#include <device_lower/pass/fusion_simplifier.h>
 
 namespace nvfuser {
 
