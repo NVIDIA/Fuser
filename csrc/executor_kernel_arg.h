@@ -67,10 +67,11 @@ struct TensorArgCodegen {
   void* data;
   std::array<nvfuser_index_t, ndims> size;
   std::array<nvfuser_index_t, nalloc> stride;
-  constexpr int nDims() const {
+
+  static constexpr int nDims() {
     return ndims;
   }
-  constexpr int nAllocationDims() const {
+  static constexpr int nAllocationDims() {
     return nalloc;
   }
   void setSize(int64_t i, nvfuser_index_t s) {
@@ -91,14 +92,13 @@ struct TensorArgCodegen {
 template <typename nvfuser_index_t>
 struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   using index_type = nvfuser_index_t;
-  static constexpr int ndims = 0;
 
   void* data;
 
-  constexpr int nDims() const {
+  static constexpr int nDims() {
     return 0;
   }
-  constexpr int nAllocationDims() const {
+  static constexpr int nAllocationDims() {
     return 0;
   }
   void setSize(int64_t, nvfuser_index_t) {
