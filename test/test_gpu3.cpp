@@ -8241,9 +8241,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(1);
   auto tv1 = makeSymbolicTensor(2);
@@ -8275,7 +8275,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
   at::Tensor t0 = at::randn({32}, options);
-  at::Tensor t1 = at::randn({32,64}, options);
+  at::Tensor t1 = at::randn({32, 64}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
   FusionExecutor fe;
@@ -8302,14 +8302,15 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   at::Tensor tb = t0.unsqueeze(1);
   auto ref_1 = tb + t1;
   auto ref_2 = tb + 2.0;
-  testValidate(fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+  testValidate(
+      fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
 }
 
 // Test case where the merge order is random
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   const int ndim = 5;
   const std::vector<bool> is_broadcast = {false, true, false, false, true};
@@ -8376,7 +8377,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   }
   auto ref_1 = tb + t1;
   auto ref_2 = tb + 2.0;
-  testValidate(fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+  testValidate(
+      fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
 }
 
 // Test for ir_utils::validateDomainEquivalence. We could consider

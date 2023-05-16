@@ -625,7 +625,8 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     int n_elements = merged_root_domains.size();
-    TORCH_INTERNAL_ASSERT(n_elements, "The number of merged root domains should > 0");
+    TORCH_INTERNAL_ASSERT(
+        n_elements, "The number of merged root domains should > 0");
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
@@ -681,11 +682,11 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
   ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
   const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
-  if(!write_index_map.empty()) {
+  if (!write_index_map.empty()) {
     thread_predicates_[out_tv].write_index_map = write_index_map;
     for (auto iter : write_index_map) {
       thread_predicates_[out_tv].redundant_types.set(iter.first);
-    }    
+    }
   }
 }
 
