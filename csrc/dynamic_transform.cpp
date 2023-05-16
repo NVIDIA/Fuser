@@ -350,18 +350,12 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
-  auto propagated = propagateFromProducerToConsumer(tv);
+  propagateFromProducerToConsumer(tv);
 
   // If no root domain is altered by producer, we don't need to propagate back
-  // up to rfactor, so do a simple mutation.
-  if (!propagated) {
-    mutate(tv->domain());
-    OptOutMutator::mutate(tv);
-    return;
-  }
-
-  // Root IDs are altered. Need to propagate the changes to rfactor
-  // domain
+  // up to rfactor. We could return early, but instead we go ahead and check the
+  // root to rfactor transforms to be sure we have concretized any intermediate
+  // IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
@@ -391,21 +385,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             "Unexpected output: ",
             out_val->toString(),
             ". IterDomain was expected.");
-      }
-
-      // If all inputs are concrete, all outputs should be concrete, and there
-      // is nothing to concretize.
-      if (std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* output) {
-                return output->as<IterDomain>()->getIterType() !=
-                    IterType::Symbolic;
-              })) {
-        TORCH_INTERNAL_ASSERT(std::all_of(
-            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-              return output->as<IterDomain>()->getIterType() !=
-                  IterType::Symbolic;
-            }));
-        continue;
       }
 
       // NOTE: We do not return early if all outputs are concrete as there may
