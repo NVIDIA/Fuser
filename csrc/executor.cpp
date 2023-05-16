@@ -1005,11 +1005,6 @@ std::vector<at::Tensor> allocOutputs(
                                          .at(output_idx)
                                          ->as<TensorView>()
                                          ->getMaybeAllocationDomain());
-      auto alloc_dom =
-          TensorDomain::noReductions(kernel->outputs()
-                                         .at(output_idx)
-                                         ->as<TensorView>()
-                                         ->getMaybeAllocationDomain());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
       outputs.emplace_back(
@@ -1891,8 +1886,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
+    auto ee = executor_utils::bindInputs(args, kernel());
     auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
