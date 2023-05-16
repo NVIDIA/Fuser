@@ -27,14 +27,9 @@ class DynamicTransformInfoBuilder;
 //! of the fusion inputs
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
-  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
+  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>
   getReshapeTransforms() const {
     return reshape_transforms_;
-  }
-
-  const std::vector<std::pair<IterDomain*, IterType>>& getResizeTransforms()
-      const {
-    return resize_transforms_;
   }
 
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
@@ -58,14 +53,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
  private:
   Fusion* fusion_ = nullptr;
-
-  // Holds, for each dynamic reshape, the output TensorView, and the result of
-  // analyzeView
   std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
-
-  // Holds the resized IterDomain (output of the Resize op) along with the
-  // TensorView where it appears, and its concretized IterType
-  std::vector<std::pair<IterDomain*, IterType>> resize_transforms_;
 
   friend class DynamicTransformInfoBuilder;
 };

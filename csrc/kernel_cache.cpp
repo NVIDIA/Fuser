@@ -112,7 +112,8 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 }
 
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
-    : fusion_(std::move(fusion)) {}
+    : fusion_(std::move(fusion)),
+      has_dynamic_reshape_(fusion_->hasDynamicTransform()) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -130,7 +131,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ isDynamic());
+      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ has_dynamic_reshape_);
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -374,7 +375,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   size_t conc_info_index = 0;
-  if (isDynamic()) {
+  if (has_dynamic_reshape_) {
     conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
     TORCH_CHECK(
         conc_info.has_value(),
@@ -425,7 +426,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (isDynamic()) {
+    if (has_dynamic_reshape_) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -450,7 +451,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (isDynamic()) {
+  if (has_dynamic_reshape_) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.

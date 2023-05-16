@@ -306,9 +306,7 @@ class TORCH_CUDA_CU_API BestEffortReplay {
       const std::unordered_map<IterDomain*, Expr*>& replay_id2expr);
 
   // Skip resize in both target and replay domains
-  void skipResizes(
-      const std::vector<Expr*>& target_exprs,
-      const std::vector<Expr*>& replay_exprs);
+  void skipResizes();
 
  public:
   // When skip_resize is true, resize is ignored or in other words forwarded
