@@ -542,6 +542,19 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
+  //! Check whether the input `fusion_` has dynamic elements such as non-static
+  //! reshapes. Note that `fusion_` might be updated after initializing
+  //! `FusionExecutorCache` as is done by `FusionDefinition` in the Python
+  //! frontend. In that case care must be taken to delay this check until the
+  //! entire Fusion is defined. For that reason, this function is private, and
+  //! should only be called inside runFusionWithInputs.
+  bool isDynamic() {
+    if (!is_dynamic_.has_value()) {
+      is_dynamic_ = fusion_->hasDynamicTransform();
+    }
+    return is_dynamic_.value();
+  }
+
  private:
   //! original un-scheduled `Fusion`. This may contain dynamic transforms and
   //! Symbolic IterDomains.
@@ -577,8 +590,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //!   caching profiles. Currently it just makes it easier to test
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
 
-  //! Whether fusion_ contains dynamic reshapes
-  bool has_dynamic_reshape_ = false;
+  //! Whether fusion_ contains dynamic reshapes. This is cached by
+  //! `fusionIsDynamic()`
+  std::optional<bool> is_dynamic_ = std::nullopt;
 };
 
 class GraphCache {

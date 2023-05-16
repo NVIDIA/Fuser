@@ -8,11 +8,11 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_cloner.h>
-#include <lower_loop_rotation.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 
@@ -25,10 +25,10 @@ namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
 // this is because when we allocate a buffer in register is has to be accesed
-// with a compile time coonstant index. Unfortunately nvcc seems to be using
+// with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size_full = 256 * 1024;
+constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
@@ -286,10 +286,10 @@ class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
 
  public:
   FindAllMappedDims(TensorView* from, IterDomain* starting_id, bool inner_only);
-  virtual void setUp() override;
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
+  void setUp() override;
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
   std::unordered_set<IterDomain*> get() const;
 };
 

@@ -929,7 +929,7 @@ PrimDataType getIndexTypeOfKernel(
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const KernelArgumentHolder& args,
+    KernelArgumentHolder args,
     PrecomputedValues* precomputed_values,
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
@@ -937,6 +937,27 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   TORCH_INTERNAL_ASSERT(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
+
+  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
+
+  if (forced_index_type.has_value()) {
+    index_type_ = forced_index_type.value();
+  } else {
+    index_type_ = getIndexTypeOfKernel(
+        complete_fusion_,
+        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        args,
+        *expression_evaluator_);
+  }
+
+  // Convert all abstract tensor args into tensor args and do tensor stride
+  // inference
+  std::vector<TensorView*> tvs;
+  tvs.reserve(complete_fusion_->inputs().size());
+  for (auto val : complete_fusion_->inputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  args.getBuffer(index_type_, tvs);
 
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
     auto kernel_arg = args[inp_i];
@@ -965,18 +986,6 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         expected_stride *= size;
       }
     }
-  }
-
-  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
-
-  if (forced_index_type.has_value()) {
-    index_type_ = forced_index_type.value();
-  } else {
-    index_type_ = getIndexTypeOfKernel(
-        complete_fusion_,
-        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
-        args,
-        *expression_evaluator_);
   }
 }
 

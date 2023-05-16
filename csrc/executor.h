@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <device_lower/lower2device.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
@@ -32,6 +33,7 @@ struct TORCH_CUDA_CU_API CompileOptions {
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
+    TensorView* tv = nullptr;
     std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
@@ -360,6 +362,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
+
+  //! Get the corresponding TensorViews for each argument of the kernel.
+  //! If the corresponding argument is not a tensor, use nullptr as placeholder.
+  //! Right now, kernel arguments are in the following order:
+  //! inputs, outputs, intermediates, philox
+  std::vector<TensorView*> getTvsForKernelArguments() const;
 
  private:
   CompileOptions options_;
