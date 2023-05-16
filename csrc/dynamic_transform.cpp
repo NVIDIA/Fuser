@@ -65,12 +65,12 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     if (out_tv->domain()->hasSymbolicAxis()) {
       info_.dynamic_reshapes_.push_back(op);
 
-      // Input and output extent expressions affect concretization
+      // Input and output extent expressions both affect concretization
       const auto& inp_dom =
           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
       for (const auto id : inp_dom) {
         // Try and evaluate the extent so that intermediate expressions are
-        // cached
+        // cached in expr_eval_
         auto ext = info_.expr_eval_.evaluate(id->extent());
         if (!ext.has_value()) {
           leaf_dynamic_vals_.push_back(id->extent());
