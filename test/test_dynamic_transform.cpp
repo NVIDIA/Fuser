@@ -883,14 +883,7 @@ void reductionDynamicPadAddFusion(
 
   // Return pair of: number of concretizations & total number of kernel runtimes
   auto countConcretizations = [&fusion_executor_cache]() {
-    std::unordered_set<const std::pair<
-        size_t,
-        std::optional<DynamicTransformConcretizationInfo>>*>
-        concs;
-    for (auto& it : fusion_executor_cache.getKernelRuntimes()) {
-      concs.insert(&it.first);
-    }
-    return concs.size();
+    return fusion_executor_cache.getKernelRuntimes().size();
   };
   size_t num_concretizations = countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
@@ -941,12 +934,8 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       // See https://github.com/NVIDIA/Fuser/issues/264
       //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
 
-      // Output has size 1 so is set to broadcast
-      // Currently fails since: IterDomain cannot be both a broadcast and
-      // rfactor domain. Exception raised from IterDomain at
-      // /opt/pytorch/nvfuser/csrc/ir_nodes.cpp:2080
-      // See https://github.com/NVIDIA/Fuser/issues/346
-      //{{3, 5}, {0, -4}, true},
+      // Output has size 1 so is set to broadcast.
+      {{3, 5}, {0, -4}, true},
 
       // Test full negative shifts, so output doesn't overlap input
       {{3, 5}, {-5, 2}, false},

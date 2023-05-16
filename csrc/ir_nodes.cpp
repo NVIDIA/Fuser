@@ -2102,9 +2102,12 @@ IterDomain::IterDomain(
       is_padded_dimension_(is_padded_dimension),
       padded_to_size_(padded_to_size),
       is_mma_swizzled_(is_mma_swizzled) {
-  TORCH_CHECK(
-      !(isRFactorProduct() && isBroadcast()),
-      "IterDomain cannot be both a broadcast and rfactor domain.");
+  // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
+  // that an IterDomain could not be both a broadcast and an rfactor domain.
+  // However, since the introduction of the resize op, we now have a legitimate
+  // case where this may be true; namely, whenever we resize an IterDomain to
+  // size 1, we will mark it as Broadcast, but the resize must lie between root
+  // and rfactor.
 
   TORCH_INTERNAL_ASSERT(
       extent->isIntegralScalar(),
