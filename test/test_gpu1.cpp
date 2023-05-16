@@ -10,7 +10,7 @@
 
 #include <codegen.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>

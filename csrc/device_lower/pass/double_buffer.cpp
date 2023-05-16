@@ -9,7 +9,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
-#include <device_lower/double_buffer.h>
+#include <device_lower/pass/double_buffer.h>
 
 #include <algorithm>
 #include <iterator>

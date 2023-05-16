@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/loop_rotation.h>
+#include <device_lower/pass/loop_rotation.h>
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>

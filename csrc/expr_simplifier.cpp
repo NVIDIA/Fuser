@@ -7,7 +7,7 @@
 // clang-format on
 #include <expr_simplifier.h>
 
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
