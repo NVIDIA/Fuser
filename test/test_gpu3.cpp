@@ -8155,8 +8155,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
 
     std::vector<int64_t> shape0;
     std::vector<int64_t> shape1({2, 64, 128, 2048});
-    const int ndim = shape1.size();
-    for (int i = 0; i < ndim; i++) {
+    const size_t ndim = shape1.size();
+    for (size_t i = 0; i < ndim; i++) {
       if (!is_broadcast[i]) {
         shape0.push_back(shape1[i]);
       }

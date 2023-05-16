@@ -624,7 +624,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
-    int n_elements = merged_root_domains.size();
+    size_t n_elements = merged_root_domains.size();
     TORCH_INTERNAL_ASSERT(
         n_elements, "The number of merged root domains should > 0");
     std::vector<int> indices(n_elements);
@@ -633,7 +633,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
       return index_root_domain[a] < index_root_domain[b];
     });
     std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
-    for (int i = 0; i < n_elements; ++i) {
+    for (size_t i = 0; i < n_elements; ++i) {
       merged_root_domains_sorted[i] = merged_root_domains[indices[i]];
     }
 
