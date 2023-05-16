@@ -84,12 +84,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   //! query if we already have a compiled kernel for execution
   bool isCompiled() {
-    std::unique_lock<std::mutex> lock0(mutex_, std::try_to_lock);
-    if (!lock0.owns_lock()) {
-      // compilation in progress
-      return false;
-    }
-
+    std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
           return executor.compiled();
