@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/predicate_elimination.h>
+#include <device_lower/analysis/predicate_elimination.h>
 
+#include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/shift.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>

@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/bank_conflict.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
