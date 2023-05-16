@@ -1312,6 +1312,24 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(at_out1, nvf_out[1])
         self.assertEqual(at_out2, nvf_out[2])
 
+    def test_signbit(self):
+        inputs = [
+            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.where(fd.ops.signbit(t0), -abs(t1), abs(t1))
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        at_out = torch.where(
+            torch.signbit(inputs[0]), -torch.abs(inputs[1]), torch.abs(inputs[1])
+        )
+        self.assertEqual(at_out, nvf_out[0])
+
     def test_all_dim_var_mean(self):
         inputs = [torch.randn(2, 2, 2, device="cuda")]
 
