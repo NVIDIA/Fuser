@@ -937,13 +937,15 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
 
       {{3, 5}, {2, 1}, false}, // simple pad of both sides
       {{3, 5}, {-1, 1}, false}, // shift by one
-      // TODO: The following fails with a SIGFPE in innerReductionHeuristic
+      // The following fails with a SIGFPE in innerReductionHeuristic
+      // See https://github.com/NVIDIA/Fuser/issues/264
       //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
 
       // Output has size 1 so is set to broadcast
       // Currently fails since: IterDomain cannot be both a broadcast and
       // rfactor domain. Exception raised from IterDomain at
       // /opt/pytorch/nvfuser/csrc/ir_nodes.cpp:2080
+      // See https://github.com/NVIDIA/Fuser/issues/346
       //{{3, 5}, {0, -4}, true},
 
       // Test full negative shifts, so output doesn't overlap input
@@ -955,9 +957,9 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       {{3, 1}, {1, 1}, false},
 
       // Test zero-dimensional input
-      //{{3, 0}, {0, 0}, false}, // TODO: SIGFPE (see above)
+      //{{3, 0}, {0, 0}, false}, // SIGFPE (see #264 above)
       {{3, 0}, {1, 1}, false},
-      //{{3, 0}, {-1, 1}, false}, // TODO: SIGFPE (see above)
+      //{{3, 0}, {-1, 1}, false}, // SIGFPE (see #264 above)
   };
   // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
   reductionDynamicPadAddFusion(invocations);
