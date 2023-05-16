@@ -7,6 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/double_buffer.h>
+#include <device_lower/lower2device.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir_all_nodes.h>
@@ -15,8 +17,6 @@
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_double_buffer.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -117,8 +117,7 @@ TensorView::TensorView(
   }
 
   // default to non_contiguous;
-  std::vector<c10::optional<bool>> contig_info =
-      TensorDomain::getContiguityFilledWith(sizes, false);
+  auto contig_info = TensorDomain::getContiguityFilledWith(sizes, false);
 
   int64_t inner_most_non_broadcast = (int64_t)tensor_type->dim().value() - 1;
   while (inner_most_non_broadcast >= 0) {
@@ -317,46 +316,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_) {}
 
-bool TensorView::hasReduction() const {
-  return domain()->hasReduction();
-}
-
-bool TensorView::hasBlockReduction() const {
-  return domain()->hasBlockReduction();
-}
-
-bool TensorView::hasGridReduction() const {
-  return domain()->hasGridReduction();
-}
-
-bool TensorView::hasBroadcast() const {
-  return domain()->hasBroadcast();
-}
-
-bool TensorView::hasRFactor() const {
-  return domain()->hasRFactor();
-}
-
-c10::optional<unsigned int> TensorView::getReductionAxis() const {
-  return domain()->getReductionAxis();
-}
-
-const std::vector<IterDomain*>& TensorView::getRootDomain() const {
-  return domain()->getRootDomain();
-};
-
-const std::vector<IterDomain*>& TensorView::getRFactorDomain() const {
-  return domain()->getRFactorDomain();
-};
-
-const std::vector<IterDomain*>& TensorView::getMaybeRFactorDomain() const {
-  return domain()->getMaybeRFactorDomain();
-};
-
-std::vector<IterDomain*>::size_type TensorView::nDims() const {
-  return domain()->nDims();
-}
-
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
 // on an input value, otherwise ignored. This is important as special handling
@@ -477,7 +436,7 @@ unsigned int getConsumerPosAlignedToProducerCA(
   unsigned int consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->domain()->leaf();
+    auto p_dom = producer->getLeafDomain();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -1059,17 +1018,17 @@ TensorView* TensorView::multiOutputRfactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(domain()->leaf(), id_map);
+    ReplayTransformations replay(getLeafDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : domain()->leaf()) {
+    for (auto id : getLeafDomain()) {
       TORCH_INTERNAL_ASSERT(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
     }
 
-    std::vector<c10::optional<bool>> new_contig(tv->domain()->contiguity());
+    std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
         tv->getRootDomain(), new_id, new_contig));
@@ -1231,10 +1190,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
       container(),
       IrBuilder::create<TensorDomain>(
           container(),
-          domain()->getRootDomain(),
-          domain()->getRFactorDomain(),
-          domain()->leaf(),
-          domain()->contiguity()),
+          getRootDomain(),
+          getRFactorDomain(),
+          getLeafDomain(),
+          getContiguity()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1414,11 +1373,11 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   TORCH_INTERNAL_ASSERT(
-      domain()->leaf() == getRootDomain(),
+      getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
-  std::vector<c10::optional<bool>> new_contig;
+  std::vector<std::optional<bool>> new_contig;
   for (const auto i : c10::irange(getRootDomain().size())) {
     auto root_i = getRootDomain().at(i);
     if (!root_i->isReduction()) {
@@ -1476,6 +1435,24 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
   }
 }
 
+void TensorView::commitLeafToRFactor() {
+  TORCH_CHECK(
+      ir_utils::consumerTvsOf(this).empty(),
+      "Changing the rFactor domain of an intermediate tensor is not supported yet");
+  setDomain(IrBuilder::create<TensorDomain>(
+      container(),
+      domain_->root(),
+      domain_->leaf(),
+      domain_->allocation(),
+      domain_->leaf(),
+      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
+      // allow customizing contiguity. But there is no such need now, so I will
+      // just fill the contiguity with true.
+      TensorDomain::getContiguityFilledWith(
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          true)));
+}
+
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
   TORCH_CHECK(shape_.empty() || shape_.size() == ndims);
   TORCH_CHECK(contiguity_.empty() || contiguity_.size() == ndims);
@@ -1489,7 +1466,7 @@ TensorViewBuilder& TensorViewBuilder::dtype(DataType dtype) {
 }
 
 TensorViewBuilder& TensorViewBuilder::contiguity(
-    std::vector<c10::optional<bool>> contiguity) {
+    std::vector<std::optional<bool>> contiguity) {
   TORCH_CHECK(
       contiguity_.empty() && !uniform_contiguity_.has_value(),
       "Attempting to reset contiguity");

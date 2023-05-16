@@ -6,8 +6,8 @@
  */
 // clang-format on
 #pragma once
-#include <evaluator_common.h>
 #include <executor_kernel_arg.h>
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
@@ -51,7 +51,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //! are. CORRECTNESS IS NOT GUARANTEED.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const KernelArgumentHolder& args,
+      KernelArgumentHolder args,
       PrecomputedValues* precomputed_values = nullptr,
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);

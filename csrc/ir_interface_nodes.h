@@ -10,8 +10,8 @@
 #include <c10/macros/Export.h>
 
 #include <fusion.h>
-#include <ir_base_nodes.h>
 #include <ir_builder_passkey.h>
+#include <ir_internal_base_nodes.h>
 #include <ir_internal_nodes.h>
 #include <mma_type.h>
 
@@ -23,6 +23,13 @@
 
 //! Nodes in here are intended to be "user facing" users in this sense being
 //! those that want to be able to generate CUDA code.
+
+//! IR header hierarchy
+//! 1. utils.h - PolymorphicBase and NonCopyable
+//! 2. ir_base_nodes.h - Statement, Expr, and Val
+//! 3. ir_internal_base_nodes.h -- IterDomain and TensorDomain
+//! 4. ** ir_interface_nodes.h ** - TensorView and Scalar
+//! 5. ir_internal_nodes.h - Any internal-only IR nodes
 
 namespace nvfuser {
 
@@ -231,7 +238,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! expressions that use this TensorView are also updated.
   void convertRfactorToRootDomain();
 
-  void setContiguity(const std::vector<c10::optional<bool>>& contig) {
+  void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);
   }
 
@@ -240,11 +247,33 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
-  bool hasReduction() const;
-  bool hasBlockReduction() const;
-  bool hasGridReduction() const;
-  bool hasBroadcast() const;
-  bool hasRFactor() const;
+  const std::vector<std::optional<bool>>& getContiguity() {
+    return domain()->contiguity();
+  }
+
+  bool hasReduction() const {
+    return domain()->hasReduction();
+  }
+
+  bool hasBlockReduction() const {
+    return domain()->hasBlockReduction();
+  }
+
+  bool hasGridReduction() const {
+    return domain()->hasGridReduction();
+  }
+
+  bool hasBroadcast() const {
+    return domain()->hasBroadcast();
+  }
+
+  bool hasRFactor() const {
+    return domain()->hasRFactor();
+  }
+
+  bool hasAllocation() const {
+    return domain()->hasAllocation();
+  }
 
   //! Returns true if this tensor is zero dimensional,
   //!  i.e. a wrapped scalar or an empty placeholder.
@@ -256,15 +285,51 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  c10::optional<unsigned int> getReductionAxis() const;
+  c10::optional<unsigned int> getReductionAxis() const {
+    return domain()->getReductionAxis();
+  }
 
-  const std::vector<IterDomain*>& getRootDomain() const;
+  const std::vector<IterDomain*>& getRootDomain() const {
+    return domain()->root();
+  };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const;
+  const std::vector<IterDomain*>& getRFactorDomain() const {
+    return domain()->rfactor();
+  };
+
+  const std::vector<IterDomain*>& getAllocationDomain() const {
+    return domain()->allocation();
+  };
+
+  const std::vector<IterDomain*>& getLeafDomain() const {
+    return domain()->leaf();
+  };
 
   // If rfactor domain exists in domain() return it, otherwise return root
   // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const;
+  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
+    return domain()->maybeRFactor();
+  };
+
+  // If allocation domain exists in domain() return it, otherwise return
+  // getMaybeRFactorDomain()
+  const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
+    return domain()->maybeAllocation();
+  };
+
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      std::vector<std::optional<bool>> new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), std::move(new_contiguity));
+  }
+
+  void setAllocationDomain(
+      std::vector<IterDomain*> new_allocation_domain,
+      bool new_contiguity) {
+    domain()->setAllocationDomain(
+        std::move(new_allocation_domain), new_contiguity);
+  }
 
   IterDomain* axis(int pos) const;
 
@@ -277,7 +342,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return max_producer_pos_ > 0;
   }
 
-  size_t nDims() const;
+  size_t nDims() const {
+    return domain()->nDims();
+  }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
   // tensors (i.e. CPU Tensors that only have one value). This is only used if
@@ -544,15 +611,24 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
+  // Commit the current changes in leaf domain into rFactor domain. This
+  // function can be used to do implicit transpose and view, but today, only
+  // implicit transpose is being tested. This function can be dangerous: it
+  // changes the the semantics of the current tensor without updating its
+  // consumers consistently, and there is no reliable way to detect this
+  // inconsistency. It is the responsibility of the caller of this function to
+  // ensure consistency.
+  void commitLeafToRFactor();
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
   }
 
  private:
-  int normalizeAxisPos(int pos) const {
+  int64_t normalizeAxisPos(int64_t pos) const {
     if (pos < 0) {
-      pos += nDims();
+      pos += (int64_t)nDims();
     }
     return pos;
   }
@@ -627,7 +703,7 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   TensorViewBuilder& dtype(DataType dtype);
 
   //! Set the contiguity information (default non-contiguous)
-  TensorViewBuilder& contiguity(std::vector<c10::optional<bool>> contiguity);
+  TensorViewBuilder& contiguity(std::vector<std::optional<bool>> contiguity);
   TensorViewBuilder& contiguity(bool contiguity);
 
   //! Set the shape (default 0 dimensional, ie. scalar)
@@ -653,8 +729,8 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   // contiguity with the value of uniform_contiguity_ where it is not required
   // to be nullopt. Note that you can only set one of contiguity_ or
   // uniform_contiguity_.
-  std::vector<c10::optional<bool>> contiguity_;
-  c10::optional<bool> uniform_contiguity_ = c10::nullopt;
+  std::vector<std::optional<bool>> contiguity_;
+  std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
   std::vector<bool> expanded_;

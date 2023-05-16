@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <fusion.h>
 #include <ir_builder.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>
-#include <lower_utils.h>
 #include <ops/arith.h>
 
 #include <limits>
@@ -750,23 +750,40 @@ bool isIndexedID(const TensorView* tv, const IterDomain* id) {
 
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id) {
   return std::any_of(tv->uses().begin(), tv->uses().end(), [&](Expr* expr) {
-    return (expr->isA<TorchGatherOp>() &&
-            expr->as<TorchGatherOp>()->getSelectAxis() == id) ||
-        (expr->isA<SelectOp>() &&
-         expr->as<SelectOp>()->getSelectAxis() == id) ||
-        (expr->isA<IndexSelectOp>() &&
-         expr->as<IndexSelectOp>()->getSelectAxis() == id);
+    return getIndexedProducerID(expr) == id;
   });
+}
+
+IterDomain* getIndexedProducerID(const Expr* expr) {
+  if (auto select = dynamic_cast<const SelectOp*>(expr)) {
+    return select->getIndexedID();
+  } else if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
+    return index_select->getIndexedID();
+  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+    return gather->getIndexedID();
+  } else {
+    return nullptr;
+  }
+}
+
+IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
+  if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
+    return index_select->getConsumerOfIndexedID();
+  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+    return gather->getConsumerOfIndexedID();
+  } else {
+    return nullptr;
+  }
 }
 
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
   return tv->definition()->isA<ScatterOp>() &&
-      tv->definition()->as<ScatterOp>()->getOutputSelectAxis() == id;
+      tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->domain()->leaf();
+  const auto& domain = tv->getLeafDomain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
@@ -814,18 +831,6 @@ bool isTorchGatherLookupTv(const Val* tv) {
     if (expr->isA<TorchGatherOp>()) {
       auto idx_sel = expr->as<TorchGatherOp>();
       if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-bool isTorchGatherIndicesTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<TorchGatherOp>()) {
-      auto idx_sel = expr->as<TorchGatherOp>();
-      if (idx_sel->indexTv() == tv) {
         return true;
       }
     }

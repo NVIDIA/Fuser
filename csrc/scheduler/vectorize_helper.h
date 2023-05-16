@@ -8,9 +8,9 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
-#include <lower_divisible_split.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
 #include <ir_builder.h>
@@ -243,7 +243,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     numerator_ = nullptr;
 
-    auto const_numerator_factor = 1;
+    int64_t const_numerator_factor = 1;
     for (auto factor : const_numerator_vals_) {
       const_numerator_factor *= factor;
     }
@@ -267,7 +267,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     denominator_ = nullptr;
 
-    auto const_denominator_factor = 1;
+    int64_t const_denominator_factor = 1;
     for (auto factor : const_denominator_vals_) {
       const_denominator_factor *= factor;
     }
@@ -565,7 +565,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   bool recording_ = false;
 
   std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::unordered_set<Split*> divisible_splits_;
+  const std::unordered_set<Split*>& divisible_splits_;
 
   // Mapped root dimensions for each TensorView as we propogate. These
   // mappings are in the order of the reference.

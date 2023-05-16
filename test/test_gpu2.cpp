@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -26,8 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_magic_zero.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
@@ -4117,8 +4117,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicPass_CUDA) {
   constexpr int kVecSize = 2;
   constexpr int kNumElems = kTDX * kVecSize;
 
-  auto tv0 = makeSymbolicTensor(kNumDims);
-  auto tv1 = makeSymbolicTensor(kNumDims);
+  auto tv0 = makeContigTensor(kNumDims);
+  auto tv1 = makeContigTensor(kNumDims);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -4335,6 +4335,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStride_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4386,6 +4388,8 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedStrideFail_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = makeSymbolicTensor(2);
+  tv0->setContiguity({false, true});
+  tv1->setContiguity({false, true});
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -4437,9 +4441,8 @@ TEST_F(NVFuserTest, FusionVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
-
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -6899,7 +6902,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
       outer_reduction_axes.push_back(axis);
       at_sum_axes.push_back(axis);
       outer_broadcast_mask[axis] = true;
-      N = mul(N, input->domain()->leaf()[axis]->extent());
+      N = mul(N, input->getLeafDomain()[axis]->extent());
     }
   }
 
@@ -7250,7 +7253,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
 
   Val* num_features = IrBuilder::create<Double>(tv1->container(), 1);
   for (const auto dim : reduction_axes) {
-    num_features = mul(num_features, tv1->domain()->leaf()[dim]->extent());
+    num_features = mul(num_features, tv1->getLeafDomain()[dim]->extent());
   }
 
   auto tv5 = mul(tv1, tv0);
@@ -8557,7 +8560,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
-    for (auto id : x_consumer->domain()->leaf()) {
+    for (auto id : x_consumer->getLeafDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         found_vec_in_input = true;
         break;
@@ -8566,7 +8569,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
     TORCH_CHECK(found_vec_in_input, "Expect input to be vectorized");
   }
 
-  for (auto id : y->domain()->leaf()) {
+  for (auto id : y->getLeafDomain()) {
     if (isParallelTypeVectorize(id->getParallelType())) {
       return;
     }
@@ -9043,28 +9046,28 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 1. this can be moved to a dedicated "golden" file
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, Tensor<__half, 4> T7) {
-  int64_t i1777;
-  i1777 = T0.size[2] * T0.size[1];
-  int64_t i1780;
-  i1780 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1782;
-  i1782 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i7574;
-  i7574 = i1780 % i1782;
-  int64_t i1791;
-  i1791 = T0.size[2] * T0.size[3];
-  int64_t i7647;
-  i7647 = i7574 % i1791;
-  if ((i1780 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+__global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
+  int64_t i1201;
+  i1201 = T0.size[2] * T0.size[1];
+  int64_t i1204;
+  i1204 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1206;
+  i1206 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i1238;
+  i1238 = i1204 % i1206;
+  int64_t i1215;
+  i1215 = T0.size[2] * T0.size[3];
+  int64_t i1239;
+  i1239 = i1238 % i1215;
+  if ((i1204 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1777 * T0.size[3]) * (i1780 / i1782)) + (i1777 * (i7647 % T0.size[3]))) + (T0.size[2] * (i7574 / i1791))) + (i7647 / T0.size[3]))];
+       = T2[(((((i1201 * T0.size[3]) * (i1204 / i1206)) + (i1201 * (i1239 % T0.size[3]))) + (T0.size[2] * (i1238 / i1215))) + (i1239 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1780];
+       = T0[i1204];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9084,7 +9087,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4> T0, Tensor<__half, 4> T2, 
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1780]
+    T7[i1204]
        = T10[0];
   }
 }
@@ -9187,7 +9190,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->domain()->leaf()) {
+    for (IterDomain* id : tv->getLeafDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

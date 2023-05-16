@@ -100,6 +100,11 @@ class VectorOfUniqueEntries {
     return vector_.empty();
   }
 
+  void clear() {
+    vector_.clear();
+    set_.clear();
+  }
+
   // Returns the number of elements in this container
   size_t size() const {
     return vector_.size();

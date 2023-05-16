@@ -8,11 +8,11 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/loop_rotation.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_cloner.h>
-#include <lower_loop_rotation.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 
@@ -573,13 +573,21 @@ inline void rotateLoop(
 //! tv1 still uses tv1.
 TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
-//! If a resized tensor induces a data dependency between threads,
+//! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
-//! the dependency. A proper RAW sync will be automatically inserted
-//! when the fusion is lowered.
-TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
+//! the dependency. For example, if the domain is parallelized
+//! with blockIdx, the producer memory type will be changed to
+//! Global. A proper RAW sync will be automatically inserted when the
+//! fusion is lowered.
+TORCH_CUDA_CU_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
+
+//! Get all tensors that are connected to from_tvs without going through
+//! any tvs in the cutoff_tv_set.
+TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -33,7 +33,7 @@ class IrContainerPasskey {
   friend class IrContainer;
 
  private:
-  explicit IrContainerPasskey() {}
+  explicit IrContainerPasskey() = default;
 };
 
 class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
@@ -46,7 +46,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   IrContainer& operator=(const IrContainer& other);
   IrContainer& operator=(IrContainer&& other) noexcept;
 
-  virtual ~IrContainer();
+  ~IrContainer() override;
 
   bool inContainer(const Statement* stmt) const;
 
@@ -95,6 +95,8 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   NamedScalar* magicZeroVal();
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
+  // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
+  const std::vector<Bool*>& axioms();
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -169,6 +171,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   std::unique_ptr<Int> one_val_;
   std::unique_ptr<Int> zero_val_;
   std::unique_ptr<NamedScalar> magic_zero_val_;
+  std::unique_ptr<std::vector<Bool*>> axioms_;
 };
 
 } // namespace nvfuser

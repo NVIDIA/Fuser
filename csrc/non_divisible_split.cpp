@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_utils.h>
 #include <non_divisible_split.h>
 
 namespace nvfuser {
@@ -23,7 +23,7 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
       continue;
     }
     const std::vector<Val*> domain_vals(
-        tv->domain()->leaf().begin(), tv->domain()->leaf().end());
+        tv->getLeafDomain().begin(), tv->getLeafDomain().end());
     current_tv_ = tv;
     clearReachability();
     traverseTo(fusion, domain_vals);

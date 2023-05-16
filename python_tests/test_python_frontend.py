@@ -6,6 +6,7 @@
 from copy import deepcopy
 from functools import partial
 import math
+import os
 import re
 from typing import List, Callable
 import unittest
@@ -60,6 +61,10 @@ def serde_check(test_fn: Callable):
 
         # Run test to populate FusionCache
         test_fn(*args, **kwargs)
+
+        # Delete previous file
+        if os.path.isfile("foo.bin"):
+            os.remove("foo.bin")
 
         # Serialize FusionCache
         fc = FusionCache.get()
@@ -1454,6 +1459,23 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_segment_set(self):
+        inputs = [
+            torch.randn(5, 5, 5, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.ops.neg(T0)
+            T2 = fd.ops.segment_set(T1)
+            T3 = fd.ops.relu(T2)
+            fd.add_output(T3)
+
+        eager_out = inputs[0].neg().relu()
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_fix_2549(self):
         a = torch.ones(4, 1, dtype=torch.double, device="cuda")
         b = torch.ones(4, 4, dtype=torch.double, device="cuda")
@@ -2069,6 +2091,78 @@ class TestNvFuserFrontend(TestCase):
         ):
             fd = SchedError()
             _ = fd.execute(inputs)
+
+    def test_matmuls(self):
+        # Matmul Constraints:
+        # 1. Inputs shapes need to be a multiple of 8
+        # 2. Inputs need to be contiguous as the nvFuser matmul does
+        #    not see non-contiguous inputs.
+        nvf_inputs_nn = [
+            torch.randn(8, 24, device="cuda", dtype=torch.float16),
+            torch.randn(16, 8, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_nn = [
+            nvf_inputs_nn[0].clone().transpose(0, 1),
+            nvf_inputs_nn[1].clone().transpose(0, 1),
+        ]
+        nvf_inputs_nt = [
+            torch.randn(8, 24, device="cuda", dtype=torch.float16),
+            torch.randn(8, 16, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_nt = [
+            nvf_inputs_nt[0].clone().transpose(0, 1),
+            nvf_inputs_nt[1].clone(),
+        ]
+        nvf_inputs_tn = [
+            torch.randn(24, 8, device="cuda", dtype=torch.float16),
+            torch.randn(16, 8, device="cuda", dtype=torch.float16),
+        ]
+        eager_inputs_tn = [
+            nvf_inputs_tn[0].clone(),
+            nvf_inputs_tn[1].clone().transpose(0, 1),
+        ]
+        nvf_inputs_tt = [
+            torch.randn(24, 8, device="cuda", dtype=torch.float16),
+            torch.randn(8, 16, device="cuda", dtype=torch.float16),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inps, matmul_fn) -> None:
+            t0 = fd.from_pytorch(inps[0])
+            t1 = fd.from_pytorch(inps[1])
+            t2 = eval(matmul_fn)(t0, t1)
+            fd.add_output(t2)
+
+        tests = [
+            ("fd.ops._matmul_nn", nvf_inputs_nn, eager_inputs_nn),
+            ("fd.ops._matmul_nt", nvf_inputs_nt, eager_inputs_nt),
+            ("fd.ops._matmul_tn", nvf_inputs_tn, eager_inputs_tn),
+            ("fd.ops._matmul_tt", nvf_inputs_tt, nvf_inputs_tt),
+        ]
+
+        prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+
+        for mm_str, nvf_test_inputs, eager_test_inputs in tests:
+            if prop.major == 8:
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str),
+                    nvf_test_inputs,
+                )
+                eager_out = torch.matmul(eager_test_inputs[0], eager_test_inputs[1])
+
+                fp16_nvf_out = nvf_out[0].to(dtype=torch.float16)
+                self.assertEqual(eager_out, fp16_nvf_out)
+            else:
+                with self.assertRaisesRegex(
+                    RuntimeError, "Only the Ampere MMA Op is currently supported!"
+                ):
+                    with FusionDefinition() as fd:
+                        partial(fusion_func, inps=nvf_test_inputs, matmul_fn=mm_str)(fd)
+                    nvf_out = fd.execute(nvf_test_inputs)
+                # It is necessary to reset the Fusion Cache so
+                # serialization/deserialization does not exhibit the same error
+                # across tests
+                fc = FusionCache.get()
+                fc.reset()
 
 
 if __name__ == "__main__":

@@ -8,12 +8,12 @@
 #include <ir_iostream.h>
 #include <ir_printer.h>
 
+#include <device_lower/utils.h>
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
 #include <kernel.h>
-#include <lower_utils.h>
 #include <utils.h>
 
 #include <c10/util/irange.h>
@@ -89,11 +89,11 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(TensorView* tv) {
-  auto root_domain = tv->domain()->getRootDomain();
+  auto root_domain = tv->getRootDomain();
   os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
   if (tv->hasRFactor()) {
-    auto rfactor_domain = tv->domain()->getRFactorDomain();
+    auto rfactor_domain = tv->getRFactorDomain();
 
     auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
@@ -109,7 +109,7 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
   const auto& from = tv->getMaybeRFactorDomain();
-  const auto& leaf = tv->domain()->leaf();
+  const auto& leaf = tv->getLeafDomain();
   auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 
