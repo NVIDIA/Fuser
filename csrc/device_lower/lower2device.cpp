@@ -8,27 +8,27 @@
 #include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <device_lower/alias_memory.h>
-#include <device_lower/allocation.h>
-#include <device_lower/divisible_split.h>
-#include <device_lower/double_buffer.h>
-#include <device_lower/expr_sort.h>
-#include <device_lower/fusion_simplifier.h>
-#include <device_lower/index.h>
-#include <device_lower/insert_syncs.h>
-#include <device_lower/instrument.h>
-#include <device_lower/loop_rotation.h>
-#include <device_lower/loops.h>
-#include <device_lower/magic_zero.h>
-#include <device_lower/misaligned_vectorization.h>
-#include <device_lower/predicate.h>
-#include <device_lower/replace_size.h>
-#include <device_lower/shift.h>
-#include <device_lower/unroll.h>
+#include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/shift.h>
+#include <device_lower/pass/alias_memory.h>
+#include <device_lower/pass/allocation.h>
+#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/expr_sort.h>
+#include <device_lower/pass/fusion_simplifier.h>
+#include <device_lower/pass/index.h>
+#include <device_lower/pass/insert_syncs.h>
+#include <device_lower/pass/instrument.h>
+#include <device_lower/pass/loop_rotation.h>
+#include <device_lower/pass/loops.h>
+#include <device_lower/pass/magic_zero.h>
+#include <device_lower/pass/misaligned_vectorization.h>
+#include <device_lower/pass/predicate.h>
+#include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/unroll.h>
+#include <device_lower/pass/vectorize_welford.h>
+#include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
-#include <device_lower/vectorize_welford.h>
-#include <device_lower/warp_reduce.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <instrumentation.h>
@@ -238,6 +238,17 @@ void GpuLower::collectPaddedParallelDims() {
   }
 }
 
+void segmenterHintCleanup(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        op->setOpType(LoadStoreOpType::Set);
+      }
+    }
+  }
+}
+
 void assignRNGOffset(Fusion* fusion) {
   int counter = 0;
   for (auto expr : fusion->exprs()) {
@@ -301,6 +312,8 @@ void GpuLower::lower(Fusion* fusion) {
       tv->resolveIndexDtype();
     }
   }
+  segmenterHintCleanup(fusion_);
+
   assignRNGOffset(fusion_);
 
   FusionGuard fg(fusion_);

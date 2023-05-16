@@ -94,6 +94,7 @@ struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   static constexpr int ndims = 0;
 
   void* data;
+  void* data;
   constexpr int nDims() const {
     return 0;
   }
@@ -120,27 +121,27 @@ struct ArgAbstract {
   virtual void* arg() = 0;
   virtual bool isType(ArgType type) const = 0;
   virtual ArgType type() const = 0;
-  virtual std::unique_ptr<ArgAbstract> copy_unique_ptr() const = 0;
+  virtual std::unique_ptr<ArgAbstract> clone() const = 0;
   virtual std::string toString() const {
     return "input type: " + argTypeToString(type());
   };
 };
 
-#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                    \
-  bool isType(ArgType type) const override {                      \
-    return ArgType::TARGET_TYPE == type;                          \
-  }                                                               \
-  ArgType type() const override {                                 \
-    return ArgType::TARGET_TYPE;                                  \
-  }                                                               \
-  const void* arg() const override {                              \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  void* arg() override {                                          \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override { \
-    return std::make_unique<TARGET_TYPE##Arg>(*this);             \
+#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
+  bool isType(ArgType type) const override {            \
+    return ArgType::TARGET_TYPE == type;                \
+  }                                                     \
+  ArgType type() const override {                       \
+    return ArgType::TARGET_TYPE;                        \
+  }                                                     \
+  const void* arg() const override {                    \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  void* arg() override {                                \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  std::unique_ptr<ArgAbstract> clone() const override { \
+    return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
 #define DEF_TOSTRING_FUNC                 \
@@ -190,13 +191,24 @@ struct TensorArgAbstract : ArgAbstract {
   TensorArgAbstract(at::Tensor tensor) : tensor_(std::move(tensor)) {}
   TensorArgAbstract(const TensorArgAbstract&) = default;
 
+  TensorArgAbstract(at::Tensor tensor) : tensor_(std::move(tensor)) {}
+  TensorArgAbstract(const TensorArgAbstract&) = default;
+
+  int64_t getRank() const {
+    return tensor_.ndimension();
   int64_t getRank() const {
     return tensor_.ndimension();
   }
 
   int64_t getSize(int64_t i) const {
     return tensor_.size(i);
+  int64_t getSize(int64_t i) const {
+    return tensor_.size(i);
   }
+
+  virtual int64_t getStride(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The stride of an abstract tensor arg is not known.");
 
   virtual int64_t getStride(int64_t i) const {
     TORCH_INTERNAL_ASSERT(
@@ -205,7 +217,13 @@ struct TensorArgAbstract : ArgAbstract {
 
   void* getPointer() const {
     return tensor_.data_ptr();
+
+  void* getPointer() const {
+    return tensor_.data_ptr();
   }
+
+  DataType getDataType() const {
+    return aten_to_data_type(tensor_.scalar_type());
 
   DataType getDataType() const {
     return aten_to_data_type(tensor_.scalar_type());
@@ -213,11 +231,18 @@ struct TensorArgAbstract : ArgAbstract {
 
   int64_t numel() const {
     return tensor_.numel();
+  int64_t numel() const {
+    return tensor_.numel();
   }
+
+  at::Tensor getTensor() const {
 
   at::Tensor getTensor() const {
     return tensor_;
   }
+
+  virtual bool isAbstract() const {
+    return true;
 
   virtual bool isAbstract() const {
     return true;
@@ -226,8 +251,12 @@ struct TensorArgAbstract : ArgAbstract {
   virtual PrimDataType getIndexType() const {
     TORCH_INTERNAL_ASSERT(
         false, "The index type of an abstract tensor arg is not known.");
+  virtual PrimDataType getIndexType() const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The index type of an abstract tensor arg is not known.");
   }
 
+  PrimDataType getSmallestIndexType() const;
   PrimDataType getSmallestIndexType() const;
 
   bool isType(ArgType t) const override {
@@ -329,7 +358,7 @@ struct TensorArg : public TensorArgAbstract {
     return ss.str();
   }
 
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+  std::unique_ptr<ArgAbstract> clone() const override {
     return std::make_unique<TensorArg>(*this);
   }
 };

@@ -9,7 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
-#include <device_lower/bank_conflict.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
@@ -1005,8 +1005,15 @@ std::vector<at::Tensor> allocOutputs(
                                          .at(output_idx)
                                          ->as<TensorView>()
                                          ->getMaybeAllocationDomain());
+      auto alloc_dom =
+          TensorDomain::noReductions(kernel->outputs()
+                                         .at(output_idx)
+                                         ->as<TensorView>()
+                                         ->getMaybeAllocationDomain());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
+      outputs.emplace_back(
+          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
       outputs.emplace_back(
           at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
     } else {
@@ -1729,6 +1736,27 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
+  std::vector<TensorView*> tvs;
+  for (auto val : kernel()->inputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto val : kernel()->outputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto alloc : kernel()->summary().global_allocations) {
+    auto tv = alloc->buffer()->as<TensorView>();
+    if (tv->isFusionOutput()) {
+      continue;
+    }
+    tvs.emplace_back(tv);
+  }
+  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
+    tvs.emplace_back(nullptr);
+  }
+  return tvs;
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1863,25 +1891,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    std::vector<TensorView*> tvs;
-    for (auto val : kernel()->inputs()) {
-      tvs.emplace_back(dynamic_cast<TensorView*>(val));
-    }
-    for (auto val : kernel()->outputs()) {
-      tvs.emplace_back(dynamic_cast<TensorView*>(val));
-    }
-    for (auto alloc : kernel()->summary().global_allocations) {
-      auto tv = alloc->buffer()->as<TensorView>();
-      if (tv->isFusionOutput()) {
-        continue;
-      }
-      tvs.emplace_back(tv);
-    }
-    if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-      tvs.emplace_back(nullptr);
-    }
-    auto ee = executor_utils::bindInputs(args, kernel());
-    auto arg_buffer = args.getBuffer(kernel()->indexType(), tvs, ee);
+    auto arg_buffer =
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
