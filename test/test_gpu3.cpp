@@ -8202,7 +8202,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     }
 
     at::Tensor tb = t0;
-    for (int i = 0; i < ndim; i++) {
+    for (size_t i = 0; i < ndim; i++) {
       if (is_broadcast[i]) {
         tb = tb.unsqueeze(i);
       }
