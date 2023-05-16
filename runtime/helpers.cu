@@ -353,6 +353,22 @@ __device__ int64_t rsqrt(int64_t z) {
   return ::rsqrt((double)z);
 }
 
+__device__ double signbit(double a) {
+  return ::signbit(a);
+}
+
+__device__ float signbit(float a) {
+  return ::signbit(a);
+}
+
+__device__ int signbit(int a) {
+  return a < 0;
+}
+
+__device__ int64_t signbit(int64_t a) {
+  return a < 0;
+}
+
 template <int size, int align = size>
 struct alignas(align) TypelessData {
   int8_t data[size];
