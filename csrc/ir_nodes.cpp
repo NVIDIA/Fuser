@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir_cloner.h>
 #include <ir_interface_nodes.h>
@@ -12,7 +13,6 @@
 #include <ir_utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
@@ -737,10 +737,10 @@ std::string RNGOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-size_t RNGOp::getOutputDims() const {
-  size_t ndims = 0;
+int64_t RNGOp::getOutputDims() const {
+  int64_t ndims = 0;
   if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
-    ndims = tv_out->getRootDomain().size();
+    ndims = (int64_t)tv_out->getRootDomain().size();
   }
   return ndims;
 }
@@ -2602,10 +2602,13 @@ void validateContiguity(
       " but needed one of size ",
       allocation_domain.size());
   for (auto i : c10::irange(contiguity.size())) {
+    bool expect_null =
+        (allocation_domain.at(i)->isBroadcast() ||
+         allocation_domain.at(i)->isReduction());
     TORCH_CHECK(
-        allocation_domain.at(i)->isBroadcast() != contiguity.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
+        expect_null != contiguity.at(i).has_value(),
+        "The contiguity of a broadcast/reduction dimension must be None. "
+        "The contiguity of a non-broadcast/reduction dimension must be true/false");
   }
 }
 
@@ -3113,7 +3116,7 @@ std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
-    if (id->isBroadcast()) {
+    if (id->isBroadcast() || id->isReduction()) {
       contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);

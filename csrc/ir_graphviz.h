@@ -60,12 +60,13 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);
 
+  ~IrGraphGenerator() override = default;
+
  private:
   IrGraphGenerator(
       const Fusion* fusion,
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);
-  ~IrGraphGenerator() override = default;
 
   std::string generate();
 
