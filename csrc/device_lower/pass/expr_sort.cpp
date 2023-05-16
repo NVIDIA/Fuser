@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <compute_at_map.h>
-#include <device_lower/expr_sort.h>
+#include <device_lower/pass/expr_sort.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <fusion.h>

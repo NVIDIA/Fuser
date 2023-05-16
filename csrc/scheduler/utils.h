@@ -8,7 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <device_lower/loop_rotation.h>
+#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>

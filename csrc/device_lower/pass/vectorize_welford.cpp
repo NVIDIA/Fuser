@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/vectorize_welford.h>
+#include <device_lower/pass/vectorize_welford.h>
 
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>

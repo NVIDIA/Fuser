@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/allocation.h>
+#include <device_lower/pass/allocation.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
