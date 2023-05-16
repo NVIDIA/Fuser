@@ -291,7 +291,7 @@ void KernelArgumentHolder::pushTensorProxy(
     at::ScalarType dtype,
     std::optional<PrimDataType> index_type) {
   TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
-  auto meta_tensor = at::native::empty_strided_cuda(
+  auto meta_tensor = at::native::empty_strided_cpu(
       sizes,
       strides,
       dtype,
