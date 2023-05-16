@@ -322,20 +322,9 @@ void DynamicTransformConcretizer::concretizeReshape() {
 }
 
 void DynamicTransformConcretizer::concretizeResize() {
-  // Concretize each resize op.
+  // Concretize each resize op's output IterType.
   for (const auto& [id, iter_type] : info_.getResizeTransforms()) {
-    TORCH_CHECK(
-        id->definition() && id->definition()->isA<Resize>(),
-        "Resized IterDomain must have a Resize definition");
-    auto def = id->definition()->as<Resize>();
-    auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
-        id->isRFactorProduct(),
-        iter_type);
-
-    registerMutation(id, new_id);
+    id->setIterType(iter_type);
   }
 }
 
@@ -416,9 +405,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        auto concreteized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concreteized_out_id);
+        out_id->setIterType(iter_type);
       }
 
       // Outputs are mutated. The expr itself needs to be mutated as
@@ -544,16 +531,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         def->toString());
 
     TORCH_INTERNAL_ASSERT(
-        id_type != IterType::Symbolic,
+        id_type.value() != IterType::Symbolic,
         "Failed to concretize ",
         root_id->toString(),
         " of ",
         consumer->toString());
 
-    auto concretized_id =
-        IterDomainBuilder(root_id).iter_type(*id_type).build();
-
-    registerMutation(root_id, concretized_id);
+    root_id->setIterType(id_type.value());
     is_concretized = true;
   }
 

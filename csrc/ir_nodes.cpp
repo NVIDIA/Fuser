@@ -2460,8 +2460,7 @@ IterDomain* IterDomain::resize(
     IterDomain* in,
     Val* left_expansion,
     Val* right_expansion,
-    bool mark_as_rfactor,
-    std::optional<IterType> iter_type_opt) {
+    bool mark_as_rfactor) {
   TORCH_CHECK(
       left_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
@@ -2504,13 +2503,10 @@ IterDomain* IterDomain::resize(
         right_expansion);
   }
 
-  // If output IterType is provided, use it. Otherwise, if we can prove the
-  // resized extent is 1, set to Broadcast, if we can prove it is >1 set to
-  // Iteration, and otherwise fall back to Symbolic.
+  // If we can prove the resized extent is 1, set to Broadcast. If we can prove
+  // it is >1 set to Iteration. Otherwise fall back to Symbolic.
   IterType iter_type = IterType::Symbolic;
-  if (iter_type_opt.has_value()) {
-    iter_type = iter_type_opt.value();
-  } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
