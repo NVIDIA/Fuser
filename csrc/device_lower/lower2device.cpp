@@ -160,7 +160,6 @@ class ConvertAlignedBlockSync : kir::IrVisitor {
                 RegisterType::GeneralPurpose) {
           return;
         }
-        return;
       } else if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
         // If the start, stop, step are not thread dependent
         //  then this for loop should be thread independent.
