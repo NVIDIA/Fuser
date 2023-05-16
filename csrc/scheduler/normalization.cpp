@@ -710,11 +710,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t blocks_per_sm_estimated =
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
-    // recalculate estimated_register_count using blocks_per_sm_estimated
-    // this may increase estimated_register_count due to allocation granularity
-    // e.g. 104 -> 128, didn't see a performance increase on a100
-    estimated_register_count = getRegPerThreadGivenThreadsPerSM(
-        blocks_per_sm_estimated * threads_per_block);
 
     // only allow adjust to 85% of estimated_register_count to avoid too much
     // spills. initially we used 80%, however, the drop from 160 to 128 leads to
@@ -738,12 +733,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
     // minimum occupancy we want to achieve
     constexpr double occupancy_ratio = 0.4;
-    const int64_t blocks_per_sm_wanted =
-        ceilDiv(
-            static_cast<int64_t>(
-                dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
-            device_warp_size) *
-        device_warp_size / threads_per_block;
+    const int64_t blocks_per_sm_wanted = ceilDiv(
+        static_cast<int64_t>(
+            dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
+        threads_per_block);
 
     // if estimated blocks is smaller than wanted and decrease register usage
     // can increase blocks per sm, try to decrease register usage to increase
@@ -756,7 +749,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       nvrtc_register_per_thread =
           std::max(register_count_minimum, register_count_occupancy);
     } else {
-      nvrtc_register_per_thread = estimated_register_count;
+      // recalculate estimated_register_count using blocks_per_sm_estimated
+      // this may increase estimated_register_count due to allocation
+      // granularity e.g. 104 -> 128
+      nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm_estimated * threads_per_block);
     }
   }
 
