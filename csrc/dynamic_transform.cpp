@@ -413,13 +413,13 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        auto concreteized_out_id =
+        auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concreteized_out_id);
+        registerMutation(out_id, concretized_out_id);
       }
 
-      // Outputs are mutated. The expr itself needs to be mutated as
-      // well, which can be done by the mutate method
+      // The expr itself needs to be mutated as well in case the outputs are
+      // mutated, which can be done by the mutate method
       OptOutMutator::mutate(expr);
     }
   }
