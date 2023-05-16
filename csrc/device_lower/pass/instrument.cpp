@@ -6,11 +6,11 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 
-#include <device_lower/instrument.h>
+#include <device_lower/pass/instrument.h>
 
 namespace nvfuser {
 
