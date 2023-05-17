@@ -2803,6 +2803,70 @@ struct RandomOpRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
+struct VectorFromStateRecord : RecordFunctor {
+  VectorFromStateRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      PrimDataType dtype)
+      : RecordFunctor(std::move(_args), std::move(_outputs), "define_vector", serde::RecordType_VectorFromState),
+        dtype_(dtype) {}
+  virtual ~VectorFromStateRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new VectorFromStateRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const VectorFromStateRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (dtype_ == child_ptr->dtype_);
+    }
+    return result;
+  }
+
+  virtual void operator()(FusionState& fd) final {
+    std::vector<Val*> output(args_.size(), nullptr);
+    TORCH_CHECK(
+        dtype_ == DataType::Int,
+        "Only Int Dtype is not supported by a vector of sizes: ",
+        dtype_);
+    for(size_t i = 0; i < args_.size(); ++i) {
+      TORCH_CHECK(args_.at(i).stype == serde::StateType_Scalar, "Unsupported State type!");
+      output.at(i) = fd.getFusionState(args_.at(i).index);
+    }
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dtype=" << dtypeToPyString(dtype_);
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData_VectorFromState,
+        serde::CreateVectorFromState(
+            builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  };
+
+ private:
+  //! Scalar data type.
+  PrimDataType dtype_;
+};
+
 //! Specialized Record Functor for recording FusionState vector of sizes for
 //! both inputs and constants.
 

@@ -104,6 +104,7 @@ enum RecordType:int {
     VarianceOp,
     VarianceMeanOp,
     VectorConstantInt,
+    VectorFromState,
     VectorInput,
 }
 
@@ -132,6 +133,7 @@ union RecordData {
   TensorCreation,
   TensorCreationSymbolic,
   VectorInt,
+  VectorFromState,
   VectorInput,
 }
 
@@ -265,6 +267,11 @@ table TensorCreation {
 // The shape is symbolic.
 table TensorCreationSymbolic {
   shape: [State];
+  dtype: DataType;
+}
+
+// Data for Vector from State
+table VectorFromState {
   dtype: DataType;
 }
 

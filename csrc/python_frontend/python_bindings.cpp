@@ -524,8 +524,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TORCH_CHECK(
             !self.completed(), "Attempting to add to a completed definition!");
         Vector out = self.defineVector();
-        std::vector<nullptr_t> value(size, nullptr);
-        self.defineRecord(new VectorRecord<std::int64_t>(
+        self.defineRecord(new VectorRecord<int64_t>(
             {self.recordingState(out())},
             serde::RecordType_VectorInput,
             std::nullopt,
@@ -534,6 +533,29 @@ void initNvFuserPythonBindings(PyObject* module) {
         return out;
       },
       py::arg("size"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+
+  fusion_def.def(
+      "define_vector",
+      [](FusionDefinition& self,
+         py::args args,
+         PrimDataType dtype = DataType::Int) -> Vector {
+        FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalar State)");
+        TORCH_CHECK(
+            !self.completed(), "Attempting to add to a completed definition!");
+        std::vector<State> inputs;
+        inputs.reserve(args.size());
+        for(const auto& arg : args) {
+          inputs.push_back(self.recordingState(arg.cast<Scalar>()()));
+        } 
+        Vector out = self.defineVector();
+        self.defineRecord(new VectorFromStateRecord(
+            inputs,
+            {self.recordingState(out())},
+            dtype));
+        return out;
+      },
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
