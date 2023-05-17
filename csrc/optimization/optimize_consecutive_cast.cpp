@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <optimization/opt_pass.h>
-#include <ir_Utils.h>
+#include <ir_utils.h>
 
 namespace nvfuser::optimization {
 
@@ -33,10 +33,10 @@ class ConsecutiveCastPass : OptimizationPass {
       if (is_cast_op(expr)) {
         while (true) {
           // in the loop, we just repetitively skip consecutive casts.
-          auto intermeidate_cast = expr->input(0);
-          auto prev_expr = intermeidate_cast->definition();
+          auto intermediate_cast = expr->input(0);
+          auto prev_expr = intermediate_cast->definition();
           if (prev_expr!=nullptr && is_cast_op(prev_expr)) {
-            replaceValInExpr(expr, intermediate_cast, prev_expr->input(0));
+            expr = nvfuser::ir_utils::replaceValInExpr(expr, intermediate_cast, prev_expr->input(0));
           } else {
             break;
           }

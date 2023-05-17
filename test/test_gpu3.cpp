@@ -8457,8 +8457,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   auto outputs = executor_cache.runFusionWithInputs({at_x});
   auto ref_out = at_x.clone().relu().neg();
 
-  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-
+  // auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   // TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
   // auto groups = optimized_fusion->fusionSegments()->groups();
   // TORCH_CHECK(
