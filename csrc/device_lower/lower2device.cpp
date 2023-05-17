@@ -153,11 +153,9 @@ class ConvertAlignedBlockSync : kir::IrVisitor {
   void handle(kir::BlockSync* sync) final {
     // Inspect all the scope expressions and if all are aligned,
     // convert to aligned sync
-    if (std::all_of(scope_exprs_.begin(),
-                    scope_exprs_.end(),
-                    [](Expr *expr) {
-                      return ir_utils::isAlignedScopeExpr(expr);
-                    })) {
+    if (std::all_of(scope_exprs_.begin(), scope_exprs_.end(), [](Expr* expr) {
+          return ir_utils::isAlignedScopeExpr(expr);
+        })) {
       sync->convertToAligned();
     }
   }
