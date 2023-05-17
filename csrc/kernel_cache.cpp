@@ -25,11 +25,22 @@ namespace nvfuser {
 
 namespace {
 
-#define THREAD_POOL_SIZE 24
+int getNumThreads() {
+  const char* option_env_name = "NVFUSER_NUM_THREADS";
+  auto dump_options = std::getenv(option_env_name);
+  if (dump_options == nullptr) {
+    constexpr int default_num_threads = 4;
+    return default_num_threads;
+  }
+  auto num_threads_value = std::atoi(dump_options);
+  int max_num_threads = (int)std::thread::hardware_concurrency();
+  return std::max(std::min(num_threads_value, max_num_threads), 1);
+}
 
 // TODO: clean this up with some knobs
 c10::ThreadPool* getThreadPool() {
-  static c10::ThreadPool pool(THREAD_POOL_SIZE);
+  static auto num_threads = getNumThreads();
+  static c10::ThreadPool pool(num_threads);
   return &pool;
 }
 
