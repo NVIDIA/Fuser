@@ -1883,8 +1883,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
     // TODO update kir::Kernel with fast GpuLower
-    auto arg_buffer = args.getBuffer(
-        kernel_summary_.index_type_, getTvsForKernelArguments());
+    auto arg_buffer =
+        args.getBuffer(kernel_summary_.index_type_, getTvsForKernelArguments());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(

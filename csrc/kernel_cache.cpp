@@ -619,13 +619,12 @@ void FusionExecutorCache::deserialize(
 
   for (auto device_runtimes : *buffer->kernel_runtimes()) {
     TORCH_INTERNAL_ASSERT(
-        is_dynamic_.value_or(false) ==
-        device_runtimes->has_dynamic_transform_info());
+        isDynamic() == device_runtimes->has_dynamic_transform_info());
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
 
     std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
     size_t conc_info_index = 0;
-    if (is_dynamic_.value_or(false)) {
+    if (isDynamic()) {
       // Construct args from flatbuffer object
       KernelArgumentHolder args;
       args.deserialize(device_runtimes->runtimes()->begin()->args());
