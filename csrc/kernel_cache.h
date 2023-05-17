@@ -478,12 +478,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return kernel_runtimes_;
   }
 
-  //! Get mapping from keys (KernelArgumentHolder cache IDs) to
-  //! FusionKernelRuntimes
-  const auto& getArgIdToRuntimeMap() const {
-    return id_to_kernel_runtime_;
-  }
-
   void profile(bool to_profile) {
     profiling_ = to_profile;
     for (auto& it : kernel_runtimes_) {
@@ -527,16 +521,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! this method should not be called until the definition of the Fusion is
   //! finalized.
   DynamicTransformInitialInfo& initialInfo();
-
-  //! Check whether the input `fusion_` has dynamic elements such as non-static
-  //! reshapes. Note that `fusion_` might be updated after initializing
-  //! `FusionExecutorCache` as is done by `FusionDefinition` in the Python
-  //! frontend. In that case care must be taken to delay this check until the
-  //! entire Fusion is defined. For that reason, this function is private, and
-  //! should only be called inside runFusionWithInputs.
-  bool isDynamic() {
-    return initialInfo().hasDynamicTransforms();
-  }
 
  private:
   //! original un-scheduled `Fusion`. This may contain dynamic transforms and
