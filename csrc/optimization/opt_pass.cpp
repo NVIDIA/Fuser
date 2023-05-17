@@ -19,10 +19,17 @@ class OptimizationRegistry {
     int priority_;
     FusionPass pass_;
     std::string name_;
-    PassEntry(int priority, FusionPass pass, std::string name) : priority_(priority), pass_(std::move(pass)), name_(std::move(name_)) {}
+    PassEntry(int priority, FusionPass pass, std::string name)
+        : priority_(priority),
+          pass_(std::move(pass)),
+          name_(std::move(name_)) {}
   };
 
-  void registerPass(const OptimizationPassCategory& cat, FusionPass func, std::string name_, int priority) {
+  void registerPass(
+      const OptimizationPassCategory& cat,
+      FusionPass func,
+      std::string name_,
+      int priority) {
     std::lock_guard<std::mutex> guard(mutex_);
     auto& pass_entry_list = pass_categories_[cat];
     auto entry_iter = pass_entry_list.begin();
@@ -32,7 +39,8 @@ class OptimizationRegistry {
       }
       entry_iter++;
     }
-    pass_entry_list.emplace(entry_iter, priority, std::move(func), std::move(name_));
+    pass_entry_list.emplace(
+        entry_iter, priority, std::move(func), std::move(name_));
   }
 
   void apply(const OptimizationPassCategory& cat, Fusion* fusion) {
@@ -49,18 +57,26 @@ class OptimizationRegistry {
   }
 
  protected:
-  // TODO: read access mutex_ should/could be optimized, since graph pass is thread-safe.
+  // TODO: read access mutex_ should/could be optimized, since graph pass is
+  // thread-safe.
   std::mutex mutex_;
-  std::unordered_map<OptimizationPassCategory, std::list<PassEntry>> pass_categories_;
+  std::unordered_map<OptimizationPassCategory, std::list<PassEntry>>
+      pass_categories_;
 };
 
 } // namespace
 
-void registerOptimizationPass(const OptimizationPassCategory& category, OptimizationPass* pass, int priority) {
-  OptimizationRegistry::getInstance().registerPass(category, pass->func(), pass->name(), priority);
+void registerOptimizationPass(
+    const OptimizationPassCategory& category,
+    OptimizationPass* pass,
+    int priority) {
+  OptimizationRegistry::getInstance().registerPass(
+      category, pass->func(), pass->name(), priority);
 }
 
-void applyOptimizationPass(const OptimizationPassCategory& category, Fusion* fusion) {
+void applyOptimizationPass(
+    const OptimizationPassCategory& category,
+    Fusion* fusion) {
   OptimizationRegistry::getInstance().apply(category, fusion);
 }
 

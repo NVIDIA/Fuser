@@ -8461,11 +8461,13 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   auto complete_fusion = optimized_fusion->fusionSegments()->completeFusion();
   int cast_op_count = 0;
   for (auto expr : complete_fusion->exprs()) {
-    if (expr->isA<UnaryOp>() && expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
       ++cast_op_count;
     }
   }
-  TORCH_CHECK(cast_op_count == 2, "cast optimization isn't working as expected");
+  TORCH_CHECK(
+      cast_op_count == 2, "cast optimization isn't working as expected");
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);

@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/opt_pass.h>
 #include <ir_utils.h>
+#include <optimization/opt_pass.h>
 
 namespace nvfuser::optimization {
 
@@ -15,7 +15,7 @@ namespace {
 class ConsecutiveCastPass : OptimizationPass {
  public:
   static void runPass(Fusion* fusion) {
-    auto is_cast_op = [] (Expr* expr) {
+    auto is_cast_op = [](Expr* expr) {
       if (expr->isA<UnaryOp>()) {
         auto op = expr->as<UnaryOp>();
         if (op->getUnaryOpType() == UnaryOpType::Cast) {
@@ -32,8 +32,9 @@ class ConsecutiveCastPass : OptimizationPass {
           // in the loop, we just repetitively skip consecutive casts.
           auto intermediate_cast = expr->input(0);
           auto prev_expr = intermediate_cast->definition();
-          if (prev_expr!=nullptr && is_cast_op(prev_expr)) {
-            expr = nvfuser::ir_utils::replaceValInExpr(expr, intermediate_cast, prev_expr->input(0));
+          if (prev_expr != nullptr && is_cast_op(prev_expr)) {
+            expr = nvfuser::ir_utils::replaceValInExpr(
+                expr, intermediate_cast, prev_expr->input(0));
           } else {
             break;
           }
@@ -41,16 +42,20 @@ class ConsecutiveCastPass : OptimizationPass {
       }
     }
   }
-  std::string name() override { return "ConsecutiveCastOptimization"; }
-  FusionPass func() override { return runPass; }
+  std::string name() override {
+    return "ConsecutiveCastOptimization";
+  }
+  FusionPass func() override {
+    return runPass;
+  }
 
   ConsecutiveCastPass() {
-   registerOptimizationPass(OptimizationPassCategory::PreSegmenter, this);
+    registerOptimizationPass(OptimizationPassCategory::PreSegmenter, this);
   }
 };
 
 static ConsecutiveCastPass register_;
 
-}
+} // namespace
 
 } // namespace nvfuser::optimization
