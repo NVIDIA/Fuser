@@ -2837,7 +2837,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Used to replace symbolic indices with concrete values
   std::unordered_map<const Int*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property
-  std::deque<bool> aligned_scope_exprs_;
+  std::vector<bool> aligned_scope_exprs_;
 };
 
 } // namespace
