@@ -293,6 +293,9 @@ inferAndValidateAllocationSizesAndStrides(
     contiguous_stride = stride * size;
     contiguity.pop_back();
   }
+  TORCH_INTERNAL_ASSERT(
+      contiguity.empty(),
+      "The size of contiguity mismatch with the dimensionality of allocation domain");
   // Validate that for expanded broadcast, the stride must be zero.
   for (int64_t i : c10::irange((int64_t)sizes_strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
