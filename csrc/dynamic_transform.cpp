@@ -143,27 +143,6 @@ void DynamicTransformInfoBuilder::handle(TensorView* tv) {
           "Cannot evaluate the extent of a resized IterDomain: ",
           id->toString());
 
-      auto in_id = op->in()->as<IterDomain>();
-      auto in_extent_val = expr_eval_->evaluate(in_id->extent());
-      TORCH_INTERNAL_ASSERT(
-          in_extent_val.has_value(),
-          "Cannot evaluate the extent of input to an IterDomain resize: ",
-          in_id->toString());
-
-      auto left = op->leftExpand()->as<Int>();
-      auto left_val = expr_eval_->evaluate(left);
-      TORCH_INTERNAL_ASSERT(
-          left_val.has_value(),
-          "Cannot evaluate the left expansion of an IterDomain resize: ",
-          left->toString());
-
-      auto right = op->rightExpand()->as<Int>();
-      auto right_val = expr_eval_->evaluate(right);
-      TORCH_INTERNAL_ASSERT(
-          right_val.has_value(),
-          "Cannot evaluate the right expansion of an IterDomain resize: ",
-          right->toString());
-
       auto out_itertype = out_extent_val->as<int64_t>() == 1
           ? IterType::Broadcast
           : IterType::Iteration;

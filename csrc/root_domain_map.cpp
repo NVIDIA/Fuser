@@ -137,6 +137,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     //  domains of torch_gather)
     // 3. Squeeze and unsqueeze
     // 4. Broadcast and non broadcast
+    // 5. Symbolic IDs
 
     // Condition 1: when the producer ID is the dim of a select-like op
     if (producer_id == indexed_producer_id) {
@@ -182,6 +183,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // Condition 4
     if (!map_broadcast_ &&
         producer_id->isBroadcast() != consumer_id->isBroadcast()) {
+      itc++;
+      itp++;
+      continue;
+    }
+
+    // Condition 5
+    if (producer_id->getIterType() == IterType::Symbolic ||
+        consumer_id->getIterType() == IterType::Symbolic) {
       itc++;
       itp++;
       continue;

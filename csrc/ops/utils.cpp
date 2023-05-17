@@ -186,13 +186,9 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Unexpected IterType: ",
       type2);
 
-  // If either is Iteration, the output type is also Iteration. If
-  // none of them is Iteration and either of them is Symbolic, the
-  // output is also Symbolic.
+  // If either is Iteration, the output type is also Iteration.
   if (type1 == IterType::Iteration || type2 == IterType::Iteration) {
     return IterType::Iteration;
-  } else if (type1 == IterType::Symbolic || type2 == IterType::Symbolic) {
-    return IterType::Symbolic;
   } else {
     return IterType::Broadcast;
   }
@@ -236,6 +232,25 @@ std::vector<IterDomain*> newOutputDomain(
         " dimensions but expected ",
         out_domain.size());
     for (const auto i : c10::irange(dom.size())) {
+      auto iter_type = dom[i]->getIterType();
+      if (iter_types[i].has_value()) {
+        if (iter_types[i].value() == IterType::Symbolic) {
+          // If the best guess so far is that the output is Symbolic, then all
+          // the inputs must have been symbolic. If the current ID is Iteration,
+          // then we should prefer its extent instead of the Symbolic value.
+          if (iter_type == IterType::Iteration) {
+            extent_vals[i] = dom[i]->extent();
+          }
+        } else if (iter_type == IterType::Symbolic) {
+          // If there is an input with a Symbolic ID and no other inputs, we
+          // can re-use its extent expression. Otherwise, a symbolic input ID
+          // could be either a Broadcast or an Iteration IterDomain, so its
+          // extent expression is not necessarily telling us the output extent.
+          // However, if there are any Iteration domains, we _can_ use their
+          // extent expressions, since they will resolve any broadcasts.
+          continue;
+        }
+      }
       if (dom[i]->isBroadcast()) {
         if (dom[i]->hasExpandedExtent()) {
           expanded_extent_vals[i] =
