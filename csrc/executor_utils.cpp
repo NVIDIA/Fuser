@@ -1056,7 +1056,7 @@ class NvrtcCompileDriver {
       std::cout << log.data() << std::endl;
     }
 
-    return log;
+    return std::string(log.data());
   }
 
  private:
@@ -1311,7 +1311,7 @@ void createNvrtcProgram(
 
 // Compile the given source code with the NVRTC compiler
 // driver. Return the binary of the kernel and its lowered name
-std::tuple<std::vector<char>, std::string> compileSource(
+std::tuple<std::vector<char>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1342,7 +1342,7 @@ std::tuple<std::vector<char>, std::string> compileSource(
     dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, lowered_kernel_name_str};
+  return {object_code, log.str(), lowered_kernel_name_str};
 }
 
 } // namespace
@@ -1418,9 +1418,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             compile_args,
             lowered_kernel_name_str,
             object_code))) {
-    std::tie(object_code, lowered_kernel_name_str) = compileSource(
+    std::string compile_log;
+    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-
+    log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),

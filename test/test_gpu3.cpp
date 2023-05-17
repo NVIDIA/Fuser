@@ -49,6 +49,7 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
+#include <cstdlib> // For getenv(), putenv()
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -8434,6 +8435,62 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
 
+// Test of warn_register_spill
+TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
+#ifdef _WIN32
+  // skip Windows platform for now
+  // _putenv_s(variableName, variableValue);
+#else
+  // POSIX platforms (Linux, macOS)
+  // Use setenv() to set the environment variable
+  setenv("PYTORCH_NVFUSER_ENABLE", "warn_register_spill", 1);
+  // intentionally set a small number to trigger register spill
+  setenv("PYTORCH_NVFUSER_MAX_REG_COUNT", "32", 1);
+#endif
+  const int hidden_size = 1024 * 10;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  std::vector<int64_t> input_shape{2048, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeSymbolicTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+
+  // capture stdout
+  testing::internal::CaptureStdout();
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({aten_input});
+  // dump stdout to a string
+  std::string output = testing::internal::GetCapturedStdout();
+  TORCH_CHECK(
+      output.find("Register spill detected") != std::string::npos,
+      "Register spill is not captured!");
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {std::get<0>(aten_outputs),
+       std::get<1>(aten_outputs),
+       std::get<2>(aten_outputs)},
+      __LINE__,
+      __FILE__,
+      "");
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
