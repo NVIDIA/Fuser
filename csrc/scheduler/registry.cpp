@@ -957,7 +957,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   for (auto val : complete_fusion_->inputs()) {
     tvs.emplace_back(dynamic_cast<TensorView*>(val));
   }
-  args.getBuffer(index_type_, tvs);
+  args.getBuffer(index_type_, tvs, *expression_evaluator_);
 
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
     auto kernel_arg = args[inp_i];
@@ -965,8 +965,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     if (auto tensor_arg_abstract =
             dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
       auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      auto data_ptr = tensor_arg_abstract->getPointer();
-      input_ptrs_[fusion_inp] = (size_t)data_ptr;
+      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
 
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());

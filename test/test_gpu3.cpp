@@ -5387,13 +5387,6 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  executor_cache.compileFusionAsync(aten_inputs);
-
-  while (!executor_cache.isCompiled(aten_inputs)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    printf(".");
-  }
-
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   TORCH_CHECK(
@@ -8491,6 +8484,47 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       __FILE__,
       "");
 }
+// Simple test to check if the aligned block sync is used in aligned
+// reductions
+TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  const int gdimx = 16;
+  const int bdimx = 100;
+  const int per_thread_reductions = 8;
+
+  std::vector<int64_t> shape({gdimx * bdimx * per_thread_reductions});
+
+  tv1->split(0, bdimx);
+  tv1->split(0, per_thread_reductions);
+
+  // Serial reduction
+  auto tv2 = tv1->rFactor({1});
+  // Block reduction
+  tv1->rFactor({1});
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  const std::string kernel_string =
+      codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+
+  // The block reduction should use the aligned sync
+  TORCH_CHECK(
+      kernel_string.find("blockReduce<true, false, false, true>(") !=
+          std::string::npos,
+      "blockReduce with aligned sync not found: ",
+      kernel_string);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

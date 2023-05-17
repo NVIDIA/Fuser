@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir_builder.h>
 #include <ir_iostream.h>
@@ -1006,6 +1007,30 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain) {
   ValidateDomainEquivalence(initial_domain, derived_domain);
+}
+
+bool isAlignedScopeExpr(const Expr* expr) {
+  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
+    if (ite->predicate()->hasValue() &&
+        getRegisterType(ite->predicate()->value()) ==
+            RegisterType::GeneralPurpose) {
+      return false;
+    }
+
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
+    // If the start, stop, step are not thread dependent
+    //  then this for loop should be thread independent.
+    if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
+        getRegisterType(fl->stop()) == RegisterType::GeneralPurpose ||
+        getRegisterType(fl->step()) == RegisterType::GeneralPurpose) {
+      return false;
+    }
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "Invalid scope expr: ", expr->toString());
+  }
+
+  return true;
 }
 
 } // namespace ir_utils
