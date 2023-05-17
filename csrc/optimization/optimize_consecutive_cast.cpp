@@ -25,9 +25,6 @@ class ConsecutiveCastPass : OptimizationPass {
       return false;
     };
 
-    std::cout << "original fusion:" << std::endl;
-    fusion->printMath();
-
     // NOTE: not the most efficient pass
     for (auto expr : fusion->exprs()) {
       if (is_cast_op(expr)) {
@@ -43,8 +40,6 @@ class ConsecutiveCastPass : OptimizationPass {
         }
       }
     }
-    std::cout << "after mutation fusion:" << std::endl;
-    fusion->printMath();
   }
   std::string name() override { return "ConsecutiveCastOptimization"; }
   FusionPass func() override { return runPass; }
