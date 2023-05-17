@@ -96,6 +96,7 @@ enum RecordType:int {
     ScalarConstantDouble,
     ScalarConstantInt,
     ScalarInput,
+    ShapeOp,
     SliceOp,
     SqueezeOp,
     Start,

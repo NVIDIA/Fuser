@@ -277,21 +277,22 @@ enum RecordType : int32_t {
   RecordType_ScalarConstantDouble = 48,
   RecordType_ScalarConstantInt = 49,
   RecordType_ScalarInput = 50,
-  RecordType_SliceOp = 51,
-  RecordType_SqueezeOp = 52,
-  RecordType_Start = 53,
-  RecordType_Tensor = 54,
-  RecordType_TensorSizes = 55,
-  RecordType_VarianceOp = 56,
-  RecordType_VarianceMeanOp = 57,
-  RecordType_VectorConstantInt = 58,
-  RecordType_VectorFromState = 59,
-  RecordType_VectorInput = 60,
+  RecordType_ShapeOp = 51,
+  RecordType_SliceOp = 52,
+  RecordType_SqueezeOp = 53,
+  RecordType_Start = 54,
+  RecordType_Tensor = 55,
+  RecordType_TensorSizes = 56,
+  RecordType_VarianceOp = 57,
+  RecordType_VarianceMeanOp = 58,
+  RecordType_VectorConstantInt = 59,
+  RecordType_VectorFromState = 60,
+  RecordType_VectorInput = 61,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_VectorInput
 };
 
-inline const RecordType (&EnumValuesRecordType())[61] {
+inline const RecordType (&EnumValuesRecordType())[62] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -344,6 +345,7 @@ inline const RecordType (&EnumValuesRecordType())[61] {
     RecordType_ScalarConstantDouble,
     RecordType_ScalarConstantInt,
     RecordType_ScalarInput,
+    RecordType_ShapeOp,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -359,7 +361,7 @@ inline const RecordType (&EnumValuesRecordType())[61] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[62] = {
+  static const char * const names[63] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -411,6 +413,7 @@ inline const char * const *EnumNamesRecordType() {
     "ScalarConstantDouble",
     "ScalarConstantInt",
     "ScalarInput",
+    "ShapeOp",
     "SliceOp",
     "SqueezeOp",
     "Start",

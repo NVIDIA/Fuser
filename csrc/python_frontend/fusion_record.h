@@ -2540,6 +2540,36 @@ struct TensorSizesRecord : RecordFunctor {
   }
 };
 
+//! Specialized Record Functor for the shape op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct ShapeRecord : RecordFunctor {
+  ShapeRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.shape",
+            serde::RecordType_ShapeOp) {}
+  virtual ~ShapeRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new ShapeRecord(*this);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (dynamic_cast<const ShapeRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto result = shape(arg);
+    fd.setFusionState(outputs_.at(0).index, result);
+  }
+};
+
 struct FullOpRecord : RecordFunctor {
   FullOpRecord(
       std::vector<State> _args,

@@ -2040,6 +2040,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dims"),
       py::return_value_policy::reference);
+
+  auto shape_def = [](Tensor arg) {
+    auto fd = arg.fusion_definition;
+    Vector output = fd->defineVector();
+    fd->defineRecord(new ShapeRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}));
+    return output;
+  };
+
+  nvf_ops.def(
+      "shape",
+      [&shape_def](FusionDefinition::Operators& self, Tensor arg) -> Vector {
+        FUSER_PERF_SCOPE("Operators.shape");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        return shape_def(arg);
+      },
+      py::arg("arg"),
+      py::return_value_policy::reference);
+
   nvf_ops.def(
       "slice",
       [](FusionDefinition::Operators& self,
