@@ -8502,11 +8502,11 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto t2 = at::randn({hidden_size}, options);
     auto t3 = at::randn({hidden_size}, options);
     auto t4 = at::randn({hidden_size}, options);
-    inputs.push_back(t0);
-    inputs.push_back(t1);
-    inputs.push_back(t2);
-    inputs.push_back(t3);
-    inputs.push_back(t4);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+    inputs.emplace_back(t3);
+    inputs.emplace_back(t4);
     auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
     auto t6 = t1.to(at::kFloat);
     auto t7 = t5.to(at::kFloat);
@@ -8519,12 +8519,13 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto t14 = t13.to(at::kHalf);
     auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
     auto t33 = std::get<0>(aten_outputs);
-    outputs.push_back(t33);
+    outputs.emplace_back(t33);
   }
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
 // Simple test to check if the aligned block sync is used in aligned
 // reductions
 TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {

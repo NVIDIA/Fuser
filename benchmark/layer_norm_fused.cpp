@@ -91,7 +91,7 @@ static void NvFuserScheduler_LayerNormFused(
       benchmark_state.range(0), benchmark_state.range(1)};
 
   // inputs
-  const int num_features = benchmark_state.range(1);
+  const int64_t num_features = benchmark_state.range(1);
   at::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -123,8 +123,8 @@ static void Baseline_LayerNormFused(
 
   // inputs
   at::manual_seed(0);
-  const int batch_size = input_shape[0];
-  const int hidden_size = input_shape[1];
+  const int64_t batch_size = input_shape[0];
+  const int64_t hidden_size = input_shape[1];
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({hidden_size}, options);
@@ -181,8 +181,8 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNormFusedOp_fp16)
     ->Args({8192, 4096})
     ->Args({8192, 5140})
     ->Args({8192, 12288})
-    ->Args({8192, 16 * 1024})
-    ->Args({8192, 20 * 1024})
+    ->Args({8192, 16384})
+    ->Args({8192, 20480})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
@@ -202,7 +202,7 @@ BENCHMARK(Baseline_LayerNormFused_fp16)
     ->Args({8192, 4096})
     ->Args({8192, 5140})
     ->Args({8192, 12288})
-    ->Args({8192, 16 * 1024})
-    ->Args({8192, 20 * 1024})
+    ->Args({8192, 16384})
+    ->Args({8192, 20480})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
