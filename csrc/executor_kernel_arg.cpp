@@ -267,9 +267,9 @@ inferAndValidateAllocationSizesAndStrides(
     }
     while (!contiguity.back().has_value()) {
       contiguity.pop_back();
-      continue;
     }
     auto [size, stride] = sizes_strides.at(i);
+    TORCH_INTERNAL_ASSERT(!contiguity.empty());
     auto last_contiguity = contiguity.back();
     TORCH_INTERNAL_ASSERT(
         last_contiguity.has_value(),
@@ -317,7 +317,6 @@ PrimDataType TensorArgAbstract::getSmallestIndexType() const {
       return PrimDataType::Int;
     }
   }
-  return PrimDataType::Int32;
   return PrimDataType::Int32;
 }
 
