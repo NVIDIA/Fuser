@@ -19,6 +19,7 @@
 namespace nvfuser {
 
 class LoopIndexing;
+class ComputeAtMap;
 
 //! Auxiliary class to represent information about halo of an axis
 class AxisHaloInfo {

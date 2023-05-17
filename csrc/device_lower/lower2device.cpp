@@ -8,27 +8,27 @@
 #include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <device_lower/alias_memory.h>
-#include <device_lower/allocation.h>
-#include <device_lower/divisible_split.h>
-#include <device_lower/double_buffer.h>
-#include <device_lower/expr_sort.h>
-#include <device_lower/fusion_simplifier.h>
-#include <device_lower/index.h>
-#include <device_lower/insert_syncs.h>
-#include <device_lower/instrument.h>
-#include <device_lower/loop_rotation.h>
-#include <device_lower/loops.h>
-#include <device_lower/magic_zero.h>
-#include <device_lower/misaligned_vectorization.h>
-#include <device_lower/predicate.h>
-#include <device_lower/replace_size.h>
-#include <device_lower/shift.h>
-#include <device_lower/unroll.h>
+#include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/shift.h>
+#include <device_lower/pass/alias_memory.h>
+#include <device_lower/pass/allocation.h>
+#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/expr_sort.h>
+#include <device_lower/pass/fusion_simplifier.h>
+#include <device_lower/pass/index.h>
+#include <device_lower/pass/insert_syncs.h>
+#include <device_lower/pass/instrument.h>
+#include <device_lower/pass/loop_rotation.h>
+#include <device_lower/pass/loops.h>
+#include <device_lower/pass/magic_zero.h>
+#include <device_lower/pass/misaligned_vectorization.h>
+#include <device_lower/pass/predicate.h>
+#include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/unroll.h>
+#include <device_lower/pass/vectorize_welford.h>
+#include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
-#include <device_lower/vectorize_welford.h>
-#include <device_lower/warp_reduce.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <instrumentation.h>
@@ -138,50 +138,6 @@ class KIRCleaner : public OptOutDispatch {
   bool is_nop_ = false;
 };
 
-// Convert bar sync to __syncthreads()
-class ConvertAlignedBlockSync : kir::IrVisitor {
- public:
-  static std::vector<Expr*> run(std::vector<Expr*> exprs) {
-    ConvertAlignedBlockSync converter;
-    converter.handle(exprs);
-    return exprs;
-  }
-
- private:
-  using kir::IrVisitor::handle;
-
-  void handle(kir::BlockSync* sync) final {
-    // Inspect all the scope expressions
-    for (auto expr : scope_exprs_) {
-      // If predicates are thread dependent, can not use aligned sync.
-      if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-        if (ite->predicate()->hasValue() &&
-            getRegisterType(ite->predicate()->value()) ==
-                RegisterType::GeneralPurpose) {
-          return;
-        }
-        return;
-      } else if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
-        // If the start, stop, step are not thread dependent
-        //  then this for loop should be thread independent.
-        if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
-            getRegisterType(fl->stop()) == RegisterType::GeneralPurpose ||
-            getRegisterType(fl->step()) == RegisterType::GeneralPurpose) {
-          return;
-        }
-      }
-    }
-
-    // If all the checks above pass, convert this sync
-    //  to aligned sync.
-    sync->convertToAligned();
-  }
-};
-
-std::vector<Expr*> convertAlignedBlockSync(std::vector<Expr*> exprs) {
-  return ConvertAlignedBlockSync::run(exprs);
-}
-
 } // namespace
 
 void GpuLower::collectPaddedParallelDims() {
@@ -233,6 +189,17 @@ void GpuLower::collectPaddedParallelDims() {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
+      }
+    }
+  }
+}
+
+void segmenterHintCleanup(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        op->setOpType(LoadStoreOpType::Set);
       }
     }
   }
@@ -301,6 +268,8 @@ void GpuLower::lower(Fusion* fusion) {
       tv->resolveIndexDtype();
     }
   }
+  segmenterHintCleanup(fusion_);
+
   assignRNGOffset(fusion_);
 
   FusionGuard fg(fusion_);
@@ -524,13 +493,10 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
 
-  const auto exprs_sync_aligned = convertAlignedBlockSync(exprs_instrumented);
-  dumpExprsIfEnabled(exprs_sync_aligned, "convertAlignedBlockSync");
-
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from
   // GpuLower.
-  kernel_->finalize(exprs_sync_aligned);
+  kernel_->finalize(exprs_instrumented);
 }
 
 kir::Kernel* GpuLower::kernel() const {

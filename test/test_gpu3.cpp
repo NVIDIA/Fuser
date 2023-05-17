@@ -10,7 +10,7 @@
 
 #include <codegen.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -5386,13 +5386,6 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  executor_cache.compileFusionAsync(aten_inputs);
-
-  while (!executor_cache.isCompiled(aten_inputs)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    printf(".");
-  }
-
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   TORCH_CHECK(
@@ -8389,6 +8382,90 @@ TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
   ASSERT_EQ(cg_output.stride(1), 0);
   ASSERT_EQ(cg_output.stride(2), 1);
   ASSERT_TRUE(at::eq(t0.squeeze(1), cg_output.select(1, 0)).all().item<bool>());
+}
+
+// Test forced segmentation hint
+TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> input_shape{32, 64, 8, 128};
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = relu(tv0);
+  auto tv2 = segment_set(tv1);
+  auto tv3 = neg(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto ref_out = at_x.clone().relu().neg();
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+
+  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  auto groups = optimized_fusion->fusionSegments()->groups();
+  TORCH_CHECK(
+      groups.size() == 2, "segmentation hint isn't working as expected");
+  // with the hint, segment_set should be grouped with its producer
+  // [relu, segment_set], [neg]
+  for (auto& group : groups) {
+    // we only check the group with a single node
+    if (group->exprs().size() == 1) {
+      auto relu_expr = group->exprs()[0];
+      TORCH_CHECK(
+          relu_expr->isA<UnaryOp>() &&
+              relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
+          "segmentation result is not expected");
+    }
+  }
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+}
+
+// Simple test to check if the aligned block sync is used in aligned
+// reductions
+TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  const int gdimx = 16;
+  const int bdimx = 100;
+  const int per_thread_reductions = 8;
+
+  std::vector<int64_t> shape({gdimx * bdimx * per_thread_reductions});
+
+  tv1->split(0, bdimx);
+  tv1->split(0, per_thread_reductions);
+
+  // Serial reduction
+  auto tv2 = tv1->rFactor({1});
+  // Block reduction
+  tv1->rFactor({1});
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  const std::string kernel_string =
+      codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+
+  // The block reduction should use the aligned sync
+  TORCH_CHECK(
+      kernel_string.find("blockReduce<true, false, false, true>(") !=
+          std::string::npos,
+      "blockReduce with aligned sync not found: ",
+      kernel_string);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

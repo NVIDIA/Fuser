@@ -278,6 +278,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     ScheduleHeuristic heuristic,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
+  TORCH_INTERNAL_ASSERT(
+      !SegmentCandidateFinder::hasSegmentHints(fusion),
+      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with segment hints!");
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
@@ -1470,6 +1473,40 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!hasSegmentHints(fusion.get())) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Try to schedule fusion un-segmented:\n");
+    const auto maybe_complete_fusion_heuristic =
+        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+    if (maybe_complete_fusion_heuristic.has_value()) {
+      return SegmentedFusion::fromCompleteFusion(
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+    }
+  }
+  if (fusion) {
+    return SegmentCandidateFinder::segment(std::move(fusion), inputs);
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "unreachable!");
+  }
+}
+
+bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
+  for (const auto& expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      // SegmenterSet is a segmenter hint that needs explicit segment call
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void SegmentCandidateFinder::resetTraversal() {
   for (auto group : groups()) {
     // Start traversal at input groups
@@ -1788,7 +1825,26 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
   joined_group->setHeuristic(deriveHeuristic(joined_group));
   return joined_group;
 }
+
 namespace {
+
+// SegmenterSet hints a kernel break
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || !out->uses().empty()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Guard to temporarily change the inputs and outputs of a
 // fusion. Cast expressions to fp32 and fp16 are also inserted. On
@@ -1986,6 +2042,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -1998,6 +2057,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
