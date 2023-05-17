@@ -107,7 +107,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
   //! Detect dynamic IterDomain transforms when handling TensorViews
-  void handle(TensorView* tv) {
+  void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
