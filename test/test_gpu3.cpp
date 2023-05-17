@@ -8434,6 +8434,126 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
 
+// https://github.com/NVIDIA/Fuser/issues/335
+// This test is to make sure the benchmark in layer_norm_fused.cpp is correctly
+// implemented.
+TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 2048 * 8;
+  const int hidden_size = 20480;
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(1, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    auto tv2 = makeContigTensor(1, dtype);
+    auto tv3 = makeContigTensor(1, dtype);
+    auto tv4 = makeContigTensor(1, dtype);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+    fusion->addInput(tv3);
+    fusion->addInput(tv4);
+    auto tv5 = broadcast(tv0, {true, false});
+    auto tv6 = castOp(DataType::Float, tv1);
+    auto tv7 = castOp(DataType::Float, tv5);
+    auto tv8 = add(tv6, tv7);
+    auto tv9 = castOp(DataType::Half, tv8);
+    auto tv10 = broadcast(tv2, {true, false});
+    auto tv11 = castOp(DataType::Float, tv9);
+    auto tv12 = castOp(DataType::Float, tv10);
+    auto tv13 = add(tv11, tv12);
+    auto tv14 = castOp(DataType::Half, tv13);
+    auto tv15 = castOp(DataType::Float, tv14);
+    auto tv16 = variance(tv15, {1}, false, false);
+    auto tv17 = broadcast(tv16, {false, true});
+    auto tv18 = sum(tv15, {1}, false);
+    auto tv19 = broadcast(tv18, {false, true});
+
+    nvfuser::Val* num_features =
+        IrBuilder::create<Double>(1, dtype = DataType::Double);
+    num_features = mul(num_features, tv0->getLeafDomain()[0]->extent());
+    auto s20 = num_features;
+
+    auto s21 = reciprocal(s20);
+    auto tv22 = mul(tv19, s21);
+    auto s23 = IrBuilder::create<Double>(1e-12, dtype = DataType::Double);
+    auto tv24 = add(tv17, s23);
+    auto tv25 = rsqrt(tv24);
+    auto tv26 = broadcast(tv22, {false, false});
+    auto tv27 = castOp(DataType::Float, tv14);
+    auto tv28 = sub(tv27, tv26);
+    auto tv29 = broadcast(tv25, {false, false});
+    auto tv30 = mul(tv28, tv29);
+    auto tv31 = broadcast(tv4, {true, false});
+    auto tv32 = castOp(DataType::Float, tv31);
+    auto tv33 = mul(tv30, tv32);
+    auto tv34 = broadcast(tv3, {true, false});
+    auto tv35 = castOp(DataType::Float, tv34);
+    auto tv36 = add(tv33, tv35);
+    auto tv37 = castOp(DataType::Half, tv36);
+    fusion->addOutput(tv37);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn({hidden_size}, options);
+    auto t1 = at::randn({batch_size, hidden_size}, options);
+    auto t2 = at::randn({hidden_size}, options);
+    auto t3 = at::randn({hidden_size}, options);
+    auto t4 = at::randn({hidden_size}, options);
+    inputs.push_back(t0);
+    inputs.push_back(t1);
+    inputs.push_back(t2);
+    inputs.push_back(t3);
+    inputs.push_back(t4);
+    auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t6 = t1.to(at::kFloat);
+    auto t7 = t5.to(at::kFloat);
+    auto t8 = at::add(t6, t7);
+    auto t9 = t8.to(at::kHalf);
+    auto t10 = t2.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t11 = t9.to(at::kFloat);
+    auto t12 = t10.to(at::kFloat);
+    auto t13 = at::add(t11, t12);
+    auto t14 = t13.to(at::kHalf);
+    auto t15 = t14.to(at::kFloat);
+    auto t16 = at::var(t15, {1}, false, false);
+    auto t17 = t16.unsqueeze(1).expand({batch_size, 1});
+    auto t18 = at::sum(t15, {1}, false);
+    auto t19 = t18.unsqueeze(1).expand({batch_size, 1});
+    auto s20 = hidden_size;
+    auto s21 = 1.0 / s20;
+    auto t22 = at::mul(t19, s21);
+    auto s23 = 1e-12;
+    auto t24 = at::add(t17, s23);
+    auto t25 = at::rsqrt(t24);
+    auto t26 = t22.expand({batch_size, hidden_size});
+    auto t27 = t14.to(at::kFloat);
+    auto t28 = at::sub(t27, t26);
+    auto t29 = t25.expand({batch_size, hidden_size});
+    auto t30 = at::mul(t28, t29);
+    auto t31 = t4.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t32 = t31.to(at::kFloat);
+    auto t33 = at::mul(t30, t32);
+    auto t34 = t3.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t35 = t34.to(at::kFloat);
+    auto t36 = at::add(t33, t35);
+    auto t37 = t36.to(at::kHalf);
+    outputs.push_back(t37);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
