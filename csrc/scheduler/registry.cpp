@@ -957,7 +957,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   for (auto val : complete_fusion_->inputs()) {
     tvs.emplace_back(dynamic_cast<TensorView*>(val));
   }
-  args.getBuffer(index_type_, tvs);
+  args.getBuffer(index_type_, tvs, *expression_evaluator_);
 
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
     auto kernel_arg = args[inp_i];
