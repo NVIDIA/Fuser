@@ -400,6 +400,10 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        if (mutations_.find(out_id) != mutations_.end()) {
+          // Skip outputs that have already been registered for mutation
+          continue;
+        }
         auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
         registerMutation(out_id, concretized_out_id);
