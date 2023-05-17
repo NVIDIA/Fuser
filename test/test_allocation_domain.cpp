@@ -606,4 +606,51 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+
+// A global->global copy kernel where both inputs and outputs are NHWC memory
+// format
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_PointwiseScheduler_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 =
+      t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
+
+  auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0}, lparams);
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+
 } // namespace nvfuser
