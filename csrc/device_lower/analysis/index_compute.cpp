@@ -8,7 +8,7 @@
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <index_compute.h>

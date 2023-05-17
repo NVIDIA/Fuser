@@ -48,7 +48,27 @@ std::string DynamicTransformInitialInfo::toString() const {
 //! concrete input sizes.
 class DynamicTransformInitialInfoBuilder : public IterVisitor {
  public:
-  DynamicTransformInitialInfoBuilder(Fusion* fusion);
+  DynamicTransformInitialInfoBuilder(Fusion* fusion) : info_(fusion) {
+    TORCH_INTERNAL_ASSERT(
+        !fusion->isA<kir::Kernel>(),
+        "Invalid container. Kernel container not allowed.\n");
+
+    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+
+    finalizeDynamicVals();
+
+    // initial_info_ provides a set of input Vals that are used for
+    // concretization. Here we check which inputs, if any, correspond to any of
+    // those Vals. These will be the inputs that are explicitly used in the
+    // cache Id for KernelArgumentHolder.
+    info_.input_affects_concretization_.resize(fusion->inputs().size(), false);
+    auto dyn_vals = info_.getRootDynamicVals();
+    for (const auto i : c10::irange(fusion->inputs().size())) {
+      auto input = fusion->inputs().at(i);
+      info_.input_affects_concretization_[i] =
+          input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
+    }
+  }
 
   const auto& getInfo() const {
     return info_;
@@ -57,7 +77,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  // Just find views that have symbolic outputs. Do not do replacement
+  //! Find views that have symbolic outputs
   void handle(ViewOp* op) override {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
@@ -86,6 +106,23 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
+  //! Detect dynamic IterDomain transforms when handling TensorViews
+  void handle(TensorView* tv) {
+    const auto& rfd = tv->getMaybeRFactorDomain();
+    for (auto id : rfd) {
+      if (!id->definition() || id->getIterType() != IterType::Symbolic) {
+        continue;
+      }
+      if (auto op = dynamic_cast<Resize*>(id->definition())) {
+        info_.dynamic_resizes_.push_back(op);
+        // extent of output determines its IterType
+        leaf_dynamic_vals_.push_back(id->extent());
+        // warm up extent evaluation
+        info_.expr_eval_.evaluate(id->extent());
+      }
+    }
+  }
+
   //! Process vector of leaf dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
@@ -98,30 +135,6 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   std::vector<Val*> leaf_dynamic_vals_;
 };
-
-DynamicTransformInitialInfoBuilder::DynamicTransformInitialInfoBuilder(
-    Fusion* fusion)
-    : info_(fusion) {
-  TORCH_INTERNAL_ASSERT(
-      !fusion->isA<kir::Kernel>(),
-      "Invalid container. Kernel container not allowed.\n");
-
-  traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
-
-  finalizeDynamicVals();
-
-  // initial_info_ provides a set of input Vals that are used for
-  // concretization. Here we check which inputs, if any, correspond to any of
-  // those Vals. These will be the inputs that are explicitly used in the cache
-  // Id for KernelArgumentHolder.
-  info_.input_affects_concretization_.resize(fusion->inputs().size(), false);
-  auto dyn_vals = info_.getRootDynamicVals();
-  for (const auto i : c10::irange(fusion->inputs().size())) {
-    auto input = fusion->inputs().at(i);
-    info_.input_affects_concretization_[i] =
-        input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
-  }
-}
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     const DynamicTransformInitialInfo* info,
@@ -228,6 +241,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
+  for (const auto i : c10::irange(resize_transforms_.size())) {
+    const auto& transform = resize_transforms_.at(i);
+    const auto& other_transform = other.resize_transforms_.at(i);
+    if (transform != other_transform) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -235,13 +256,20 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformConcretizationInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
-  for (auto& pair : reshape_transforms_) {
+  for (const auto& [tv, analyze_result] : reshape_transforms_) {
     cloned_info.reshape_transforms_.emplace_back(
-        ir_cloner.clone(pair.first),
+        ir_cloner.clone(tv),
         // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
         // AnalyzeViewResult can be copied directly as it holds no references to
         // Statements that would need cloning, only integer indices of axes.
-        pair.second);
+        analyze_result);
+  }
+  for (const auto& [id, iter_type] : resize_transforms_) {
+    cloned_info.resize_transforms_.emplace_back(
+        ir_cloner.clone(id),
+        // Similar to reshape_transforms_, we only clone the IterDomains in
+        // resize_transforms_
+        iter_type);
   }
   return cloned_info;
 }
@@ -255,6 +283,10 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << kv.first->toString() << ", "
        << kv.second.toString() << "\n";
   }
+  ss << indent << "Resize:\n";
+  for (const auto& [id, iter_type] : resize_transforms_) {
+    ss << indent << indent << id->toString() << ", " << iter_type << "\n";
+  }
   return ss.str();
 }
 
@@ -267,7 +299,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
       : info_(info) {
     TORCH_INTERNAL_ASSERT(
         fusion == info.fusion(),
-        "Invalid DynamicTransformInfo. The associated Fusion is different from the given Fusion");
+        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
     concretize();
   }
 
@@ -275,6 +307,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
   void concretize();
 
   void concretizeReshape();
+
+  void concretizeResize();
 
   using OptOutMutator::mutate;
 
@@ -288,15 +322,17 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   const DynamicTransformConcretizationInfo& info_;
-  std::unordered_map<IterDomain*, IterDomain*> update_map_;
 };
 
 void DynamicTransformConcretizer::concretize() {
   // First, concretize all dynamic reshape ops
   concretizeReshape();
 
-  // Second, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_.fusion(), false);
+  // Set output IterTypes for dynamic resize ops
+  concretizeResize();
+
+  // Finally, propagate concretized domains
+  auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
       mutate(stmt);
@@ -329,6 +365,24 @@ void DynamicTransformConcretizer::concretizeReshape() {
   }
 }
 
+void DynamicTransformConcretizer::concretizeResize() {
+  // Concretize each resize op.
+  for (const auto& [id, iter_type] : info_.getResizeTransforms()) {
+    TORCH_CHECK(
+        id->definition() && id->definition()->isA<Resize>(),
+        "Resized IterDomain must have a Resize definition");
+    auto def = id->definition()->as<Resize>();
+    auto new_id = IterDomain::resize(
+        def->in(),
+        def->leftExpand(),
+        def->rightExpand(),
+        id->isRFactorProduct(),
+        iter_type);
+
+    registerMutation(id, new_id);
+  }
+}
+
 // Concretizes inherited symbolic domains. Note that when this is
 // called, it is assumed that all dynamic ops themselves are
 // concretized. Since symbolic IDs may be propagated down to
@@ -340,15 +394,12 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
-  auto propagated = propagateFromProducerToConsumer(tv);
+  propagateFromProducerToConsumer(tv);
 
-  // If no root domain is altered, nothing to do further
-  if (!propagated) {
-    return;
-  }
-
-  // Root IDs are altered. Need to propagate the changes to rfactor
-  // domain
+  // If no root domain is altered by producer, we don't need to propagate back
+  // up to rfactor. We could return early, but instead we go ahead and check the
+  // root to rfactor transforms to be sure we have concretized any intermediate
+  // IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
@@ -380,20 +431,21 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             ". IterDomain was expected.");
       }
 
-      // If none of the output IDs is symbolic, nothing to concretize
-      if (std::all_of(
-              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-                return output->as<IterDomain>()->getIterType() !=
-                    IterType::Symbolic;
-              })) {
-        continue;
-      }
-      // If any of output IDs is symbolic, all outputs should be symbolic
-      TORCH_INTERNAL_ASSERT(std::all_of(
-          expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-            return output->as<IterDomain>()->getIterType() ==
-                IterType::Symbolic;
-          }));
+      // NOTE: We do not return early if all outputs are concrete as there may
+      // still be concrete inputs. For example, a Symbolic IterDomain might be
+      // padded with constant pad widths (1, 1), in which case although we do
+      // not know the exact extent of the output, we know it is at least as
+      // large as the sum of the pad widths, 2. In such cases, the output
+      // IterDomain is concrete at definition, since if the extent is >1 we know
+      // the IterType is Iteration. In these cases, we must continue to
+      // concretize intermediate expressions between the root and R-factor
+      // domain. See test DynamicTransform5_CUDA which demonstrates this
+      // behavior.
+      // NOTE: We also do not assume that if one output ID is symbolic, that
+      // they all must be. See test FusionSliceForNanoGPT3_CUDA for an example
+      // that does a static split by a factor of 16 of a symbolic input domain.
+      // The static split in that case results in a concrete IterDomain with
+      // extent 16 along with a symbolic one (extent ceilDiv(n / 16)).
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
@@ -408,13 +460,13 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        auto concreteized_out_id =
+        auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concreteized_out_id);
+        registerMutation(out_id, concretized_out_id);
       }
 
-      // Outputs are mutated. The expr itself needs to be mutated as
-      // well, which can be done by the mutate method
+      // The expr itself needs to be mutated as well in case the outputs are
+      // mutated, which can be done by the mutate method
       OptOutMutator::mutate(expr);
     }
   }
@@ -529,7 +581,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     }
 
     TORCH_INTERNAL_ASSERT(
-        id_type.has_value() && id_type != IterType::Symbolic,
+        id_type.has_value(),
+        "Did not find id_type for consumer root domain ",
+        root_id->toString(),
+        ". Perhaps consumer def has no inputs. Consumer definition = ",
+        def->toString());
+
+    TORCH_INTERNAL_ASSERT(
+        id_type != IterType::Symbolic,
         "Failed to concretize ",
         root_id->toString(),
         " of ",

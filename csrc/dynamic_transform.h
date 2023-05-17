@@ -54,6 +54,11 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return dynamic_reshapes_;
   }
 
+  //! Return a vector of Resize expressions that have symbolic output IterTypes
+  const std::vector<Resize*>& getDynamicResizes() const {
+    return dynamic_resizes_;
+  }
+
   const ExpressionEvaluator& getExpressionEvaluator() const {
     return expr_eval_;
   }
@@ -79,6 +84,8 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   Fusion* fusion_ = nullptr;
 
   std::vector<ViewOp*> dynamic_reshapes_;
+
+  std::vector<Resize*> dynamic_resizes_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
@@ -109,9 +116,14 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     analyzeReshapes(info, expr_eval);
   }
 
-  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>
+  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
   getReshapeTransforms() const {
     return reshape_transforms_;
+  }
+
+  const std::vector<std::pair<IterDomain*, IterType>>& getResizeTransforms()
+      const {
+    return resize_transforms_;
   }
 
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
@@ -139,7 +151,16 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
  private:
   Fusion* fusion_ = nullptr;
+
+  // Holds, for each dynamic reshape, the output TensorView, and the result of
+  // analyzeView
   std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
+
+  // Holds the resized IterDomain (output of the Resize op) along with the
+  // TensorView where it appears, and its concretized IterType
+  std::vector<std::pair<IterDomain*, IterType>> resize_transforms_;
+
+  friend class DynamicTransformInfoBuilder;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {

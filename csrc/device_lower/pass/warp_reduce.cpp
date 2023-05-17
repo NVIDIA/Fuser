@@ -7,8 +7,8 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
-#include <device_lower/warp_reduce.h>
 #include <expr_evaluator.h>
 #include <ir_internal_nodes.h>
 #include <ir_utils.h>

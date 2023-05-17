@@ -528,6 +528,16 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! finalized.
   DynamicTransformInitialInfo initialInfo();
 
+  //! Check whether the input `fusion_` has dynamic elements such as non-static
+  //! reshapes. Note that `fusion_` might be updated after initializing
+  //! `FusionExecutorCache` as is done by `FusionDefinition` in the Python
+  //! frontend. In that case care must be taken to delay this check until the
+  //! entire Fusion is defined. For that reason, this function is private, and
+  //! should only be called inside runFusionWithInputs.
+  bool isDynamic() {
+    return initialInfo().hasDynamicTransforms();
+  }
+
  private:
   //! original un-scheduled `Fusion`. This may contain dynamic transforms and
   //! Symbolic IterDomains.
