@@ -439,7 +439,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       // these around during a subsequent fusion copy would lead to an attempt
       // to clone them, ending in a segfault. Instead, we reset the object
       // here, effectively as if it now describes a non-dynamic Fusion.
-      // cloned_conc_info.clear();
       fusion->stopManaging(conc_info_index);
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(

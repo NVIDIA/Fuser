@@ -219,9 +219,10 @@ std::vector<IterDomain*> newOutputDomain(
   std::vector<int64_t> start_offsets(out_domain.size(), 0);
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
+  std::vector<bool> mismatched_symbolic_extents(out_domain.size(), false);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
-  std::vector<c10::optional<IterType>> iter_types(
-      out_domain.size(), c10::nullopt);
+  std::vector<std::optional<IterType>> iter_types(
+      out_domain.size(), std::nullopt);
 
   for (auto tv : tvs) {
     auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -233,22 +234,46 @@ std::vector<IterDomain*> newOutputDomain(
         out_domain.size());
     for (const auto i : c10::irange(dom.size())) {
       auto iter_type = dom[i]->getIterType();
-      if (iter_types[i].has_value()) {
-        if (iter_types[i].value() == IterType::Symbolic) {
-          // If the best guess so far is that the output is Symbolic, then all
-          // the inputs must have been symbolic. If the current ID is Iteration,
-          // then we should prefer its extent instead of the Symbolic value.
-          if (iter_type == IterType::Iteration) {
-            extent_vals[i] = dom[i]->extent();
-          }
-        } else if (iter_type == IterType::Symbolic) {
-          // If there is an input with a Symbolic ID and no other inputs, we
-          // can re-use its extent expression. Otherwise, a symbolic input ID
-          // could be either a Broadcast or an Iteration IterDomain, so its
-          // extent expression is not necessarily telling us the output extent.
-          // However, if there are any Iteration domains, we _can_ use their
-          // extent expressions, since they will resolve any broadcasts.
-          continue;
+      // If there is any Iteration domain, we should use the first one's
+      // extent.
+      //
+      // If all inputs are Symbolic or Broadcast, then we can use the
+      // symbolic extent if all the symbolic extents agree.
+      //
+      // Otherwise, we don't know the output extent and iter_type should be
+      // Symbolic if there are any Symbolic inputs else Broadcast.
+      if (iter_type == IterType::Iteration && iter_types[i].has_value() &&
+          iter_types[i].value() == IterType::Symbolic) {
+        // Current is Iteration, previous was Symbolic. Erase symbolic since
+        // we'll go with the Iteration extent.
+        extent_vals[i] = nullptr;
+      }
+      if (iter_type == IterType::Symbolic && iter_types[i].has_value()) {
+        switch (iter_types[i].value()) {
+          case IterType::Iteration:
+            // Previously found Iteration domain, so ignore all Symbolic domains
+            continue;
+          case IterType::Symbolic:
+            if (extent_vals[i]->sameAs(dom[i]->extent())) {
+              // Found another matching symbolic domain
+              continue;
+            } else {
+              // Mismatched symbolic input extents => Don't know output extent
+              // TODO: set mismatch_symbolic for this axis
+              mismatched_symbolic_extents[i] = true;
+            }
+            break;
+          case IterType::Broadcast:
+            // Previously found only Broadcast. Output should be symbolic and
+            // default to extent of dom[i]
+            iter_types[i] = std::nullopt;
+            extent_vals[i] = nullptr;
+            break;
+          default:
+            TORCH_CHECK(
+                false,
+                "Encountered unexpected IterType when creating new output domain: ",
+                iter_types[i].value());
         }
       }
       if (dom[i]->isBroadcast()) {
@@ -283,6 +308,12 @@ std::vector<IterDomain*> newOutputDomain(
     }
   }
   for (const auto dim_i : c10::irange(out_domain.size())) {
+    if (iter_types[dim_i] == IterType::Symbolic &&
+        mismatched_symbolic_extents[dim_i]) {
+      // if we have a symbolic output but the input symbolic extents did not
+      // match, create a new extent
+      extent_vals[dim_i] = nullptr;
+    }
     if (extent_vals[dim_i] != nullptr) {
       TORCH_INTERNAL_ASSERT(
           iter_types[dim_i].has_value(),
