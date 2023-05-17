@@ -609,6 +609,20 @@ void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv) {
+  ExpressionEvaluator eval;
+  auto sizes_strides =
+      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+
+  std::vector<int64_t> no_reduction_to_full;
+  for (int64_t i :
+       c10::irange((int64_t)tv->getMaybeAllocationDomain().size())) {
+    auto alloc_id = tv->getMaybeAllocationDomain().at(i);
+    if (!alloc_id->isReduction()) {
+      no_reduction_to_full.emplace_back(i);
+    }
+  }
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
               (word_size * aten_tensor.dtype().itemsize()) ==
@@ -627,12 +641,12 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (auto i = aten_tensor.ndimension() - 1; i >= 0; --i) {
-    const auto stride = aten_tensor.strides().at(i);
-    const auto size = aten_tensor.sizes().at(i);
-    auto root_id = tv->getMaybeRFactorDomain()[i];
+  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
+    const auto [size, stride] = sizes_strides.at(i);
+    auto alloc_id =
+        tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
-        root_id->isBroadcast() && root_id->hasExpandedExtent();
+        alloc_id->isBroadcast() && alloc_id->hasExpandedExtent();
 
     if (is_expanded_broadcasting) {
       TORCH_INTERNAL_ASSERT(
@@ -912,9 +926,11 @@ ExpressionEvaluator bindInputs(
     bool check_consistency) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
+  // args may contains more than just inputs, but inputs are always at the
+  // beginning.
   TORCH_INTERNAL_ASSERT(
-      kernel->inputs().size() == args.size(),
-      "Something went wrong configuring launch. Inputs no longer match.");
+      kernel->inputs().size() <= args.size(),
+      "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
