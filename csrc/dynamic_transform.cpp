@@ -24,9 +24,15 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
   cloned_info.dynamic_reshapes_.reserve(dynamic_reshapes_.size());
-  for (const auto tv : dynamic_reshapes_) {
-    if (tv) {
-      cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(tv));
+  for (const auto op : dynamic_reshapes_) {
+    if (op) {
+      cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(op));
+    }
+  }
+  cloned_info.dynamic_resizes_.reserve(dynamic_resizes_.size());
+  for (const auto op : dynamic_resizes_) {
+    if (op) {
+      cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
     }
   }
   cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);

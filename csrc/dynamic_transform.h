@@ -39,7 +39,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return !dynamic_reshapes_.empty();
+    return !dynamic_reshapes_.empty() || !dynamic_resizes_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
