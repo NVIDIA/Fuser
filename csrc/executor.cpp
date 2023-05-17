@@ -1281,7 +1281,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
         const auto dtype = (output_tv->dtype() == DataType::Index)
             ? data_type_to_aten(arg_index_type)
             : data_type_to_aten(output_tv->dtype());
-        ret.pushTensorProxy(output_tv, sizes, strides, dtype, arg_index_type);
+        ret.pushTensorProxy(sizes, strides, dtype);
       }
     }
   }

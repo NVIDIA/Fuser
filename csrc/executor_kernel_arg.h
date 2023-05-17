@@ -378,11 +378,9 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   // Push a tensor proxy to the arguments
   void pushTensorProxy(
-      TensorView* tv,
       const std::vector<int64_t>& sizes,
       const std::vector<int64_t>& strides,
-      at::ScalarType dtype,
-      std::optional<PrimDataType> index_type);
+      at::ScalarType dtype);
 
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
