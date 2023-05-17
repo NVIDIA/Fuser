@@ -26,6 +26,7 @@ using namespace nvfuser;
 
 static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
   TORCH_INTERNAL_ASSERT(dtype == DataType::Half);
+  const float kEps = 1e-5;
 
   FusionGuard fg(fusion);
   auto tv0 = makeContigTensor(1, dtype);
@@ -62,7 +63,7 @@ static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
 
   auto s21 = reciprocal(s20);
   auto tv22 = mul(tv19, s21);
-  auto s23 = IrBuilder::create<Double>(1e-12, dtype = DataType::Double);
+  auto s23 = IrBuilder::create<Double>(kEps, dtype = DataType::Double);
   auto tv24 = add(tv17, s23);
   auto tv25 = rsqrt(tv24);
   auto tv26 = broadcast(tv22, {false, false});
@@ -133,6 +134,7 @@ static void Baseline_LayerNormFused(
   auto t4 = at::randn({hidden_size}, options);
 
   auto eager_implementation = [&]() {
+    const float kEps = 1e-5;
     auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
     auto t6 = t1.to(at::kFloat);
     auto t7 = t5.to(at::kFloat);
@@ -143,30 +145,8 @@ static void Baseline_LayerNormFused(
     auto t12 = t10.to(at::kFloat);
     auto t13 = at::add(t11, t12);
     auto t14 = t13.to(at::kHalf);
-    auto t15 = t14.to(at::kFloat);
-    auto t16 = at::var(t15, {1}, false, false);
-    auto t17 = t16.unsqueeze(1).expand({batch_size, 1});
-    auto t18 = at::sum(t15, {1}, false);
-    auto t19 = t18.unsqueeze(1).expand({batch_size, 1});
-    auto s20 = hidden_size;
-    auto s21 = 1.0 / s20;
-    auto t22 = at::mul(t19, s21);
-    auto s23 = 1e-12;
-    auto t24 = at::add(t17, s23);
-    auto t25 = at::rsqrt(t24);
-    auto t26 = t22.expand({batch_size, hidden_size});
-    auto t27 = t14.to(at::kFloat);
-    auto t28 = at::sub(t27, t26);
-    auto t29 = t25.expand({batch_size, hidden_size});
-    auto t30 = at::mul(t28, t29);
-    auto t31 = t4.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t32 = t31.to(at::kFloat);
-    auto t33 = at::mul(t30, t32);
-    auto t34 = t3.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t35 = t34.to(at::kFloat);
-    auto t36 = at::add(t33, t35);
-    auto t37 = t36.to(at::kHalf);
-    return t37;
+    auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
+    return std::get<0>(aten_outputs);
   };
 
   clearL2Cache();
@@ -190,13 +170,13 @@ static void Baseline_LayerNormFused(
 
 //------------------------------------------------------------------------------
 NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_LayerNormFusedFusedOp_fp16,
+    NvFuserScheduler_LayerNormFusedOp_fp16,
     setupLayerNormFused,
     NvFuserScheduler_LayerNormFused,
     DataType::Half);
 
 // GPT-2 and 3
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNormFusedFusedOp_fp16)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNormFusedOp_fp16)
     ->Args({8192, 768})
     ->Args({8192, 1024})
     ->Args({8192, 1536})

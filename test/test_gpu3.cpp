@@ -8442,6 +8442,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  const float kEps = 1e-5;
   const int batch_size = 2048 * 8;
   const int hidden_size = 20480;
   {
@@ -8480,7 +8481,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
 
     auto s21 = reciprocal(s20);
     auto tv22 = mul(tv19, s21);
-    auto s23 = IrBuilder::create<Double>(1e-12, dtype = DataType::Double);
+    auto s23 = IrBuilder::create<Double>(kEps, dtype = DataType::Double);
     auto tv24 = add(tv17, s23);
     auto tv25 = rsqrt(tv24);
     auto tv26 = broadcast(tv22, {false, false});
@@ -8523,30 +8524,9 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto t12 = t10.to(at::kFloat);
     auto t13 = at::add(t11, t12);
     auto t14 = t13.to(at::kHalf);
-    auto t15 = t14.to(at::kFloat);
-    auto t16 = at::var(t15, {1}, false, false);
-    auto t17 = t16.unsqueeze(1).expand({batch_size, 1});
-    auto t18 = at::sum(t15, {1}, false);
-    auto t19 = t18.unsqueeze(1).expand({batch_size, 1});
-    auto s20 = hidden_size;
-    auto s21 = 1.0 / s20;
-    auto t22 = at::mul(t19, s21);
-    auto s23 = 1e-12;
-    auto t24 = at::add(t17, s23);
-    auto t25 = at::rsqrt(t24);
-    auto t26 = t22.expand({batch_size, hidden_size});
-    auto t27 = t14.to(at::kFloat);
-    auto t28 = at::sub(t27, t26);
-    auto t29 = t25.expand({batch_size, hidden_size});
-    auto t30 = at::mul(t28, t29);
-    auto t31 = t4.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t32 = t31.to(at::kFloat);
-    auto t33 = at::mul(t30, t32);
-    auto t34 = t3.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t35 = t34.to(at::kFloat);
-    auto t36 = at::add(t33, t35);
-    auto t37 = t36.to(at::kHalf);
-    outputs.push_back(t37);
+    auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
+    auto t33 = std::get<0>(aten_outputs);
+    outputs.push_back(t33);
   }
 
   FusionExecutorCache fec(std::move(fusion_ptr));
