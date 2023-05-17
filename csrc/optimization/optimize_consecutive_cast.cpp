@@ -17,13 +17,16 @@ class ConsecutiveCastPass : OptimizationPass {
     std::cout << "running optimization pass on fusion: " << std::endl;
     fusion->printMath();
   }
-  std::string name() { return "ConsecutiveCastOptimization"; }
+  std::string name() override { return "ConsecutiveCastOptimization"; }
+  FusionPass func() override { return runPass; }
 
   ConsecutiveCastPass() {
-   registerOptimizationPass(OptimizationPassCategory::PreSegmenter, *this);
+   registerOptimizationPass(OptimizationPassCategory::PreSegmenter, this);
   }
 };
 
-static Register register;
+static ConsecutiveCastPass register_;
+
+}
 
 } // namespace nvfuser::optimization
