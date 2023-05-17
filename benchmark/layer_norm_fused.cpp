@@ -136,16 +136,10 @@ static void Baseline_LayerNormFused(
   auto eager_implementation = [&]() {
     const float kEps = 1e-5;
     auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t6 = t1.to(at::kFloat);
-    auto t7 = t5.to(at::kFloat);
+    auto t6 = at::add(t1, t5);
+    auto t7 = t2.unsqueeze(0).expand({batch_size, hidden_size});
     auto t8 = at::add(t6, t7);
-    auto t9 = t8.to(at::kHalf);
-    auto t10 = t2.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t11 = t9.to(at::kFloat);
-    auto t12 = t10.to(at::kFloat);
-    auto t13 = at::add(t11, t12);
-    auto t14 = t13.to(at::kHalf);
-    auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
+    auto aten_outputs = at::native_layer_norm(t8, {hidden_size}, t4, t3, kEps);
     return std::get<0>(aten_outputs);
   };
 
