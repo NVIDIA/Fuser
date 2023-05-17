@@ -670,11 +670,10 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
     const DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
+  // Copy the expression evaluator that has some values precomputed
   auto expr_eval = info->getExpressionEvaluator();
 
   // Bind input scalars and tensor metadata to symbolic scalars
-  // Here we bind only the inputs that are needed to concretize dynamic
-  // transforms.
   TORCH_CHECK(
       args->size() == fusion->inputs().size(),
       "Received ",
