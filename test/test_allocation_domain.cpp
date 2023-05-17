@@ -412,7 +412,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
-          "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
 
@@ -529,7 +529,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
-          "Splitting one dimension into discontiguous dimensions is not")));
+          "splitting one dimension into discontiguous dimensions is not")));
 
   auto cg_outputs = fe.runFusion({t0});
 
@@ -597,7 +597,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
       ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
-          "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
 

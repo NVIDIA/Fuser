@@ -37,6 +37,8 @@ class ForwardTraverseFromRFactorToAlloc {
     auto factor = ee_.evaluate(split->factor())->as<int64_t>();
     TORCH_INTERNAL_ASSERT(
         in_size % factor == 0,
+        "The rFactor domain and allocation domain of fusion input/output ",
+        "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
     TORCH_INTERNAL_ASSERT(active_ids_.erase(in) == 1);
     TORCH_INTERNAL_ASSERT(
@@ -67,7 +69,9 @@ class ForwardTraverseFromRFactorToAlloc {
     auto [outer_size, outer_stride] = outer_it->second;
     TORCH_INTERNAL_ASSERT(
         inner_stride * inner_size == outer_stride,
-        "Merging of discontiguous dimensions is not allowed in allocation domain");
+        "The rFactor domain and allocation domain of fusion input/output ",
+        "tensors must be a one-to-one map, therefore, ",
+        "merging of discontiguous dimensions is not allowed in allocation domain");
     TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
     TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
     TORCH_INTERNAL_ASSERT(active_ids_
@@ -131,7 +135,9 @@ class BackwardTraverseFromRFactorToAlloc {
     auto [outer_size, outer_stride] = outer_it->second;
     TORCH_INTERNAL_ASSERT(
         inner_stride * inner_size == outer_stride,
-        "Splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+        "The rFactor domain and allocation domain of fusion input/output ",
+        "tensors must be a one-to-one map, therefore, ",
+        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
     TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
     TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
     TORCH_INTERNAL_ASSERT(active_ids_
@@ -156,7 +162,9 @@ class BackwardTraverseFromRFactorToAlloc {
     auto [out_size, out_stride] = out_it->second;
     TORCH_INTERNAL_ASSERT(
         out_size % factor == 0,
-        "The size of the output must divisible by the size of inner dimension");
+        "The rFactor domain and allocation domain of fusion input/output ",
+        "tensors must be a one-to-one map, therefore, ",
+        "the size of the output must divisible by the size of inner dimension");
     TORCH_INTERNAL_ASSERT(active_ids_.erase(out) == 1);
     TORCH_INTERNAL_ASSERT(
         active_ids_
