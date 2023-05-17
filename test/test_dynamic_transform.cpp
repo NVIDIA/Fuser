@@ -967,19 +967,21 @@ void reductionDynamicPadAddFusion(
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
 
-  // Return pair of: number of concretizations & total number of kernel runtimes
-  auto countConcretizations = [&fusion_executor_cache]() {
-    return fusion_executor_cache.getKernelRuntimes().size();
-  };
-  size_t num_concretizations = countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
   // should be
-  auto checkCache = [&countConcretizations,
-                     &num_concretizations](bool expect_miss) {
-    auto current = countConcretizations();
-    ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
-    num_concretizations = current;
-  };
+  size_t num_concretizations = fusion_executor_cache.getKernelRuntimes().size();
+#define CHECK_CACHE(expect_miss, ...)                              \
+  auto current = fusion_executor_cache.getKernelRuntimes().size(); \
+  auto expected = num_concretizations + (size_t)expect_miss;       \
+  TORCH_CHECK(                                                     \
+      current == expected,                                         \
+      "Expected cache size ",                                      \
+      expected,                                                    \
+      " but found ",                                               \
+      current,                                                     \
+      ". ",                                                        \
+      __VA_ARGS__);                                                \
+  num_concretizations = current;
 
   for (auto& inv : invocations) {
     auto input_shape = std::get<0>(inv);
@@ -999,7 +1001,8 @@ void reductionDynamicPadAddFusion(
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-    checkCache(expect_miss);
+    CHECK_CACHE(
+        expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
@@ -1007,6 +1010,7 @@ void reductionDynamicPadAddFusion(
     testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
   }
 }
+#undef CHECK_CACHE
 
 // Test dynamic pad for various inputs
 TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {

@@ -47,6 +47,14 @@ std::string DynamicTransformInitialInfo::toString() const {
   for (const auto& op : dynamic_reshapes_) {
     ss << indent << indent << op->toString() << "\n";
   }
+  ss << indent << "Dynamic resizes:\n";
+  for (const auto& op : dynamic_resizes_) {
+    ss << indent << indent << op->toString() << "\n";
+  }
+  ss << indent << "Root dynamic Vals:\n";
+  for (const auto& v : root_dynamic_vals_) {
+    ss << indent << indent << v->toString() << "\n";
+  }
   return ss.str();
 }
 
@@ -225,6 +233,41 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeResizes(
+    const DynamicTransformInitialInfo* info,
+    ExpressionEvaluator* expr_eval) {
+  for (const auto op : info->getDynamicResizes()) {
+    auto out_id = op->out()->as<IterDomain>();
+
+    TORCH_CHECK(
+        out_id->getIterType() == IterType::Symbolic,
+        "Found non-dynamic Resize in initial concretization info: ",
+        op->toString());
+
+    auto extent_val = expr_eval->evaluate(out_id->extent());
+    TORCH_INTERNAL_ASSERT(
+        extent_val.has_value(),
+        "Cannot evaluate the extent of a resized domain: ",
+        out_id->toString());
+    TORCH_INTERNAL_ASSERT(
+        extent_val->isInt(),
+        "Invalid evaluated value of resized domain extent: ",
+        out_id->toString());
+    auto extent_int = extent_val->as<int64_t>();
+    TORCH_INTERNAL_ASSERT(
+        extent_int > 0,
+        "Invalid resized domain extent ",
+        extent_int,
+        " for domain ",
+        out_id->toString());
+
+    auto iter_type =
+        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+
+    resize_transforms_.emplace_back(out_id, iter_type);
+  }
+}
+
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
@@ -235,7 +278,8 @@ bool DynamicTransformConcretizationInfo::operator==(
     return false;
   }
 
-  if (reshape_transforms_.size() != other.reshape_transforms_.size()) {
+  if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
+      resize_transforms_.size() != other.resize_transforms_.size()) {
     return false;
   }
 

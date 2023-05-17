@@ -365,7 +365,7 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
   id_to_kernel_runtime_.erase(it);
 }
 
-DynamicTransformInitialInfo FusionExecutorCache::initialInfo() {
+DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
   if (!initial_info_.has_value()) {
     initial_info_ = DynamicTransform::getInitialInfo(fusion());
   }
@@ -392,7 +392,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   }
 
   // Compute or get cached initial concretization info
-  const auto& initial_info = initialInfo();
+  auto& initial_info = initialInfo();
 
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it

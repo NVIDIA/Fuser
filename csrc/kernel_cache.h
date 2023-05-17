@@ -526,7 +526,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! if it has not yet been computed, then caches it for later use. This means
   //! this method should not be called until the definition of the Fusion is
   //! finalized.
-  DynamicTransformInitialInfo initialInfo();
+  DynamicTransformInitialInfo& initialInfo();
 
   //! Check whether the input `fusion_` has dynamic elements such as non-static
   //! reshapes. Note that `fusion_` might be updated after initializing
@@ -574,7 +574,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   FusionKernelRuntime* most_recent_runtime_ = nullptr;
 
   //! Initial concretization info
-  std::optional<DynamicTransformInitialInfo> initial_info_;
+  std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
 };
 
 class GraphCache {

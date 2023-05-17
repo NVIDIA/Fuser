@@ -71,6 +71,9 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return input_affects_concretization_;
   }
 
+  DynamicTransformInitialInfo(const DynamicTransformInitialInfo& other) =
+      default;
+
  protected:
   //! Whether each input to the fusion affects concretization. True for every
   //! TensorView, or any scalar that appears in an extent to the input of a
@@ -114,6 +117,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     expr_eval->propagateBoundValuesThroughExactMaps(fusion);
 
     analyzeReshapes(info, expr_eval);
+
+    analyzeResizes(info, expr_eval);
   }
 
   const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
@@ -133,6 +138,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   }
 
   void analyzeReshapes(
+      const DynamicTransformInitialInfo* info,
+      ExpressionEvaluator* expr_eval);
+
+  void analyzeResizes(
       const DynamicTransformInitialInfo* info,
       ExpressionEvaluator* expr_eval);
 
