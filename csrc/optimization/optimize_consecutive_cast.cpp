@@ -35,9 +35,24 @@ class ConsecutiveCastPass : OptimizationPass {
           auto intermediate_cast = expr->input(0);
           auto prev_expr = intermediate_cast->definition();
           if (prev_expr != nullptr && is_cast_op(prev_expr)) {
-            expr = nvfuser::ir_utils::replaceValInExpr(
-                expr, intermediate_cast, prev_expr->input(0));
-	    mutated = true;
+	    auto original_dtype = prev_expr->input(0)->getDataType().value();
+	    auto intermediate_dtype = intermediate_cast->getDataType().value();
+	    auto out_dtype = expr->output(0)->getDataType().value();
+	    // cases where skipping the intermediate cast is relatively safe, either:
+	    //   1. intermediate is the same type category;
+	    //   2. intermediate is a floating point while output is integral;
+	    // and we support direct cast from input dtype to output dtype.
+            if (cast_func_str({original_dtype, out_dtype}).has_value() &&
+	        ((isIntegralType(intermediate_dtype) && isIntegralType(out_dtype)) ||
+	        (isFloatingPointType(intermediate_dtype) && isFloatingPointType(out_dtype)) ||
+	        (isComplexType(intermediate_dtype) && isComplexType(out_dtype)) ||
+	        (isFloatingPointType(intermediate_dtype) && isIntegralType(out_dtype)))) {
+              expr = nvfuser::ir_utils::replaceValInExpr(
+                  expr, intermediate_cast, prev_expr->input(0));
+	      mutated = true;
+	    } else {
+	      break;
+	    }
           } else {
             break;
           }
@@ -47,6 +62,10 @@ class ConsecutiveCastPass : OptimizationPass {
 	  // quick short-wire to skip current cast node if it's trivially casting to the same type
           if (expr->input(0)->getDataType().value() == expr->output(0)->getDataType().value()) {
             replacement_map[expr->output(0)] = expr->input(0);
+	    // NOTE: if current output is a fusion output, DCE won't kick in and we'll ended up with an illegal cast.
+	    if (expr->output(0)->isFusionOutput()) {
+	      fusion->replaceOutput(expr->output(0), expr->input(0));
+	    }
 	  }
 	}
       }
