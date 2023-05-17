@@ -10,6 +10,7 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
+#include <expr_evaluator.h>
 #include <ir_all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
@@ -59,15 +60,19 @@ inline std::string argTypeToString(ArgType type) {
 }
 
 // This should match the tensor used in the code generation (almost exactly)
-template <int ndims, typename nvfuser_index_t>
+template <int ndims, int nalloc, typename nvfuser_index_t>
 struct TensorArgCodegen {
   using index_type = nvfuser_index_t;
 
   void* data;
   std::array<nvfuser_index_t, ndims> size;
-  std::array<nvfuser_index_t, ndims> stride;
-  constexpr int nDims() const {
+  std::array<nvfuser_index_t, nalloc> stride;
+
+  static constexpr int nDims() {
     return ndims;
+  }
+  static constexpr int nAllocationDims() {
+    return nalloc;
   }
   void setSize(int64_t i, nvfuser_index_t s) {
     size[i] = s;
@@ -85,12 +90,15 @@ struct TensorArgCodegen {
 
 // 0-Dim GPU based tensor
 template <typename nvfuser_index_t>
-struct TensorArgCodegen<0, nvfuser_index_t> {
+struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   using index_type = nvfuser_index_t;
-  static constexpr int ndims = 0;
 
   void* data;
-  constexpr int nDims() const {
+
+  static constexpr int nDims() {
+    return 0;
+  }
+  static constexpr int nAllocationDims() {
     return 0;
   }
   void setSize(int64_t, nvfuser_index_t) {
@@ -196,8 +204,8 @@ struct TensorArgAbstract : ArgAbstract {
         false, "The stride of an abstract tensor arg is not known.");
   }
 
-  void* getPointer() const {
-    return tensor_.data_ptr();
+  size_t getPointerAddress() const {
+    return (size_t)tensor_.data_ptr();
   }
 
   DataType getDataType() const {
@@ -248,7 +256,7 @@ struct TensorArgAbstract : ArgAbstract {
     for (auto i = 0; i < rank; i++) {
       ss << getSize(i) << ", ";
     }
-    ss << ") pointer: " << getPointer();
+    ss << ") pointer: " << getPointerAddress();
     return ss.str();
   }
 
@@ -257,38 +265,36 @@ struct TensorArgAbstract : ArgAbstract {
   }
 };
 
+std::vector<std::pair<int64_t, int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee);
+
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
 
-  TensorArg(const at::Tensor& tensor, TensorView* tv)
+  TensorArg(const at::Tensor& tensor, TensorView* tv, ExpressionEvaluator& eval)
       : TensorArgAbstract(tensor) {
-    // tv == nullptr can happen at runRtc, where the C++ code instead of the
-    // fusion is provided. For that case, we just skip all the checks and
-    // analyses on TensorViews.
-    auto rfactor_dom =
-        (tv == nullptr
-             ? std::vector<IterDomain*>{}
-             : TensorDomain::noReductions(tv->getMaybeRFactorDomain()));
-    TORCH_CHECK(
-        tv == nullptr || tensor.ndimension() == (int64_t)rfactor_dom.size(),
-        "The dimensionality of the tensor does not match with the dimensionality of the rFactor domain");
     instance_.data = tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
-      auto stride = tensor.stride(i);
-      if (tv != nullptr) {
-        if (auto rfactor_id = rfactor_dom.at(i);
-            rfactor_id->hasExpandedExtent()) {
-          TORCH_CHECK(
-              stride == 0 || tensor.size(i) == 1,
-              "Expecting an expanded dimension on dimension ",
-              i,
-              " but found stride ",
-              stride);
-        }
-      }
       instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
-      instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
+    }
+    inferSetAndValidateStrides(tensor, tv, eval);
+  }
+
+  void inferSetAndValidateStrides(
+      const at::Tensor& tensor,
+      TensorView* tv,
+      ExpressionEvaluator& eval) {
+    auto sizes_strides =
+        inferAndValidateAllocationSizesAndStrides(tensor, tv, eval);
+    TORCH_INTERNAL_ASSERT(
+        (size_t)instance_.nAllocationDims() == sizes_strides.size());
+    for (auto i : c10::irange((int64_t)sizes_strides.size())) {
+      using stride_t = typename TENSOR_TYPE::index_type;
+      instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
     }
   }
 
@@ -370,6 +376,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
 
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      at::ScalarType dtype);
+
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
 
@@ -381,7 +393,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
-  void** getBuffer(PrimDataType index_type, std::vector<TensorView*> tvs);
+  void** getBuffer(
+      PrimDataType index_type,
+      std::vector<TensorView*> tvs,
+      ExpressionEvaluator& eval);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 
