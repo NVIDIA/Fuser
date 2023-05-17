@@ -1010,6 +1010,7 @@ void validateDomainEquivalence(
 }
 
 bool isAlignedScopeExpr(Expr* expr) {
+  TORCH_INTERNAL_ASSERT(expr != nullptr);
   if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->predicate()->hasValue() &&
         getRegisterType(ite->predicate()->value()) ==
