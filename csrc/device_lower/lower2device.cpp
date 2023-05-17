@@ -151,29 +151,15 @@ class ConvertAlignedBlockSync : kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void handle(kir::BlockSync* sync) final {
-    // Inspect all the scope expressions
-    for (auto expr : scope_exprs_) {
-      // If predicates are thread dependent, can not use aligned sync.
-      if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-        if (ite->predicate()->hasValue() &&
-            getRegisterType(ite->predicate()->value()) ==
-                RegisterType::GeneralPurpose) {
-          return;
-        }
-      } else if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
-        // If the start, stop, step are not thread dependent
-        //  then this for loop should be thread independent.
-        if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
-            getRegisterType(fl->stop()) == RegisterType::GeneralPurpose ||
-            getRegisterType(fl->step()) == RegisterType::GeneralPurpose) {
-          return;
-        }
-      }
+    // Inspect all the scope expressions and if all are aligned,
+    // convert to aligned sync
+    if (std::all_of(scope_exprs_.begin(),
+                    scope_exprs_.end(),
+                    [](Expr *expr) {
+                      return ir_utils::isAlignedScopeExpr(expr);
+                    })) {
+      sync->convertToAligned();
     }
-
-    // If all the checks above pass, convert this sync
-    //  to aligned sync.
-    sync->convertToAligned();
   }
 };
 
