@@ -8444,7 +8444,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
                  .dtype(DataType::Double)
                  .build();
   fusion->addInput(tv0);
-  auto tv1 = castOp(DataType::Half, tv0);
+  auto tv1 = castOp(DataType::Half, tv0); // consecutive cast should be removed
   auto tv2 = castOp(DataType::Float, tv1);
   auto tv3 = relu(tv2);
   auto tv4 = neg(tv3);
@@ -8457,23 +8457,16 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   auto outputs = executor_cache.runFusionWithInputs({at_x});
   auto ref_out = at_x.clone().relu().neg();
 
-  // auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  // TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  // auto groups = optimized_fusion->fusionSegments()->groups();
-  // TORCH_CHECK(
-  //     groups.size() == 2, "segmentation hint isn't working as expected");
-  // with the hint, segment_set should be grouped with its producer
-  // [relu, segment_set], [neg]
-  // for (auto& group : groups) {
-  //   // we only check the group with a single node
-  //   if (group->exprs().size() == 1) {
-  //     auto relu_expr = group->exprs()[0];
-  //     TORCH_CHECK(
-  //         relu_expr->isA<UnaryOp>() &&
-  //             relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
-  //         "segmentation result is not expected");
-  //   }
-  // }
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  auto complete_fusion = optimized_fusion->fusionSegments()->completeFusion();
+  int cast_op_count = 0;
+  for (auto expr : complete_fusion->exprs()) {
+    if (expr->isA<UnaryOp>() && expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
+      ++cast_op_count;
+    }
+  }
+  TORCH_CHECK(cast_op_count == 2, "cast optimization isn't working as expected");
+
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
