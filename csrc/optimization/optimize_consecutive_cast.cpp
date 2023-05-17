@@ -26,8 +26,10 @@ class ConsecutiveCastPass : OptimizationPass {
     };
 
     // NOTE: not the most efficient pass
+    std::unordered_map<Val*, Val*> replacement_map;
     for (auto expr : fusion->exprs()) {
       if (is_cast_op(expr)) {
+	bool mutated = false;
         while (true) {
           // in the loop, we just repetitively skip consecutive casts.
           auto intermediate_cast = expr->input(0);
@@ -35,16 +37,29 @@ class ConsecutiveCastPass : OptimizationPass {
           if (prev_expr != nullptr && is_cast_op(prev_expr)) {
             expr = nvfuser::ir_utils::replaceValInExpr(
                 expr, intermediate_cast, prev_expr->input(0));
+	    mutated = true;
           } else {
             break;
           }
         }
+
+	if (mutated) {
+	  // quick short-wire to skip current cast node if it's trivially casting to the same type
+          if (expr->input(0)->getDataType().value() == expr->output(0)->getDataType().value()) {
+            replacement_map[expr->output(0)] = expr->input(0);
+	  }
+	}
       }
     }
+    if (!replacement_map.empty()) {
+      nvfuser::ir_utils::replaceValue(fusion, replacement_map);
+    }
   }
+
   std::string name() override {
     return "ConsecutiveCastOptimization";
   }
+
   FusionPass func() override {
     return runPass;
   }
