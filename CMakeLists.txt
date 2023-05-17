@@ -180,6 +180,8 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/utils.cpp
     ${NVFUSER_SRCS_DIR}/mma_type.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/opt_pass.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/optimize_consecutive_cast.cpp
 )
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)

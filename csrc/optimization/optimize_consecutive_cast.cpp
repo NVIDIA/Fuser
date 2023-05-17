@@ -14,6 +14,8 @@ namespace {
 class ConsecutiveCastPass : OptimizationPass {
  public:
   static void runPass(Fusion* fusion) {
+    std::cout << "running optimization pass on fusion: " << std::endl;
+    fusion->printMath();
   }
   std::string name() { return "ConsecutiveCastOptimization"; }
 
