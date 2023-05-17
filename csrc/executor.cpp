@@ -1882,8 +1882,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
+    // TODO update kir::Kernel with fast GpuLower
+    auto arg_buffer = args.getBuffer(
+        kernel_summary_.index_type_, getTvsForKernelArguments());
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -2094,7 +2095,9 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   for (const auto& buffer : data.outputs) {
     auto tv_iter = std::find(
         fusion_->outputs().begin(), fusion_->outputs().end(), buffer.tv);
-    auto tv_position = std::distance(fusion_->outputs().begin(), tv_iter);
+    auto tv_position = (tv_iter == fusion_->outputs().end())
+        ? -1
+        : std::distance(fusion_->outputs().begin(), tv_iter);
     outputs_fb.push_back(serialize(builder, buffer, tv_position));
   }
 
