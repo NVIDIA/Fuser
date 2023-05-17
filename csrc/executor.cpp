@@ -1741,7 +1741,7 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
     }
     tvs.emplace_back(tv);
   }
-  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
+  if (kernel_summary_.max_rng_offsets >= 0) {
     tvs.emplace_back(nullptr);
   }
   return tvs;
