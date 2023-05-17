@@ -747,9 +747,7 @@ using shape = std::vector<int64_t>;
 using dynamic_view_invocation = std::tuple<
     shape, // input_shape
     shape, // output_shape
-    int64_t, // multiplicative factor
-    bool, // expect miss in first level (KernelArgumentHolder cache ID)
-    bool // expect miss in next level (reuse concrete FusionKernelRuntime)
+    bool // expect miss
     >;
 
 //! Given a collection of input/output shapes test that FusionExecutorCache
@@ -769,37 +767,31 @@ void reductionDynamicViewAddFusion(
 
   auto bias_dims = (reshape_before_reduction) ? input_dims : output_dims;
 
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   TensorView* x = makeSymbolicTensor(input_dims);
   TensorView* bias = makeSymbolicTensor(bias_dims);
-  fusion->addInput(x);
-  fusion->addInput(bias);
-
-  // Create an input Int scalar that will be used in the Fusion but is not
-  // important for determining the concretization
-  auto c = IrBuilder::create<Int>();
-  fusion->addInput(c);
-
-  // create vectors of input scalars describing output size of reshape
-  std::vector<Val*> output_shape(output_dims);
-  for (size_t i : c10::irange(output_dims)) {
-    output_shape[i] = IrBuilder::create<Int>();
-    fusion->addInput(output_shape[i]);
-  }
+  fusion.addInput(x);
+  fusion.addInput(bias);
 
   auto tv1 =
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
+  // create vectors of input scalars describing this reshape
+  std::vector<Val*> output_shape(output_dims);
+  for (size_t i : c10::irange(output_dims)) {
+    output_shape[i] = IrBuilder::create<Int>();
+    fusion.addInput(output_shape[i]);
+  }
   auto x_reshape = reshape(tv1, output_shape);
-  auto x_mul = mul(x_reshape, c);
-  auto y = (reshape_before_reduction) ? sum(x_mul, {kReductionAxis})
-                                      : add(x_mul, bias);
-  fusion->addOutput(y);
+  auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
+                                      : add(x_reshape, bias);
+  fusion.addOutput(y);
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion));
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
 
-  // Return number of cached concretizations
+  // Return pair of: number of concretizations & total number of kernel runtimes
   auto countConcretizations = [&fusion_executor_cache]() {
     std::unordered_set<const std::pair<
         size_t,
@@ -810,28 +802,20 @@ void reductionDynamicViewAddFusion(
     }
     return concs.size();
   };
+  size_t num_concretizations = countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
   // should be
-  size_t num_concretizations = countConcretizations();
-  auto checkConcretizationCache = [&countConcretizations,
-                                   &num_concretizations](bool expect_miss) {
+  auto checkCache = [&countConcretizations,
+                     &num_concretizations](bool expect_miss) {
     auto current = countConcretizations();
     ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
-  };
-  // Check that arg cache ID has cache misses only when they should
-  size_t num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
-  auto checkCacheIdCache = [&fusion_executor_cache,
-                            &num_cache_ids](bool expect_miss) {
-    auto current = fusion_executor_cache.getArgIdToRuntimeMap().size();
-    ASSERT_EQ(current, num_cache_ids + (size_t)expect_miss);
+    num_concretizations = current;
   };
 
   for (auto& inv : invocations) {
     auto input_shape = std::get<0>(inv);
     auto output_shape = std::get<1>(inv);
-    auto factor = std::get<2>(inv);
-    auto expect_cache_id_miss = std::get<3>(inv);
-    auto expect_conc_miss = std::get<4>(inv);
+    auto expect_miss = std::get<2>(inv);
 
     TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
     TORCH_INTERNAL_ASSERT(output_shape.size() == output_dims);
@@ -858,79 +842,42 @@ void reductionDynamicViewAddFusion(
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias, factor};
+    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
       aten_inputs.emplace_back(output_shape[i]);
     }
 
-    // Reset counters so that we can detect cache misses
-    num_concretizations = countConcretizations();
-    num_cache_ids = fusion_executor_cache.getArgIdToRuntimeMap().size();
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-    // Look for cache misses
-    checkCacheIdCache(expect_cache_id_miss);
-    checkConcretizationCache(expect_conc_miss);
+    checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
-    auto at_x_mul = factor * at_x_reshape;
-    auto at_y = (reshape_before_reduction) ? at::sum(at_x_mul, kReductionAxis)
-                                           : at::add(at_x_mul, at_bias);
+    auto at_y = (reshape_before_reduction)
+        ? at::sum(at_x_reshape, kReductionAxis)
+        : at::add(at_x_reshape, at_bias);
 
-    testValidate(
-        fusion_executor_cache.fusion(),
-        outputs,
-        aten_inputs,
-        {at_y},
-        __LINE__,
-        __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
   }
 }
 
 TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
   auto invocations = std::vector<dynamic_view_invocation>{
-      // in_shape, out_shape, factor, arg_cache_miss, runtime_cache_miss
-      {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, 1, true, true}, // trivial
-      {{8, 3 * 4, 7, 5},
-       {8, 3 * 4, 7, 5},
-       1,
-       true,
-       false}, // trivial (different shape)
-      {{8, 3 * 4, 7, 5},
-       {8, 3 * 4, 7, 5},
-       2,
-       false,
-       false}, // trivial (changed factor)
-      {{8, 3 * 4, 7, 9},
-       {8, 3, 4, 7 * 9},
-       1,
-       true,
-       true}, // merge(2) osplit(1, 3)
-      {{8, 3 * 4, 7, 9},
-       {8, 3, 4, 7 * 9},
-       2,
-       false,
-       false}, // merge(2) osplit(1, 3)
+      {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
+      {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
+      {{8, 3 * 4, 7, 9}, {8, 3, 4, 7 * 9}, true}, // merge(2) osplit(1, 3)
       {{8, 3 * 4, 7, 9},
        {8, 3, 4 * 7, 9},
-       1,
-       true,
        true}, // merge(1) merge(2) osplit(1, 3)
       {{8, 3 * 4, 7, 5},
        {8, 3, 4 * 7, 5},
-       1,
-       true, // 5 instead of 9 => new key
        false}, // merge(1) merge(2) osplit(1, 3)
-      {{8, 3 * 5, 7, 9},
-       {8, 3, 5 * 7, 9},
-       1,
-       true,
-       false}, // merge(1) osplit(1, 3)
+      {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
+
       // test passing -1 dynamically for dimension size
       // This currently fails. see https://github.com/NVIDIA/Fuser/issues/249
-      //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false, false} // merge(1) osplit(1, 3)
+      //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
   };
   reductionDynamicViewAddFusion(
       invocations, true /* reshape_before_reduction */);
