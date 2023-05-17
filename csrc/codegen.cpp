@@ -1077,8 +1077,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genSerialReduction(
-      kir::TensorIndex* output,
-      Val* input,
+      const kir::TensorIndex* output,
+      const Val* input,
       BinaryOpType reduction_op_type) {
     const auto gen_out = gen(output);
     indent() << gen_out << " = "
@@ -1089,9 +1089,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genWarpReduction(
-      kir::TensorIndex* output,
-      kir::TensorIndex* input,
-      Val* init,
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred) {
     bool is_single_warp =
@@ -1117,9 +1117,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockReduction(
-      kir::TensorIndex* output,
-      kir::TensorIndex* input,
-      Val* init,
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred,
       kir::Predicate* write_pred) {
