@@ -138,33 +138,6 @@ class KIRCleaner : public OptOutDispatch {
   bool is_nop_ = false;
 };
 
-// Convert bar sync to __syncthreads()
-class ConvertAlignedBlockSync : kir::IrVisitor {
- public:
-  static std::vector<Expr*> run(std::vector<Expr*> exprs) {
-    ConvertAlignedBlockSync converter;
-    converter.handle(exprs);
-    return exprs;
-  }
-
- private:
-  using kir::IrVisitor::handle;
-
-  void handle(kir::BlockSync* sync) final {
-    // Inspect all the scope expressions and if all are aligned,
-    // convert to aligned sync
-    if (std::all_of(scope_exprs_.begin(), scope_exprs_.end(), [](Expr* expr) {
-          return ir_utils::isAlignedScopeExpr(expr);
-        })) {
-      sync->convertToAligned();
-    }
-  }
-};
-
-std::vector<Expr*> convertAlignedBlockSync(std::vector<Expr*> exprs) {
-  return ConvertAlignedBlockSync::run(exprs);
-}
-
 } // namespace
 
 void GpuLower::collectPaddedParallelDims() {
@@ -520,13 +493,10 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
 
-  const auto exprs_sync_aligned = convertAlignedBlockSync(exprs_instrumented);
-  dumpExprsIfEnabled(exprs_sync_aligned, "convertAlignedBlockSync");
-
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from
   // GpuLower.
-  kernel_->finalize(exprs_sync_aligned);
+  kernel_->finalize(exprs_instrumented);
 }
 
 kir::Kernel* GpuLower::kernel() const {
