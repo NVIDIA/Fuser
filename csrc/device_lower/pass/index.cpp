@@ -13,7 +13,7 @@
 #include <ops/arith.h>
 #include <predicate_compute.h>
 
-#include <device_lower/index.h>
+#include <device_lower/pass/index.h>
 
 namespace nvfuser {
 

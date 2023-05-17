@@ -14,8 +14,8 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype, std::optional<std::string> _name = std::nullopt)
+      : index(_index), stype(_stype), name(std::move(_name)) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -24,6 +24,8 @@ struct TORCH_CUDA_CU_API State {
   size_t index;
   //! StateType is either: Tensor or Scalar
   serde::StateType stype;
+  //! String used as a keyword name
+  std::optional<std::string> name;
 };
 
 TORCH_CUDA_CU_API std::ostream& operator<<(

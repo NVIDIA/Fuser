@@ -10,8 +10,8 @@
 #include <c10/macros/Export.h>
 
 #include <compute_at_map.h>
-#include <device_lower/shift.h>
-#include <device_lower/trivial_broadcast.h>
+#include <device_lower/analysis/shift.h>
+#include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
 #include <ir_all_nodes.h>
 

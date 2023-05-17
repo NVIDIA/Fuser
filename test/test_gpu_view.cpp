@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
-#include <device_lower/divisible_split.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
