@@ -1731,8 +1731,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
+    auto ee = executor_utils::bindInputs(args, kernel());
     auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1846,8 +1847,7 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  // runRtc does not have a fusion, so no analysis needs to be done. So we just
-  // leave all tensor views as empty.
+  ExpressionEvaluator ee;
   std::vector<TensorView*> tvs(args.size(), nullptr);
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
@@ -1859,7 +1859,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type, tvs),
+      kernel_arguments.getBuffer(index_type, tvs, ee),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
