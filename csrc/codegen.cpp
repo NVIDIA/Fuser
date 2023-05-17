@@ -120,7 +120,7 @@ std::string genCall(
   return ss.str();
 }
 
-class CudaKernelGenerator : private kir::IrVisitor {
+class CudaKernelGenerator : private kir::ConstIrVisitor {
   static constexpr const char* kTab = "  ";
 
  public:
@@ -142,7 +142,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     initStringStreamFormat(code_);
   }
 
-  using kir::IrVisitor::handle;
+  using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
     ss.imbue(std::locale("C"));
@@ -324,6 +324,15 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
+  // Cannot just use ConstIrVisitor::handle as it expects a vector of
+  // const Expr*, whereas most of the IR API returns a vector of
+  // non-const Expr*.
+  void handle(const std::vector<Expr*>& exprs) {
+    for (Expr* expr : exprs) {
+      kir::ConstIrVisitor::handle(expr);
+    }
+  }
+
   void genBody() {
     handle(kernel_->topLevelExprs());
   }
@@ -344,7 +353,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
   }
 
   //! Remember the alignment info of a new scope expr (IfThenElse or ForLoop)
-  void pushAlignmentInfo(Expr* scope_expr) {
+  void pushAlignmentInfo(const Expr* scope_expr) {
     aligned_scope_exprs_.push_back(ir_utils::isAlignedScopeExpr(scope_expr));
   }
 
@@ -369,7 +378,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return code_;
   }
 
-  std::string gen(Statement* stmt) {
+  std::string gen(const Statement* stmt) {
     if (stmt->isA<Expr>()) {
       // This expr should just be an individul expr with no nested
       // scope
@@ -390,7 +399,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return tmp_code.str();
   }
 
-  std::string genInline(Statement* stmt) {
+  std::string genInline(const Statement* stmt) {
     const bool saved_inline = print_inline_;
     print_inline_ = true;
     auto result = gen(stmt);
@@ -399,12 +408,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return result;
   }
 
-  void handle(kir::Predicate* pred) final {
+  void handle(const kir::Predicate* pred) final {
     TORCH_INTERNAL_ASSERT(pred->hasValue());
     code_ << gen(pred->value());
   }
 
-  void handle(Bool* pred) final {
+  void handle(const Bool* pred) final {
     const auto def = pred->definition();
     const bool has_alloc = alloc_map_.find(pred) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {
@@ -416,7 +425,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(Double* d) final {
+  void handle(const Double* d) final {
     const auto def = d->definition();
     const bool has_alloc = alloc_map_.find(d) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {
@@ -442,7 +451,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(Int* i) final {
+  void handle(const Int* i) final {
     // Check the replacement map first. If there's an entry for i, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(i);
@@ -462,7 +471,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(ComplexDouble* c) final {
+  void handle(const ComplexDouble* c) final {
     const auto def = c->definition();
     const bool has_alloc = alloc_map_.find(c) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {
@@ -474,7 +483,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(NamedScalar* ns) final {
+  void handle(const NamedScalar* ns) final {
     // dim3 components are unsigned int. Cast to signed integer to
     // support negative indexing
     if (ns->getParallelIndex().has_value() ||
@@ -492,7 +501,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::TensorIndex* ti) final {
+  void handle(const kir::TensorIndex* ti) final {
     bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
     if (is_volatile) {
@@ -502,20 +511,20 @@ class CudaKernelGenerator : private kir::IrVisitor {
           << "]";
   }
 
-  void handle(ViewAsScalar* sv) final {
+  void handle(const ViewAsScalar* sv) final {
     indent() << gen(sv->output(0)) << " = " << gen(sv->input(0)) << "["
              << gen(sv->index()) << "];\n";
   }
 
-  void handle(IterDomain*) final {
+  void handle(const IterDomain*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(TensorDomain*) final {
+  void handle(const TensorDomain*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(TensorView*) final {
+  void handle(const TensorView*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
@@ -571,7 +580,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
           << ");\n";
   }
 
-  void handle(kir::BaseAddress* sop) final {
+  void handle(const kir::BaseAddress* sop) final {
     if (!print_inline_) {
       indent() << gen(sop->output(0)) << " = ";
     }
@@ -590,7 +599,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(UnaryOp* uop) final {
+  void handle(const UnaryOp* uop) final {
     const auto op_type = uop->getUnaryOpType();
 
     if (!print_inline_) {
@@ -636,7 +645,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(RNGOp* rop) final {
+  void handle(const RNGOp* rop) final {
     // TODO: TORCH_INTERNAL_ASSERT that the scheduler correctly creates an
     // innermost ID of size 4 (float) or size 2 (double)?
     auto index = genInline(rop->getPhiloxIndex());
@@ -811,7 +820,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return true;
   }
 
-  void handle(BinaryOp* bop) final {
+  void handle(const BinaryOp* bop) final {
     // Try replacing pow with mul
     if (genPowerWithMul(bop)) {
       return;
@@ -881,7 +890,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(TernaryOp* top) final {
+  void handle(const TernaryOp* top) final {
     if (!print_inline_) {
       indent() << gen(top->out());
       if (!top->out()->isScalar()) {
@@ -914,7 +923,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(IndexSelectOp* sop) final {
+  void handle(const IndexSelectOp* sop) final {
     // generate code
     if (!print_inline_) {
       indent() << gen(sop->output(0));
@@ -928,7 +937,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     code_ << gen(sop->input(0)) << ";\n";
   }
 
-  void handle(ScatterOp* sop) final {
+  void handle(const ScatterOp* sop) final {
     // generate code like T_output[... T_index[...]] = op(T_src[...]);
     if (sop->getScatterOpType() == ScatterOpType::Set) {
       // When value of index_tv are not unique, the behavior of Set is
@@ -1011,7 +1020,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
              << "(&" << gen(ldst->out()) << "));\n";
   }
 
-  void handle(MmaOp* mma) final {
+  void handle(const MmaOp* mma) final {
     auto options = mma->options();
     auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
@@ -1031,7 +1040,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return lambda.str();
   }
 
-  void handle(BroadcastOp* stmt) final {
+  void handle(const BroadcastOp* stmt) final {
     TORCH_INTERNAL_ASSERT(stmt->out()->isA<kir::TensorIndex>());
 
     const ParallelTypeBitmap parallel_types =
@@ -1152,7 +1161,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
-  void handle(ReductionOp* rop) final {
+  void handle(const ReductionOp* rop) final {
     TORCH_INTERNAL_ASSERT(rop->out()->isA<kir::TensorIndex>());
 
     const auto output = rop->out()->as<kir::TensorIndex>();
@@ -1184,7 +1193,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(LoadStoreOp* ldst) final {
+  void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
@@ -1343,7 +1352,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(WelfordOp* wop) final {
+  void handle(const WelfordOp* wop) final {
     TORCH_INTERNAL_ASSERT(wop->out()->isA<kir::TensorIndex>());
 
     const auto out = wop->out()->as<kir::TensorIndex>();
@@ -1442,7 +1451,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::VectorizedWelfordOp* wop) final {
+  void handle(const kir::VectorizedWelfordOp* wop) final {
     const auto out_var = wop->outVar();
     const auto out_avg = wop->outAvg();
     const auto out_N = wop->outN();
@@ -1547,7 +1556,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::GridReduction* grop) final {
+  void handle(const kir::GridReduction* grop) final {
     TORCH_INTERNAL_ASSERT(grop->out()->isA<kir::TensorIndex>());
 
     const auto out = grop->out()->as<kir::TensorIndex>();
@@ -1680,7 +1689,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << kTab << func_args << ");\n";
   }
 
-  void handle(kir::GroupedGridReduction* grouped_grop) final {
+  void handle(const kir::GroupedGridReduction* grouped_grop) final {
     const auto out = ir_utils::getTvOutput(grouped_grop);
     const auto domain = out->domain();
     TORCH_INTERNAL_ASSERT(domain->hasGridReduction());
@@ -1758,7 +1767,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << kTab << func_args << ");\n";
   }
 
-  void handle(kir::GroupedGridWelford* grouped_gwop) final {
+  void handle(const kir::GroupedGridWelford* grouped_gwop) final {
     if (grouped_gwop->isAllreduce()) {
       if (grouped_gwop->useOuterOpt()) {
         generateGroupedGridAllreduceWelfordOuter(grouped_gwop);
@@ -2226,7 +2235,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
              << ";\n";
   }
 
-  void handle(kir::GridBroadcast* grop) final {
+  void handle(const kir::GridBroadcast* grop) final {
     const auto bop = grop->broadcast_op();
     TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorIndex>());
 
@@ -2266,7 +2275,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << kTab << genInline(grop->predicate()) << ");\n";
   }
 
-  void handle(kir::GridWelford* gwop) final {
+  void handle(const kir::GridWelford* gwop) final {
     const auto wop = gwop->welford_op();
     TORCH_INTERNAL_ASSERT(wop->outAvg()->isA<kir::TensorIndex>());
 
@@ -2446,7 +2455,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << kTab << func_args << ");\n";
   }
 
-  void handle(kir::AllocateFusedReduction* alloc_fused_reduction) final {
+  void handle(const kir::AllocateFusedReduction* alloc_fused_reduction) final {
     // See the runtime file of the fused reduction
     enum class ReductionParallelTypeState { Reduce, Iter, Pred, Inactive };
 
@@ -2508,17 +2517,17 @@ class CudaKernelGenerator : private kir::IrVisitor {
              << reduction_name << ";\n";
   }
 
-  void handleTrivialLoop(kir::ForLoop* loop) {
+  void handleTrivialLoop(const kir::ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
     }
-    kir::IrVisitor::handle(loop);
+    kir::ConstIrVisitor::handle(loop);
     if (loop->vectorize()) {
       vectorize_scope_ = false;
     }
   }
 
-  void handle(GroupedReductionOp* grouped_rop) final {
+  void handle(const GroupedReductionOp* grouped_rop) final {
     for (const auto i :
          c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
       TORCH_INTERNAL_ASSERT(grouped_rop->output(i)->isA<kir::TensorIndex>());
@@ -2559,14 +2568,14 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(GroupedWelfordOp* grouped_wop) final {
+  void handle(const GroupedWelfordOp* grouped_wop) final {
     TORCH_INTERNAL_ASSERT(
         false,
         "Should not reach here as grouped welford is only enabled for grid welford,",
         " which is handled by its own handler");
   }
 
-  void handle(kir::ForLoop* loop) final {
+  void handle(const kir::ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
       return;
@@ -2576,7 +2585,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     // considered trivial as the loop trip count is not one.
     if (loop->isGroup()) {
       grouped_loops_.push_back(loop);
-      kir::IrVisitor::handle(loop);
+      kir::ConstIrVisitor::handle(loop);
       grouped_loops_.pop_back();
       return;
     }
@@ -2613,11 +2622,11 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
     code_ << gen_index << " < " << gen_stop << "; " << step_code.str() << ") ";
     startBlock(true);
-    kir::IrVisitor::handle(loop);
+    kir::ConstIrVisitor::handle(loop);
     endBlock();
   }
 
-  void handle(kir::IfThenElse* ite) final {
+  void handle(const kir::IfThenElse* ite) final {
     auto conditional = ite->predicate()->value();
     if (conditional->isConst()) {
       // If the conditional is a constant, then the IfThenElse is not required
@@ -2649,7 +2658,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     popAlignmentInfo();
   }
 
-  void handle(kir::Allocate* alloc) final {
+  void handle(const kir::Allocate* alloc) final {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
     TORCH_INTERNAL_ASSERT(alloc->buffer() != nullptr);
@@ -2709,7 +2718,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::BlockSync* sync) final {
+  void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
     if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
@@ -2720,7 +2729,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::CpAsyncWait* cpasync_wait) final {
+  void handle(const kir::CpAsyncWait* cpasync_wait) final {
     if (cpasync_wait->keepStages() > 0) {
       // Perform partial sync, see comment on kir::CpAsyncWait.
       indent() << "Ampere::cpAsyncPartialBarrier<" << cpasync_wait->keepStages()
@@ -2731,12 +2740,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void handle(kir::CpAsyncCommit* cpasync_wait) final {
+  void handle(const kir::CpAsyncCommit* cpasync_wait) final {
     // Commit inflight cp.async transfers. See comment on kir::CpAsyncCommit.
     indent() << "Ampere::cpAsyncCommit();\n";
   }
 
-  void handle(kir::GridSync* sync) final {
+  void handle(const kir::GridSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
@@ -2768,15 +2777,15 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << sync_call << ";\n";
   }
 
-  void handle(kir::InitMagicZero*) final {
+  void handle(const kir::InitMagicZero*) final {
     indent() << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   }
 
-  void handle(kir::UpdateMagicZero*) final {
+  void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
-  void handle(CatOp* cat) final {
+  void handle(const CatOp* cat) final {
     auto out = gen(cat->output(0));
 
     // Generate code like:

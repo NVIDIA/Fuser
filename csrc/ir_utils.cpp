@@ -1009,16 +1009,16 @@ void validateDomainEquivalence(
   ValidateDomainEquivalence(initial_domain, derived_domain);
 }
 
-bool isAlignedScopeExpr(Expr* expr) {
+bool isAlignedScopeExpr(const Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr != nullptr);
-  if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+  if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
     if (ite->predicate()->hasValue() &&
         getRegisterType(ite->predicate()->value()) ==
             RegisterType::GeneralPurpose) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||

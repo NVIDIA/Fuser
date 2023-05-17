@@ -431,7 +431,7 @@ void validateDomainEquivalence(
 
 //! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
-bool isAlignedScopeExpr(Expr* expr);
+bool isAlignedScopeExpr(const Expr* expr);
 
 } // namespace ir_utils
 } // namespace nvfuser
