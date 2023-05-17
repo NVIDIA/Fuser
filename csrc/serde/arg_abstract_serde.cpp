@@ -12,68 +12,82 @@ namespace nvfuser::serde {
 
 namespace {
 
-template <typename T>
-std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(T value) {
-  return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(value);
+template <size_t size>
+std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
+    const serde::ScalarCpu* scalar) {
+  auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
+  static_assert(sizeof(ptr->instance_) == size);
+  std::memcpy(&(ptr->instance_), scalar->instance()->data(), size);
+  return ptr;
 }
 
-template <typename T, typename nvfuser_index_t>
+template <typename nvfuser_index_t>
 std::unique_ptr<TensorArgAbstract> getTensorArg(
     const serde::TensorArg* tensor) {
-  switch (tensor->ndims()) {
+  auto meta_tensor = at::native::empty_strided_cpu(
+      parseVector(tensor->sizes()),
+      parseVector(tensor->strides()),
+      mapToAtenDtype(tensor->dtype()),
+      c10::nullopt,
+      c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt);
+  switch (tensor->sizes()->size()) {
     case (0):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 0, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (1):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 1, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (2):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 2, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (3):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 3, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (4):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 4, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (5):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 5, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (6):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 6, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (7):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 7, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     case (8):
       return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<T, 8, nvfuser_index_t>>>(tensor);
+          nvfuser::TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
+          meta_tensor, nullptr /* tv */);
     default:
       TORCH_INTERNAL_ASSERT(
           false,
           "Tried to generate a tensor to run a generated kernel with ",
-          tensor->ndims(),
+          tensor->sizes()->size(),
           " dimensions, however only 0 to 8 dimensional tensor are supported.");
   }
   return nullptr;
 }
 
-template <typename nvfuser_index_t>
-struct GetTensorArgWithNativeType {
-  template <typename T>
-  std::unique_ptr<TensorArgAbstract> operator()(
-      const serde::TensorArg* tensor) {
-    return getTensorArg<T, nvfuser_index_t>(tensor);
-  };
-};
-
-template <typename INDEX_MODE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
+std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
     const serde::TensorArg* tensor) {
-  return atenTypeDispatchWithC10Complex(
+  auto meta_tensor = at::empty(
+      parseVector(tensor->sizes()),
       mapToAtenDtype(tensor->dtype()),
-      GetTensorArgWithNativeType<INDEX_MODE>(),
-      tensor);
+      c10::nullopt,
+      c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt,
+      c10::nullopt);
+  return std::make_unique<TensorArgAbstract>(meta_tensor);
 }
 
 } // namespace
@@ -111,58 +125,33 @@ void ArgAbstractFactory::registerAllParsers() {
 
   auto deserializeScalarCpu = [](const serde::ArgAbstract* buffer) {
     auto scalar = buffer->data_as_ScalarCpu();
-    switch (scalar->data_type()) {
-      case serde::ScalarCpuData_Bool: {
-        auto value = scalar->data_as_Bool()->value();
-        return makeCpuScalarTensor<bool>(value);
-      }
-      case serde::ScalarCpuData_Double: {
-        auto value = scalar->data_as_Double()->value();
-        return makeCpuScalarTensor<double>(value);
-      }
-      case serde::ScalarCpuData_Float: {
-        auto value = scalar->data_as_Float()->value();
-        return makeCpuScalarTensor<float>(value);
-      }
-      case serde::ScalarCpuData_Half: {
-        at::Half value{scalar->data_as_Half()->value(), at::Half::from_bits()};
-        return makeCpuScalarTensor<at::Half>(value);
-      }
-      case serde::ScalarCpuData_BFloat16: {
-        at::BFloat16 value{
-            scalar->data_as_Half()->value(), at::BFloat16::from_bits()};
-        return makeCpuScalarTensor<at::BFloat16>(value);
-      }
-      case serde::ScalarCpuData_Long: {
-        auto value = scalar->data_as_Long()->value();
-        return makeCpuScalarTensor<int64_t>(value);
-      }
-      case serde::ScalarCpuData_Int: {
-        auto value = scalar->data_as_Int()->value();
-        return makeCpuScalarTensor<int>(value);
-      }
-      case serde::ScalarCpuData_ComplexFloat: {
-        auto data = scalar->data_as_ComplexFloat();
-        c10::complex<float> value{data->real(), data->imag()};
-        return makeCpuScalarTensor<c10::complex<float>>(value);
-      }
-      case serde::ScalarCpuData_ComplexDouble: {
-        auto data = scalar->data_as_ComplexDouble();
-        c10::complex<double> value{data->real(), data->imag()};
-        return makeCpuScalarTensor<c10::complex<double>>(value);
-      }
+    switch (scalar->size()) {
+      case 1:
+        return makeCpuScalarTensor<1>(scalar);
+      case 2:
+        return makeCpuScalarTensor<2>(scalar);
+      case 4:
+        return makeCpuScalarTensor<4>(scalar);
+      case 8:
+        return makeCpuScalarTensor<8>(scalar);
+      case 16:
+        return makeCpuScalarTensor<16>(scalar);
+        break;
       default:
-        TORCH_INTERNAL_ASSERT(false, "Unexpected data type");
+        TORCH_INTERNAL_ASSERT(false, "Unexpected data type size");
     }
   };
   registerParser(serde::ArgAbstractData_ScalarCpu, deserializeScalarCpu);
 
   auto deserializeTensorArg = [](const serde::ArgAbstract* buffer) {
     auto tensor = buffer->data_as_TensorArg();
-    if (tensor->is_int_index_mode()) {
-      return getTensorArg<int>(tensor);
+    if (tensor->index_type_resolved()) {
+      if (tensor->is_int_index_mode()) {
+        return getTensorArg<int>(tensor);
+      }
+      return getTensorArg<int64_t>(tensor);
     }
-    return getTensorArg<int64_t>(tensor);
+    return getAbstractTensorArg(tensor);
   };
   registerParser(serde::ArgAbstractData_TensorArg, deserializeTensorArg);
 }

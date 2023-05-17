@@ -216,7 +216,8 @@ table ComplexFloat {
 // =====================================================================================
 
 table ScalarCpu {
-  data : ScalarCpuData;
+  instance : [byte];
+  size : ulong;
 }
 
 table PhiloxCudaState {
@@ -226,9 +227,8 @@ table PhiloxCudaState {
 
 table TensorArg {
   ptr : ulong;
-  size : [long];
-  stride : [long];
-  ndims : long;
+  sizes : [long];
+  strides : [long];
   dtype: DataType;
   is_int_index_mode : bool;
   index_type_resolved : bool;
@@ -273,6 +273,7 @@ table NvrtcFunction {
 }
 
 table GlobalBufferInfo {
+  tv : long = -1;
   sizes : [long];
   strides : [long];
   dtype : DataType;

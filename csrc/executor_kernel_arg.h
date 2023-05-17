@@ -10,9 +10,9 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
+#include <ir_all_nodes.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/utils.h>
-#include <ir_all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
@@ -298,6 +298,26 @@ struct TensorArgAbstract : ArgAbstract {
   std::unique_ptr<ArgAbstract> clone() const override {
     return std::make_unique<TensorArgAbstract>(*this);
   }
+
+  flatbuffers::Offset<serde::ArgAbstract> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const override {
+    std::vector<int64_t> sizes_fb;
+    sizes_fb.reserve(getRank());
+    for (auto dim : c10::irange(tensor_.ndimension())) {
+      sizes_fb.push_back(getSize(dim));
+    }
+
+    auto data = serde::CreateTensorArg(
+        builder,
+        (size_t)getPointer(),
+        builder.CreateVector(sizes_fb),
+        0,
+        serde::mapToSerdeDtype(getDataType()),
+        false /* is_int_index_mode */,
+        false /* index_type_resolved */);
+    return serde::CreateArgAbstract(
+        builder, serde::ArgAbstractData_TensorArg, data.Union());
+  }
 };
 
 template <typename TENSOR_TYPE>
@@ -387,10 +407,9 @@ struct TensorArg : public TensorArgAbstract {
         (size_t)getPointer(),
         builder.CreateVector(sizes_fb),
         builder.CreateVector(strides_fb),
-        instance_.nDims(),
         serde::mapToSerdeDtype(getDataType()),
         std::is_same_v<typename TENSOR_TYPE::index_type, int>,
-        index_type_resolved_);
+        true /* index_type_resolved */);
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_TensorArg, data.Union());
   }
@@ -398,55 +417,15 @@ struct TensorArg : public TensorArgAbstract {
 
 template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
-  std::array<std::byte, size> instance_;
+  std::array<int8_t, size> instance_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    flatbuffers::Offset<void> value = 0;
-    serde::ScalarCpuData data_type = serde::ScalarCpuData_NONE;
-
-    if constexpr (std::is_same_v<DATATYPE, bool>) {
-      data_type = serde::ScalarCpuData_Bool;
-      value = serde::CreateBool(builder, instance_.data).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, double>) {
-      data_type = serde::ScalarCpuData_Double;
-      value = serde::CreateDouble(builder, instance_.data).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, float>) {
-      data_type = serde::ScalarCpuData_Float;
-      value = serde::CreateFloat(builder, instance_.data).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, at::Half>) {
-      data_type = serde::ScalarCpuData_Half;
-      value = serde::CreateHalf(builder, instance_.data.x).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, at::BFloat16>) {
-      data_type = serde::ScalarCpuData_BFloat16;
-      value = serde::CreateBFloat16(builder, instance_.data.x).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, int32_t>) {
-      data_type = serde::ScalarCpuData_Int;
-      value = serde::CreateInt(builder, instance_.data).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, int64_t>) {
-      data_type = serde::ScalarCpuData_Long;
-      value = serde::CreateLong(builder, instance_.data).Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, c10::complex<float>>) {
-      data_type = serde::ScalarCpuData_ComplexFloat;
-      value = serde::CreateComplexFloat(
-                  builder, instance_.data.real(), instance_.data.imag())
-                  .Union();
-
-    } else if constexpr (std::is_same_v<DATATYPE, c10::complex<double>>) {
-      data_type = serde::ScalarCpuData_ComplexDouble;
-      value = serde::CreateComplexDouble(
-                  builder, instance_.data.real(), instance_.data.imag())
-                  .Union();
-    }
-    auto data = serde::CreateScalarCpu(builder, data_type, value).Union();
+    auto fb_scalar_data = builder.CreateVector<int8_t>(instance_);
+    auto data =
+        serde::CreateScalarCpu(builder, fb_scalar_data, instance_.size())
+            .Union();
     return serde::CreateArgAbstract(
         builder, serde::ArgAbstractData_ScalarCpu, data);
   }

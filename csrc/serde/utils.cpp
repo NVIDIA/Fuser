@@ -122,4 +122,10 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   return PrimDataType::Null;
 }
 
+std::vector<bool> parseBoolVector(
+    const flatbuffers::Vector<uint8_t>* fb_vector) {
+  std::vector<bool> result(fb_vector->begin(), fb_vector->end());
+  return result;
+}
+
 } // namespace nvfuser::serde

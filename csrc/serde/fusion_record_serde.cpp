@@ -24,19 +24,6 @@ std::vector<python_frontend::State> parseStateArgs(
   return result;
 }
 
-template <typename T>
-std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
-  std::vector<T> result(fb_vector->begin(), fb_vector->end());
-  return result;
-}
-
-// Flatbuffer stores bool values as uint8_t.
-std::vector<bool> parseBoolVector(
-    const flatbuffers::Vector<uint8_t>* fb_vector) {
-  std::vector<bool> result(fb_vector->begin(), fb_vector->end());
-  return result;
-}
-
 std::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:

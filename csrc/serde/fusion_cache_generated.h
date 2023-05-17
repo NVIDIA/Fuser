@@ -1330,136 +1330,32 @@ inline ::flatbuffers::Offset<ComplexFloat> CreateComplexFloat(
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DATA_TYPE = 4,
-    VT_DATA = 6
+    VT_INSTANCE = 4,
+    VT_SIZE = 6
   };
-  nvfuser::serde::ScalarCpuData data_type() const {
-    return static_cast<nvfuser::serde::ScalarCpuData>(
-        GetField<uint8_t>(VT_DATA_TYPE, 0));
+  const ::flatbuffers::Vector<int8_t>* instance() const {
+    return GetPointer<const ::flatbuffers::Vector<int8_t>*>(VT_INSTANCE);
   }
-  const void* data() const {
-    return GetPointer<const void*>(VT_DATA);
-  }
-  template <typename T>
-  const T* data_as() const;
-  const nvfuser::serde::Bool* data_as_Bool() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Bool
-        ? static_cast<const nvfuser::serde::Bool*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::ComplexDouble* data_as_ComplexDouble() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_ComplexDouble
-        ? static_cast<const nvfuser::serde::ComplexDouble*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::ComplexFloat* data_as_ComplexFloat() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_ComplexFloat
-        ? static_cast<const nvfuser::serde::ComplexFloat*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::Double* data_as_Double() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Double
-        ? static_cast<const nvfuser::serde::Double*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::Float* data_as_Float() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Float
-        ? static_cast<const nvfuser::serde::Float*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::Half* data_as_Half() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Half
-        ? static_cast<const nvfuser::serde::Half*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::BFloat16* data_as_BFloat16() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_BFloat16
-        ? static_cast<const nvfuser::serde::BFloat16*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::Int* data_as_Int() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Int
-        ? static_cast<const nvfuser::serde::Int*>(data())
-        : nullptr;
-  }
-  const nvfuser::serde::Long* data_as_Long() const {
-    return data_type() == nvfuser::serde::ScalarCpuData_Long
-        ? static_cast<const nvfuser::serde::Long*>(data())
-        : nullptr;
+  uint64_t size() const {
+    return GetField<uint64_t>(VT_SIZE, 0);
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) &&
-        VerifyField<uint8_t>(verifier, VT_DATA_TYPE, 1) &&
-        VerifyOffset(verifier, VT_DATA) &&
-        VerifyScalarCpuData(verifier, data(), data_type()) &&
-        verifier.EndTable();
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_INSTANCE) &&
+        verifier.VerifyVector(instance()) &&
+        VerifyField<uint64_t>(verifier, VT_SIZE, 8) && verifier.EndTable();
   }
 };
-
-template <>
-inline const nvfuser::serde::Bool* ScalarCpu::data_as<nvfuser::serde::Bool>()
-    const {
-  return data_as_Bool();
-}
-
-template <>
-inline const nvfuser::serde::ComplexDouble* ScalarCpu::data_as<
-    nvfuser::serde::ComplexDouble>() const {
-  return data_as_ComplexDouble();
-}
-
-template <>
-inline const nvfuser::serde::ComplexFloat* ScalarCpu::data_as<
-    nvfuser::serde::ComplexFloat>() const {
-  return data_as_ComplexFloat();
-}
-
-template <>
-inline const nvfuser::serde::Double* ScalarCpu::data_as<
-    nvfuser::serde::Double>() const {
-  return data_as_Double();
-}
-
-template <>
-inline const nvfuser::serde::Float* ScalarCpu::data_as<nvfuser::serde::Float>()
-    const {
-  return data_as_Float();
-}
-
-template <>
-inline const nvfuser::serde::Half* ScalarCpu::data_as<nvfuser::serde::Half>()
-    const {
-  return data_as_Half();
-}
-
-template <>
-inline const nvfuser::serde::BFloat16* ScalarCpu::data_as<
-    nvfuser::serde::BFloat16>() const {
-  return data_as_BFloat16();
-}
-
-template <>
-inline const nvfuser::serde::Int* ScalarCpu::data_as<nvfuser::serde::Int>()
-    const {
-  return data_as_Int();
-}
-
-template <>
-inline const nvfuser::serde::Long* ScalarCpu::data_as<nvfuser::serde::Long>()
-    const {
-  return data_as_Long();
-}
 
 struct ScalarCpuBuilder {
   typedef ScalarCpu Table;
   ::flatbuffers::FlatBufferBuilder& fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_data_type(nvfuser::serde::ScalarCpuData data_type) {
-    fbb_.AddElement<uint8_t>(
-        ScalarCpu::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
+  void add_instance(
+      ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> instance) {
+    fbb_.AddOffset(ScalarCpu::VT_INSTANCE, instance);
   }
-  void add_data(::flatbuffers::Offset<void> data) {
-    fbb_.AddOffset(ScalarCpu::VT_DATA, data);
+  void add_size(uint64_t size) {
+    fbb_.AddElement<uint64_t>(ScalarCpu::VT_SIZE, size, 0);
   }
   explicit ScalarCpuBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
       : fbb_(_fbb) {
@@ -1474,13 +1370,20 @@ struct ScalarCpuBuilder {
 
 inline ::flatbuffers::Offset<ScalarCpu> CreateScalarCpu(
     ::flatbuffers::FlatBufferBuilder& _fbb,
-    nvfuser::serde::ScalarCpuData data_type =
-        nvfuser::serde::ScalarCpuData_NONE,
-    ::flatbuffers::Offset<void> data = 0) {
+    ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> instance = 0,
+    uint64_t size = 0) {
   ScalarCpuBuilder builder_(_fbb);
-  builder_.add_data(data);
-  builder_.add_data_type(data_type);
+  builder_.add_size(size);
+  builder_.add_instance(instance);
   return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<ScalarCpu> CreateScalarCpuDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    const std::vector<int8_t>* instance = nullptr,
+    uint64_t size = 0) {
+  auto instance__ = instance ? _fbb.CreateVector<int8_t>(*instance) : 0;
+  return nvfuser::serde::CreateScalarCpu(_fbb, instance__, size);
 }
 
 struct PhiloxCudaState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1537,24 +1440,20 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef TensorArgBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_PTR = 4,
-    VT_SIZE = 6,
-    VT_STRIDE = 8,
-    VT_NDIMS = 10,
-    VT_DTYPE = 12,
-    VT_IS_INT_INDEX_MODE = 14,
-    VT_INDEX_TYPE_RESOLVED = 16
+    VT_SIZES = 6,
+    VT_STRIDES = 8,
+    VT_DTYPE = 10,
+    VT_IS_INT_INDEX_MODE = 12,
+    VT_INDEX_TYPE_RESOLVED = 14
   };
   uint64_t ptr() const {
     return GetField<uint64_t>(VT_PTR, 0);
   }
-  const ::flatbuffers::Vector<int64_t>* size() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SIZE);
+  const ::flatbuffers::Vector<int64_t>* sizes() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SIZES);
   }
-  const ::flatbuffers::Vector<int64_t>* stride() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_STRIDE);
-  }
-  int64_t ndims() const {
-    return GetField<int64_t>(VT_NDIMS, 0);
+  const ::flatbuffers::Vector<int64_t>* strides() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_STRIDES);
   }
   nvfuser::serde::DataType dtype() const {
     return static_cast<nvfuser::serde::DataType>(
@@ -1569,9 +1468,9 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   bool Verify(::flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<uint64_t>(verifier, VT_PTR, 8) &&
-        VerifyOffset(verifier, VT_SIZE) && verifier.VerifyVector(size()) &&
-        VerifyOffset(verifier, VT_STRIDE) && verifier.VerifyVector(stride()) &&
-        VerifyField<int64_t>(verifier, VT_NDIMS, 8) &&
+        VerifyOffset(verifier, VT_SIZES) && verifier.VerifyVector(sizes()) &&
+        VerifyOffset(verifier, VT_STRIDES) &&
+        verifier.VerifyVector(strides()) &&
         VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
         VerifyField<uint8_t>(verifier, VT_IS_INT_INDEX_MODE, 1) &&
         VerifyField<uint8_t>(verifier, VT_INDEX_TYPE_RESOLVED, 1) &&
@@ -1586,15 +1485,12 @@ struct TensorArgBuilder {
   void add_ptr(uint64_t ptr) {
     fbb_.AddElement<uint64_t>(TensorArg::VT_PTR, ptr, 0);
   }
-  void add_size(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> size) {
-    fbb_.AddOffset(TensorArg::VT_SIZE, size);
+  void add_sizes(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> sizes) {
+    fbb_.AddOffset(TensorArg::VT_SIZES, sizes);
   }
-  void add_stride(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> stride) {
-    fbb_.AddOffset(TensorArg::VT_STRIDE, stride);
-  }
-  void add_ndims(int64_t ndims) {
-    fbb_.AddElement<int64_t>(TensorArg::VT_NDIMS, ndims, 0);
+  void add_strides(
+      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> strides) {
+    fbb_.AddOffset(TensorArg::VT_STRIDES, strides);
   }
   void add_dtype(nvfuser::serde::DataType dtype) {
     fbb_.AddElement<int32_t>(
@@ -1626,18 +1522,16 @@ struct TensorArgBuilder {
 inline ::flatbuffers::Offset<TensorArg> CreateTensorArg(
     ::flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t ptr = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> size = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> stride = 0,
-    int64_t ndims = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> sizes = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> strides = 0,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool is_int_index_mode = false,
     bool index_type_resolved = false) {
   TensorArgBuilder builder_(_fbb);
-  builder_.add_ndims(ndims);
   builder_.add_ptr(ptr);
   builder_.add_dtype(dtype);
-  builder_.add_stride(stride);
-  builder_.add_size(size);
+  builder_.add_strides(strides);
+  builder_.add_sizes(sizes);
   builder_.add_index_type_resolved(index_type_resolved);
   builder_.add_is_int_index_mode(is_int_index_mode);
   return builder_.Finish();
@@ -1646,20 +1540,18 @@ inline ::flatbuffers::Offset<TensorArg> CreateTensorArg(
 inline ::flatbuffers::Offset<TensorArg> CreateTensorArgDirect(
     ::flatbuffers::FlatBufferBuilder& _fbb,
     uint64_t ptr = 0,
-    const std::vector<int64_t>* size = nullptr,
-    const std::vector<int64_t>* stride = nullptr,
-    int64_t ndims = 0,
+    const std::vector<int64_t>* sizes = nullptr,
+    const std::vector<int64_t>* strides = nullptr,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool is_int_index_mode = false,
     bool index_type_resolved = false) {
-  auto size__ = size ? _fbb.CreateVector<int64_t>(*size) : 0;
-  auto stride__ = stride ? _fbb.CreateVector<int64_t>(*stride) : 0;
+  auto sizes__ = sizes ? _fbb.CreateVector<int64_t>(*sizes) : 0;
+  auto strides__ = strides ? _fbb.CreateVector<int64_t>(*strides) : 0;
   return nvfuser::serde::CreateTensorArg(
       _fbb,
       ptr,
-      size__,
-      stride__,
-      ndims,
+      sizes__,
+      strides__,
       dtype,
       is_int_index_mode,
       index_type_resolved);
@@ -2198,12 +2090,16 @@ inline ::flatbuffers::Offset<NvrtcFunction> CreateNvrtcFunctionDirect(
 struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef GlobalBufferInfoBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SIZES = 4,
-    VT_STRIDES = 6,
-    VT_DTYPE = 8,
-    VT_ZERO_INIT = 10,
-    VT_IS_PROFILE_BUFFER = 12
+    VT_TV = 4,
+    VT_SIZES = 6,
+    VT_STRIDES = 8,
+    VT_DTYPE = 10,
+    VT_ZERO_INIT = 12,
+    VT_IS_PROFILE_BUFFER = 14
   };
+  int64_t tv() const {
+    return GetField<int64_t>(VT_TV, -1LL);
+  }
   const ::flatbuffers::Vector<int64_t>* sizes() const {
     return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SIZES);
   }
@@ -2221,8 +2117,10 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     return GetField<uint8_t>(VT_IS_PROFILE_BUFFER, 0) != 0;
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SIZES) &&
-        verifier.VerifyVector(sizes()) && VerifyOffset(verifier, VT_STRIDES) &&
+    return VerifyTableStart(verifier) &&
+        VerifyField<int64_t>(verifier, VT_TV, 8) &&
+        VerifyOffset(verifier, VT_SIZES) && verifier.VerifyVector(sizes()) &&
+        VerifyOffset(verifier, VT_STRIDES) &&
         verifier.VerifyVector(strides()) &&
         VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
         VerifyField<uint8_t>(verifier, VT_ZERO_INIT, 1) &&
@@ -2235,6 +2133,9 @@ struct GlobalBufferInfoBuilder {
   typedef GlobalBufferInfo Table;
   ::flatbuffers::FlatBufferBuilder& fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_tv(int64_t tv) {
+    fbb_.AddElement<int64_t>(GlobalBufferInfo::VT_TV, tv, -1LL);
+  }
   void add_sizes(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> sizes) {
     fbb_.AddOffset(GlobalBufferInfo::VT_SIZES, sizes);
   }
@@ -2269,12 +2170,14 @@ struct GlobalBufferInfoBuilder {
 
 inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(
     ::flatbuffers::FlatBufferBuilder& _fbb,
+    int64_t tv = -1LL,
     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> sizes = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> strides = 0,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool zero_init = false,
     bool is_profile_buffer = false) {
   GlobalBufferInfoBuilder builder_(_fbb);
+  builder_.add_tv(tv);
   builder_.add_dtype(dtype);
   builder_.add_strides(strides);
   builder_.add_sizes(sizes);
@@ -2285,6 +2188,7 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(
 
 inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
     ::flatbuffers::FlatBufferBuilder& _fbb,
+    int64_t tv = -1LL,
     const std::vector<int64_t>* sizes = nullptr,
     const std::vector<int64_t>* strides = nullptr,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
@@ -2293,7 +2197,7 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
   auto sizes__ = sizes ? _fbb.CreateVector<int64_t>(*sizes) : 0;
   auto strides__ = strides ? _fbb.CreateVector<int64_t>(*strides) : 0;
   return nvfuser::serde::CreateGlobalBufferInfo(
-      _fbb, sizes__, strides__, dtype, zero_init, is_profile_buffer);
+      _fbb, tv, sizes__, strides__, dtype, zero_init, is_profile_buffer);
 }
 
 struct ExecutorEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

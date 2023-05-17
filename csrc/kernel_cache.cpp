@@ -619,12 +619,13 @@ void FusionExecutorCache::deserialize(
 
   for (auto device_runtimes : *buffer->kernel_runtimes()) {
     TORCH_INTERNAL_ASSERT(
-        has_dynamic_reshape_ == device_runtimes->has_dynamic_transform_info());
+        is_dynamic_.value_or(false) ==
+        device_runtimes->has_dynamic_transform_info());
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
 
     std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
     size_t conc_info_index = 0;
-    if (has_dynamic_reshape_) {
+    if (is_dynamic_.value_or(false)) {
       // Construct args from flatbuffer object
       KernelArgumentHolder args;
       args.deserialize(device_runtimes->runtimes()->begin()->args());
@@ -653,7 +654,7 @@ void FusionExecutorCache::deserialize(
       // concretize fusion_ for use in this runtime
       auto fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(fusion.get());
-      if (has_dynamic_reshape_) {
+      if (is_dynamic_.value_or(false)) {
         const auto& cloned_conc_info =
             fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
                 conc_info_index);

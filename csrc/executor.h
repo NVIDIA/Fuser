@@ -14,7 +14,6 @@
 #include <ir_all_nodes.h>
 #include <ir_cloner.h>
 #include <ir_printer.h>
-#include <lower2device.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
@@ -335,7 +334,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const GlobalBufferInfo& data) const;
+      const GlobalBufferInfo& data,
+      int64_t tv_position) const;
 
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 

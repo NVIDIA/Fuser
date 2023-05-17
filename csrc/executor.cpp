@@ -966,7 +966,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocOutputs(
-    const Fusion* fusion,
+    const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
     const KernelArgumentHolder& inputs,
@@ -995,7 +995,7 @@ std::vector<at::Tensor> allocOutputs(
       TORCH_INTERNAL_ASSERT(
           tensor_arg_abstract, "alias io only supports tensor");
       outputs.emplace_back(tensor_arg_abstract->getTensor());
-    } else if (fusion->outputs().at(output_idx)->isFusionInput()) {
+    } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
       auto alloc_dom =
@@ -1264,7 +1264,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
       getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
 
   return allocOutputs(
-      fusion_,
+      kernel(),
       output_info,
       output_to_input_aliases,
       kernel_inputs,
@@ -1284,7 +1284,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(fusion_->outputs().size())) {
     GlobalBufferInfo info;
-    auto out_val = kernel->outputs()[out_i];
+    auto out_val = kernel()->outputs()[out_i];
     info.tv = dynamic_cast<TensorView*>(out_val);
     if (out_val->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
@@ -1801,7 +1801,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (outputs.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
-        fusion_,
+        kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
         args,
@@ -2092,13 +2092,16 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   std::vector<fb_global_buffer_info> outputs_fb;
   outputs_fb.reserve(data.outputs.size());
   for (const auto& buffer : data.outputs) {
-    outputs_fb.push_back(serialize(builder, buffer));
+    auto tv_iter = std::find(
+        fusion_->outputs().begin(), fusion_->outputs().end(), buffer.tv);
+    auto tv_position = std::distance(fusion_->outputs().begin(), tv_iter);
+    outputs_fb.push_back(serialize(builder, buffer, tv_position));
   }
 
   std::vector<fb_global_buffer_info> intermediates_fb;
   intermediates_fb.reserve(data.intermediates.size());
   for (const auto& buffer : data.intermediates) {
-    intermediates_fb.push_back(serialize(builder, buffer));
+    intermediates_fb.push_back(serialize(builder, buffer, -1));
   }
 
   return CreateExecutorEntryDirect(
@@ -2114,8 +2117,10 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
 
 flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const GlobalBufferInfo& data) const {
+    const GlobalBufferInfo& data,
+    int64_t tv_position = -1) const {
   // table GlobalBufferInfo {
+  //  tv : long;
   //  sizes : [long];
   //  strides : [long];
   //  type : DataType;
@@ -2124,6 +2129,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
   // }
   return serde::CreateGlobalBufferInfoDirect(
       builder,
+      tv_position,
       &data.sizes,
       &data.strides,
       serde::mapToSerdeDtype(data.type),
@@ -2252,6 +2258,11 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   //  is_profile_buffer : bool;
   // }
   GlobalBufferInfo info;
+
+  if (buffer->tv() != -1) {
+    auto out_val = fusion_->outputs().at(buffer->tv());
+    info.tv = dynamic_cast<TensorView*>(out_val);
+  }
 
   for (auto dim_size : *buffer->sizes()) {
     info.sizes.emplace_back(dim_size);
