@@ -469,6 +469,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       fusion->stopManaging(conc_info_index);
       fusion->stopManaging("initial_info");
     }
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+      std::cout << "Concretized Fusion:" << std::endl;
+      fusion->printMath();
+    }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
