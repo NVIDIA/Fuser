@@ -38,6 +38,7 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <optimization/opt_pass.h>
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
