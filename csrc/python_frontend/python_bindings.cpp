@@ -2041,23 +2041,81 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dims"),
       py::return_value_policy::reference);
 
-  auto shape_def = [](Tensor arg) {
+  auto shape_def = [](Tensor arg) -> Vector {
+    FUSER_PERF_SCOPE("Operators.shape");
     auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
     Vector output = fd->defineVector();
     fd->defineRecord(new ShapeOpRecord(
         {fd->recordingState(arg())}, {fd->recordingState(output())}));
     return output;
   };
 
+  tensor_class.def(
+      "shape",
+      [&shape_def](Tensor arg) -> Vector {
+        return shape_def(arg);
+      },
+      py::return_value_policy::reference);
   nvf_ops.def(
       "shape",
       [&shape_def](FusionDefinition::Operators& self, Tensor arg) -> Vector {
-        FUSER_PERF_SCOPE("Operators.shape");
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
         return shape_def(arg);
       },
       py::arg("arg"),
+      py::return_value_policy::reference);
+
+  auto size_def = [](Tensor arg, int64_t dim) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.size");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new SizeOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, dim));
+    return output;
+  };
+
+  tensor_class.def(
+      "size",
+      [&size_def](Tensor arg, int64_t dim) -> Scalar {
+        return size_def(arg, dim);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "size",
+      [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim) -> Scalar {
+        return size_def(arg, dim);
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+
+  auto at_def = [](Vector arg, int64_t index) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.at");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new AtOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, index));
+    return output;
+  };
+
+  vector_class.def(
+      "at",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "at",
+      [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
       py::return_value_policy::reference);
 
   nvf_ops.def(
