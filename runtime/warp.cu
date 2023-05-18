@@ -61,14 +61,14 @@ __device__ void warpReduceTIDX(
     unsigned int reduction_size = block_dim.x;
     unsigned int num_of_warps = reduction_size / WARP_SIZE;
     unsigned int smem_offset = reduce_group_id * num_of_warps;
-
-    block_sync::sync();
+    constexpr bool aligned = true;
+    block_sync::sync<aligned>();
 
     if (is_warp_head) {
       shared_mem[smem_offset + warp_idx] = reduce_val;
     }
 
-    block_sync::sync();
+    block_sync::sync<aligned>();
 
     if (warp_idx == 0) {
       // This assumes num_of_warps will be < 32, meaning < 1024 threads.

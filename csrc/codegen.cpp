@@ -1065,6 +1065,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       flags_str << (parallel_bcast ? "true" : "false");
     }
+    flags_str << ", " << (isAligned() ? "true" : "false");
 
     const auto data_type = stmt->out()->dtype();
     indent() << "broadcast::blockBroadcast<" << flags_str.str() << ">(\n";
