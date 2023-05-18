@@ -8589,6 +8589,8 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto tv11 = castOp(DataType::Float, tv9);
     auto tv12 = castOp(DataType::Float, tv10);
     auto tv13 = add(tv11, tv12);
+    // The this pair of cast just cancels each other out, we'll simply rewire it
+    // to be use tv13 in places of tv15 in the follow up
     auto tv14 = castOp(DataType::Half, tv13);
     auto tv15 = castOp(DataType::Float, tv14);
     auto tv16 = variance(tv15, {1}, false, false);
@@ -8653,6 +8655,19 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  auto complete_fusion = optimized_fusion->fusionSegments()->completeFusion();
+  int cast_op_count = 0;
+  for (auto expr : complete_fusion->exprs()) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
+      ++cast_op_count;
+    }
+  }
+  TORCH_CHECK(
+      cast_op_count == 9, "cast optimization isn't working as expected");
+
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 

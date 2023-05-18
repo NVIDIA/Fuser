@@ -14,6 +14,11 @@ namespace {
 
 class ConsecutiveCastPass : OptimizationPass {
  public:
+  ConsecutiveCastPass() {
+    // registering ConsecutiveCastPass to PreSegmenter pass group
+    registerOptimizationPass(OptimizationPassCategory::PreSegmenter, this);
+  }
+
   static void runPass(Fusion* fusion) {
     auto is_cast_op = [](Expr* expr) {
       if (expr->isA<UnaryOp>()) {
@@ -45,8 +50,8 @@ class ConsecutiveCastPass : OptimizationPass {
             // and
             //   1. intermediate_dtype is the same type category as with
             //   out_dtype; or
-            //   2. intermediate_dtype is a floating point while output is
-            //   integral;
+            //   2. intermediate_dtype is more relaxed than out_dtype. e.g. a
+            //   floating point vs. integral;
             if ((original_dtype == out_dtype ||
                  cast_func_str({original_dtype, out_dtype}).has_value()) &&
                 ((isIntegralType(intermediate_dtype) &&
@@ -95,12 +100,9 @@ class ConsecutiveCastPass : OptimizationPass {
   FusionPass func() override {
     return runPass;
   }
-
-  ConsecutiveCastPass() {
-    registerOptimizationPass(OptimizationPassCategory::PreSegmenter, this);
-  }
 };
 
+// triggering the ConsecutiveCastPass constructor to register the pass
 static ConsecutiveCastPass register_;
 
 } // namespace
