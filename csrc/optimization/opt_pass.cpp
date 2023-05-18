@@ -68,7 +68,10 @@ class OptimizationRegistry {
 
 } // namespace
 
-OptimizationPassGuard::OptimizationPassGuard(const OptimizationPassCategory& category, bool enable) : cat_(category) {
+OptimizationPassGuard::OptimizationPassGuard(
+    const OptimizationPassCategory& category,
+    bool enable)
+    : cat_(category) {
   prev_status_ = switchOptimizationPass(cat_, enable);
 }
 

@@ -24,6 +24,7 @@ class OptimizationPassGuard {
  public:
   OptimizationPassGuard(const OptimizationPassCategory& category, bool enable);
   ~OptimizationPassGuard();
+
  protected:
   OptimizationPassCategory cat_;
   bool prev_status_;

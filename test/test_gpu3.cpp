@@ -30,6 +30,7 @@
 #include <kernel_ir_dispatch.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
+#include <optimization/opt_pass.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -38,7 +39,6 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
-#include <optimization/opt_pass.h>
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
@@ -6071,7 +6071,8 @@ TEST_F(NVFuserTest, FusionBroadcastPersistentReduction_CUDA) {
 // https://github.com/csarofeen/pytorch/issues/2094
 TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
   // disable cast optimization, which causes numerical issue on tests
-  optimization::OptimizationPassGuard guard(optimization::OptimizationPassCategory::PreSegmenter, false);
+  optimization::OptimizationPassGuard guard(
+      optimization::OptimizationPassCategory::PreSegmenter, false);
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -8444,7 +8445,8 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
                    .dtype(DataType::Double)
                    .build();
     fusion->addInput(tv0);
-    auto tv1 = castOp(DataType::Half, tv0); // consecutive cast should be removed
+    auto tv1 =
+        castOp(DataType::Half, tv0); // consecutive cast should be removed
     auto tv2 = castOp(DataType::Float, tv1);
     auto tv3 = relu(tv2);
     auto tv4 = neg(tv3);
@@ -8468,7 +8470,12 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
         cast_op_count == 2, "cast optimization isn't working as expected");
 
     testValidate(
-        executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+        executor_cache.fusion(),
+        outputs,
+        {at_x},
+        {ref_out},
+        __LINE__,
+        __FILE__);
   }
 
   {
@@ -8502,7 +8509,12 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
         cast_op_count == 2, "cast optimization isn't working as expected");
 
     testValidate(
-        executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+        executor_cache.fusion(),
+        outputs,
+        {at_x},
+        {ref_out},
+        __LINE__,
+        __FILE__);
   }
 
   {
@@ -8535,7 +8547,12 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
         cast_op_count == 0, "cast optimization isn't working as expected");
 
     testValidate(
-        executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+        executor_cache.fusion(),
+        outputs,
+        {at_x},
+        {ref_out},
+        __LINE__,
+        __FILE__);
   }
 }
 
