@@ -87,7 +87,7 @@ void registerOptimizationPass(
 void applyOptimizationPass(
     const OptimizationPassCategory& category,
     Fusion* fusion) {
-  if (disabled_pass_flag.count(category) != 0) {
+  if (disabled_pass_flag.count(category) == 0) {
     OptimizationRegistry::getInstance().apply(category, fusion);
   }
 }
