@@ -8483,6 +8483,8 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       __LINE__,
       __FILE__,
       "");
+}
+
 // https://github.com/NVIDIA/Fuser/issues/335
 // This test is to make sure the benchmark in layer_norm_fused.cpp is correctly
 // implemented.

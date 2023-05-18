@@ -1326,7 +1326,7 @@ void createNvrtcProgram(
 }
 
 // Compile the given source code with the NVRTC compiler
-// driver. Return the binary of the kernel and its lowered name
+// driver. Return the binary of the kernel, compile log, and its lowered name
 std::tuple<std::vector<char>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
