@@ -18,7 +18,7 @@ thread_local bool pre_segmenter_flag;
 
 void setOptimizationFlag(const OptimizationPassCategory& flag, bool enabled) {
   if (flag == OptimizationPassCategory::PreSegmenter) {
-    pre_segmenter_flag = enabled.value();
+    pre_segmenter_flag = enabled;
   }
 }
 

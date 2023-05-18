@@ -11,7 +11,7 @@
 
 namespace nvfuser::optimization {
 
-enum class TORCH_CUDA_CU_API OptimizationPassCategory { PreSegmenter };
+enum class TORCH_CUDA_CU_API OptimizationPassCategory { PreSegmenter, Null };
 using FusionPass = std::function<void(Fusion*)>;
 
 class OptimizationPass {
