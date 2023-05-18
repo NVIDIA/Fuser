@@ -8526,6 +8526,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
+
 // Simple test to check if the aligned block sync is used in aligned
 // reductions
 TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
@@ -8567,8 +8568,6 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
       kernel_string);
 }
 
-// Simple test to check if the aligned block sync is used in aligned
-// reductions
 TEST_F(NVFuserTest, IntegerDivision_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
