@@ -13,7 +13,21 @@ namespace nvfuser::optimization {
 
 namespace {
 
-thread_local std::unordered_set<OptimizationPassCategory> disabled_pass_flag;
+// TODO: throw away toy flags. Will redo this at later stage
+thread_local bool pre_segmenter_flag;
+
+void setOptimizationFlag(const OptimizationPassCategory& flag, bool enabled) {
+  if (flag == OptimizationPassCategory::PreSegmenter) {
+    pre_segmenter_flag = enabled.value();
+  }
+}
+
+bool getOptimizationFlag(const OptimizationPassCategory& flag) {
+  if (flag == OptimizationPassCategory::PreSegmenter) {
+    return pre_segmenter_flag;
+  }
+  return false;
+}
 
 class OptimizationRegistry {
  public:
@@ -69,12 +83,10 @@ class OptimizationRegistry {
 OptimizationPassGuard::OptimizationPassGuard(
     const OptimizationPassCategory& category,
     bool enable)
-    : cat_(category) {
-  prev_status_ = switchOptimizationPass(cat_, enable);
-}
+    : cat_(category), prev_status_(switchOptimizationPass(cat_, enable)) {}
 
 OptimizationPassGuard::~OptimizationPassGuard() {
-  switchOptimizationPass(cat_, prev_status_);
+  setOptimizationFlag(cat_, prev_status_);
 }
 
 void registerOptimizationPass(
@@ -88,22 +100,18 @@ void registerOptimizationPass(
 void applyOptimizationPass(
     const OptimizationPassCategory& category,
     Fusion* fusion) {
-  if (disabled_pass_flag.count(category) == 0) {
+  if (getOptimizationFlag(category)) {
     OptimizationRegistry::getInstance().apply(category, fusion);
   }
 }
 
 bool switchOptimizationPass(
     const OptimizationPassCategory& category,
-    std::optional<bool> enable) noexcept {
-  auto enabled = disabled_pass_flag.count(category) == 0;
+    std::optional<bool> enable) {
+  auto enabled = getOptimizationFlag(category);
 
   if (enable.has_value()) {
-    if (enable.value()) {
-      disabled_pass_flag.erase(category);
-    } else {
-      disabled_pass_flag.insert(category);
-    }
+    setOptimizationFlag(category, enable.value());
   }
   return enabled;
 }
