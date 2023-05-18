@@ -741,7 +741,7 @@ TensorView* binaryOp(
         BinaryOpType::op_type, v1, v2, TypePromotion::float_op_config); \
   }
 
-NVFUSER_DEFINE_BINARY_FLOAT_OP(div, Div)
+NVFUSER_DEFINE_BINARY_FLOAT_OP(truediv, Div)
 NVFUSER_DEFINE_BINARY_FLOAT_OP(atan2, Atan2)
 #undef NVFUSER_DEFINE_BINARY_FLOAT_OP
 
@@ -786,7 +786,7 @@ NVFUSER_DEFINE_BINARY_FLOAT_ONLY_OP(nextafter, Nextafter)
   }
 
 // Integer binary ops
-NVFUSER_DEFINE_BINARY_CAST_OP(cpp_div, Div)
+NVFUSER_DEFINE_BINARY_CAST_OP(div, Div)
 NVFUSER_DEFINE_BINARY_CAST_OP(mod, Mod)
 NVFUSER_DEFINE_BINARY_CAST_OP(ceilDiv, CeilDiv)
 NVFUSER_DEFINE_BINARY_CAST_OP(add, Add)
