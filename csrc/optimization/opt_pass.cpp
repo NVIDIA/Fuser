@@ -14,7 +14,7 @@ namespace nvfuser::optimization {
 namespace {
 
 // TODO: throw away toy flags. Will redo this at later stage
-thread_local bool pre_segmenter_flag;
+thread_local bool pre_segmenter_flag = true;
 
 void setOptimizationFlag(const OptimizationPassCategory& flag, bool enabled) {
   if (flag == OptimizationPassCategory::PreSegmenter) {
