@@ -24,7 +24,7 @@ class OptimizationRegistry {
     PassEntry(int priority, FusionPass pass, std::string name)
         : priority_(priority),
           pass_(std::move(pass)),
-          name_(std::move(name_)) {}
+          name_(std::move(name)) {}
   };
 
   void registerPass(
