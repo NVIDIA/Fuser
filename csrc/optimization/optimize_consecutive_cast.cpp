@@ -38,10 +38,12 @@ class ConsecutiveCastPass : OptimizationPass {
 	    auto original_dtype = prev_expr->input(0)->getDataType().value();
 	    auto intermediate_dtype = intermediate_cast->getDataType().value();
 	    auto out_dtype = expr->output(0)->getDataType().value();
-	    // cases where skipping the intermediate cast is relatively safe, either:
-	    //   1. intermediate is the same type category;
-	    //   2. intermediate is a floating point while output is integral;
-	    // and we support direct cast from input dtype to output dtype.
+	    // cases where skipping the intermediate cast is relatively safe, two conditions:
+	    //   1. original_dtype is the same as out_dtype; or
+	    //   2. we support direct cast from original_dtype to out_dtype.
+	    // and
+	    //   1. intermediate_dtype is the same type category as with out_dtype; or
+	    //   2. intermediate_dtype is a floating point while output is integral;
             if (cast_func_str({original_dtype, out_dtype}).has_value() &&
 	        ((isIntegralType(intermediate_dtype) && isIntegralType(out_dtype)) ||
 	        (isFloatingPointType(intermediate_dtype) && isFloatingPointType(out_dtype)) ||

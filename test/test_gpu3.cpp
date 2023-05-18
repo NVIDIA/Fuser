@@ -8491,7 +8491,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
 
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({at_x});
-    auto ref_out = at_x.clone().int().float().neg();
+    auto ref_out = at_x.clone().to(at::kInt).to(at::kFloat).neg();
 
     auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
     auto complete_fusion = optimized_fusion->fusionSegments()->completeFusion();
