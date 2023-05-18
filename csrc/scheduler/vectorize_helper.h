@@ -71,6 +71,13 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // Multiply numerator by provided value, or if currently zero set numerator to
   // provided value.
   void multiplyNumeratorValue(Val* new_numerator_val) {
+    if (new_numerator_val->isZeroInt() ||
+        (new_numerator_val->isConstInt() &&
+         new_numerator_val->evaluateInt() == 0)) {
+      // If we know the value is zero, we want to skip setting zero_ = true
+      return;
+    }
+
     zero_ = false;
     if (new_numerator_val->isConstInt()) {
       const_numerator_vals_.push_back(new_numerator_val->evaluateInt());
