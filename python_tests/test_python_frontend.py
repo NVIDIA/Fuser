@@ -2182,6 +2182,64 @@ class TestNvFuserFrontend(TestCase):
                 fc = FusionCache.get()
                 fc.reset()
 
+    def test_multiple_empty_slices(self):
+        inputs = [
+            torch.testing.make_tensor((4,), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T2 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            # Perform a size-1 slice and a size-0 slice on T2. The size-1 slice
+            # could be size >1 with no change in the error. The order does not
+            # matter. Performing only one of these slices does not trigger the
+            # error and the output is correct in that case. If there are
+            # multiple size-0 slices the error is not triggered. It only seems
+            # to appear when there are both size-0 and size non-zero slices of
+            # the same tensor.
+            T3 = fd.ops.slice(T2, start_indices=[2], end_indices=[3], strides=[1])
+            T4 = fd.ops.slice(T2, start_indices=[1], end_indices=[1], strides=[1])
+            fd.add_output(T3)
+            fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(inputs[0][2:3], nvf_out[0])
+        self.assertEqual(inputs[0][1:1], nvf_out[1])
+
+    def test_thunder420(self):
+        inputs = [
+            torch.testing.make_tensor((4, 6, 7), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T2 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            # Perform a size-1 slice and a size-0 slice on T2. The size-1 slice
+            # could be size >1 with no change in the error. The order does not
+            # matter. Performing only one of these slices does not trigger the
+            # error and the output is correct in that case. If there are
+            # multiple size-0 slices the error is not triggered. It only seems
+            # to appear when there are both size-0 and size non-zero slices of
+            # the same tensor.
+            T3 = fd.ops.slice(T2, start_indices=[0], end_indices=[4], strides=[1])
+            T4 = fd.ops.slice(T2, start_indices=[1], end_indices=[1], strides=[1])
+            fd.add_output(T3)
+            fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(inputs[0][2:3], nvf_out[0])
+        self.assertEqual(inputs[0][1:1], nvf_out[1])
+
 
 if __name__ == "__main__":
     run_tests()
