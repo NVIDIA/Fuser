@@ -8656,7 +8656,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
-  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  auto optimized_fusion = fec.getMostRecentKernelRuntime();
   auto complete_fusion = optimized_fusion->fusionSegments()->completeFusion();
   int cast_op_count = 0;
   for (auto expr : complete_fusion->exprs()) {
