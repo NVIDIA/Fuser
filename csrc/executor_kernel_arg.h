@@ -247,8 +247,8 @@ struct TensorArgAbstract : ArgAbstract {
         false, "The stride of an abstract tensor arg is not known.");
   }
 
-  void* getPointer() const {
-    return tensor_.data_ptr();
+  size_t getPointerAddress() const {
+    return (size_t)tensor_.data_ptr();
   }
 
   DataType getDataType() const {
@@ -299,7 +299,7 @@ struct TensorArgAbstract : ArgAbstract {
     for (auto i = 0; i < rank; i++) {
       ss << getSize(i) << ", ";
     }
-    ss << ") pointer: " << getPointer();
+    ss << ") pointer: " << getPointerAddress();
     return ss.str();
   }
 
@@ -317,7 +317,7 @@ struct TensorArgAbstract : ArgAbstract {
 
     auto data = serde::CreateTensorArg(
         builder,
-        (size_t)getPointer(),
+        getPointerAddress(),
         builder.CreateVector(sizes_fb),
         0,
         serde::mapToSerdeDtype(getDataType()),
@@ -410,7 +410,7 @@ struct TensorArg : public TensorArgAbstract {
 
     auto data = serde::CreateTensorArg(
         builder,
-        (size_t)getPointer(),
+        getPointerAddress(),
         builder.CreateVector(sizes_fb),
         builder.CreateVector(strides_fb),
         serde::mapToSerdeDtype(getDataType()),
@@ -471,6 +471,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
+
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      at::ScalarType dtype);
 
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);

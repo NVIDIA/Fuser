@@ -425,6 +425,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp

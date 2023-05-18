@@ -21,65 +21,6 @@ std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
   return ptr;
 }
 
-/*
-template <typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    const serde::TensorArg* tensor) {
-  auto meta_tensor = at::native::empty_strided_cpu(
-      parseVector(tensor->sizes()),
-      parseVector(tensor->strides()),
-      mapToAtenDtype(tensor->dtype()),
-      c10::nullopt,
-      c10::Device(c10::DeviceType::Meta, 0),
-      c10::nullopt);
-  switch (tensor->sizes()->size()) {
-    case (0):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<0, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (1):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<1, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (2):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<2, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (3):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<3, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (4):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<4, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (5):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<5, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (6):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<6, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (7):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<7, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    case (8):
-      return std::make_unique<
-          nvfuser::TensorArg<TensorArgCodegen<8, nvfuser_index_t>>>(
-          meta_tensor, nullptr);
-    default:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to generate a tensor to run a generated kernel with ",
-          tensor->sizes()->size(),
-          " dimensions, however only 0 to 8 dimensional tensor are supported.");
-  }
-  return nullptr;
-}
-*/
-
 std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
     const serde::TensorArg* tensor) {
   auto meta_tensor = at::empty(
@@ -147,14 +88,6 @@ void ArgAbstractFactory::registerAllParsers() {
 
   auto deserializeTensorArg = [](const serde::ArgAbstract* buffer) {
     auto tensor = buffer->data_as_TensorArg();
-    /*
-    if (tensor->index_type_resolved()) {
-      if (tensor->is_int_index_mode()) {
-        return getTensorArg<int>(tensor);
-      }
-      return getTensorArg<int64_t>(tensor);
-    }
-    */
     return getAbstractTensorArg(tensor);
   };
   registerParser(serde::ArgAbstractData_TensorArg, deserializeTensorArg);
