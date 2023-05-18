@@ -44,7 +44,7 @@ class ConsecutiveCastPass : OptimizationPass {
 	    // and
 	    //   1. intermediate_dtype is the same type category as with out_dtype; or
 	    //   2. intermediate_dtype is a floating point while output is integral;
-            if (cast_func_str({original_dtype, out_dtype}).has_value() &&
+            if ((original_dtype == out_dtype || cast_func_str({original_dtype, out_dtype}).has_value()) &&
 	        ((isIntegralType(intermediate_dtype) && isIntegralType(out_dtype)) ||
 	        (isFloatingPointType(intermediate_dtype) && isFloatingPointType(out_dtype)) ||
 	        (isComplexType(intermediate_dtype) && isComplexType(out_dtype)) ||
