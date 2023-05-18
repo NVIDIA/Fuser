@@ -20,6 +20,15 @@ class OptimizationPass {
   virtual std::string name() = 0;
 };
 
+class OptimizationPassGuard {
+ public:
+  OptimizationPassGuard(const OptimizationPassCategory& category, bool enable);
+  ~OptimizationPassGuard();
+ protected:
+  OptimizationPassCategory cat_;
+  bool prev_status_;
+};
+
 // higher priority pass runs earlier
 // newly registered pass runs at the end of all passes with identical priority
 TORCH_CUDA_CU_API void registerOptimizationPass(
@@ -29,5 +38,8 @@ TORCH_CUDA_CU_API void registerOptimizationPass(
 TORCH_CUDA_CU_API void applyOptimizationPass(
     const OptimizationPassCategory& category,
     Fusion* fusion);
+TORCH_CUDA_CU_API bool switchOptimizationPass(
+    const OptimizationPassCategory& category,
+    std::optional<bool> enable);
 
 } // namespace nvfuser::optimization

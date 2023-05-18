@@ -13,6 +13,8 @@ namespace nvfuser::optimization {
 
 namespace {
 
+thread_local std::unordered_set<OptimizationPassCategory> disabled_pass_flag;
+
 class OptimizationRegistry {
  public:
   struct PassEntry {
@@ -66,6 +68,14 @@ class OptimizationRegistry {
 
 } // namespace
 
+OptimizationPassGuard::OptimizationPassGuard(const OptimizationPassCategory& category, bool enable) : cat_(category) {
+  prev_status_ = switchOptimizationPass(cat_, enable);
+}
+
+OptimizationPassGuard::~OptimizationPassGuard() {
+  switchOptimizationPass(cat_, prev_status_);
+}
+
 void registerOptimizationPass(
     const OptimizationPassCategory& category,
     OptimizationPass* pass,
@@ -77,7 +87,24 @@ void registerOptimizationPass(
 void applyOptimizationPass(
     const OptimizationPassCategory& category,
     Fusion* fusion) {
-  OptimizationRegistry::getInstance().apply(category, fusion);
+  if (disabled_pass_flag.count(category) != 0) {
+    OptimizationRegistry::getInstance().apply(category, fusion);
+  }
+}
+
+bool switchOptimizationPass(
+    const OptimizationPassCategory& category,
+    std::optional<bool> enable) {
+  auto enabled = disabled_pass_flag.count(category) == 0;
+
+  if (enable.has_value()) {
+    if (enable.value()) {
+      disabled_pass_flag.erase(category);
+    } else {
+      disabled_pass_flag.insert(category);
+    }
+  }
+  return enabled;
 }
 
 } // namespace nvfuser::optimization
