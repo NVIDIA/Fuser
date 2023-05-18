@@ -2143,6 +2143,21 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
 
   tv1->merge(0, 1); // size 0*5 = 0
   tv1->split(0, 4); // sizes (0, 4)
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser
