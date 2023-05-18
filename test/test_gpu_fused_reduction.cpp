@@ -1279,11 +1279,11 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
-  auto t3 = t0 / t0.sum({0}).unsqueeze(0);
-  auto t7 = t4 / t4.sum({0}).unsqueeze(0);
+  auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
+  auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t11 = at::div(t8, t8.sum({0}).unsqueeze(0), "trunc");
-  auto t15 = t12 / t12.sum({0}).unsqueeze(0);
-  auto t19 = t16 / t16.sum({0}).unsqueeze(0);
+  auto t15 = t12 / t12.sum({0}).unsqueeze(0).to(at::kComplexDouble);
+  auto t19 = t16 / t16.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto ref = t3 + t7 + t11 + t15 + t19;
   testValidate(fe.kernel(), outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
