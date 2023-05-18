@@ -8620,7 +8620,7 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
 
     auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
     std::array<float, 3> data{1.0, INFINITY, NAN};
-    const auto input = at::from_blob(data.data(), {1}, {3}).to(options);
+    const auto input = at::from_blob(data.data(), {3}, {1}).to(options);
 
     FusionExecutor fe;
     fe.compileFusion(fusion, {input});
