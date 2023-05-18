@@ -1236,7 +1236,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   consumer->setDomain(replayed_consumer_pair.first);
 
   // Recover allocation domain from transform replay
-  // TODO: should move this to
+  // TODO: Instead of recovering allocation domain here, should we move the
+  // logic below to TransformReplay::replayCasP to make it capable of replaying
+  // allocation domain with an opt-in flag
   // TransformReplay::replayCasP(replay_allocation=true)?
   // I don't see any other use case yet. If we do have one, then we should move.
   if (producer->hasAllocation()) {
