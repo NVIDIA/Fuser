@@ -1182,8 +1182,6 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
     }
   }
 
-  std::vector<IterDomain*> allocation_domain = getAllocationDomain();
-
   // Create Producer Domain
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
@@ -1194,7 +1192,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
           container(),
           getRootDomain(),
           getRFactorDomain(),
-          allocation_domain,
+          getAllocationDomain(),
           getLeafDomain(),
           getContiguity()),
       getDataType().value());
@@ -1237,14 +1235,17 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   consumer->setDomain(replayed_consumer_pair.first);
 
-  // Recover allocation domain from transform replay
-  if (!allocation_domain.empty()) {
+  // Recover allocation domain from transform replay/
+  // TODO: should move this to
+  // TransformReplay::replayCasP(replay_allocation=true)?
+  // I don't see any other use case yet. If we do have one, then we should move.
+  if (producer->hasAllocation()) {
     auto replay_CasP = BestEffortReplay::replayCasP(
         consumer, producer, -1, PairwiseRootDomainMap(producer, consumer));
     const auto& p2c_map = replay_CasP.getReplay();
     std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(allocation_domain.size());
-    for (auto id : allocation_domain) {
+    new_allocation_domain.reserve(producer->getAllocationDomain().size());
+    for (auto id : producer->getAllocationDomain()) {
       auto it = p2c_map.find(id);
       TORCH_CHECK(
           it != p2c_map.end(),
