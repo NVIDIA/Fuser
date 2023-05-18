@@ -22,9 +22,7 @@ class OptimizationRegistry {
     FusionPass pass_;
     std::string name_;
     PassEntry(int priority, FusionPass pass, std::string name)
-        : priority_(priority),
-          pass_(std::move(pass)),
-          name_(std::move(name)) {}
+        : priority_(priority), pass_(std::move(pass)), name_(std::move(name)) {}
   };
 
   void registerPass(
@@ -97,7 +95,7 @@ void applyOptimizationPass(
 
 bool switchOptimizationPass(
     const OptimizationPassCategory& category,
-    std::optional<bool> enable) {
+    std::optional<bool> enable) noexcept {
   auto enabled = disabled_pass_flag.count(category) == 0;
 
   if (enable.has_value()) {
