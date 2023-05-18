@@ -1182,6 +1182,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
     }
   }
 
+  std::vector<IterDomain*> allocation_domain = getAllocationDomain();
+
   // Create Producer Domain
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
@@ -1192,6 +1194,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
           container(),
           getRootDomain(),
           getRFactorDomain(),
+          allocation_domain,
           getLeafDomain(),
           getContiguity()),
       getDataType().value());
@@ -1207,6 +1210,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
   }
 
+  // Warning: allocation domain is temporarily discarded. It will be recovered
+  // later.
   consumer->setDomain(IrBuilder::create<TensorDomain>(
       container(),
       new_root_domain,
@@ -1229,7 +1234,29 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   auto replayed_consumer_pair =
       TransformReplay::replayCasP(consumer, producer, -1);
+
   consumer->setDomain(replayed_consumer_pair.first);
+
+  // Recover allocation domain from transform replay
+  if (!allocation_domain.empty()) {
+    auto replay_CasP = BestEffortReplay::replayCasP(
+        consumer, producer, -1, PairwiseRootDomainMap(producer, consumer));
+    const auto& p2c_map = replay_CasP.getReplay();
+    std::vector<IterDomain*> new_allocation_domain;
+    new_allocation_domain.reserve(allocation_domain.size());
+    for (auto id : allocation_domain) {
+      auto it = p2c_map.find(id);
+      TORCH_CHECK(
+          it != p2c_map.end(),
+          "Unable to cacheBefore: can not map ",
+          id->toString(),
+          " in the allocation domain of tensor ",
+          producer->toString(),
+          " to consumer");
+      new_allocation_domain.emplace_back(it->second);
+    }
+    consumer->setAllocationDomain(std::move(new_allocation_domain), true);
+  }
 
   return producer;
 }
