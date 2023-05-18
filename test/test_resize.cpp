@@ -2055,7 +2055,7 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
 // transform on a size-0 dimension, which is not allowed.
-TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
+TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2117,6 +2117,32 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
 
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
   TORCH_CHECK(ref1.equal(cg_outputs[1]));
+}
+
+// In this test, we split and merge with size-zero dimensions directly.
+TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({4, 5});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(1)},
+       {IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(5),
+        IrBuilder::create<Int>(1)}});
+  // tv1 is of shape {0, 5}
+  fusion->addOutput(tv1);
+
+  tv1->merge(0, 1); // size 0*5 = 0
+  tv1->split(0, 4); // sizes (0, 4)
 }
 
 } // namespace nvfuser
