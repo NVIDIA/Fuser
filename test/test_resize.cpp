@@ -2053,4 +2053,70 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
       __FILE__);
 }
 
+// When scheduling this test, the pointwise scheduler attempt to replay a Split
+// transform on a size-0 dimension, which is not allowed.
+TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({8});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(1)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(4),
+        IrBuilder::create<Int>(1)}});
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(4),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv4 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv5 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv6 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(8),
+        IrBuilder::create<Int>(1)}});
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutor fe;
+
+  auto ref0 = t0.index({at::indexing::Slice(0, 2)});
+  auto ref1 = t0.index({at::indexing::Slice(0, 4)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  TORCH_CHECK(ref1.equal(cg_outputs[1]));
+}
+
 } // namespace nvfuser

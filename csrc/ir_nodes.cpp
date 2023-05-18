@@ -2331,10 +2331,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     Val* start_offset,
     Val* stop_offset) {
   TORCH_CHECK(
-      !in->extent()->isZeroInt(),
-      "Splitting IterDomains with ending values that are 0 is not supported at this time.");
-
-  TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   if (factor->getValType() == ValType::Scalar) {
