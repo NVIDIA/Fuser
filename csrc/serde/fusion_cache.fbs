@@ -46,6 +46,7 @@ enum Contiguity:int {
 // them during deserialization.
 enum RecordType:int {
     Base = 0,
+    AtOp,
     BatchNormOp,
     BroadcastOp,
     BroadcastInDim,
@@ -97,6 +98,7 @@ enum RecordType:int {
     ScalarConstantInt,
     ScalarInput,
     ShapeOp,
+    SizeOp,
     SliceOp,
     SqueezeOp,
     Start,
@@ -111,6 +113,7 @@ enum RecordType:int {
 
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
+  At,
   BatchNorm,
   Bool,
   Broadcast,
@@ -130,12 +133,18 @@ union RecordData {
   Reduction,
   Reshape,
   ScalarInput,
+  Size,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
   VectorInt,
   VectorFromState,
   VectorInput,
+}
+
+// Data for At
+table At {
+  index: long;
 }
 
 // Data for Scalar Constant Bool
@@ -166,6 +175,11 @@ table Int {
 // Data for Scalar Input
 table ScalarInput {
   dtype: DataType;
+}
+
+// Data for Scalar Input
+table Size {
+  dim: long;
 }
 
 // Data for BatchNormOpRecord
