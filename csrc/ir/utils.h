@@ -429,5 +429,9 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
+//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! guaranteed not to cause thread divergence
+bool isAlignedScopeExpr(const Expr* expr);
+
 } // namespace ir_utils
 } // namespace nvfuser

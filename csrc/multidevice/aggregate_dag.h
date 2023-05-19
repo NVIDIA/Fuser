@@ -68,8 +68,8 @@ class TORCH_CUDA_CU_API AggregateVal : public Val {
 
   NVFUSER_DECLARE_CLONE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   // returns the Val from which this AggregateVal has been created
   Val* getOriginalVal() const {
@@ -104,8 +104,8 @@ class TORCH_CUDA_CU_API AggregateExpr : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   const char* getOpString() const override {
     return "AggregateExpr";
@@ -131,8 +131,8 @@ class TORCH_CUDA_CU_API SendRecv : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   const char* getOpString() const override {
     return "SendRecv";

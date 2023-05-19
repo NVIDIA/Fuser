@@ -2251,9 +2251,6 @@ std::vector<IterDomain*> IterDomain::clone(
 // predication.
 IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   TORCH_CHECK(
-      !outer->extent()->isZeroInt() && !inner->extent()->isZeroInt(),
-      "Merging IterDomains with ending values that are 0 is not supported at this time.");
-  TORCH_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
       "Outer: ",
@@ -2330,10 +2327,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     bool inner_split,
     Val* start_offset,
     Val* stop_offset) {
-  TORCH_CHECK(
-      !in->extent()->isZeroInt(),
-      "Splitting IterDomains with ending values that are 0 is not supported at this time.");
-
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
