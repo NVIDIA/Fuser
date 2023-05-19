@@ -3252,6 +3252,40 @@ void TensorDomain::setAllocationDomain(
   contiguity_ = std::move(new_contiguity);
 }
 
+void SqueezeID::checkConcretization(Val* old_val, Val* new_val) const {
+  Expr::checkConcretization(old_val, new_val);
+  if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
+    TORCH_CHECK(
+        new_id->isBroadcast(),
+        "SqueezeID input ",
+        old_val->toString(),
+        " must concretize to Broadcast IterDomain but found ",
+        new_id->toString());
+    // TODO: It is currently difficult to check expanded_extent at this stage
+    // since the expanded extent may be non-constant but provably 1, so it is
+    // left unchecked. What may be needed is a more powerful framework for
+    // proving properties like this, see
+    // https://github.com/NVIDIA/Fuser/issues/320
+  } else {
+    TORCH_CHECK(
+        new_val->isA<IterDomain>(),
+        "SqueezeID input must concretize to IterDomain. Found ",
+        new_val->toString());
+  }
+}
+
+std::string SqueezeID::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
+std::string SqueezeID::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "SqueezeID: " << in()->toString();
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SqueezeID)
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,

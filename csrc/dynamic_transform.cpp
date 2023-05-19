@@ -272,6 +272,11 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  //! Check uses of old_val to ensure that new_val does not violate
+  //! assumptions. This is currently only used to check that inputs to SqueezeID
+  //! are marked broadcast during concretization.
+  void checkConcretizedUses(Val* old_val, Val* new_val) const;
+
   using OptOutMutator::mutate;
 
   void mutate(TensorView* tv) final;
@@ -342,6 +347,22 @@ void DynamicTransformConcretizer::concretizeResize() {
         iter_type);
 
     registerMutation(id, new_id);
+  }
+}
+
+void DynamicTransformConcretizer::checkConcretizedUses(
+    Val* old_val,
+    Val* new_val) const {
+  for (const auto use : old_val->uses()) {
+    try {
+      use->checkConcretization(old_val, new_val);
+    } catch (...) {
+      std::stringstream ss;
+      ss << "Failed while checking concretization of " << old_val->toString();
+      ss << " to " << new_val->toString();
+      ss << " in expression " << use->toString();
+      std::throw_with_nested(std::runtime_error(ss.str()));
+    }
   }
 }
 

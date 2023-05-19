@@ -2160,4 +2160,53 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
 }
 
+// Test squeezing a symbolic dimension
+TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({4, 5});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto s1 = IrBuilder::create<Int>();
+  fusion->addInput(s1);
+  auto numel_symb = mul(tv0->axis(0)->extent(), tv0->axis(1)->extent());
+  auto tv1 = reshape(tv0, {s1, ceilDiv(numel_symb, s1)});
+  // tv1 should have symbolic output IterTypes, so squeeze should accept
+  // symbolic, and concretization should fail if symbolic squeeze input is not
+  // concretized to Broadcast
+  // NOTE: squeeze interface should be updated to match reshape and friends,
+  // accepting Val inputs
+  auto tv2 = squeeze(tv1, {20, 1}, 1);
+  // tv1 is of shape {0, 5}
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, 20});
+
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto ref0 = t0.flatten();
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+
+  bool failed = false;
+  try {
+    fec.runFusionWithInputs({t0, 10});
+  } catch (const std::exception& e) {
+    std::cout << e.what() << std::endl;
+    failed = true;
+  }
+  TORCH_CHECK(
+      failed, "Concretization should fail when passing incompatible sizes");
+}
+
 } // namespace nvfuser
