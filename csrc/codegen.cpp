@@ -8,7 +8,7 @@
 #include <codegen.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <scheduler/mma_utils.h>
@@ -120,7 +120,7 @@ std::string genCall(
   return ss.str();
 }
 
-class CudaKernelGenerator : private OptOutConstDispatch {
+class CudaKernelGenerator : private kir::ConstIrVisitor {
   static constexpr const char* kTab = "  ";
 
  public:
@@ -141,6 +141,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   explicit CudaKernelGenerator(const kir::Kernel* kernel) : kernel_(kernel) {
     initStringStreamFormat(code_);
   }
+
+  using kir::ConstIrVisitor::handle;
 
   void initStringStreamFormat(std::stringstream& ss) {
     ss.imbue(std::locale("C"));
@@ -322,10 +324,17 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
   }
 
-  void genBody() {
-    for (auto expr : kernel_->topLevelExprs()) {
-      OptOutConstDispatch::handle(expr);
+  // Cannot just use ConstIrVisitor::handle as it expects a vector of
+  // const Expr*, whereas most of the IR API returns a vector of
+  // non-const Expr*.
+  void handle(const std::vector<Expr*>& exprs) {
+    for (Expr* expr : exprs) {
+      kir::ConstIrVisitor::handle(expr);
     }
+  }
+
+  void genBody() {
+    handle(kernel_->topLevelExprs());
   }
 
   void startBlock(bool continuation = false) {
@@ -343,6 +352,24 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     indent() << "}" << sep;
   }
 
+  //! Remember the alignment info of a new scope expr (IfThenElse or ForLoop)
+  void pushAlignmentInfo(const Expr* scope_expr) {
+    aligned_scope_exprs_.push_back(ir_utils::isAlignedScopeExpr(scope_expr));
+  }
+
+  void popAlignmentInfo() {
+    aligned_scope_exprs_.pop_back();
+  }
+
+  //! Check if the current scope is aligned, i.e., guaranteed to cause
+  //! no thread divergence
+  bool isAligned() const {
+    return std::all_of(
+        aligned_scope_exprs_.begin(), aligned_scope_exprs_.end(), [](bool b) {
+          return b;
+        });
+  }
+
   std::ostream& indent() {
     for (const auto i : c10::irange(block_nest_level_)) {
       (void)i; // Suppress unused variable warning
@@ -352,10 +379,22 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   }
 
   std::string gen(const Statement* stmt) {
+    if (stmt->isA<Expr>()) {
+      // This expr should just be an individul expr with no nested
+      // scope
+      TORCH_INTERNAL_ASSERT(
+          !stmt->isA<kir::IfThenElse>() && !stmt->isA<kir::ForLoop>(),
+          "Invalid expr: ",
+          stmt->toString());
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          stmt->isA<Val>(), "Unknown Statement IR type: ", stmt->toString());
+    }
+
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    OptOutConstDispatch::handle(stmt);
+    handle(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }
@@ -1098,27 +1137,28 @@ class CudaKernelGenerator : private OptOutConstDispatch {
 
     const auto data_type = output->dtype();
 
-    indent() << "blockReduce<" << (tidx ? "true" : "false") << ", "
-             << (tidy ? "true" : "false") << ", " << (tidz ? "true" : "false")
-             << ">(\n";
-    indent() << kTab << gen(output) << ",\n";
-    indent() << kTab << gen(input) << ",\n";
-    indent() << kTab << genReductionOp(reduction_op_type, output->dtype())
-             << ",\n";
-    indent() << kTab << "threadIdx,\n";
-    indent() << kTab << "blockDim,\n";
-    indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
+    ArgumentBuilder template_args;
+    template_args.arg(tidx).arg(tidy).arg(tidz);
+    template_args.arg(isAligned());
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg("static_cast<").append(data_type).append("*>(shared_mem)");
     TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
-    indent() << kTab << genInline(read_pred) << ",\n";
+    func_args.arg(genInline(read_pred));
     // Pass the write predicate if available and different from the
     // default predicate. The blockReduce runtime function uses the
     // default predicate for both read and write when only the
     // default one is given.
     if (write_pred != nullptr) {
       TORCH_INTERNAL_ASSERT(write_pred->hasValue());
-      indent() << kTab << genInline(write_pred) << ",\n";
+      func_args.arg(genInline(write_pred));
     }
-    indent() << kTab << data_type << "(" << genInline(init) << "));\n";
+    func_args.arg(genCall(data_type, genInline(init)));
+
+    indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
   void handle(const ReductionOp* rop) final {
@@ -2477,17 +2517,11 @@ class CudaKernelGenerator : private OptOutConstDispatch {
              << reduction_name << ";\n";
   }
 
-  void handleScope(const kir::Scope& scope) {
-    for (auto expr : scope.exprs()) {
-      OptOutConstDispatch::handle(expr);
-    }
-  }
-
   void handleTrivialLoop(const kir::ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
     }
-    handleScope(loop->body());
+    kir::ConstIrVisitor::handle(loop);
     if (loop->vectorize()) {
       vectorize_scope_ = false;
     }
@@ -2551,7 +2585,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     // considered trivial as the loop trip count is not one.
     if (loop->isGroup()) {
       grouped_loops_.push_back(loop);
-      handleScope(loop->body());
+      kir::ConstIrVisitor::handle(loop);
       grouped_loops_.pop_back();
       return;
     }
@@ -2588,7 +2622,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     }
     code_ << gen_index << " < " << gen_stop << "; " << step_code.str() << ") ";
     startBlock(true);
-    handleScope(loop->body());
+    kir::ConstIrVisitor::handle(loop);
     endBlock();
   }
 
@@ -2597,27 +2631,31 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     if (conditional->isConst()) {
       // If the conditional is a constant, then the IfThenElse is not required
       if (conditional->value().value()) {
-        handleScope(ite->thenBody());
+        handle(ite->thenBody().exprs());
       } else {
-        handleScope(ite->elseBody());
+        handle(ite->elseBody().exprs());
       }
       return;
     }
+
+    pushAlignmentInfo(ite);
 
     indent() << "if (" << genInline(conditional) << ") ";
 
     // "then" block
     startBlock(true);
-    handleScope(ite->thenBody());
+    handle(ite->thenBody().exprs());
 
     // "else" block (optional)
     if (ite->hasElse()) {
       endBlock(" else ");
       startBlock(true);
-      handleScope(ite->elseBody());
+      handle(ite->elseBody().exprs());
     }
 
     endBlock();
+
+    popAlignmentInfo();
   }
 
   void handle(const kir::Allocate* alloc) final {
@@ -2684,7 +2722,7 @@ class CudaKernelGenerator : private OptOutConstDispatch {
     // Use a custom synchronization method if enabled
     if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
-    } else if (sync->isAligned()) {
+    } else if (isAligned()) {
       indent() << "__syncthreads();\n";
     } else {
       indent() << "__barrier_sync(0);\n";
@@ -2798,6 +2836,8 @@ class CudaKernelGenerator : private OptOutConstDispatch {
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
   std::unordered_map<const Int*, int64_t> index_replacement_map_;
+  //! Keep track of thread alignment property
+  std::vector<bool> aligned_scope_exprs_;
 };
 
 } // namespace

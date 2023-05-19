@@ -12,8 +12,8 @@
 #include <expr_evaluator.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
 

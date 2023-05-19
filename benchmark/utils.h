@@ -10,8 +10,8 @@
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>

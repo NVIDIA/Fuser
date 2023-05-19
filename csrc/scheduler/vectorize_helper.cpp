@@ -11,7 +11,7 @@
 #include <contiguity.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 

@@ -1,4 +1,4 @@
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 // Return boolean predicates representing the conditional you want to assume.
 // The return value is typically used as the `assumptions` argument of

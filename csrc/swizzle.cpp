@@ -7,7 +7,7 @@
 // clang-format on
 #include <swizzle.h>
 
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <ops/arith.h>
 
 namespace nvfuser {
