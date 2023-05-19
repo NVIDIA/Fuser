@@ -7,7 +7,7 @@
 // clang-format on
 #include <type_promotion.h>
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <ops/arith.h>
 
 #include <ATen/native/TypeProperties.h>

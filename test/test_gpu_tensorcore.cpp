@@ -16,11 +16,11 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <ir_all_nodes.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_printer.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/printer.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -44,10 +44,10 @@
 #include <c10/cuda/CUDAStream.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 
+#include <ir/builder.h>
 #include <algorithm>
 #include <iostream>
 #include "dispatch.h"
-#include "ir_builder.h"
 #include "ops/arith.h"
 #include "type.h"
 
@@ -3427,7 +3427,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 //   with relaxed result verification
 TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
   // skip until we have Hopper support
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
   for (auto layout : kAllSupportedMatmulLayout) {
     auto fusion = std::make_unique<Fusion>();

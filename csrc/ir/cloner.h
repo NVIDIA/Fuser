@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <dispatch.h>
-#include <ir_builder.h>
+#include <ir/builder.h>
 
 #include <tuple>
 #include <unordered_map>

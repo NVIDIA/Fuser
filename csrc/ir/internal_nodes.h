@@ -8,10 +8,10 @@
 #pragma once
 
 #include <c10/macros/Export.h>
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 
 #include <fusion.h>
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 

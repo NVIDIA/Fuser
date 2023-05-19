@@ -11,7 +11,7 @@
 #include <c10/macros/Export.h>
 
 #include <device_lower/utils.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <parallel_type_bitmap.h>
 
 #include <unordered_map>
