@@ -9,8 +9,8 @@
 
 #include <expr_evaluator.h>
 #include <inlining.h>
-#include <ir_cloner.h>
-#include <ir_utils.h>
+#include <ir/cloner.h>
+#include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <scheduler/registry.h>

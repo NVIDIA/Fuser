@@ -11,7 +11,7 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Optional.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>

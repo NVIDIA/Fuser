@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <inlining.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
