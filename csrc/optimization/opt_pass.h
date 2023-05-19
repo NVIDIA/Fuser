@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 
 namespace nvfuser::optimization {
 
