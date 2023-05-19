@@ -19,11 +19,11 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -49,6 +49,7 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -5386,13 +5387,6 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
-  executor_cache.compileFusionAsync(aten_inputs);
-
-  while (!executor_cache.isCompiled(aten_inputs)) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    printf(".");
-  }
-
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   TORCH_CHECK(
@@ -8432,6 +8426,209 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
   }
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+}
+
+// https://github.com/NVIDIA/Fuser/issues/335
+// This test is to make sure the benchmark in layer_norm_fused.cpp is correctly
+// implemented.
+TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const float kEps = 1e-5;
+  const int batch_size = 2048 * 8;
+  const int hidden_size = 20480;
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(1, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    auto tv2 = makeContigTensor(1, dtype);
+    auto tv3 = makeContigTensor(1, dtype);
+    auto tv4 = makeContigTensor(1, dtype);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+    fusion->addInput(tv3);
+    fusion->addInput(tv4);
+    auto tv5 = broadcast(tv0, {true, false});
+    auto tv6 = castOp(DataType::Float, tv1);
+    auto tv7 = castOp(DataType::Float, tv5);
+    auto tv8 = add(tv6, tv7);
+    auto tv9 = castOp(DataType::Half, tv8);
+    auto tv10 = broadcast(tv2, {true, false});
+    auto tv11 = castOp(DataType::Float, tv9);
+    auto tv12 = castOp(DataType::Float, tv10);
+    auto tv13 = add(tv11, tv12);
+    auto tv14 = castOp(DataType::Half, tv13);
+    auto tv15 = castOp(DataType::Float, tv14);
+    auto tv16 = variance(tv15, {1}, false, false);
+    auto tv17 = broadcast(tv16, {false, true});
+    auto tv18 = sum(tv15, {1}, false);
+    auto tv19 = broadcast(tv18, {false, true});
+
+    nvfuser::Val* num_features =
+        IrBuilder::create<Double>(1, dtype = DataType::Double);
+    num_features = mul(num_features, tv0->getLeafDomain()[0]->extent());
+    auto s20 = num_features;
+
+    auto s21 = reciprocal(s20);
+    auto tv22 = mul(tv19, s21);
+    auto s23 = IrBuilder::create<Double>(kEps, dtype = DataType::Double);
+    auto tv24 = add(tv17, s23);
+    auto tv25 = rsqrt(tv24);
+    auto tv26 = broadcast(tv22, {false, false});
+    auto tv27 = castOp(DataType::Float, tv14);
+    auto tv28 = sub(tv27, tv26);
+    auto tv29 = broadcast(tv25, {false, false});
+    auto tv30 = mul(tv28, tv29);
+    auto tv31 = broadcast(tv4, {true, false});
+    auto tv32 = castOp(DataType::Float, tv31);
+    auto tv33 = mul(tv30, tv32);
+    auto tv34 = broadcast(tv3, {true, false});
+    auto tv35 = castOp(DataType::Float, tv34);
+    auto tv36 = add(tv33, tv35);
+    auto tv37 = castOp(DataType::Half, tv36);
+    fusion->addOutput(tv37);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn({hidden_size}, options);
+    auto t1 = at::randn({batch_size, hidden_size}, options);
+    auto t2 = at::randn({hidden_size}, options);
+    auto t3 = at::randn({hidden_size}, options);
+    auto t4 = at::randn({hidden_size}, options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+    inputs.emplace_back(t3);
+    inputs.emplace_back(t4);
+    auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t6 = t1.to(at::kFloat);
+    auto t7 = t5.to(at::kFloat);
+    auto t8 = at::add(t6, t7);
+    auto t9 = t8.to(at::kHalf);
+    auto t10 = t2.unsqueeze(0).expand({batch_size, hidden_size});
+    auto t11 = t9.to(at::kFloat);
+    auto t12 = t10.to(at::kFloat);
+    auto t13 = at::add(t11, t12);
+    auto t14 = t13.to(at::kHalf);
+    auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
+    auto t33 = std::get<0>(aten_outputs);
+    outputs.emplace_back(t33);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
+// Simple test to check if the aligned block sync is used in aligned
+// reductions
+TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  const int gdimx = 16;
+  const int bdimx = 100;
+  const int per_thread_reductions = 8;
+
+  std::vector<int64_t> shape({gdimx * bdimx * per_thread_reductions});
+
+  tv1->split(0, bdimx);
+  tv1->split(0, per_thread_reductions);
+
+  // Serial reduction
+  auto tv2 = tv1->rFactor({1});
+  // Block reduction
+  tv1->rFactor({1});
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  const std::string kernel_string =
+      codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+
+  // The block reduction should use the aligned sync
+  TORCH_CHECK(
+      kernel_string.find("blockReduce<true, false, false, true>(") !=
+          std::string::npos,
+      "blockReduce with aligned sync not found: ",
+      kernel_string);
+}
+
+TEST_F(NVFuserTest, IntegerDivision_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Int);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = div(tv0, tv1);
+  auto tv3 = truediv(tv0, tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
+  at::Tensor input1 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
+  auto div_expect = at::div(input0, input1, "trunc");
+  auto truediv_expect = at::true_divide(input0, input1);
+
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
+
+  ASSERT_TRUE(cg_outputs.at(0).scalar_type() == at::kLong);
+  ASSERT_TRUE(cg_outputs.at(1).scalar_type() == at::kFloat);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {input0, input1},
+      {div_expect, truediv_expect},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(NVFuserTest, IsFinite_CUDA) {
+  for (const auto& [nvfuser_dtype, aten_dtype] :
+       std::vector<std::pair<DataType, at::ScalarType>>{
+           {DataType::Float, at::kFloat},
+           {DataType::Half, at::kHalf},
+           {DataType::BFloat16, at::kBFloat16}}) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto tv0 = makeContigTensor(1, nvfuser_dtype);
+    fusion->addInput(tv0);
+    auto tv1 = isfinite(tv0);
+    fusion->addOutput(tv1);
+
+    auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+    std::array<float, 3> data{1.0, INFINITY, NAN};
+    const auto input = at::from_blob(data.data(), {3}, {1}).to(options);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, {input});
+    const auto output = fe.runFusion({input});
+
+    testValidate(
+        fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

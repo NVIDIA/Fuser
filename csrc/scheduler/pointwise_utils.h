@@ -8,8 +8,8 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {

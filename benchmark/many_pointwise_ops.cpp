@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 

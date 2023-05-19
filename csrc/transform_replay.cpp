@@ -11,10 +11,10 @@
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
@@ -519,29 +519,6 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
-  if (producer->hasAllocation()) {
-    // Currently, we are unable to replay allocation domain, so we only support
-    // cases where no replay is needed. That is, root <= allocation <= rfactor.
-    if (producer->hasRFactor()) {
-      ir_utils::validateDomainEquivalence(
-          producer->getRootDomain(), producer->getAllocationDomain());
-      ir_utils::validateDomainEquivalence(
-          producer->getAllocationDomain(), producer->getRFactorDomain());
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          std::unordered_set<IterDomain*>(
-              producer->getRootDomain().begin(),
-              producer->getRootDomain().end()) ==
-              std::unordered_set<IterDomain*>(
-                  producer->getAllocationDomain().begin(),
-                  producer->getAllocationDomain().end()),
-          "Currently, we only support the case where root <= allocation <= rfactor. ",
-          "Because the producer has no rFactor domain, ",
-          "The allocation domain must be the same set of IterDomains as the root domain. ",
-          "However, this condition is not satisfied.");
-    }
-  }
-
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
@@ -784,6 +761,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
+      consumer->getAllocationDomain(),
       new_IDs,
       consumer->domain()->contiguity());
 

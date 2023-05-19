@@ -11,8 +11,8 @@
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -141,21 +141,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
-
-  auto tensor_sizes = [](Tensor arg) -> std::vector<Scalar> {
-    FUSER_PERF_SCOPE("Operators.tensor_sizes");
-    auto fd = arg.fusion_definition;
-    std::vector<Scalar> outputs;
-    std::vector<State> output_state;
-    for (const auto idx : c10::irange(arg.dims)) {
-      outputs.push_back(fd->defineScalar());
-      output_state.push_back(fd->recordingState(outputs[idx]()));
-    }
-    fd->defineRecord(
-        new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-    return outputs;
-  };
-  tensor_class.def_property_readonly("shape", tensor_sizes);
 
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
@@ -867,6 +852,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("add", add)
   NVFUSER_PYTHON_BINDING_BINARY_OP("atan2", atan2)
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("truediv", truediv)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
   NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
@@ -2051,7 +2037,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         {fd->recordingState(arg())}, {fd->recordingState(output())}));
     return output;
   };
-
+  
   tensor_class.def(
       "shape",
       [&shape_def](Tensor arg) -> Vector {

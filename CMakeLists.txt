@@ -87,14 +87,14 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
     ${NVFUSER_SRCS_DIR}/index_compute.cpp
     ${NVFUSER_SRCS_DIR}/instrumentation.cpp
-    ${NVFUSER_SRCS_DIR}/ir_base_nodes.cpp
-    ${NVFUSER_SRCS_DIR}/ir_builder.cpp
-    ${NVFUSER_SRCS_DIR}/ir_cloner.cpp
-    ${NVFUSER_SRCS_DIR}/ir_container.cpp
-    ${NVFUSER_SRCS_DIR}/ir_graphviz.cpp
-    ${NVFUSER_SRCS_DIR}/ir_nodes.cpp
-    ${NVFUSER_SRCS_DIR}/ir_iostream.cpp
-    ${NVFUSER_SRCS_DIR}/ir_utils.cpp
+    ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
+    ${NVFUSER_SRCS_DIR}/ir/builder.cpp
+    ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
+    ${NVFUSER_SRCS_DIR}/ir/container.cpp
+    ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
+    ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
+    ${NVFUSER_SRCS_DIR}/ir/utils.cpp
+    ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
     ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
     ${NVFUSER_SRCS_DIR}/kernel.cpp
     ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
@@ -423,6 +423,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp

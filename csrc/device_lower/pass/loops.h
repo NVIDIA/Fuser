@@ -13,7 +13,7 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_ir.h>
 
 namespace nvfuser {

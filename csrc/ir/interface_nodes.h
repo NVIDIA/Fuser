@@ -10,9 +10,9 @@
 #include <c10/macros/Export.h>
 
 #include <fusion.h>
-#include <ir_builder_passkey.h>
-#include <ir_internal_base_nodes.h>
-#include <ir_internal_nodes.h>
+#include <ir/builder_passkey.h>
+#include <ir/internal_base_nodes.h>
+#include <ir/internal_nodes.h>
 #include <mma_type.h>
 
 #include <torch/csrc/jit/ir/ir.h>

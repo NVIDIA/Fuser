@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <parallel_type_bitmap.h>
 
 #include <unordered_map>
