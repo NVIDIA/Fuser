@@ -442,8 +442,7 @@ void Expr::checkConcretization(Val* old_val, Val* new_val) const {
       "Concretization must not change ValType");
   if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
     TORCH_CHECK(
-        !new_id->isSymbolic(),
-        "Concretized IterDomain must not be Symbolic.");
+        !new_id->isSymbolic(), "Concretized IterDomain must not be Symbolic.");
   }
 }
 
