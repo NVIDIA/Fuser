@@ -10,8 +10,8 @@
 #include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
-#include <ir_internal_nodes.h>
-#include <ir_utils.h>
+#include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 
 namespace nvfuser {

@@ -11,8 +11,8 @@
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>

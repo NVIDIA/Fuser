@@ -394,6 +394,22 @@ bool isfinite(T x) {
   return ::isfinite(x);
 }
 
+// ref:
+// https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/bfloat16.h#L213
+template <>
+bool isfinite<__bfloat>(__bfloat x) {
+  const auto exponent_biased = int((x.raw() >> 7) & 0x0ff);
+  return exponent_biased != 0x0ff;
+}
+
+// ref:
+// https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/half.h#L511
+template <>
+bool isfinite<__half>(__half x) {
+  const auto exponent_biased = int((x.raw() >> 10) & 0x1f);
+  return exponent_biased != 0x1f;
+}
+
 template <typename T>
 bool isinf(T x) {
   return ::isinf(x);

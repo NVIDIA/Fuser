@@ -10,7 +10,8 @@
 #include <c10/macros/Export.h>
 
 #include <expr_evaluator.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
 

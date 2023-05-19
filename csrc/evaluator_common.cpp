@@ -11,7 +11,7 @@
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 

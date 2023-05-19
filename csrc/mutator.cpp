@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <mutator.h>
 
 #include <vector>

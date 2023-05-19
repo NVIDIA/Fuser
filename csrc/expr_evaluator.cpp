@@ -9,8 +9,8 @@
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <root_domain_map.h>
 
 #include <iostream>
