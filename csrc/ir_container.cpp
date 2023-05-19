@@ -156,6 +156,7 @@ void IrContainer::removeVal(Val* val) {
 
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
+  vals_vector_[val->number()] = nullptr;
   raw_ptrs_.erase((void*)val);
 }
 
@@ -168,6 +169,12 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
+
+  // Grow the vals_vector_ and save two-way links
+  val->setNumber(vals_vector_.size());
+  vals_vector_.resize(val->number() + 1);
+  vals_vector_[val->number()] = val;
+
   raw_ptrs_.emplace((void*)vals_up_.back().get());
 }
 
@@ -176,6 +183,12 @@ void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
+
+  // Grow the exprs_vector_ and save two-way links
+  expr->setNumber(exprs_vector_.size());
+  exprs_vector_.resize(expr->number() + 1);
+  exprs_vector_[expr->number()] = expr;
+
   exprs_up_.emplace_back(std::unique_ptr<Expr>(expr));
   exprs_.emplace(exprs_up_.back().get());
   expr->setName(IrContainerPasskey(), getExprName());

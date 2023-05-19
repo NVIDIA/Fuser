@@ -34,6 +34,7 @@
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
+#include <val_equivalence.h>
 
 #include <list>
 #include <unordered_map>
@@ -261,6 +262,8 @@ void GpuLower::lower(Fusion* fusion) {
   kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
+
+  ValEquivalence<uint16_t> val_equiv(*fusion_);
 
   // Convert tensor views of DataType::Index type to either Int or Int32
   for (auto tv : ir_utils::allTvs(fusion_)) {
@@ -490,8 +493,17 @@ void GpuLower::lower(Fusion* fusion) {
       KIRCleaner::cleanUp(exprs_register_adjusted);
   dumpExprsIfEnabled(exprs_cleaned_up_loops, "KIRCleaner");
 
-  const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
+  auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
+
+  // Now that we've done all inserting/merging/blacklisting in the preceding
+  // stages, we are ready to extract the simplest expressions for each
+  // equivalence class of Vals. This works by re-interpreting each Expr as a
+  // relation not between concrete Vals, but between their equivalence classes.
+  // Extraction then occurs "bottom-up", by selecting things like constant
+  // scalars in lieu of more complicated definitions, and otherwise minimizing
+  // a heuristic estimate of definition complexity.
+  val_equiv.extractInPlace(exprs_instrumented);
 
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from

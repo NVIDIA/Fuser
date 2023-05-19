@@ -82,9 +82,18 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
     return exprs_;
   }
 
+  const std::vector<Expr*>& exprsVector() const noexcept {
+    return exprs_vector_;
+  }
+
   //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept {
     return vals_;
+  }
+
+  //! Return a vector v of vals, where v[i]->number() == i or v[i] != nullptr.
+  const std::vector<Val*>& valsVector() const {
+    return vals_vector_;
   }
 
   // Shortcuts for frequently used vals
@@ -97,6 +106,15 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   Val* oneVal(DataType dtype);
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
   const std::vector<Bool*>& axioms();
+
+  //! Return the current value of the name counter for a given ValType
+  StmtNameType getNumVals(ValType vtype) const {
+    auto nit = val_type_name_map_.find(vtype);
+    if (nit == val_type_name_map_.end()) {
+      return 0;
+    }
+    return nit->second;
+  }
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -145,6 +163,9 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
 
+  // Exprs are placed in this vector at a position equal to op->number()
+  std::vector<Expr*> exprs_vector_;
+
   // Used to implement a generic "inContainer" that can be passed an invalid
   // pointer. Specifically a pointer to a Statement owned by another container
   // that has been freed. We can't check normally with the unordered_sets we
@@ -154,6 +175,9 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+
+  // Vals are placed in this vector at a position equal to val->number()
+  std::vector<Val*> vals_vector_;
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
