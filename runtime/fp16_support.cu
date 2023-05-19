@@ -20,6 +20,10 @@ struct __align__(2) __half {
     __x = __float2half(f).__x;
   }
 
+  __device__ uint16_t raw() const {
+    return __x;
+  }
+
  protected:
   unsigned short __x;
 };
