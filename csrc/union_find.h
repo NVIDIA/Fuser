@@ -21,10 +21,8 @@ namespace nvfuser {
 template <typename IndexType>
 class UnionFind {
  public:
-  UnionFind(size_t size = 0) : parent_(size), rank_(size, 0) {
-    for (size_t i = 0; i < size; ++i) {
-      parent_[i] = (IndexType)i;
-    }
+  UnionFind(size_t size = 0) {
+    enlarge(size);
   }
 
   //! Create a new partition by merging all overlapping sets in two partitions.
@@ -114,7 +112,8 @@ class UnionFind {
   void enlarge(size_t new_size) {
     TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
     TORCH_CHECK(
-        new_size <= std::numeric_limits<IndexType>::max() + 1,
+        new_size - 1 <=
+            static_cast<size_t>(std::numeric_limits<IndexType>::max()),
         "Tried to enlarge UnionFind to size ",
         new_size,
         " which is greater than this IndexType's capacity of ",
@@ -211,8 +210,8 @@ class UnionFind {
   }
 
  private:
-  std::vector<IndexType> parent_{std::vector<IndexType>()};
-  std::vector<IndexType> rank_{std::vector<IndexType>()};
+  std::vector<IndexType> parent_;
+  std::vector<IndexType> rank_;
 };
 
 } // namespace nvfuser
