@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
 

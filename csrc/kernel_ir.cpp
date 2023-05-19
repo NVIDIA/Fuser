@@ -9,9 +9,9 @@
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_iostream.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>

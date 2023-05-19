@@ -9,7 +9,7 @@
 #include <device_lower/analysis/divisible_split.h>
 
 #include <disjoint_set.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 #include <unordered_set>
 

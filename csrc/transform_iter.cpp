@@ -8,7 +8,7 @@
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 #include <typeinfo>
 

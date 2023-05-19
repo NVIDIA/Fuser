@@ -10,7 +10,7 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
@@ -25,11 +25,22 @@ namespace nvfuser {
 
 namespace {
 
-#define THREAD_POOL_SIZE 10
+int getNumThreads() {
+  const char* option_env_name = "NVFUSER_NUM_THREADS";
+  auto dump_options = std::getenv(option_env_name);
+  if (dump_options == nullptr) {
+    constexpr int default_num_threads = 8;
+    return default_num_threads;
+  }
+  auto num_threads_value = std::atoi(dump_options);
+  int max_num_threads = (int)std::thread::hardware_concurrency();
+  return std::max(std::min(num_threads_value, max_num_threads), 1);
+}
 
 // TODO: clean this up with some knobs
 c10::ThreadPool* getThreadPool() {
-  static c10::ThreadPool pool(THREAD_POOL_SIZE);
+  static auto num_threads = getNumThreads();
+  static c10::ThreadPool pool(num_threads);
   return &pool;
 }
 
@@ -40,6 +51,149 @@ void encodeBuffer(size_t value, std::string& buffer) {
     buffer.push_back(*(v++));
   }
 }
+
+// This ArgumentManager do two things
+// (1) add outputs from a segment to the global fusion args to pass it to next
+// segment (2) delete args no longer being used to save memory. For task (2), it
+// checks the input and output arguments of each segment and make a map from val
+// to the segment_id where the val is lastly used. The arguments representing
+// these vals are then deleted after the segment runs.
+class ArgumentManager {
+ public:
+  ArgumentManager(
+      KernelArgumentHolder& args,
+      const RuntimeWorkSpace& runtime_workspace,
+      const std::vector<Val*>& fusion_inputs)
+      : fusion_args_(args) {
+    // map from val to args
+    mapFusionInputsToArgs(
+        fusion_inputs, runtime_workspace.group_extent_binding_order);
+    setLastUsedSegmentID(runtime_workspace.group_run_order);
+  }
+  const std::unordered_map<Val*, const ArgAbstract*>& getTensorMap() {
+    return tensor_map_;
+  }
+  const ArgAbstract* checkTensorMap(Val* v) {
+    return tensor_map_.at(v);
+  }
+  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
+  // (from dry run)
+  // TODO: make the output type uniform no matter it's a real or dry run
+  template <typename T>
+  void updateWithSegmentOutputs(
+      const std::vector<Val*>& group_outputs,
+      const T& group_runtime_outputs,
+      const int64_t group_id) {
+    addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
+    deleteUnusedArgs(group_id);
+  }
+
+ private:
+  KernelArgumentHolder& fusion_args_;
+  // map from val to args
+  std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
+  // map segment_id to vector of fusion vals lastly used at this segment
+  std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
+
+  void mapFusionInputsToArgs(
+      const std::vector<Val*>& fusion_inputs,
+      const std::vector<Val*>& group_extent_binding_order) {
+    int extent_index = 0;
+    auto original_args_size = fusion_args_.size();
+    // Bind args in the tensor_map
+    for (const auto i : c10::irange(original_args_size)) {
+      tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
+      // Bind tensorview inputs values in case some segmented group
+      //  needs it down the road.
+      // TODO: we probably have done this already up to this point
+      //      should consider caching the expression evaluators, both
+      //      more convenient and safer than replication
+      if (auto tensor_arg_abstract =
+              dynamic_cast<const TensorArgAbstract*>(fusion_args_[i])) {
+        // Note this is very ugly way. We are pushing every single extent to
+        // args, because we don't have a better place to hold them.
+        auto rank = tensor_arg_abstract->getRank();
+        for (const auto dim : c10::irange(rank)) {
+          fusion_args_.push(tensor_arg_abstract->getSize((int)dim));
+          tensor_map_.emplace(
+              group_extent_binding_order[extent_index++], fusion_args_.back());
+        }
+      }
+    }
+  }
+
+  void setLastUsedSegmentID(
+      const std::vector<SegmentedGroup*>& group_run_order) {
+    // never delete global fusion inputs and outputs
+    auto isFusionInputOrOutput = [](Val* val) {
+      return val->isFusionInput() || val->isFusionOutput();
+    };
+    // map val to segment_id where arg is lastly used
+    std::unordered_map<Val*, int64_t> last_used_segment_map;
+    const int64_t num_groups = (int64_t)group_run_order.size();
+    // only need to set lifetime of vals if there are more than 3 groups
+    if (num_groups >= 3) {
+      // start from the 2nd group, since the input of the first group is always
+      // the global input and its outputs are always used by at least one of the
+      // following groups
+      for (auto group_id : c10::irange(1l, num_groups)) {
+        auto group_to_run = group_run_order.at(group_id);
+        // set/update life of vals in inputs of this group
+        for (auto val : group_to_run->inputs()) {
+          // skip fusion inputs and outputs, they may be used by other fusions
+          // or code
+          if (!isFusionInputOrOutput(val)) {
+            last_used_segment_map[val] = group_id;
+          }
+        }
+        // set/update life of vals in outputs of this group
+        // skip the last group since its outputs are always the global outputs
+        if (group_id < num_groups - 1) {
+          for (auto val : group_to_run->outputs()) {
+            // skip fusion inputs and outputs, they may be used by other fusions
+            // or code
+            if (!isFusionInputOrOutput(val)) {
+              last_used_segment_map[val] = group_id;
+            }
+          }
+        }
+      }
+      // convert to vals_last_used_at_segment_, so we don't need to iterate over
+      // all vals when erasing
+      for (auto item : last_used_segment_map) {
+        vals_last_used_at_segment_[item.second].push_back(item.first);
+      }
+    }
+  }
+  void deleteUnusedArgs(int64_t group_id) {
+    // erase args corresponding to vals lastly used in this segment
+    if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
+      for (auto val : vals_last_used_at_segment_[group_id]) {
+        fusion_args_.erase(tensor_map_.at(val));
+        tensor_map_.erase(val);
+      }
+    }
+  }
+  template <typename T>
+  void addOutputsToArgsAndTensorMap(
+      const std::vector<Val*>& group_outputs,
+      const T& group_runtime_outputs) {
+    // Insert graph segment output to tensor map
+    TORCH_INTERNAL_ASSERT(
+        group_outputs.size() == group_runtime_outputs.size(),
+        "Output size does not match.");
+
+    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
+    // updating the tensor_map because we want all future use of inputs on
+    // the original tensor input. See note [Trivial Forwarding]
+    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+      if (!group_outputs[group_out_i]->isFusionInput()) {
+        fusion_args_.push(group_runtime_outputs[group_out_i]);
+        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
+      }
+    }
+  }
+};
 
 } // namespace
 
@@ -148,15 +302,6 @@ bool FusionExecutorCache::isCompiled(const at::ArrayRef<c10::IValue>& inputs) {
   return getKernelRuntimeFor(args)->isCompiled();
 }
 
-void FusionExecutorCache::compileFusionAsync(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::compileFusionAsync");
-
-  KernelArgumentHolder args = prepareInputs(inputs);
-  auto kernel_runtime = getKernelRuntimeFor(args);
-  kernel_runtime->startAsyncCompile(args);
-}
-
 // Note [ Permutation support in nvfuser ]
 //
 // Background:
@@ -213,8 +358,12 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   KernelArgumentHolder args = prepareInputs(perm_inputs);
-
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+
+  if (!isCompiled(perm_inputs)) {
+    kernel_runtime->compileFusionParallel(args);
+  }
+
   most_recent_runtime_ = kernel_runtime;
 
   auto fusion = kernel_runtime->fusionSegments()->completeFusion();
@@ -512,7 +661,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
   TORCH_INTERNAL_ASSERT(sg, "runKernelWithInput: need valid group to run");
-  auto [launch_params, compile_params] = compileKernel(args, sg);
+  auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto scheduler_entry = schedulers().at(group_id).get();
   auto& executor = executors_.at(group_id);
@@ -614,55 +763,63 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
   }
 }
 
-// passing args by value, since we will be modify this
-void FusionKernelRuntime::startAsyncCompile(
-    const KernelArgumentHolder& args_old) {
-  // only single compilation is supported at this moment.
-  std::unique_lock<std::mutex> unique_lock(mutex_, std::try_to_lock);
-  TORCH_CHECK(
-      unique_lock.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that has already",
-      " started a compilation thread is not supported.",
-      " - unique_lock");
-  std::unique_lock<std::mutex> unique_lock2(compiling_, std::try_to_lock);
-  TORCH_CHECK(
-      unique_lock2.owns_lock(),
-      "Calling startAsyncCompile on a FusionKernelRuntime that has already",
-      " started a compilation thread is not supported.",
-      " - unique_lock2");
+// passing args by value because we will be modify this
+void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
+  std::lock_guard<std::mutex> guard(mutex_);
 
-  // TODO: Compilation can happen in parallel! We can infer the output sizes
-  // on the non-compiled kernel and build the entire tensor_map prior to
-  // asyc compilation.
+  TORCH_INTERNAL_ASSERT(
+      args.size() == segmented_fusion_->inputs().size(),
+      "Inputs were not set up correctly, received ",
+      args.size(),
+      " inputs but expecting ",
+      segmented_fusion_->inputs().size());
 
-  // PyTorch's threadpool uses std::function, which requires the target to be
-  // copy-constructible. Adding a std::unique_lock to the lambda's capture list
-  // prevents it from being copyable. The std::unique_lock can be moved, but it
-  // cannot be copied. Thus, we need the second mutex.
-  auto compile_fusion = [args = args_old, this]() mutable {
-    std::lock_guard<std::mutex> guard(compiling_);
+  ArgumentManager args_manager(
+      args, runtime_workspace_, segmented_fusion_->inputs());
 
-    // locking mutex_ since we are touching executors_ during compilation.
-    // CUDAGuard uses runtime API directly, which is thread safe.
-    c10::cuda::CUDAGuard dg((int8_t)args.getDeviceIndex());
+  // group should share cache id.
+  auto group_cache_id = args.getCacheId();
 
-    FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
-    runSegmentsWithInputs(args, true /* is_dry_run */);
-  };
+  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
+  num_live_args_after_segment_runs_.reserve(num_groups);
+  for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
+    auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
-  getThreadPool()->run(compile_fusion);
+    // TODO: index mode should be updated per segmented kernel
+    // Prepare input vector
+    KernelArgumentHolder group_runtime_inputs;
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+    if (group_cache_id.has_value()) {
+      group_runtime_inputs.setCacheId(group_cache_id.value());
+    }
+    for (auto input : group_to_run->inputs()) {
+      group_runtime_inputs.push(args_manager.checkTensorMap(input));
+    }
+
+    // launch compileKernel thread here
+    getThreadPool()->run([=]() {
+      FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+      c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+      c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+      compileKernel(group_runtime_inputs, group_to_run);
+    });
+
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
+    auto group_runtime_outputs =
+        executors_[group_to_run->groupId()].inferOutputSizes(
+            fusion_to_run.get(), group_runtime_inputs);
+
+    // map output args to tensor map
+    args_manager.updateWithSegmentOutputs(
+        group_to_run->outputs(), group_runtime_outputs, group_id);
+    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+  }
+
+  // wait until all segments finish compiling
+  getThreadPool()->waitWorkComplete();
 }
 
-KernelArgumentHolder FusionKernelRuntime::dryRunKernelWithInput(
-    const KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::dryRunKernelWithInput");
-  TORCH_INTERNAL_ASSERT(sg, "compileKernel: need valid group to run");
-  auto [launch_params, compile_params] = compileKernel(args, sg);
-  return executors_[sg->groupId()].inferOutputSizes(args, launch_params);
-}
-
-std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
+void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
@@ -671,25 +828,33 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::compileKernel(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  TORCH_INTERNAL_ASSERT(!executors_.at(group_id).compiled());
 
-  if (!executors_.at(group_id).compiled()) {
-    FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel::Compile");
-    // Running a segment group as a single kernel,
-    // make a fusion to run from segmented fusion
-    std::unique_ptr<Fusion> fusion_to_run = segmented_fusion_->makeFusion(sg);
-    FusionGuard fg(fusion_to_run.get());
+  // Running a segment group as a single kernel,
+  // make a fusion to run from segmented fusion
+  auto fusion_to_run = segmented_fusion_->makeFusion(sg);
+  FusionGuard fg(fusion_to_run.get());
+  scheduler_entry->schedule(fusion_to_run.get());
+  TORCH_INTERNAL_ASSERT(
+      scheduler_entry->params()->cparams.index_type.has_value(),
+      "Kernel index type is not defined.");
+  executors_.at(group_id).compileFusion(
+      fusion_to_run.get(),
+      args,
+      scheduler_entry->params()->lparams,
+      scheduler_entry->params()->cparams);
+}
 
-    scheduler_entry->schedule(fusion_to_run.get());
+std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
+    const KernelArgumentHolder& args,
+    SegmentedGroup* sg) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::getKernelConfig");
+  auto group_id = sg->groupId();
+  auto scheduler_entry = schedulers().at(group_id).get();
 
-    TORCH_INTERNAL_ASSERT(
-        scheduler_entry->params()->cparams.index_type.has_value(),
-        "Kernel index type is not defined.");
-    executors_.at(group_id).compileFusion(
-        fusion_to_run.get(),
-        args,
-        scheduler_entry->params()->lparams,
-        scheduler_entry->params()->cparams);
-  }
+  // Check that the heuristics are matched, in the case of segmented fusion
+  TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  TORCH_INTERNAL_ASSERT(executors_.at(group_id).compiled());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
@@ -705,7 +870,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
-  const auto& tensor_map = runSegmentsWithInputs(args, false /* is_dry_run */);
+  const auto& tensor_map = runSegmentsWithInputs(args);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -737,8 +902,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       // 2) Integration handles the trivial forwarding of inputs. When we put
       // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      auto arg = dynamic_cast<const TensorArgAbstract*>(iter->second);
-      fusion_outputs.push_back(arg->getTensor());
+      auto tensor_arg_abstract =
+          dynamic_cast<const TensorArgAbstract*>(iter->second);
+      TORCH_INTERNAL_ASSERT(tensor_arg_abstract != nullptr);
+      fusion_outputs.push_back(tensor_arg_abstract->getTensor());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;
@@ -773,154 +940,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
-namespace {
-// This ArgumentManager do two things
-// (1) add outputs from a segment to the global fusion args to pass it to next
-// segment (2) delete args no longer being used to save memory. For task (2), it
-// checks the input and output arguments of each segment and make a map from val
-// to the segment_id where the val is lastly used. The arguments representing
-// these vals are then deleted after the segment runs.
-class ArgumentManager {
- public:
-  ArgumentManager(
-      KernelArgumentHolder& args,
-      const RuntimeWorkSpace& runtime_workspace,
-      const std::vector<Val*>& fusion_inputs)
-      : fusion_args_(args) {
-    // map from val to args
-    mapFusionInputsToArgs(
-        fusion_inputs, runtime_workspace.group_extent_binding_order);
-    setLastUsedSegmentID(runtime_workspace.group_run_order);
-  }
-  const std::unordered_map<Val*, const ArgAbstract*>& getTensorMap() {
-    return tensor_map_;
-  }
-  const ArgAbstract* checkTensorMap(Val* v) {
-    return tensor_map_.at(v);
-  }
-  // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
-  // (from dry run)
-  // TODO: make the output type uniform no matter it's a real or dry run
-  template <typename T>
-  void updateWithSegmentOutputs(
-      const std::vector<Val*>& group_outputs,
-      const T& group_runtime_outputs,
-      const int64_t group_id) {
-    addOutputsToArgsAndTensorMap(group_outputs, group_runtime_outputs);
-    deleteUnusedArgs(group_id);
-  }
-
- private:
-  KernelArgumentHolder& fusion_args_;
-  // map from val to args
-  std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
-  // map segment_id to vector of fusion vals lastly used at this segment
-  std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
-
-  void mapFusionInputsToArgs(
-      const std::vector<Val*>& fusion_inputs,
-      const std::vector<Val*>& group_extent_binding_order) {
-    int extent_index = 0;
-    auto original_args_size = fusion_args_.size();
-    // Bind args in the tensor_map
-    for (const auto i : c10::irange(original_args_size)) {
-      tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
-      // Bind tensorview inputs values in case some segmented group
-      //  needs it down the road.
-      // TODO: we probably have done this already up to this point
-      //      should consider caching the expression evaluators, both
-      //      more convenient and safer than replication
-      if (auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(fusion_args_[i])) {
-        // Note this is very ugly way. We are pushing every single extent to
-        // args, because we don't have a better place to hold them.
-        auto rank = tensor_arg_abstract->getRank();
-        for (const auto dim : c10::irange(rank)) {
-          fusion_args_.push(tensor_arg_abstract->getSize((int)dim));
-          tensor_map_.emplace(
-              group_extent_binding_order[extent_index++], fusion_args_.back());
-        }
-      }
-    }
-  }
-
-  void setLastUsedSegmentID(
-      const std::vector<SegmentedGroup*>& group_run_order) {
-    // never delete global fusion inputs and outputs
-    auto isFusionInputOrOutput = [](Val* val) {
-      return val->isFusionInput() || val->isFusionOutput();
-    };
-    // map val to segment_id where arg is lastly used
-    std::unordered_map<Val*, int64_t> last_used_segment_map;
-    const int64_t num_groups = (int64_t)group_run_order.size();
-    // only need to set lifetime of vals if there are more than 3 groups
-    if (num_groups >= 3) {
-      // start from the 2nd group, since the input of the first group is always
-      // the global input and its outputs are always used by at least one of the
-      // following groups
-      for (auto group_id : c10::irange(1l, num_groups)) {
-        auto group_to_run = group_run_order.at(group_id);
-        // set/update life of vals in inputs of this group
-        for (auto val : group_to_run->inputs()) {
-          // skip fusion inputs and outputs, they may be used by other fusions
-          // or code
-          if (!isFusionInputOrOutput(val)) {
-            last_used_segment_map[val] = group_id;
-          }
-        }
-        // set/update life of vals in outputs of this group
-        // skip the last group since its outputs are always the global outputs
-        if (group_id < num_groups - 1) {
-          for (auto val : group_to_run->outputs()) {
-            // skip fusion inputs and outputs, they may be used by other fusions
-            // or code
-            if (!isFusionInputOrOutput(val)) {
-              last_used_segment_map[val] = group_id;
-            }
-          }
-        }
-      }
-      // convert to vals_last_used_at_segment_, so we don't need to iterate over
-      // all vals when erasing
-      for (auto item : last_used_segment_map) {
-        vals_last_used_at_segment_[item.second].push_back(item.first);
-      }
-    }
-  }
-  void deleteUnusedArgs(int64_t group_id) {
-    // erase args corresponding to vals lastly used in this segment
-    if (group_id >= 1 && vals_last_used_at_segment_.count(group_id)) {
-      for (auto val : vals_last_used_at_segment_[group_id]) {
-        fusion_args_.erase(tensor_map_.at(val));
-        tensor_map_.erase(val);
-      }
-    }
-  }
-  template <typename T>
-  void addOutputsToArgsAndTensorMap(
-      const std::vector<Val*>& group_outputs,
-      const T& group_runtime_outputs) {
-    // Insert graph segment output to tensor map
-    TORCH_INTERNAL_ASSERT(
-        group_outputs.size() == group_runtime_outputs.size(),
-        "Output size does not match.");
-
-    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
-    // updating the tensor_map because we want all future use of inputs on
-    // the original tensor input. See note [Trivial Forwarding]
-    for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        fusion_args_.push(group_runtime_outputs[group_out_i]);
-        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
-      }
-    }
-  }
-};
-
-} // namespace
-
 std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args, bool is_dry_run) {
+    runSegmentsWithInputs(KernelArgumentHolder& args) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -952,17 +973,10 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    if (is_dry_run) {
-      KernelArgumentHolder group_runtime_outputs =
-          dryRunKernelWithInput(group_runtime_inputs, group_to_run);
-      args_manager.updateWithSegmentOutputs(
-          group_to_run->outputs(), group_runtime_outputs, group_id);
-    } else {
-      std::vector<at::Tensor> group_runtime_outputs =
-          runKernelWithInput(group_runtime_inputs, group_to_run);
-      args_manager.updateWithSegmentOutputs(
-          group_to_run->outputs(), group_runtime_outputs, group_id);
-    }
+    std::vector<at::Tensor> group_runtime_outputs =
+        runKernelWithInput(group_runtime_inputs, group_to_run);
+    args_manager.updateWithSegmentOutputs(
+        group_to_run->outputs(), group_runtime_outputs, group_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
