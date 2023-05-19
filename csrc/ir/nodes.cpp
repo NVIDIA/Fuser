@@ -8,10 +8,10 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <dynamic_transform.h>
-#include <ir_cloner.h>
-#include <ir_interface_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/cloner.h>
+#include <ir/interface_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>

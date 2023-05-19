@@ -2113,10 +2113,18 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
   FusionExecutor fe;
 
   auto ref0 = t0.index({at::indexing::Slice(0, 2)});
-  auto ref1 = t0.index({at::indexing::Slice(0, 4)});
+  auto ref1 = t0.index({at::indexing::Slice(2, 4)});
+  auto ref2 = t0.index({at::indexing::Slice(4, 6)});
+  auto ref3 = t0.index({at::indexing::Slice(6, 6)});
+  auto ref4 = t0.index({at::indexing::Slice(6, 6)});
+  auto ref5 = t0.index({at::indexing::Slice(6, 8)});
 
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
   TORCH_CHECK(ref1.equal(cg_outputs[1]));
+  TORCH_CHECK(ref2.equal(cg_outputs[2]));
+  TORCH_CHECK(ref3.equal(cg_outputs[3]));
+  TORCH_CHECK(ref4.equal(cg_outputs[4]));
+  TORCH_CHECK(ref5.equal(cg_outputs[5]));
 }
 
 // In this test, we split and merge with size-zero dimensions directly.

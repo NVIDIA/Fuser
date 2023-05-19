@@ -9,8 +9,8 @@
 #include <dynamic_transform.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
-#include <ir_cloner.h>
-#include <ir_utils.h>
+#include <ir/cloner.h>
+#include <ir/utils.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>

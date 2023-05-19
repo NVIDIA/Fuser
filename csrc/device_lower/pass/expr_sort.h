@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 
 namespace nvfuser {
 
