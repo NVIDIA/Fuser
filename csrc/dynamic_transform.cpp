@@ -355,7 +355,7 @@ void DynamicTransformConcretizer::concretizeResize() {
         id->isRFactorProduct(),
         iter_type);
 
-    registerMutation(id, new_id);
+    registerConcretization(id, new_id);
   }
 }
 
