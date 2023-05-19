@@ -3,7 +3,7 @@
 
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>

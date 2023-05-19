@@ -7,9 +7,9 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir_builder.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 
 #include <device_lower/pass/replace_size.h>

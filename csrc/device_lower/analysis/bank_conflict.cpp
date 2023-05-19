@@ -9,7 +9,7 @@
 
 #include <dynamic_type.h>
 #include <expr_evaluator.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>

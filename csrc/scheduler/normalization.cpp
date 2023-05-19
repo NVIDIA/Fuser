@@ -11,9 +11,9 @@
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>

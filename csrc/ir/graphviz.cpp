@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_graphviz.h>
+#include <ir/graphviz.h>
 
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <type.h>
 
 #include <fstream>

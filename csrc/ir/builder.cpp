@@ -6,12 +6,12 @@
  */
 // clang-format on
 #include <fusion.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
 #include <kernel.h>
 
-#include <ir_all_nodes.h>
-#include <ir_container.h>
+#include <ir/all_nodes.h>
+#include <ir/container.h>
 
 #include <complex>
 

@@ -11,8 +11,8 @@
 #include <codegen.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
