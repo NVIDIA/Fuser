@@ -1312,6 +1312,24 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(at_out1, nvf_out[1])
         self.assertEqual(at_out2, nvf_out[2])
 
+    def test_signbit(self):
+        inputs = [
+            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.where(fd.ops.signbit(t0), -abs(t1), abs(t1))
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        at_out = torch.where(
+            torch.signbit(inputs[0]), -torch.abs(inputs[1]), torch.abs(inputs[1])
+        )
+        self.assertEqual(at_out, nvf_out[0])
+
     def test_all_dim_var_mean(self):
         inputs = [torch.randn(2, 2, 2, device="cuda")]
 
@@ -2163,6 +2181,26 @@ class TestNvFuserFrontend(TestCase):
                 # across tests
                 fc = FusionCache.get()
                 fc.reset()
+
+    def test_integer_division(self):
+        inputs = [
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.div(t0, t1)
+            t3 = fd.ops.truediv(t0, t1)
+            fd.add_output(t2)
+            fd.add_output(t3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(
+            nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
+        )
+        self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
 
 if __name__ == "__main__":

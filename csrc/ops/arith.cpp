@@ -434,6 +434,18 @@ TensorView* abs(TensorView* tv) {
   return abs(tv->as<Val>())->as<TensorView>();
 }
 
+// The output of signbit(tensor) are boolean values
+Val* signbit(Val* v) {
+  auto cast_v = promoteValues(TypePromotion::default_op_config, {v}).front();
+  Val* out = ops::newValLike(v, DataType::Bool);
+  IrBuilder::create<UnaryOp>(UnaryOpType::Signbit, out, cast_v);
+  return out;
+}
+
+TensorView* signbit(TensorView* tv) {
+  return signbit(tv->as<Val>())->as<TensorView>();
+}
+
 // The output of real(complex_tensor) are real numbers
 Val* real(Val* v) {
   if (v->getDataType() == DataType::ComplexDouble) {
@@ -729,7 +741,7 @@ TensorView* binaryOp(
         BinaryOpType::op_type, v1, v2, TypePromotion::float_op_config); \
   }
 
-NVFUSER_DEFINE_BINARY_FLOAT_OP(div, Div)
+NVFUSER_DEFINE_BINARY_FLOAT_OP(truediv, Div)
 NVFUSER_DEFINE_BINARY_FLOAT_OP(atan2, Atan2)
 #undef NVFUSER_DEFINE_BINARY_FLOAT_OP
 
@@ -774,7 +786,7 @@ NVFUSER_DEFINE_BINARY_FLOAT_ONLY_OP(nextafter, Nextafter)
   }
 
 // Integer binary ops
-NVFUSER_DEFINE_BINARY_CAST_OP(cpp_div, Div)
+NVFUSER_DEFINE_BINARY_CAST_OP(div, Div)
 NVFUSER_DEFINE_BINARY_CAST_OP(mod, Mod)
 NVFUSER_DEFINE_BINARY_CAST_OP(ceilDiv, CeilDiv)
 NVFUSER_DEFINE_BINARY_CAST_OP(add, Add)
