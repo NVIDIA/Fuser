@@ -1085,7 +1085,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(stmt->out()));
     func_args.arg(gen(stmt->in()));
-    func_args.arg(genCall("static_cast", genPtrType(data_type), "shared_mem"));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     TORCH_INTERNAL_ASSERT(
         stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
@@ -1366,6 +1366,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockWelford(const WelfordOp* wop) {
+    TORCH_INTERNAL_ASSERT(ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
+                          "Not block-parallel WelfordOp: ", wop->toString());
+
     const auto has_grid_reduce =
         ir_utils::getTvOutput(wop)->domain()->hasGridReduction();
     const auto data_type = wop->outAvg()->dtype();
@@ -1473,7 +1476,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << kTab << "(" << out_avg->dtype() << ")" << gen(in_var)
                << ",\n";
       indent() << kTab << "(" << out_N->dtype() << ")" << gen(in_N) << ");\n";
-    } else {
+    } else if (has_block_reduce) {
       genBlockWelford(wop);
     }
   }
