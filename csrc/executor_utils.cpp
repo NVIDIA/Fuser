@@ -1187,8 +1187,8 @@ void fillCompileOptions(
     bool compile_to_sass,
     int major,
     int minor,
-    std::optional<int64_t> opt_block_size,
-    const CompileParams& compile_params) {
+    const CompileParams& compile_params,
+    std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1405,8 +1405,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       compile_to_sass,
       major,
       minor,
-      opt_block_size,
-      compile_params);
+      compile_params,
+      opt_block_size);
 
   std::stringstream log;
 
