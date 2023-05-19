@@ -7,7 +7,7 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
 
 #include <device_lower/pass/fusion_simplifier.h>

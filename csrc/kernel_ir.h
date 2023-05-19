@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
-#include <ir_base_nodes.h>
+#include <ir/all_nodes.h>
+#include <ir/base_nodes.h>
 #include <parallel_type_bitmap.h>
 #include <type.h>
 #include <utils.h>

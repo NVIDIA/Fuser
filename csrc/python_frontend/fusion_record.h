@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/util/complex.h>
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>

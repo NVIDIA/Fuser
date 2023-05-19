@@ -11,12 +11,12 @@
 #include <device_lower/pass/double_buffer.h>
 #include <fusion.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_interface_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/interface_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
