@@ -49,6 +49,7 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -8601,6 +8602,33 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
       {div_expect, truediv_expect},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(NVFuserTest, IsFinite_CUDA) {
+  for (const auto& [nvfuser_dtype, aten_dtype] :
+       std::vector<std::pair<DataType, at::ScalarType>>{
+           {DataType::Float, at::kFloat},
+           {DataType::Half, at::kHalf},
+           {DataType::BFloat16, at::kBFloat16}}) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto tv0 = makeContigTensor(1, nvfuser_dtype);
+    fusion->addInput(tv0);
+    auto tv1 = isfinite(tv0);
+    fusion->addOutput(tv1);
+
+    auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+    std::array<float, 3> data{1.0, INFINITY, NAN};
+    const auto input = at::from_blob(data.data(), {3}, {1}).to(options);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, {input});
+    const auto output = fe.runFusion({input});
+
+    testValidate(
+        fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
