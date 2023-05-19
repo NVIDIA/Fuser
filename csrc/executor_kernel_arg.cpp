@@ -630,19 +630,4 @@ PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   return PrimDataType::Int32;
 }
 
-void KernelArgumentHolder::pushTensorProxy(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides,
-    at::ScalarType dtype) {
-  TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
-  auto meta_tensor = at::native::empty_strided_cpu(
-      sizes,
-      strides,
-      dtype,
-      c10::nullopt,
-      c10::Device(c10::DeviceType::Meta, 0),
-      c10::nullopt);
-  arguments_.push_back(getAbstractTensorArg(meta_tensor));
-}
-
 } // namespace nvfuser
