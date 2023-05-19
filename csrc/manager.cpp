@@ -8,7 +8,7 @@
 #include <executor.h>
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 #include <kernel_cache.h>
 #include <manager.h>
 #include <parser.h>

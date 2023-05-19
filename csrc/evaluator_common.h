@@ -8,10 +8,9 @@
 #pragma once
 #include <device_lower/lower2device.h>
 #include <dynamic_type.h>
-#include <executor_kernel_arg.h>
 #include <executor_params.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -19,6 +18,8 @@
 namespace nvfuser {
 
 class PrecomputedValues;
+class KernelArgumentHolder;
+struct TensorArgAbstract;
 
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a

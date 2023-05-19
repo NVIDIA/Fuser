@@ -13,8 +13,8 @@
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <utils.h>
@@ -419,112 +419,6 @@ void fillTensorWithNan(at::Tensor& t) {
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown dtype");
   }
-}
-
-// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
-// is used by FusionKernelRuntime::dryRunKernelWithInput
-at::Tensor inferAndAlloc(
-    const TensorView* tv,
-    const std::vector<Val*>& sizes,
-    ExpressionEvaluator& expr_eval,
-    // Map from dim -> expanded size of TV if any expanded broadcast dimensions
-    // exist
-    std::unordered_map<int, Val*> expanded_map,
-    const CompileOptions& options,
-    bool zero_init = false) {
-  FUSER_PERF_SCOPE("inferAndAlloc");
-
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  // Going to infer all the sizes of the TensorView
-  std::vector<int64_t> inferred_sizes;
-  // Expanded sizes is at maximum the same size of inferred_sizes, as you could
-  // have a fully broadcasted tensor that's being expanded
-  std::vector<int64_t> expanded_sizes;
-  bool expanded_dim = false;
-  for (const auto size : sizes) {
-    const auto inferred_val = expr_eval.evaluate(size);
-    TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
-        "Could not launch kernel as program could not infer ",
-        size->toString(),
-        "(",
-        size->name(),
-        ") for the buffer ",
-        tv->toString());
-    inferred_sizes.push_back(inferred_val->as<int64_t>());
-    if (expanded_map.count((int)expanded_sizes.size())) {
-      auto expanded_size = expanded_map.at((int)expanded_sizes.size());
-      const auto inferred_expanded_size = expr_eval.evaluate(expanded_size);
-      TORCH_INTERNAL_ASSERT(
-          inferred_expanded_size.has_value(),
-          "Could not launch kernel as program could not infer the expanded extent ",
-          expanded_size->toString(),
-          "(",
-          expanded_size->name(),
-          ") for the buffer ",
-          tv->toString());
-      if (inferred_val.value() != 1) {
-        TORCH_INTERNAL_ASSERT(
-            inferred_val.value() == inferred_expanded_size.value(),
-            "Attempted an expand on a non-broadcasted dimension,",
-            " but the expand doesn't match the dimensions size.");
-      } else {
-        expanded_dim = true;
-      }
-      expanded_sizes.push_back(inferred_expanded_size->as<int64_t>());
-    } else {
-      expanded_sizes.push_back(inferred_val->as<int64_t>());
-    }
-  }
-
-  const auto at_type = data_type_to_aten(tv->dtype());
-  const auto tensor_options =
-      at::TensorOptions().dtype(at_type).device(options.device);
-  c10::IntArrayRef isizes(inferred_sizes);
-
-  if (zero_init) {
-    auto zeros = at::zeros(isizes, tensor_options);
-    if (expanded_dim) {
-      return zeros.expand(expanded_sizes);
-    }
-    return zeros;
-  } else {
-    // Non Variable type guard for empty_cuda call
-    at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-    auto empty = at::empty(isizes, tensor_options);
-    if (shouldFillAllocationWithNan()) {
-      fillTensorWithNan(empty);
-    }
-    if (expanded_dim) {
-      return empty.expand(expanded_sizes);
-    }
-    return empty;
-  }
-}
-
-// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
-// is used by FusionKernelRuntime::dryRunKernelWithInput
-at::Tensor inferAndAllocOutput(
-    const TensorView* tv,
-    ExpressionEvaluator& expr_eval,
-    const CompileOptions& options,
-    bool zero_init = false) {
-  const auto domain = tv->domain();
-  const auto maybe_rfactor_domain = domain->maybeRFactor();
-
-  std::vector<Val*> sizes;
-  std::unordered_map<int, Val*> expand_map;
-
-  for (const auto id : maybe_rfactor_domain) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
-    sizes.push_back(id->extent());
-    if (id->isBroadcast() && id->hasExpandedExtent()) {
-      expand_map[(int)sizes.size() - 1] = id->expandedExtent();
-    }
-  }
-  return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
 }
 
 std::vector<int64_t> getContiguousStrides(
@@ -1329,123 +1223,76 @@ void FusionExecutor::setUsedTVs() {
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
 }
 
-// TODO: replace use of inferAndAllocOutput
-KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
-    const KernelArgumentHolder& args,
-    ExpressionEvaluator& expr_eval,
-    const std::unordered_set<int>& alias_indices) {
-  FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
-  const auto kernel = lowered_->kernel();
+KernelArgumentHolder FusionExecutor::inferOutputSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+      std::make_unique<PrecomputedValues>(fusion);
+  evaluator_precomputed_values->bindInputs(args);
+  evaluator_precomputed_values->evaluate();
+
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
+  const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();
 
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
-  CompileOptions meta_options = options_;
-  meta_options.device = c10::Device(c10::DeviceType::Meta, 0);
-
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    // If the output is just trivially the input, just "copy" it over, see note
-    // [trivial forwarding]
-    if (kernel->outputs()[out_i]->isFusionInput()) {
-      for (auto inp_i : c10::irange(kernel->inputs().size())) {
-        if (kernel->inputs()[inp_i] == kernel->outputs()[out_i]) {
-          TORCH_INTERNAL_ASSERT(
-              inp_i < args.size(),
-              "Issue with an input showing up as output, couldn't find input.");
-
-          auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_abstract,
-              "Cannot register a scalar as an output in a fusion.");
-          ret.push(tensor_arg_abstract);
-          break;
-        }
-      }
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+    // If the output is just trivially the input, just "copy" it over.
+    // See note [trivial forwarding]
+    if (fusion->outputs()[out_i]->isFusionInput()) {
+      auto input_it = std::find(
+          fusion->inputs().begin(),
+          fusion->inputs().end(),
+          fusion->outputs()[out_i]);
+      TORCH_INTERNAL_ASSERT(
+          input_it != fusion->inputs().end(),
+          "Issue with an input showing up as output but could not find input.");
+      auto inp_i = std::distance(fusion->inputs().begin(), input_it);
+      auto tensor_arg_abstract =
+          dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
+      TORCH_INTERNAL_ASSERT(
+          tensor_arg_abstract,
+          "Cannot register a scalar as an output in a fusion.");
+      ret.push(tensor_arg_abstract);
     } else {
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
+          fusion->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
-      auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count((int)out_i) != 0) {
-        // aliasing to inputs, no need to allocate real output
-        // but we still need to push an entry here.
+      auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
+
+      auto alias_it = std::find_if(
+          output_to_input_aliases.begin(),
+          output_to_input_aliases.end(),
+          [&](const auto& output_to_input) {
+            return output_to_input.first == (int)out_i;
+          });
+
+      if (alias_it != output_to_input_aliases.end()) {
+        // When aliasing output to an input, we do not need to allocate a new
+        // output but still need to push an entry.
         ret.push(int64_t(0));
       } else {
-        // TODO: we are using meta here, which is bad since it doesn't account
-        // for devices. Switch to fake tensor instead
-        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false));
+        const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+        const auto dtype = (output_tv->dtype() == DataType::Index)
+            ? data_type_to_aten(arg_index_type)
+            : data_type_to_aten(output_tv->dtype());
+        ret.pushTensorProxy(sizes, strides, dtype);
       }
     }
   }
-  return ret;
-}
 
-KernelArgumentHolder FusionExecutor::inferOutputSizes(
-    const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints) {
-  FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
-
-  ExecutorEntry* executor_entry = nullptr;
-  auto opt_code = args.getCacheId();
-  if (opt_code.has_value()) {
-    executor_entry = &executor_entry_lookup_[*opt_code];
-  }
-
-  at::cuda::jit::initializeCudaContext();
-  TORCH_INTERNAL_ASSERT(lowered_);
-
-  TORCH_INTERNAL_ASSERT(
-      !executor_entry || !executor_entry->init,
-      "compile kernel shouldn't hit a pre-existing cache");
-  FUSER_PERF_SCOPE("ExecutorRunFusion::ValidateAndInitialize");
-  // TODO: validate kernel inputs currently won't be happy, since our fusion
-  // args are mapped with `meta` tensor instead of `cuda` tensor, check if this
-  // would be resolved with FakeTensor
-  // executor_utils::validateKernelInputs(fusion_, args, options_.device);
-
-  ExpressionEvaluator expr_eval;
-  evaluatorPrecomputedValues()->bindInputs(args);
-  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
-
-  // I think this binds something to expr_eval, so even though we are not using
-  // launch_params_, we still need this in order to infer output shapes.
-  launch_params_ =
-      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
-
-  executor_utils::validateVectorizedTensors(
-      lowered_.get()->kernel(), args, {}, compileTimeDataCache(), expr_eval);
-
-  auto alias_indices_entry = executor_utils::caching::ExecutorCompileTimeEntry<
-      executor_utils::caching::InputAliasIndices>(
-      compileTimeDataCache(), [&]() {
-        return std::make_unique<std::vector<std::pair<int, int>>>(
-            fusion_->getOutputToInputAliasIndices());
-      });
-
-  auto& alias_indices = alias_indices_entry.get();
-
-  auto output_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::OutputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::unordered_set<int>>(
-                fusion_->getIndicesOfAliasedOutputs());
-          });
-
-  auto& output_alias_indices = output_alias_indices_entry.get();
-
-  auto ret = evaluateOutputSizes(args, expr_eval, output_alias_indices);
-
-  for (const auto& entry : alias_indices) {
-    auto aliased_output_index = entry.first;
-    auto aliased_input_index = entry.second;
+  for (const auto& [aliased_output_index, aliased_input_index] :
+       output_to_input_aliases) {
     TORCH_INTERNAL_ASSERT(
         args[aliased_input_index]->isType(ArgType::Tensor),
         "alias io only supports tensor");
     ret.swap(aliased_output_index, args[aliased_input_index]);
   }
-
   return ret;
 }
 
@@ -1884,8 +1731,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
+    auto ee = executor_utils::bindInputs(args, kernel());
     auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments());
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1999,8 +1847,7 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  // runRtc does not have a fusion, so no analysis needs to be done. So we just
-  // leave all tensor views as empty.
+  ExpressionEvaluator ee;
   std::vector<TensorView*> tvs(args.size(), nullptr);
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
@@ -2012,7 +1859,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type, tvs),
+      kernel_arguments.getBuffer(index_type, tvs, ee),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

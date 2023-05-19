@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -403,18 +403,18 @@ TORCH_CUDA_CU_API Val* atan2(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* atan2(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, TensorView* v2);
-// div: promote to float for integer division, has the same semantics as the
+// truediv: promote to float for integer division, has the same semantics as the
 // python's operator /
+TORCH_CUDA_CU_API Val* truediv(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* truediv(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, TensorView* v2);
+// div: don't promote to float, instead, truncate the result, this has the same
+// semantics as the C++'s operator /
 TORCH_CUDA_CU_API Val* div(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* div(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* div(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* div(TensorView* v1, TensorView* v2);
-// cpp_div: similar to div, but don't promote to float, this has the same
-// semantics as the C++'s operator /
-TORCH_CUDA_CU_API Val* cpp_div(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(TensorView* v1, TensorView* v2);
 // fmod
 TORCH_CUDA_CU_API Val* fmod(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* fmod(TensorView* v1, Val* v2);

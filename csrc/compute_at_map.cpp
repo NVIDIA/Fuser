@@ -9,7 +9,7 @@
 
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 

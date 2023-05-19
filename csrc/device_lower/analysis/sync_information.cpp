@@ -8,7 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 #include <device_lower/analysis/sync_information.h>
 

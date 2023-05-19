@@ -10,8 +10,8 @@
 #include <c10/macros/Export.h>
 
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 #include <unordered_map>

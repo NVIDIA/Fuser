@@ -8,8 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <multidevice/aggregate_dag.h>
 #include <multidevice/multicluster_fusion.h>
 #include <ops/all_ops.h>

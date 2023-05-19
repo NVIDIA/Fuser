@@ -8,7 +8,7 @@
 #pragma once
 
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <iter_visitor.h>
 #include <utils.h>
 

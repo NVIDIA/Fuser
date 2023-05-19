@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <ops/arith.h>
 #include <ops/normalization.h>
 
