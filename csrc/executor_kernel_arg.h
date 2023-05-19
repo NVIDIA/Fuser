@@ -10,9 +10,12 @@
 #include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
+#include <expr_evaluator.h>
+#include <ir_all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
+#include <cstddef>
 #include <optional>
 
 namespace nvfuser {
@@ -57,21 +60,19 @@ inline std::string argTypeToString(ArgType type) {
 }
 
 // This should match the tensor used in the code generation (almost exactly)
-template <typename T, int N, typename nvfuser_index_t>
+template <int ndims, int nalloc, typename nvfuser_index_t>
 struct TensorArgCodegen {
-  using data_type = T;
   using index_type = nvfuser_index_t;
-  static constexpr int ndims = N;
 
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
+  void* data;
+  std::array<nvfuser_index_t, ndims> size;
+  std::array<nvfuser_index_t, nalloc> stride;
 
-  T* data;
-  std::array<nvfuser_index_t, N> size;
-  std::array<nvfuser_index_t, N> stride;
-  constexpr int nDims() const {
-    return N;
+  static constexpr int nDims() {
+    return ndims;
+  }
+  static constexpr int nAllocationDims() {
+    return nalloc;
   }
   void setSize(int64_t i, nvfuser_index_t s) {
     size[i] = s;
@@ -88,18 +89,16 @@ struct TensorArgCodegen {
 };
 
 // 0-Dim GPU based tensor
-template <typename T, typename nvfuser_index_t>
-struct TensorArgCodegen<T, 0, nvfuser_index_t> {
-  using data_type = T;
+template <typename nvfuser_index_t>
+struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   using index_type = nvfuser_index_t;
-  static constexpr int ndims = 0;
 
-  T& operator[](nvfuser_index_t ind) {
-    return data[ind];
-  };
+  void* data;
 
-  T* data;
-  constexpr int nDims() const {
+  static constexpr int nDims() {
+    return 0;
+  }
+  static constexpr int nAllocationDims() {
     return 0;
   }
   void setSize(int64_t, nvfuser_index_t) {
@@ -116,44 +115,33 @@ struct TensorArgCodegen<T, 0, nvfuser_index_t> {
   }
 };
 
-// Specialization for 0-dim case that's easy to pass in a CPU based tensor
-// without memcpy
-template <typename T>
-struct CpuScalarTensorCodegen {
-  T& operator[](int) {
-    return data;
-  };
-
-  T data;
-};
-
 struct ArgAbstract {
   virtual ~ArgAbstract() = default;
   virtual const void* arg() const = 0;
   virtual void* arg() = 0;
   virtual bool isType(ArgType type) const = 0;
   virtual ArgType type() const = 0;
-  virtual std::unique_ptr<ArgAbstract> copy_unique_ptr() const = 0;
+  virtual std::unique_ptr<ArgAbstract> clone() const = 0;
   virtual std::string toString() const {
     return "input type: " + argTypeToString(type());
   };
 };
 
-#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                    \
-  bool isType(ArgType type) const override {                      \
-    return ArgType::TARGET_TYPE == type;                          \
-  }                                                               \
-  ArgType type() const override {                                 \
-    return ArgType::TARGET_TYPE;                                  \
-  }                                                               \
-  const void* arg() const override {                              \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  void* arg() override {                                          \
-    return &ARG_NAME;                                             \
-  }                                                               \
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override { \
-    return std::make_unique<TARGET_TYPE##Arg>(*this);             \
+#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
+  bool isType(ArgType type) const override {            \
+    return ArgType::TARGET_TYPE == type;                \
+  }                                                     \
+  ArgType type() const override {                       \
+    return ArgType::TARGET_TYPE;                        \
+  }                                                     \
+  const void* arg() const override {                    \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  void* arg() override {                                \
+    return &ARG_NAME;                                   \
+  }                                                     \
+  std::unique_ptr<ArgAbstract> clone() const override { \
+    return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
 #define DEF_TOSTRING_FUNC                 \
@@ -198,84 +186,50 @@ struct BoolArg : public ArgAbstract {
 };
 
 struct TensorArgAbstract : ArgAbstract {
-  virtual int64_t getRank() const = 0;
-  virtual int64_t getSize(int64_t i) const = 0;
-  virtual int64_t getStride(int64_t i) const = 0;
-  virtual void* getPointer() const = 0;
-  virtual DataType getDataType() const = 0;
-  virtual int64_t numel() const = 0;
-  virtual at::Tensor getTensor() const = 0;
-  virtual bool isIndexTypeResolved() const = 0;
-  //! Returns the index type of the tensor. It's an error if the
-  //! tensor does not have a resolved index type.
-  virtual PrimDataType getIndexType() const = 0;
-
-  std::string toString() const override;
-};
-
-template <typename TENSOR_TYPE>
-struct TensorArg : public TensorArgAbstract {
-  TENSOR_TYPE instance_;
   at::Tensor tensor_;
-  bool index_type_resolved_ = false;
 
-  TensorArg(const at::Tensor& tensor, bool index_type_resolved)
-      : tensor_(tensor), index_type_resolved_(index_type_resolved) {
-    setPointer(tensor.data_ptr());
-    for (const auto i : c10::irange(tensor.ndimension())) {
-      setSize(i, tensor.sizes()[i]);
-      setStride(i, tensor.strides()[i]);
-    }
+  TensorArgAbstract(at::Tensor tensor) : tensor_(std::move(tensor)) {}
+  TensorArgAbstract(const TensorArgAbstract&) = default;
+
+  int64_t getRank() const {
+    return tensor_.ndimension();
   }
 
-  void setSize(int64_t i, int64_t size) {
-    instance_.setSize(i, (typename TENSOR_TYPE::index_type)size);
-  }
-  void setStride(int64_t i, int64_t stride) {
-    instance_.setStride(i, (typename TENSOR_TYPE::index_type)stride);
-  }
-  void setPointer(void* ptr) {
-    instance_.data = static_cast<decltype(TENSOR_TYPE::data)>(ptr);
-  }
-  void setTensor(at::Tensor tensor) {
-    tensor_ = tensor;
+  int64_t getSize(int64_t i) const {
+    return tensor_.size(i);
   }
 
-  int64_t getSize(int64_t i) const override {
-    return instance_.getSize(i);
+  virtual int64_t getStride(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The stride of an abstract tensor arg is not known.");
   }
-  int64_t getStride(int64_t i) const override {
-    return instance_.getStride(i);
+
+  size_t getPointerAddress() const {
+    return (size_t)tensor_.data_ptr();
   }
-  int64_t getRank() const override {
-    return instance_.nDims();
+
+  DataType getDataType() const {
+    return aten_to_data_type(tensor_.scalar_type());
   }
-  void* getPointer() const override {
-    return instance_.data;
+
+  int64_t numel() const {
+    return tensor_.numel();
   }
-  DataType getDataType() const override {
-    return NativeTypeWithC10ComplexToDataType<
-        typename TENSOR_TYPE::data_type>::type;
-  }
-  at::Tensor getTensor() const override {
+
+  at::Tensor getTensor() const {
     return tensor_;
   }
-  int64_t numel() const override {
-    int64_t ret = 1;
-    for (auto i : c10::irange(instance_.nDims())) {
-      ret *= instance_.getSize(i);
-    }
-    return ret;
+
+  virtual bool isAbstract() const {
+    return true;
   }
 
-  bool isIndexTypeResolved() const override {
-    return index_type_resolved_;
+  virtual PrimDataType getIndexType() const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The index type of an abstract tensor arg is not known.");
   }
 
-  PrimDataType getIndexType() const override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
-    return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
-  }
+  PrimDataType getSmallestIndexType() const;
 
   bool isType(ArgType t) const override {
     return type() == t;
@@ -285,35 +239,105 @@ struct TensorArg : public TensorArgAbstract {
     return ArgType::Tensor;
   }
 
-  //! Returns the address of an tensor argument struct. It's an error
-  //! if called with a tensor with no resolved index type
+  //! Returns the address of an tensor argument struct.
   const void* arg() const override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
-    return &instance_;
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
   }
 
-  //! Returns the address of an tensor argument struct. It's an error
-  //! if called with a tensor with no resolved index type
+  //! Returns the address of an tensor argument struct.
   void* arg() override {
-    TORCH_INTERNAL_ASSERT(isIndexTypeResolved());
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
+  }
+
+  std::string toString() const override {
+    std::stringstream ss;
+    auto rank = getRank();
+    ss << "tensor dtype: " << getDataType() << " sizes: (";
+    for (auto i = 0; i < rank; i++) {
+      ss << getSize(i) << ", ";
+    }
+    ss << ") pointer: " << getPointerAddress();
+    return ss.str();
+  }
+
+  std::unique_ptr<ArgAbstract> clone() const override {
+    return std::make_unique<TensorArgAbstract>(*this);
+  }
+};
+
+std::vector<std::pair<int64_t, int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee);
+
+template <typename TENSOR_TYPE>
+struct TensorArg : public TensorArgAbstract {
+  TENSOR_TYPE instance_;
+
+  TensorArg(const at::Tensor& tensor, TensorView* tv, ExpressionEvaluator& eval)
+      : TensorArgAbstract(tensor) {
+    instance_.data = tensor.data_ptr();
+    for (const auto i : c10::irange(tensor.ndimension())) {
+      instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
+    }
+    inferSetAndValidateStrides(tensor, tv, eval);
+  }
+
+  void inferSetAndValidateStrides(
+      const at::Tensor& tensor,
+      TensorView* tv,
+      ExpressionEvaluator& eval) {
+    auto sizes_strides =
+        inferAndValidateAllocationSizesAndStrides(tensor, tv, eval);
+    TORCH_INTERNAL_ASSERT(
+        (size_t)instance_.nAllocationDims() == sizes_strides.size());
+    for (auto i : c10::irange((int64_t)sizes_strides.size())) {
+      using stride_t = typename TENSOR_TYPE::index_type;
+      instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
+    }
+  }
+
+  int64_t getStride(int64_t i) const override {
+    return instance_.getStride(i);
+  }
+
+  //! Returns the address of an tensor argument struct.
+  const void* arg() const override {
     return &instance_;
   }
 
-  std::unique_ptr<ArgAbstract> copy_unique_ptr() const override {
+  //! Returns the address of an tensor argument struct.
+  void* arg() override {
+    return &instance_;
+  }
+
+  bool isAbstract() const override {
+    return false;
+  }
+
+  PrimDataType getIndexType() const override {
+    return NativeTypeToDataType<typename TENSOR_TYPE::index_type>::type;
+  }
+
+  std::string toString() const override {
+    std::stringstream ss;
+    ss << TensorArgAbstract::toString();
+    ss << " stride: (";
+    for (auto i = 0; i < getRank(); i++) {
+      ss << getStride(i) << ", ";
+    }
+    return ss.str();
+  }
+
+  std::unique_ptr<ArgAbstract> clone() const override {
     return std::make_unique<TensorArg>(*this);
   }
 };
 
-template <typename CPU_TENSOR_TYPE>
+template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
-  CPU_TENSOR_TYPE instance_;
-
-  CpuScalarTensorArg() = delete;
-
-  explicit CpuScalarTensorArg(decltype(CPU_TENSOR_TYPE::data) _data) {
-    instance_.data = _data;
-  }
-
+  std::array<std::byte, size> instance_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
 };
 
@@ -352,6 +376,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
 
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      const std::vector<int64_t>& sizes,
+      const std::vector<int64_t>& strides,
+      at::ScalarType dtype);
+
   // Push a tensor to the arguments
   void push(const at::Tensor& tensor);
 
@@ -363,7 +393,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
-  void** getBuffer(PrimDataType index_type);
+  void** getBuffer(
+      PrimDataType index_type,
+      std::vector<TensorView*> tvs,
+      ExpressionEvaluator& eval);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
 

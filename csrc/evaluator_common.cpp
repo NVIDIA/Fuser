@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <evaluator_common.h>
+
+#include <device_lower/lower2device.h>
+#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-
-#include <evaluator_common.h>
 
 namespace nvfuser {
 
@@ -92,7 +93,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       ret.push_back(id->extent());
     }
     for (auto id : tv->getMaybeRFactorDomain()) {

@@ -7,12 +7,12 @@
 // clang-format on
 #include <scheduler/transpose.h>
 
+#include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower_utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -34,6 +34,13 @@ class DomainMap : public pointwise_utils::DomainMap {
  public:
   using pointwise_utils::DomainMap::DomainMap;
 
+  // Note that this may not be able to find any reference if any
+  // tensor in the group is only connected with an input through
+  // rfactor or gather-like indexing ops. It is because
+  // isValidReference is based a backward traversal, so there may not
+  // be a traversal path to an input. This type of analysis is
+  // expected to be possible much more easily with the new indexing
+  // graph (#32), so we should revisit once it becomes available.
   TensorView* findReferenceFor(const std::vector<TensorView*>& group) const {
     TensorView* result = nullptr;
     int64_t max_dims = -1;
@@ -107,7 +114,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       }
     }
     // Find the position of the leaf id
-    const auto& dom = tv->domain()->leaf();
+    const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
         return i;
@@ -1014,8 +1021,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-1), IdMappingMode::EXACT);
@@ -1036,8 +1043,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-3), IdMappingMode::EXACT);
@@ -1100,8 +1107,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-1), IdMappingMode::EXACT);
@@ -1122,8 +1129,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->domain()->leaf().begin(),
-              gin->domain()->leaf().end(),
+              gin->getLeafDomain().begin(),
+              gin->getLeafDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-3), IdMappingMode::EXACT);
@@ -1146,7 +1153,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inputs
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
-      for (auto id : tv->domain()->leaf()) {
+      for (auto id : tv->getLeafDomain()) {
         id->parallelize(ParallelType::Serial);
       }
     }
@@ -1155,8 +1162,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Inline
   inlineMost();
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(
-      fusion, cached_inputs);
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace nvfuser

@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
 #include <ir_all_nodes.h>
 #include <kernel_ir.h>
-#include <lower_trivial_broadcast.h>
 
 #include <deque>
 #include <unordered_map>
@@ -56,7 +56,8 @@ namespace nvfuser {
 // IdMappingMode::PERMISSIVE_RESIZE
 //   Include everything in PERMISSIVE. Map also domains that are
 //   inputs and outputs of resize ops. Used for, e.g., propagating
-//   parallel types across those domains.
+//   parallel types across those domains. It also maps producers and
+//   consumers of gathered and scattered domains
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs

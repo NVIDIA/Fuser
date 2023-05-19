@@ -137,6 +137,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
 TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   bool found_LDGSTS = false;

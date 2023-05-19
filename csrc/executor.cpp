@@ -9,6 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
@@ -16,7 +17,6 @@
 #include <ir_utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <lower_bank_conflict.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
@@ -33,7 +33,7 @@
 
 namespace nvfuser {
 
-int FusionExecutor::fusion_id_counter_ = 0;
+int64_t FusionExecutor::fusion_id_counter_ = 0;
 
 bool fill_allocation_with_nan_ = false;
 
@@ -257,8 +257,9 @@ void FusionExecutor::compileFusion(
   TORCH_INTERNAL_ASSERT(
       options_.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
   auto properties = at::cuda::getDeviceProperties(options_.device.index());
-  configured_device_smem_ = properties->sharedMemPerBlock;
-  device_smem_limit_ = properties->sharedMemPerBlockOptin;
+  // TODO: These properties should be set as part of the constructor so that it
+  // can be const
+  device_smem_limit_ = static_cast<int64_t>(properties->sharedMemPerBlockOptin);
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
@@ -334,12 +335,14 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: pass block_size here;
+  std::optional<int64_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
     auto launch_params =
         computeLaunchParams(launch_constraints, expr_eval, warp_size_);
     block_size = launch_params.nThreads();
+    dynamic_smem = launch_params.smem();
     TORCH_INTERNAL_ASSERT(
         block_size > 0, "launch param inferred block size < 0");
   }
@@ -366,13 +369,14 @@ void FusionExecutor::compileFusion(
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
-  // The driver API call requires an int argument.
-  int max_dynamic_smem = 0;
-  CUDA_SAFE_CALL(cuFuncGetAttribute(
-      &max_dynamic_smem,
-      CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-      compiled_kernel_.function));
-  maybe_available_dynamic_smem_ = max_dynamic_smem;
+  // These should be nullopt at this point, but reset just in case
+  resetCompiledKernelProperties();
+
+  // If the dynamic shmem size is known, make sure the compiled kernel
+  // has at least that size of dynamic shmem
+  if (dynamic_smem.has_value()) {
+    ensureAvailableDynamicSmemSize(dynamic_smem.value());
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     std::cout << disassembledKernelSASS() << std::endl;
@@ -415,112 +419,6 @@ void fillTensorWithNan(at::Tensor& t) {
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown dtype");
   }
-}
-
-// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
-// is used by FusionKernelRuntime::dryRunKernelWithInput
-at::Tensor inferAndAlloc(
-    const TensorView* tv,
-    const std::vector<Val*>& sizes,
-    ExpressionEvaluator& expr_eval,
-    // Map from dim -> expanded size of TV if any expanded broadcast dimensions
-    // exist
-    std::unordered_map<int, Val*> expanded_map,
-    const CompileOptions& options,
-    bool zero_init = false) {
-  FUSER_PERF_SCOPE("inferAndAlloc");
-
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  // Going to infer all the sizes of the TensorView
-  std::vector<int64_t> inferred_sizes;
-  // Expanded sizes is at maximum the same size of inferred_sizes, as you could
-  // have a fully broadcasted tensor that's being expanded
-  std::vector<int64_t> expanded_sizes;
-  bool expanded_dim = false;
-  for (const auto size : sizes) {
-    const auto inferred_val = expr_eval.evaluate(size);
-    TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
-        "Could not launch kernel as program could not infer ",
-        size->toString(),
-        "(",
-        size->name(),
-        ") for the buffer ",
-        tv->toString());
-    inferred_sizes.push_back(inferred_val->as<int64_t>());
-    if (expanded_map.count((int)expanded_sizes.size())) {
-      auto expanded_size = expanded_map.at((int)expanded_sizes.size());
-      const auto inferred_expanded_size = expr_eval.evaluate(expanded_size);
-      TORCH_INTERNAL_ASSERT(
-          inferred_expanded_size.has_value(),
-          "Could not launch kernel as program could not infer the expanded extent ",
-          expanded_size->toString(),
-          "(",
-          expanded_size->name(),
-          ") for the buffer ",
-          tv->toString());
-      if (inferred_val.value() != 1) {
-        TORCH_INTERNAL_ASSERT(
-            inferred_val.value() == inferred_expanded_size.value(),
-            "Attempted an expand on a non-broadcasted dimension,",
-            " but the expand doesn't match the dimensions size.");
-      } else {
-        expanded_dim = true;
-      }
-      expanded_sizes.push_back(inferred_expanded_size->as<int64_t>());
-    } else {
-      expanded_sizes.push_back(inferred_val->as<int64_t>());
-    }
-  }
-
-  const auto at_type = data_type_to_aten(tv->dtype());
-  const auto tensor_options =
-      at::TensorOptions().dtype(at_type).device(options.device);
-  c10::IntArrayRef isizes(inferred_sizes);
-
-  if (zero_init) {
-    auto zeros = at::zeros(isizes, tensor_options);
-    if (expanded_dim) {
-      return zeros.expand(expanded_sizes);
-    }
-    return zeros;
-  } else {
-    // Non Variable type guard for empty_cuda call
-    at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-    auto empty = at::empty(isizes, tensor_options);
-    if (shouldFillAllocationWithNan()) {
-      fillTensorWithNan(empty);
-    }
-    if (expanded_dim) {
-      return empty.expand(expanded_sizes);
-    }
-    return empty;
-  }
-}
-
-// TODO: remove. Only used by FusionExecutor::inferOutputSizes, which
-// is used by FusionKernelRuntime::dryRunKernelWithInput
-at::Tensor inferAndAllocOutput(
-    const TensorView* tv,
-    ExpressionEvaluator& expr_eval,
-    const CompileOptions& options,
-    bool zero_init = false) {
-  const auto domain = tv->domain();
-  const auto maybe_rfactor_domain = domain->maybeRFactor();
-
-  std::vector<Val*> sizes;
-  std::unordered_map<int, Val*> expand_map;
-
-  for (const auto id : maybe_rfactor_domain) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
-    sizes.push_back(id->extent());
-    if (id->isBroadcast() && id->hasExpandedExtent()) {
-      expand_map[(int)sizes.size() - 1] = id->expandedExtent();
-    }
-  }
-  return inferAndAlloc(tv, sizes, expr_eval, expand_map, options, zero_init);
 }
 
 std::vector<int64_t> getContiguousStrides(
@@ -595,14 +493,18 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 // Infer the shape of an intemediate tensor using kir::Allocate
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
-    const kir::Allocate* alloc,
     ExpressionEvaluator& expr_eval) {
-  // Allocate should be provided for intermediates. We just need to
-  // grab a chunk of memory of the size dicatated by
-  // Allocate::shape().
-  TORCH_INTERNAL_ASSERT(alloc != nullptr);
+  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::vector<nvfuser::Val*> symbolic_sizes;
+  symbolic_sizes.reserve(alloc_dom.size());
+  for (auto id : alloc_dom) {
+    if (id->isBroadcast()) {
+      symbolic_sizes.emplace_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.emplace_back(id->extent());
+    }
+  }
 
-  const auto& symbolic_sizes = alloc->shape();
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
@@ -621,8 +523,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
-  // Allocate the rfactor domain
-  for (const auto id : tv->getMaybeRFactorDomain()) {
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
     }
@@ -641,14 +543,331 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-// Allocate output tensos for a given kernel. Outputs may alias inputs, in
+namespace {
+
+class ForwardTraverseFromAllocToRFactor {
+  at::Tensor tensor_;
+  TensorView* tv_;
+  ExpressionEvaluator& ee_;
+  std::list<IterDomain*>& frontier_;
+
+  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
+  void handle(Split* split) {
+    auto in = split->in();
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
+    auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
+    // TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
+    if (in_it == frontier_.end()) {
+      // TODO: We should get rid of this return and enable the above assert.
+      // Note [Allocation domain on both side of rFactor]
+      // For cases where the allocation domain is on both side of rFactor, for
+      // example, in Tensor3d_To_NHWC4d_FwdBwd_CUDA:
+      // [alloc,root]   [alloc,root]           [root]
+      //          \     /                      /    |
+      //         [rFactor]                  split   [rFactor]
+      //                                    /  \         |
+      //                      [alloc,rFactor] [rFactor]  |
+      //                                             \   |
+      //                                             [alloc]
+      // I have no idea why StmtSort::getExprsBetween is not returning the
+      // expected set of exprs, but for now, I will just skip these illegal
+      // exprs.
+      return;
+    }
+    // view tensor
+    int64_t dim = std::distance(frontier_.begin(), in_it);
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == dim) {
+        new_shape.emplace_back(-1);
+        new_shape.emplace_back(factor);
+      } else {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    frontier_.insert(in_it, outer);
+    frontier_.insert(in_it, inner);
+    frontier_.erase(in_it);
+  }
+
+  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
+  void handle(Merge* merge) {
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto out = merge->out();
+    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
+    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
+    int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
+    int64_t left = std::min(inner_dim, outer_dim);
+    // view the tensor
+    if (outer_dim + 1 != inner_dim) {
+      // need to permute the tensor in order to do a merging view
+      // before: [..., outer, ..., inner, ...]
+      // after: [..., outer, inner, ...]
+      std::vector<int64_t> dims;
+      int64_t i = 0;
+      while (i < tensor_.dim() && i != left) {
+        dims.emplace_back(i);
+        i++;
+      }
+      dims.emplace_back(outer_dim);
+      dims.emplace_back(inner_dim);
+      while (i < tensor_.dim()) {
+        if (i != outer_dim && i != inner_dim) {
+          dims.emplace_back(i);
+        }
+        i++;
+      }
+      tensor_ = tensor_.permute(dims);
+    }
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == left) {
+        new_shape.emplace_back(-1);
+      } else if (i != left + 1) {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    if (inner_dim < outer_dim) {
+      *inner_it = out;
+      frontier_.erase(outer_it);
+    } else {
+      *outer_it = out;
+      frontier_.erase(inner_it);
+    }
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  ForwardTraverseFromAllocToRFactor(
+      at::Tensor tensor,
+      TensorView* tv,
+      ExpressionEvaluator& ee,
+      std::list<IterDomain*>& frontier)
+      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+
+  at::Tensor run(
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto forward_exprs = StmtSort::getExprsBetween(
+        tv_->fusion(),
+        {alloc.begin(), alloc.end()},
+        {rfactor.begin(), rfactor.end()});
+    for (auto expr : forward_exprs) {
+      handle(expr);
+    }
+    return tensor_;
+  }
+};
+
+// Backward traverse is similar to forward traverse, but we need to do opposite
+// transformations.
+class BackwardTraverseFromAllocToRFactor {
+  at::Tensor tensor_;
+  TensorView* tv_;
+  ExpressionEvaluator& ee_;
+  std::list<IterDomain*>& frontier_;
+
+  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
+  void handle(Split* split) {
+    auto inner = split->inner();
+    auto outer = split->outer();
+    auto in = split->in();
+    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
+    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
+    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
+    int64_t outer_dim = std::distance(frontier_.begin(), outer_it);
+    int64_t left = std::min(inner_dim, outer_dim);
+    // view the tensor
+    if (outer_dim + 1 != inner_dim) {
+      // need to permute the tensor in order to do a merging view
+      // before: [..., outer, ..., inner, ...]
+      // after: [..., outer, inner, ...]
+      std::vector<int64_t> dims;
+      int64_t i = 0;
+      while (i < tensor_.dim() && i != left) {
+        dims.emplace_back(i);
+        i++;
+      }
+      dims.emplace_back(outer_dim);
+      dims.emplace_back(inner_dim);
+      while (i < tensor_.dim()) {
+        if (i != outer_dim && i != inner_dim) {
+          dims.emplace_back(i);
+        }
+        i++;
+      }
+      tensor_ = tensor_.permute(dims);
+    }
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == left) {
+        new_shape.emplace_back(-1);
+      } else if (i != left + 1) {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    if (inner_dim < outer_dim) {
+      *inner_it = in;
+      frontier_.erase(outer_it);
+    } else {
+      *outer_it = in;
+      frontier_.erase(inner_it);
+    }
+  }
+
+  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
+  void handle(Merge* merge) {
+    auto out = merge->out();
+    auto inner = merge->inner();
+    auto outer = merge->outer();
+    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
+    auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
+    // TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
+    if (out_it == frontier_.end()) {
+      // TODO: see [Allocation domain on both side of rFactor]
+      return;
+    }
+    // view tensor
+    int64_t dim = std::distance(frontier_.begin(), out_it);
+    std::vector<int64_t> new_shape;
+    for (auto i : c10::irange(tensor_.dim())) {
+      if (i == dim) {
+        new_shape.emplace_back(-1);
+        new_shape.emplace_back(factor);
+      } else {
+        new_shape.emplace_back(tensor_.size(i));
+      }
+    }
+    tensor_ = tensor_.view(new_shape);
+    // update frontier
+    frontier_.insert(out_it, outer);
+    frontier_.insert(out_it, inner);
+    frontier_.erase(out_it);
+  }
+
+  void handle(Expr* expr) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split);
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported transormation in allocation domain");
+    }
+  }
+
+ public:
+  BackwardTraverseFromAllocToRFactor(
+      at::Tensor tensor,
+      TensorView* tv,
+      ExpressionEvaluator& ee,
+      std::list<IterDomain*>& frontier)
+      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+
+  at::Tensor run(
+      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& alloc) {
+    auto backward_exprs = StmtSort::getExprsBetween(
+        tv_->fusion(),
+        {rfactor.begin(), rfactor.end()},
+        {alloc.begin(), alloc.end()});
+    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    for (auto expr : backward_exprs) {
+      handle(expr);
+    }
+    return tensor_;
+  }
+};
+
+// Start from a tensor whose dimensions are consistent with the allocation
+// domain of tv, apply a sequence of view/permute to the tensor to transform it
+// into a format whose dimensions are consistent with the rFactor domain of tv.
+// For example, if the rFactor domain is [I1, I2], and the allocation domain is
+// [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
+// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
+// Another example, if the rFactor domain is [I1*I2] and the allocation domain
+// is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
+// get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
+at::Tensor transformOutputFromAllocationToRFactor(
+    at::Tensor tensor,
+    TensorView* tv,
+    ExpressionEvaluator& ee) {
+  // Ignore reductions because reductions does not exist in tensor's definition
+  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  // Traverse all affine transformations from allocation domain. Because
+  // allocation domain can be before or after the rFactor domain, we need both a
+  // forward and a backward traverse.
+  std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
+  TORCH_INTERNAL_ASSERT(tensor.dim() == (int64_t)frontier.size());
+  tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+               .run(rfactor, alloc);
+  tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+               .run(rfactor, alloc);
+  TORCH_INTERNAL_ASSERT(frontier.size() == rfactor.size());
+  // Now that all affine transformations are handled, and frontiers should
+  // contain the same set of IDs as rfactor. We still need to do a final
+  // permutation so that their orders are also consistent.
+  std::unordered_map<IterDomain*, int64_t> current_dims;
+  int64_t counter = 0;
+  for (auto id : frontier) {
+    current_dims[id] = counter++;
+  }
+  std::vector<int64_t> dims;
+  dims.reserve(frontier.size());
+  for (auto id : rfactor) {
+    dims.emplace_back(current_dims.at(id));
+  }
+  return tensor.permute(dims);
+}
+
+} // namespace
+
+// Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
     const KernelArgumentHolder& inputs,
-    const c10::Device& device) {
+    const c10::Device& device,
+    ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
 
   std::vector<at::Tensor> outputs;
@@ -675,20 +894,28 @@ std::vector<at::Tensor> allocOutputs(
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
+      auto alloc_dom =
+          TensorDomain::noReductions(kernel->outputs()
+                                         .at(output_idx)
+                                         ->as<TensorView>()
+                                         ->getMaybeAllocationDomain());
       const auto tensor_options =
           at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(at::empty({0}, tensor_options));
+      outputs.emplace_back(
+          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
     } else {
-      outputs.emplace_back(at::native::empty_strided_cuda(
+      auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
           buf_info.strides,
           buf_info.type,
           c10::nullopt,
           device,
-          c10::nullopt));
+          c10::nullopt);
       if (shouldFillAllocationWithNan()) {
-        fillTensorWithNan(outputs.back());
+        fillTensorWithNan(alloc_tensor);
       }
+      outputs.emplace_back(transformOutputFromAllocationToRFactor(
+          alloc_tensor, buf_info.tv, ee));
     }
   }
 
@@ -697,11 +924,11 @@ std::vector<at::Tensor> allocOutputs(
 
 } // namespace
 
-uint64_t FusionExecutor::computeSharedMemory(
+int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
-    uint64_t total) {
+    int64_t total) {
   FUSER_PERF_SCOPE("computeSharedMemory");
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
@@ -709,11 +936,12 @@ uint64_t FusionExecutor::computeSharedMemory(
     if (smem_alloc->alias() == nullptr) {
       const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
       if (inferred_val.has_value()) {
-        const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+        const auto data_size =
+            static_cast<int64_t>(dataTypeSize(smem_alloc->buffer()->dtype()));
         // Add padding to align dynamic shared memory
         if (align_padding) {
           const int align_size = 16; // always align to 16B/128b.
-          total = ceilDiv((int64_t)total, align_size) * align_size;
+          total = ceilDiv(total, align_size) * align_size;
         }
         total += inferred_val->as<int64_t>() * data_size;
       } else {
@@ -732,7 +960,7 @@ uint64_t FusionExecutor::computeSharedMemory(
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     ExpressionEvaluator& expr_eval,
-    const int warp_size) {
+    const int64_t warp_size) {
   FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
   TORCH_INTERNAL_ASSERT(warp_size > 0, "WARP_SIZE should be larger than 0");
 
@@ -835,7 +1063,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
 
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
-  uint64_t reduction_broadcast_workspace = 0;
+  int64_t reduction_broadcast_workspace = 0;
   const bool has_workspace = kernel_summary.has_block_reductions ||
       kernel_summary.has_grid_reductions ||
       kernel_summary.has_block_broadcasts || kernel_summary.has_grid_broadcasts;
@@ -850,18 +1078,18 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     reduction_broadcast_workspace =
-        dataTypeSize(kernel_summary.largest_smem_data_type) * welford_factor *
-        launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz();
+        (int64_t)dataTypeSize(kernel_summary.largest_smem_data_type) *
+        welford_factor * launch_params.bdimx() * launch_params.bdimy() *
+        launch_params.bdimz();
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
-          (uint64_t)
-              kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+          (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
   }
 
-  const uint64_t dynamic_smem_size = computeSharedMemory(
+  const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
       true,
@@ -871,32 +1099,11 @@ LaunchParams FusionExecutor::computeLaunchParams(
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (maybe_available_dynamic_smem_.has_value()) {
-    // Dynamic shared memory space that we can allocate without
-    //  carving more space from L1.
-    const uint64_t available_dynamic_smem_without_reconfiguration =
-        maybe_available_dynamic_smem_.value();
-    // Maximum additional shared memory size we could request
-    //  if we do re-configuration.
-    const uint64_t additional_dynamic_smem_available_through_reconfiguration =
-        device_smem_limit_ - configured_device_smem_;
-
-    TORCH_INTERNAL_ASSERT(
-        (dynamic_smem_size) <
-            (available_dynamic_smem_without_reconfiguration +
-             additional_dynamic_smem_available_through_reconfiguration),
-        "The total shared memory allocation is larger than available memory.",
-        " Dynamic size: ",
-        dynamic_smem_size,
-        ". Available size: ",
-        maybe_available_dynamic_smem_.value(),
-        ". Configured smem size: ",
-        configured_device_smem_,
-        ". Device limit size: ",
-        device_smem_limit_);
+  if (compiled()) {
+    validateDynamicSmemSize(dynamic_smem_size);
   }
 
-  launch_params.setSmem((int64_t)dynamic_smem_size);
+  launch_params.setSmem(dynamic_smem_size);
 
   return launch_params;
 }
@@ -921,7 +1128,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval);
+        inferShapeOfIntermediate(tv, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
 
     // Remember the tensor buffer used for storing kernel profile
@@ -960,7 +1167,8 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
       output_info,
       output_to_input_aliases,
       kernel_inputs,
-      options_.device);
+      options_.device,
+      expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -976,16 +1184,17 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
     GlobalBufferInfo info;
-    if (kernel->outputs()[out_i]->isFusionInput()) {
+    auto out_val = kernel->outputs()[out_i];
+    info.tv = dynamic_cast<TensorView*>(out_val);
+    if (out_val->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
       info.type = at::kFloat;
       info.sizes = {0};
     } else {
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
-          "Cannot allocate outputs that are not tensors.");
-      auto output = kernel->outputs()[out_i]->as<TensorView>();
+          info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+      auto output = out_val->as<TensorView>();
       auto alias_it = std::find_if(
           output_to_input_aliases.begin(),
           output_to_input_aliases.end(),
@@ -1014,123 +1223,76 @@ void FusionExecutor::setUsedTVs() {
   used_tvs_.insert(used_tvs_.begin(), used_tvs.begin(), used_tvs.end());
 }
 
-// TODO: replace use of inferAndAllocOutput
-KernelArgumentHolder FusionExecutor::evaluateOutputSizes(
-    const KernelArgumentHolder& args,
-    ExpressionEvaluator& expr_eval,
-    const std::unordered_set<int>& alias_indices) {
-  FUSER_PERF_SCOPE("FusionExecutor::AllocOutputs");
-  const auto kernel = lowered_->kernel();
+KernelArgumentHolder FusionExecutor::inferOutputSizes(
+    Fusion* fusion,
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutor::inferOutputSizes");
+  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values =
+      std::make_unique<PrecomputedValues>(fusion);
+  evaluator_precomputed_values->bindInputs(args);
+  evaluator_precomputed_values->evaluate();
+
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+
+  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
+  const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();
 
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
-  CompileOptions meta_options = options_;
-  meta_options.device = c10::Device(c10::DeviceType::Meta, 0);
-
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    // If the output is just trivially the input, just "copy" it over, see note
-    // [trivial forwarding]
-    if (kernel->outputs()[out_i]->isFusionInput()) {
-      for (auto inp_i : c10::irange(kernel->inputs().size())) {
-        if (kernel->inputs()[inp_i] == kernel->outputs()[out_i]) {
-          TORCH_INTERNAL_ASSERT(
-              inp_i < args.size(),
-              "Issue with an input showing up as output, couldn't find input.");
-
-          auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_abstract,
-              "Cannot register a scalar as an output in a fusion.");
-          ret.push(tensor_arg_abstract);
-          break;
-        }
-      }
+  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+    // If the output is just trivially the input, just "copy" it over.
+    // See note [trivial forwarding]
+    if (fusion->outputs()[out_i]->isFusionInput()) {
+      auto input_it = std::find(
+          fusion->inputs().begin(),
+          fusion->inputs().end(),
+          fusion->outputs()[out_i]);
+      TORCH_INTERNAL_ASSERT(
+          input_it != fusion->inputs().end(),
+          "Issue with an input showing up as output but could not find input.");
+      auto inp_i = std::distance(fusion->inputs().begin(), input_it);
+      auto tensor_arg_abstract =
+          dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
+      TORCH_INTERNAL_ASSERT(
+          tensor_arg_abstract,
+          "Cannot register a scalar as an output in a fusion.");
+      ret.push(tensor_arg_abstract);
     } else {
       TORCH_INTERNAL_ASSERT(
-          kernel->outputs()[out_i]->isA<TensorView>(),
+          fusion->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
-      auto output = kernel->outputs()[out_i]->as<TensorView>();
-      if (alias_indices.count((int)out_i) != 0) {
-        // aliasing to inputs, no need to allocate real output
-        // but we still need to push an entry here.
+      auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
+
+      auto alias_it = std::find_if(
+          output_to_input_aliases.begin(),
+          output_to_input_aliases.end(),
+          [&](const auto& output_to_input) {
+            return output_to_input.first == (int)out_i;
+          });
+
+      if (alias_it != output_to_input_aliases.end()) {
+        // When aliasing output to an input, we do not need to allocate a new
+        // output but still need to push an entry.
         ret.push(int64_t(0));
       } else {
-        // TODO: we are using meta here, which is bad since it doesn't account
-        // for devices. Switch to fake tensor instead
-        ret.push(inferAndAllocOutput(output, expr_eval, meta_options, false));
+        const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+        const auto dtype = (output_tv->dtype() == DataType::Index)
+            ? data_type_to_aten(arg_index_type)
+            : data_type_to_aten(output_tv->dtype());
+        ret.pushTensorProxy(sizes, strides, dtype);
       }
     }
   }
-  return ret;
-}
 
-KernelArgumentHolder FusionExecutor::inferOutputSizes(
-    const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints) {
-  FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
-
-  ExecutorEntry* executor_entry = nullptr;
-  auto opt_code = args.getCacheId();
-  if (opt_code.has_value()) {
-    executor_entry = &executor_entry_lookup_[*opt_code];
-  }
-
-  at::cuda::jit::initializeCudaContext();
-  TORCH_INTERNAL_ASSERT(lowered_);
-
-  TORCH_INTERNAL_ASSERT(
-      !executor_entry || !executor_entry->init,
-      "compile kernel shouldn't hit a pre-existing cache");
-  FUSER_PERF_SCOPE("ExecutorRunFusion::ValidateAndInitialize");
-  // TODO: validate kernel inputs currently won't be happy, since our fusion
-  // args are mapped with `meta` tensor instead of `cuda` tensor, check if this
-  // would be resolved with FakeTensor
-  // executor_utils::validateKernelInputs(fusion_, args, options_.device);
-
-  ExpressionEvaluator expr_eval;
-  evaluatorPrecomputedValues()->bindInputs(args);
-  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
-
-  // I think this binds something to expr_eval, so even though we are not using
-  // launch_params_, we still need this in order to infer output shapes.
-  launch_params_ =
-      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
-
-  executor_utils::validateVectorizedTensors(
-      lowered_.get()->kernel(), args, {}, compileTimeDataCache(), expr_eval);
-
-  auto alias_indices_entry = executor_utils::caching::ExecutorCompileTimeEntry<
-      executor_utils::caching::InputAliasIndices>(
-      compileTimeDataCache(), [&]() {
-        return std::make_unique<std::vector<std::pair<int, int>>>(
-            fusion_->getOutputToInputAliasIndices());
-      });
-
-  auto& alias_indices = alias_indices_entry.get();
-
-  auto output_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::OutputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::unordered_set<int>>(
-                fusion_->getIndicesOfAliasedOutputs());
-          });
-
-  auto& output_alias_indices = output_alias_indices_entry.get();
-
-  auto ret = evaluateOutputSizes(args, expr_eval, output_alias_indices);
-
-  for (const auto& entry : alias_indices) {
-    auto aliased_output_index = entry.first;
-    auto aliased_input_index = entry.second;
+  for (const auto& [aliased_output_index, aliased_input_index] :
+       output_to_input_aliases) {
     TORCH_INTERNAL_ASSERT(
         args[aliased_input_index]->isType(ArgType::Tensor),
         "alias io only supports tensor");
     ret.swap(aliased_output_index, args[aliased_input_index]);
   }
-
   return ret;
 }
 
@@ -1154,18 +1316,23 @@ void validateCooperativeLaunch(
     const LaunchParams& launch_params,
     int64_t device_index) {
   int num_blocks_per_SM = -1;
+  auto block_size =
+      launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz();
   CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks_per_SM,
       kernel,
-      (int)(launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz()),
+      (int)block_size,
       (size_t)launch_params.smem()));
 
+  auto grid_size =
+      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
+  auto max_active_blocks = num_blocks_per_SM *
+      at::cuda::getDeviceProperties(device_index)->multiProcessorCount;
   TORCH_INTERNAL_ASSERT(
-      (int64_t)(num_blocks_per_SM * at::cuda::getDeviceProperties(device_index)->multiProcessorCount) >=
-          launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
-      launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz(),
+      grid_size,
       " (",
       launch_params.gdimx(),
       " * ",
@@ -1182,7 +1349,7 @@ void validateCooperativeLaunch(
 // information. Note that inputs and outputs are those that are passed
 // to FusionExecutor::runFusion, so outputs may not be given.
 void dumpFusionArgs(
-    int fusion_id,
+    int64_t fusion_id,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
@@ -1207,7 +1374,7 @@ void dumpFusionArgs(
 // and outputs passed to FusionExecutor::runFusion, this function
 // dumps those that are passed to a CUDA kernel.
 void dumpKernelArgs(
-    int fusion_id,
+    int64_t fusion_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
     const std::vector<at::Tensor>& allocated_outputs,
@@ -1335,10 +1502,99 @@ void FusionExecutor::recompileKernel(
           maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
+  resetCompiledKernelProperties();
+
   if (kernel()->summary().has_cooperative_grid_reduction) {
+    // We need to increase shared memory before kernel launch, but also before
+    // calling into `validateCooperativeLaunch`!
+    // So we need to do it there before calling into the validation, to avoid
+    // false positives
+    ensureAvailableDynamicSmemSize(new_launch_params.smem());
     validateCooperativeLaunch(
         compiled_kernel_.function, new_launch_params, options_.device.index());
   }
+}
+
+int64_t FusionExecutor::getAvailableDynamicSmemSize() {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot get dynamic smem size unless kernel is compiled");
+  if (!available_dynamic_smem_size_.has_value()) {
+    int size = 0;
+    CUDA_SAFE_CALL(cuFuncGetAttribute(
+        &size,
+        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+        compiled_kernel_.function));
+    available_dynamic_smem_size_ = size;
+  }
+  return available_dynamic_smem_size_.value();
+}
+
+int64_t FusionExecutor::getStaticSmemSize() {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot get static smem size unless kernel is compiled");
+  if (!static_smem_size_.has_value()) {
+    int size = 0;
+    // Is this really a costly operation worth caching?
+    CUDA_SAFE_CALL(cuFuncGetAttribute(
+        &size, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, compiled_kernel_.function));
+    static_smem_size_ = size;
+  }
+  return static_smem_size_.value();
+}
+
+void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
+  TORCH_INTERNAL_ASSERT(
+      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      "The total shared memory allocation is larger than available memory.",
+      " Dynamic size: ",
+      dynamic_smem_size,
+      ". Static size: ",
+      getStaticSmemSize(),
+      ". Required total size: ",
+      getStaticSmemSize() + dynamic_smem_size,
+      ". Device limit size: ",
+      device_smem_limit_);
+}
+
+int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
+    int64_t dynamic_smem_size) {
+  TORCH_INTERNAL_ASSERT(
+      compiled(), "Cannot set dynamic smem size unless kernel is compiled");
+  if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
+    validateDynamicSmemSize(dynamic_smem_size);
+    CUDA_SAFE_CALL(cuFuncSetAttribute(
+        compiled_kernel_.function,
+        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+        dynamic_smem_size));
+    available_dynamic_smem_size_ = dynamic_smem_size;
+  }
+  return getAvailableDynamicSmemSize();
+}
+
+void FusionExecutor::resetCompiledKernelProperties() {
+  available_dynamic_smem_size_.reset();
+  static_smem_size_.reset();
+}
+
+std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
+  std::vector<TensorView*> tvs;
+  for (auto val : kernel()->inputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto val : kernel()->outputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  for (auto alloc : kernel()->summary().global_allocations) {
+    auto tv = alloc->buffer()->as<TensorView>();
+    if (tv->isFusionOutput()) {
+      continue;
+    }
+    tvs.emplace_back(tv);
+  }
+  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
+    tvs.emplace_back(nullptr);
+  }
+  return tvs;
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1392,12 +1648,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // only allocate outputs when not given
   if (outputs.empty()) {
+    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
         args,
-        options_.device);
+        options_.device,
+        expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     TORCH_INTERNAL_ASSERT(
@@ -1472,15 +1730,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (execute_kernel_) {
-    if (maybe_available_dynamic_smem_.has_value() &&
-        size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
-      // Increase limit of dynamic shared memory if needed.
-      CUDA_SAFE_CALL(cuFuncSetAttribute(
-          compiled_kernel_.function,
-          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-          launch_params_.smem()));
-    }
-    auto arg_buffer = args.getBuffer(kernel()->indexType());
+    ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
+    auto ee = executor_utils::bindInputs(args, kernel());
+    auto arg_buffer =
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1594,6 +1847,8 @@ float FusionExecutor::runRtc(
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
+  ExpressionEvaluator ee;
+  std::vector<TensorView*> tvs(args.size(), nullptr);
   CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
@@ -1604,7 +1859,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type),
+      kernel_arguments.getBuffer(index_type, tvs, ee),
       nullptr));
 
   CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

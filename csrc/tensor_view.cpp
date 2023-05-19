@@ -7,6 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/pass/double_buffer.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir_all_nodes.h>
@@ -15,8 +17,6 @@
 #include <ir_interface_nodes.h>
 #include <ir_iostream.h>
 #include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_double_buffer.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -436,7 +436,7 @@ unsigned int getConsumerPosAlignedToProducerCA(
   unsigned int consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->domain()->leaf();
+    auto p_dom = producer->getLeafDomain();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -1018,11 +1018,11 @@ TensorView* TensorView::multiOutputRfactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(domain()->leaf(), id_map);
+    ReplayTransformations replay(getLeafDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : domain()->leaf()) {
+    for (auto id : getLeafDomain()) {
       TORCH_INTERNAL_ASSERT(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
@@ -1190,10 +1190,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
       container(),
       IrBuilder::create<TensorDomain>(
           container(),
-          domain()->root(),
-          domain()->rfactor(),
-          domain()->leaf(),
-          domain()->contiguity()),
+          getRootDomain(),
+          getRFactorDomain(),
+          getAllocationDomain(),
+          getLeafDomain(),
+          getContiguity()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1207,6 +1208,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
   }
 
+  // Warning: allocation domain is temporarily discarded. It will be recovered
+  // later.
   consumer->setDomain(IrBuilder::create<TensorDomain>(
       container(),
       new_root_domain,
@@ -1229,7 +1232,34 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   auto replayed_consumer_pair =
       TransformReplay::replayCasP(consumer, producer, -1);
+
   consumer->setDomain(replayed_consumer_pair.first);
+
+  // Recover allocation domain from transform replay
+  // TODO: Instead of recovering allocation domain here, should we move the
+  // logic below to TransformReplay::replayCasP to make it capable of replaying
+  // allocation domain with an opt-in flag
+  // TransformReplay::replayCasP(replay_allocation=true)?
+  // I don't see any other use case yet. If we do have one, then we should move.
+  if (producer->hasAllocation()) {
+    auto replay_CasP = BestEffortReplay::replayCasP(
+        consumer, producer, -1, PairwiseRootDomainMap(producer, consumer));
+    const auto& p2c_map = replay_CasP.getReplay();
+    std::vector<IterDomain*> new_allocation_domain;
+    new_allocation_domain.reserve(producer->getAllocationDomain().size());
+    for (auto id : producer->getAllocationDomain()) {
+      auto it = p2c_map.find(id);
+      TORCH_CHECK(
+          it != p2c_map.end(),
+          "Unable to cacheBefore: can not map ",
+          id->toString(),
+          " in the allocation domain of tensor ",
+          producer->toString(),
+          " to consumer");
+      new_allocation_domain.emplace_back(it->second);
+    }
+    consumer->setAllocationDomain(std::move(new_allocation_domain), true);
+  }
 
   return producer;
 }
@@ -1373,7 +1403,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   TORCH_INTERNAL_ASSERT(
-      domain()->leaf() == getRootDomain(),
+      getLeafDomain() == getRootDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   std::vector<IterDomain*> new_root;
@@ -1443,11 +1473,14 @@ void TensorView::commitLeafToRFactor() {
       container(),
       domain_->root(),
       domain_->leaf(),
+      domain_->allocation(),
       domain_->leaf(),
       // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
       // allow customizing contiguity. But there is no such need now, so I will
       // just fill the contiguity with true.
-      TensorDomain::getContiguityFilledWith(domain_->leaf(), true)));
+      TensorDomain::getContiguityFilledWith(
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          true)));
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {

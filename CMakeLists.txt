@@ -86,7 +86,6 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
     ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
     ${NVFUSER_SRCS_DIR}/index_compute.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index_compute.cpp
     ${NVFUSER_SRCS_DIR}/instrumentation.cpp
     ${NVFUSER_SRCS_DIR}/ir_base_nodes.cpp
     ${NVFUSER_SRCS_DIR}/ir_builder.cpp
@@ -103,35 +102,36 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
     ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
     ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
-    ${NVFUSER_SRCS_DIR}/lower_alias_memory.cpp
-    ${NVFUSER_SRCS_DIR}/lower_allocation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_double_buffer.cpp
-    ${NVFUSER_SRCS_DIR}/lower_divisible_split.cpp
-    ${NVFUSER_SRCS_DIR}/lower_expr_sort.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fused_reduction.cpp
-    ${NVFUSER_SRCS_DIR}/lower_fusion_simplifier.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index.cpp
-    ${NVFUSER_SRCS_DIR}/lower_scalar_hoist.cpp
-    ${NVFUSER_SRCS_DIR}/lower_insert_syncs.cpp
-    ${NVFUSER_SRCS_DIR}/lower_instrument.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loop_rotation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_loops.cpp
-    ${NVFUSER_SRCS_DIR}/lower_magic_zero.cpp
-    ${NVFUSER_SRCS_DIR}/lower_misaligned_vectorization.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_predicate_elimination.cpp
-    ${NVFUSER_SRCS_DIR}/lower_replace_size.cpp
-    ${NVFUSER_SRCS_DIR}/lower_shift.cpp
-    ${NVFUSER_SRCS_DIR}/lower_sync_information.cpp
-    ${NVFUSER_SRCS_DIR}/lower_thread_predicate.cpp
-    ${NVFUSER_SRCS_DIR}/lower_trivial_broadcast.cpp
-    ${NVFUSER_SRCS_DIR}/lower_unroll.cpp
-    ${NVFUSER_SRCS_DIR}/lower_utils.cpp
-    ${NVFUSER_SRCS_DIR}/lower_validation.cpp
-    ${NVFUSER_SRCS_DIR}/lower_vectorize_welford.cpp
-    ${NVFUSER_SRCS_DIR}/lower_warp_reduce.cpp
-    ${NVFUSER_SRCS_DIR}/lower2device.cpp
-    ${NVFUSER_SRCS_DIR}/lower_bank_conflict.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/shift.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/allocation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/unroll.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/vectorize_welford.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/pass/warp_reduce.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/utils.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
     ${NVFUSER_SRCS_DIR}/manager.cpp
     ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
     ${NVFUSER_SRCS_DIR}/multidevice/aggregate_dag.cpp
@@ -218,10 +218,18 @@ if (PROJECT_IS_TOP_LEVEL)
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
-  add_custom_target(build_flatbuffer_config
-      COMMAND ./third_party/flatbuffers/flatc -o ../csrc/serde/ -c -b ../csrc/serde/fusion_cache.fbs
-      DEPENDS flatc
-      COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs")
+  add_custom_command(
+    OUTPUT
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
+    DEPENDS
+      ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    DEPENDS flatc
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
+    VERBATIM
+    )
+  add_custom_target(build_flatbuffer_config ALL
+      DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
   add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
@@ -341,6 +349,7 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
+    ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
@@ -415,6 +424,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
     ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp

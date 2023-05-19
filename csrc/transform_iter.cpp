@@ -386,7 +386,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   if (skip_resize) {
-    skipResizes();
+    skipResizes(target_exprs, replay_exprs);
   }
 
   std::string err_str(
@@ -626,7 +626,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     if (skip_resize) {
-      skipResizes();
+      skipResizes(target_exprs, replay_exprs);
     }
   }
 }
@@ -755,8 +755,8 @@ struct ForwardingInfo {
     std::vector<Expr*> active_tv_history = StmtSort::getExprs(
         FusionGuard::getCurFusion(),
         std::vector<Val*>(
-            active_tv->domain()->leaf().begin(),
-            active_tv->domain()->leaf().end()));
+            active_tv->getLeafDomain().begin(),
+            active_tv->getLeafDomain().end()));
 
     auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
       return forwarded_ids.count(input_id) > 0;
@@ -944,8 +944,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> producer_CA_ids(
-      producer->domain()->leaf().begin(),
-      producer->domain()->leaf().begin() + producer_compute_at_axis);
+      producer->getLeafDomain().begin(),
+      producer->getLeafDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
   // If producer has an rfactor root, that's what will match to the consumer
@@ -974,7 +974,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   ForwardingInfo forwarding_info(producer, consumer);
 
   auto consumer_replay = BestEffortReplay(
-      consumer->domain()->leaf(),
+      consumer->getLeafDomain(),
       producer_CA_ids,
       p2c_root_map,
       forwarding_info.consumer_forwarding_map,
@@ -1009,8 +1009,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> consumer_CA_ids(
-      consumer->domain()->leaf().begin(),
-      consumer->domain()->leaf().begin() + consumer_compute_at_axis);
+      consumer->getLeafDomain().begin(),
+      consumer->getLeafDomain().begin() + consumer_compute_at_axis);
 
   // Figure out all inputs required to generate the compute_at dimensions
   auto consumer_CA_root_vals = IterVisitor::getInputsTo(
@@ -1032,7 +1032,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   // of producer if they match ops on consumer. Enforce if we modify an
   // rfactor axis that those ops must match.
   auto producer_replay = BestEffortReplay(
-      producer->domain()->leaf(),
+      producer->getLeafDomain(),
       consumer_CA_ids,
       c2p_root_map,
       forwarding_info.producer_forwarding_map,
@@ -1089,9 +1089,18 @@ void BestEffortReplay::skipSwizzles(
 }
 
 // Same logic as skipSwizzles
-void BestEffortReplay::skipResizes() {
-  auto isResizeInput = [](IterDomain* id) -> bool {
-    return id->uses().size() == 1 && id->uses().front()->isA<Resize>();
+void BestEffortReplay::skipResizes(
+    const std::vector<Expr*>& target_exprs,
+    const std::vector<Expr*>& replay_exprs) {
+  auto getResizeUse = [](IterDomain* id,
+                         const std::vector<Expr*>& exprs) -> Resize* {
+    for (auto id_use : id->uses()) {
+      if (std::find(exprs.begin(), exprs.end(), id_use) == exprs.end()) {
+        continue;
+      }
+      return dynamic_cast<Resize*>(id_use);
+    }
+    return nullptr;
   };
 
   bool updated = true;
@@ -1103,11 +1112,13 @@ void BestEffortReplay::skipResizes() {
       auto new_target_id = target_id;
       auto replay_id = it.second;
       auto new_replay_id = replay_id;
-      if (isResizeInput(target_id)) {
-        new_target_id = target_id->uses().front()->as<Resize>()->out();
+      if (auto target_resize = getResizeUse(target_id, target_exprs);
+          target_resize != nullptr) {
+        new_target_id = target_resize->out();
       }
-      if (isResizeInput(replay_id)) {
-        new_replay_id = replay_id->uses().front()->as<Resize>()->out();
+      if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
+          replay_resize != nullptr) {
+        new_replay_id = replay_resize->out();
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {

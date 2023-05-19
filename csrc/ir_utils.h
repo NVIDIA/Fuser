@@ -380,6 +380,14 @@ TORCH_CUDA_CU_API bool isIndexedConsumerID(
     const TensorView* tv,
     const IterDomain* id);
 
+// Return a producer ID, if any, that is indirectly accessed by, e.g.,
+// index_select and torch_gather.
+TORCH_CUDA_CU_API IterDomain* getIndexedProducerID(const Expr* expr);
+
+// Return the corresponding consumer if of a producer ID that is
+// indirectly accessed.
+TORCH_CUDA_CU_API IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
+
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and
 // unique.
 TORCH_CUDA_CU_API std::vector<IterDomain*> allIDsOf(const TensorView* tv);
@@ -393,9 +401,6 @@ TORCH_CUDA_CU_API bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of index_select(lookup, dim, indices)
 TORCH_CUDA_CU_API bool isIndexSelectIndicesTv(const TensorView* tv);
 
-// Check if the given tv is first/third argment of torch_gather(lookup, dim,
-// indices)
-TORCH_CUDA_CU_API bool isTorchGatherIndicesTv(const Val* tv);
 TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);
 
 TORCH_CUDA_CU_API std::string varName(const Val* val);
@@ -423,6 +428,10 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
+
+//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! guaranteed not to cause thread divergence
+bool isAlignedScopeExpr(const Expr* expr);
 
 } // namespace ir_utils
 } // namespace nvfuser

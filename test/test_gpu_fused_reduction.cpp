@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -24,7 +25,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
@@ -1281,9 +1281,9 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t11 = t8 / t8.sum({0}).unsqueeze(0).to(at::kComplexDouble);
+  auto t11 = at::div(t8, t8.sum({0}).unsqueeze(0), "trunc");
   auto t15 = t12 / t12.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t19 = t16 / t16.sum({0}).unsqueeze(0);
+  auto t19 = t16 / t16.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto ref = t3 + t7 + t11 + t15 + t19;
   testValidate(fe.kernel(), outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
@@ -1322,10 +1322,10 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->leaf()[axis]->extent());
+            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->leaf()[axis]->extent());
+            mul(num_features, input->getLeafDomain()[axis]->extent());
       }
     }
   }
@@ -1860,7 +1860,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->leaf()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1941,7 +1941,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->leaf()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2024,7 +2024,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->leaf()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2117,7 +2117,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->leaf()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2299,7 +2299,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     std::vector<bool> bcast_pattern{true, true, true, false};
     std::vector<int> reduction_dims{2, 1, 0};
 
-    auto tv0 = makeSymbolicTensor(4);
+    auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
 
     auto tv1 = set(tv0);
@@ -2356,20 +2356,20 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     MaxRootDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
 
     int vec_id = std::distance(
-        transform_ref_rf->domain()->leaf().begin(),
+        transform_ref_rf->getLeafDomain().begin(),
         std::find_if(
-            transform_ref_rf->domain()->leaf().begin(),
-            transform_ref_rf->domain()->leaf().end(),
+            transform_ref_rf->getLeafDomain().begin(),
+            transform_ref_rf->getLeafDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
     transform_ref_rf->axis(vec_id)->parallelize(ParallelType::Serial);
 
     int unswitch_id = std::distance(
-        transform_ref_rf->domain()->leaf().begin(),
+        transform_ref_rf->getLeafDomain().begin(),
         std::find_if(
-            transform_ref_rf->domain()->leaf().begin(),
-            transform_ref_rf->domain()->leaf().end(),
+            transform_ref_rf->getLeafDomain().begin(),
+            transform_ref_rf->getLeafDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Unswitch;
             }));

@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir_all_nodes.h>
 #include <ir_utils.h>
-#include <lower_bank_conflict.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -336,9 +336,11 @@ static void Nvfuser_Matmul_8warp4stage(
   run(TT_Legacy, MatmulLayout::TT, LegacyMatmulShapes); \
   run(TN_Legacy, MatmulLayout::TN, LegacyMatmulShapes); \
   run(NT_Legacy, MatmulLayout::NT, LegacyMatmulShapes); \
+  run(NN_Legacy, MatmulLayout::NN, LegacyMatmulShapes); \
   run(TT_TIMM, MatmulLayout::TT, TIMMMatmulShapes);     \
   run(TN_TIMM, MatmulLayout::TN, TIMMMatmulShapes);     \
-  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes)
+  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes);     \
+  run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
 
 // Instantiations:
 #define Nvfuser_4warp3stage_test(layout_label, layout, shapes) \

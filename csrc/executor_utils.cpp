@@ -566,7 +566,7 @@ void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
   TORCH_INTERNAL_ASSERT(
-      !info.contig_root_ids.empty(),
+      !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
       info.consumer_tv->toString(),
       " and ",
@@ -574,7 +574,7 @@ void validateAlignedVectorizeExtents(
 
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
-  for (auto id : info.contig_root_ids) {
+  for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
@@ -609,6 +609,20 @@ void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv) {
+  ExpressionEvaluator eval;
+  auto sizes_strides =
+      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+
+  std::vector<int64_t> no_reduction_to_full;
+  for (int64_t i :
+       c10::irange((int64_t)tv->getMaybeAllocationDomain().size())) {
+    auto alloc_id = tv->getMaybeAllocationDomain().at(i);
+    if (!alloc_id->isReduction()) {
+      no_reduction_to_full.emplace_back(i);
+    }
+  }
+  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
               (word_size * aten_tensor.dtype().itemsize()) ==
@@ -627,12 +641,12 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (auto i = aten_tensor.ndimension() - 1; i >= 0; --i) {
-    const auto stride = aten_tensor.strides().at(i);
-    const auto size = aten_tensor.sizes().at(i);
-    auto root_id = tv->getMaybeRFactorDomain()[i];
+  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
+    const auto [size, stride] = sizes_strides.at(i);
+    auto alloc_id =
+        tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
-        root_id->isBroadcast() && root_id->hasExpandedExtent();
+        alloc_id->isBroadcast() && alloc_id->hasExpandedExtent();
 
     if (is_expanded_broadcasting) {
       TORCH_INTERNAL_ASSERT(
@@ -846,15 +860,8 @@ void bindInputForExprEvaluation(
 
       for (const auto dim : c10::irange(root_domain.size())) {
         const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
-        const auto tensor_arg_stride = tensor_arg_abstract->getStride((int)dim);
         const auto extent = root_domain[dim]->extent();
         if (root_domain[dim]->hasExpandedExtent()) {
-          TORCH_INTERNAL_ASSERT(
-              tensor_arg_stride == 0,
-              "Expecting an expanded dimension on dimension ",
-              dim,
-              " but found stride ",
-              tensor_arg_stride);
           // Could support dynamic size on expanded dimension, so may not have
           // an inferable expanded extent here. This check might be better to do
           // once all values are bound.
@@ -919,9 +926,11 @@ ExpressionEvaluator bindInputs(
     bool check_consistency) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
+  // args may contains more than just inputs, but inputs are always at the
+  // beginning.
   TORCH_INTERNAL_ASSERT(
-      kernel->inputs().size() == args.size(),
-      "Something went wrong configuring launch. Inputs no longer match.");
+      kernel->inputs().size() <= args.size(),
+      "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
@@ -970,7 +979,7 @@ std::vector<char> nvrtcGetCode(
 
 void dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    int fusion_id,
+    int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
@@ -1306,7 +1315,7 @@ void warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int id,
+    int64_t id,
     const std::string& full_src_code) {
   std::stringstream ss;
   ss << "__tmp_kernel" << id << ".cu";
@@ -1321,7 +1330,7 @@ void createNvrtcProgram(
 std::tuple<std::vector<char>, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1359,7 +1368,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     c10::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int id,
+    int64_t id,
     std::optional<int64_t> opt_block_size,
     const int64_t max_register_heuristic,
     bool return_compiled_binary) {
@@ -1522,7 +1531,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->leaf()) {
+    for (auto id : tv->getLeafDomain()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved

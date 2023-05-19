@@ -33,7 +33,7 @@ class IrContainerPasskey {
   friend class IrContainer;
 
  private:
-  explicit IrContainerPasskey() {}
+  explicit IrContainerPasskey() = default;
 };
 
 class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
@@ -46,7 +46,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   IrContainer& operator=(const IrContainer& other);
   IrContainer& operator=(IrContainer&& other) noexcept;
 
-  virtual ~IrContainer();
+  ~IrContainer() override;
 
   bool inContainer(const Statement* stmt) const;
 

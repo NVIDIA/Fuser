@@ -39,6 +39,13 @@
  * transformations, and lowering the IR.
  */
 
+//! IR header hierarchy
+//! 1. utils.h - PolymorphicBase and NonCopyable
+//! 2. ** ir_base_nodes.h ** - Statement, Expr, and Val
+//! 3. ir_internal_base_nodes.h -- IterDomain and TensorDomain
+//! 4. ir_interface_nodes.h - TensorView and Scalar
+//! 5. ir_internal_nodes.h - Any internal-only IR nodes
+
 namespace nvfuser {
 
 using ValueId = int32_t;
@@ -48,6 +55,8 @@ using StmtNameType = unsigned int;
 constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
+class NonCopyable;
+class PolymorphicBase;
 class Fusion;
 class FusionGuard;
 class Expr;
@@ -74,7 +83,7 @@ class ExprPasskey {
   friend class Expr;
 
  private:
-  explicit ExprPasskey() {}
+  explicit ExprPasskey() = default;
 };
 
 TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept;
@@ -464,11 +473,11 @@ class TORCH_CUDA_CU_API Attribute : public Val {
     return false;
   }
 
-  virtual std::string toString(int) const override {
+  std::string toString(int) const override {
     return Printer<T>::toString(value);
   }
 
-  virtual std::string toInlineString(int) const override {
+  std::string toInlineString(int) const override {
     return Printer<T>::toString(value);
   }
 
