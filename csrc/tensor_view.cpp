@@ -1231,35 +1231,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // setDefinition(nullptr);
 
   auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1);
+      TransformReplay::replayCasP(consumer, producer, -1, false, true);
 
   consumer->setDomain(replayed_consumer_pair.first);
-
-  // Recover allocation domain from transform replay
-  // TODO: Instead of recovering allocation domain here, should we move the
-  // logic below to TransformReplay::replayCasP to make it capable of replaying
-  // allocation domain with an opt-in flag
-  // TransformReplay::replayCasP(replay_allocation=true)?
-  // I don't see any other use case yet. If we do have one, then we should move.
-  if (producer->hasAllocation()) {
-    auto replay_CasP = BestEffortReplay::replayCasP(
-        consumer, producer, -1, PairwiseRootDomainMap(producer, consumer));
-    const auto& p2c_map = replay_CasP.getReplay();
-    std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(producer->getAllocationDomain().size());
-    for (auto id : producer->getAllocationDomain()) {
-      auto it = p2c_map.find(id);
-      TORCH_CHECK(
-          it != p2c_map.end(),
-          "Unable to cacheBefore: can not map ",
-          id->toString(),
-          " in the allocation domain of tensor ",
-          producer->toString(),
-          " to consumer");
-      new_allocation_domain.emplace_back(it->second);
-    }
-    consumer->setAllocationDomain(std::move(new_allocation_domain), true);
-  }
 
   return producer;
 }
@@ -1384,6 +1358,11 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 
   // Expr* consumer_definition =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+
+  auto replayed_consumer_pair =
+      TransformReplay::replayCasP(consumer, producer, -1, false, true);
+
+  consumer->setDomain(replayed_consumer_pair.first);
 
   return consumer;
 }

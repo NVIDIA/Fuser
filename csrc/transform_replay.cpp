@@ -300,7 +300,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     int64_t consumer_pos,
     const RootDomainMap& root_map,
     bool replay_swizzle,
-    bool replay_resize) {
+    bool replay_resize,
+    bool replay_allocation) {
   FUSER_PERF_SCOPE("TransformReplay::replayPasC");
   if (producer == consumer) {
     return {producer->domain(), producer->nDims()};
@@ -519,13 +520,47 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
+  if (!replay_allocation) {
+    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
+        producer->container(),
+        producer->getRootDomain(),
+        producer->getRFactorDomain(),
+        producer->getAllocationDomain(),
+        new_IDs,
+        producer->domain()->contiguity());
+    return {replayed, producer_pos};
+  }
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
-      producer->getAllocationDomain(),
+      std::vector<IterDomain*>{},
       new_IDs,
       producer->domain()->contiguity());
+
+  if (consumer->hasAllocation()) {
+    auto replay_PasC = BestEffortReplay(
+        new_IDs,
+        consumer->getLeafDomain(),
+        root_map.mapConsumerToProducer(consumer->domain(), replayed));
+    const auto& c2p_map = replay_PasC.getReplay();
+    std::vector<IterDomain*> new_allocation_domain;
+    new_allocation_domain.reserve(consumer->getAllocationDomain().size());
+    for (auto id : consumer->getAllocationDomain()) {
+      auto it = c2p_map.find(id);
+      TORCH_CHECK(
+          it != c2p_map.end(),
+          "Unable to replayPasC: can not map ",
+          id->toString(),
+          " in the allocation domain of consumer tensor ",
+          consumer->toString(),
+          " to producer tensor ",
+          producer->toString());
+      new_allocation_domain.emplace_back(it->second);
+    }
+    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+  }
 
   return {replayed, producer_pos};
 }
@@ -535,7 +570,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* producer,
     int64_t producer_pos,
     const RootDomainMap& root_map,
-    bool replay_swizzle) {
+    bool replay_swizzle,
+    bool replay_allocation) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
 
   // If this is a reduction operation, we may call transform_replay on the same
@@ -757,14 +793,48 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     }
   }
 
+  if (!replay_allocation) {
+    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
+        consumer->container(),
+        consumer->getRootDomain(),
+        consumer->getRFactorDomain(),
+        consumer->getAllocationDomain(),
+        new_IDs,
+        consumer->domain()->contiguity());
+
+    return {replayed, consumer_pos};
+  }
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
-      consumer->getAllocationDomain(),
+      std::vector<IterDomain*>{},
       new_IDs,
       consumer->domain()->contiguity());
 
+  if (producer->hasAllocation()) {
+    auto replay_CasP = BestEffortReplay(
+        new_IDs,
+        producer->getLeafDomain(),
+        root_map.mapProducerToConsumer(producer->domain(), replayed));
+    const auto& p2c_map = replay_CasP.getReplay();
+    std::vector<IterDomain*> new_allocation_domain;
+    new_allocation_domain.reserve(producer->getAllocationDomain().size());
+    for (auto id : producer->getAllocationDomain()) {
+      auto it = p2c_map.find(id);
+      TORCH_CHECK(
+          it != p2c_map.end(),
+          "Unable to replayCasP: can not map ",
+          id->toString(),
+          " in the allocation domain of producer tensor ",
+          producer->toString(),
+          " to consumer tensor ",
+          consumer->toString());
+      new_allocation_domain.emplace_back(it->second);
+    }
+    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+  }
   return {replayed, consumer_pos};
 }
 
@@ -774,7 +844,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     const TensorView* consumer,
     int64_t compute_at_axis,
     bool replay_swizzle,
-    bool replay_resize) {
+    bool replay_resize,
+    bool replay_allocation) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
@@ -785,20 +856,27 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       compute_at_axis,
       root_map,
       replay_swizzle,
-      replay_resize);
+      replay_resize,
+      replay_allocation);
 }
 
 std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t compute_at_axis,
-    bool replay_swizzle) {
+    bool replay_swizzle,
+    bool replay_allocation) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
   return replayCasP(
-      consumer, producer, compute_at_axis, root_map, replay_swizzle);
+      consumer,
+      producer,
+      compute_at_axis,
+      root_map,
+      replay_swizzle,
+      replay_allocation);
 }
 
 // In a PasC replay, we want the producer to exactly match the consumer:

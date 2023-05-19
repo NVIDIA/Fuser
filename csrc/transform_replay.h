@@ -136,19 +136,26 @@ class TORCH_CUDA_CU_API TransformReplay {
   // replay_resize indicates whether resize should be replayed or
   // ignored. It is only replayed when replaying a producer for
   // indexing.
+  // replay_allocation indicates whether to replace the producer's allocation
+  // domain with corresponding consumer's allocation domain. By default, we
+  // should preserve producer's current allocation domain, and if that
+  // allocation domain is inconsistent with the replay, an error will be raised.
+  // This option is used in cacheBefore, cacheAfter, and cacheFork
   static std::pair<TensorDomain*, size_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       bool replay_swizzle = false,
-      bool replay_resize = false);
+      bool replay_resize = false,
+      bool replay_allocation = false);
   static std::pair<TensorDomain*, size_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       const RootDomainMap& root_map,
       bool replay_swizzle = false,
-      bool replay_resize = false);
+      bool replay_resize = false,
+      bool replay_allocation = false);
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
   // consumer_compute_at_axis}.
@@ -158,12 +165,14 @@ class TORCH_CUDA_CU_API TransformReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      bool replay_swizzle = false);
+      bool replay_swizzle = false,
+      bool replay_allocation = false);
   static std::pair<TensorDomain*, size_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       const RootDomainMap& root_map,
+      bool replay_allocation = false,
       bool replay_swizzle = false);
 
   // Self replay.
