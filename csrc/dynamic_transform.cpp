@@ -290,6 +290,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(IterDomain* id) final;
+
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -367,15 +369,10 @@ void DynamicTransformConcretizer::checkConcretizedUses(
   for (const auto use : old_val->uses()) {
     use->checkConcretization(old_val, new_val);
   }
-  if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
-    TORCH_CHECK(
-        !new_id->isSymbolic(),
-        "Concretized IterDomain must not be Symbolic. Found ",
-        new_id->toString());
-  } // If we are concretizing a TensorDomain, check that replacing the rfactor
+  // If we are concretizing a TensorDomain, check that replacing the rfactor
   // domain is valid in its later uses which may not be directly represented in
   // the Fusion graph.
-  else if (auto new_tv = dynamic_cast<TensorView*>(new_val)) {
+  if (auto new_tv = dynamic_cast<TensorView*>(new_val)) {
     auto old_tv = old_val->as<TensorView>();
     // Check that swapping the TensorDomain would be safe for further uses
     checkConcretizedUses(old_tv->domain(), new_tv->domain());
@@ -546,6 +543,20 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+void DynamicTransformConcretizer::mutate(IterDomain* id) {
+  auto new_val = maybeMutated(id);
+  TORCH_CHECK(
+      new_val->isA<IterDomain>(),
+      "Concretized IterDomain must not be an IterDomain. Found ",
+      new_val->toString());
+  auto new_id = new_val->as<IterDomain>();
+  TORCH_CHECK(
+      !new_id->isSymbolic(),
+      "Concretized IterDomain must not be Symbolic. Found ",
+      new_id->toString());
+  OptOutMutator::mutate(id);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(

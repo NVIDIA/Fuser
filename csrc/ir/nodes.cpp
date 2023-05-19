@@ -3260,6 +3260,7 @@ void TensorDomain::setAllocationDomain(
 }
 
 void SqueezeID::checkConcretization(Val* old_val, Val* new_val) const {
+  TORCH_CHECK(old_val && new_val, "Cannot check concretization with nullptrs");
   Expr::checkConcretization(old_val, new_val);
   if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
     TORCH_CHECK(
