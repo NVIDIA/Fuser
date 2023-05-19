@@ -8428,18 +8428,7 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
 
-// Test of warn_register_spill
 TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
-#ifdef _WIN32
-  // skip Windows platform for now
-  // _putenv_s(variableName, variableValue);
-#else
-  // POSIX platforms (Linux, macOS)
-  // Use setenv() to set the environment variable
-  setenv("PYTORCH_NVFUSER_ENABLE", "warn_register_spill", 1);
-  // intentionally set a small number to trigger register spill
-  setenv("PYTORCH_NVFUSER_MAX_REG_COUNT", "32", 1);
-#endif
   const int hidden_size = 1024 * 10;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -8463,26 +8452,39 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
   auto aten_outputs = at::native_layer_norm(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
-  // capture stdout
+  // capture stdout and check stdout contains register spill warning
   testing::internal::CaptureStdout();
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({aten_input});
-  // dump stdout to a string
+  {
+    // generate persistent kernel
+    auto persistent_params =
+        getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    schedulePersistentKernel(&fusion, *persistent_params);
+    
+    // compile and run persistent kernel
+    // intentionally set maxrregcount to 32 to trigger register spill
+    CompileParams compile_opts = {.maxrregcount = 32, .enable_ptxas_verbose = true};
+    auto lparams = persistent_params->lparams;
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
+    auto cg_outputs = fe.runFusion({aten_input});
+
+    // validate results
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {std::get<0>(aten_outputs),
+        std::get<1>(aten_outputs),
+        std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");    
+  }
   std::string output = testing::internal::GetCapturedStdout();
   TORCH_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
-
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {std::get<0>(aten_outputs),
-       std::get<1>(aten_outputs),
-       std::get<2>(aten_outputs)},
-      __LINE__,
-      __FILE__,
-      "");
 }
 
 // https://github.com/NVIDIA/Fuser/issues/335

@@ -1188,7 +1188,7 @@ void fillCompileOptions(
     int major,
     int minor,
     std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic) {
+    const CompileParams& compile_params) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1224,10 +1224,10 @@ void fillCompileOptions(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
   }
-
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+      isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1263,7 +1263,7 @@ void fillCompileOptions(
   }
 
   const auto max_register =
-      getMaxRegCount(opt_block_size, max_register_heuristic);
+      getMaxRegCount(opt_block_size, compile_params.maxrregcount);
 
   // If the max register count is set
   if (max_register.has_value()) {
@@ -1296,14 +1296,16 @@ void warnRegisterSpill(const std::string& compile_log) {
   int stack_count = getRegisterSpillInfo(compile_log, str_stack);
   int store_count = getRegisterSpillInfo(compile_log, str_store);
   int load_count = getRegisterSpillInfo(compile_log, str_load);
-  auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
   int allowed_spill = 0;
-  if (!optionArgs.empty()) {
-    try {
-      allowed_spill = std::stoi(optionArgs[0]);
-    } catch (const std::exception& e) {
-      std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
-                << optionArgs[0] << std::endl;
+  if(isOptionEnabled(EnableOption::WarnRegisterSpill)){
+    auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
+    if (!optionArgs.empty()) {
+      try {
+        allowed_spill = std::stoi(optionArgs[0]);
+      } catch (const std::exception& e) {
+        std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
+                  << optionArgs[0] << std::endl;
+      }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
@@ -1369,8 +1371,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
+    const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
@@ -1404,7 +1406,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       major,
       minor,
       opt_block_size,
-      max_register_heuristic);
+      compile_params);
 
   std::stringstream log;
 
@@ -1456,7 +1458,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
       << std::endl;
 
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill) || compile_params.enable_ptxas_verbose) {
     warnRegisterSpill(log.str());
   }
 
