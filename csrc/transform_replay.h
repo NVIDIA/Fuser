@@ -166,14 +166,16 @@ class TORCH_CUDA_CU_API TransformReplay {
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       bool replay_swizzle = false,
+      bool replay_resize = false,
       bool replay_allocation = false);
   static std::pair<TensorDomain*, size_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       const RootDomainMap& root_map,
-      bool replay_allocation = false,
-      bool replay_swizzle = false);
+      bool replay_swizzle = false,
+      bool replay_resize = false,
+      bool replay_allocation = false);
 
   // Self replay.
   static TensorDomain* fullSelfReplay(

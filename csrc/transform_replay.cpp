@@ -571,6 +571,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     int64_t producer_pos,
     const RootDomainMap& root_map,
     bool replay_swizzle,
+    bool replay_resize,
     bool replay_allocation) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
 
@@ -613,7 +614,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       root_map,
       false,
       !replay_swizzle,
-      true);
+      !replay_resize);
 
   // Track dangling leaves which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
@@ -633,7 +634,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   ReplayTransformations replay_CasP(target_producer_ids, forwarded_replay_map);
   replay_CasP.setErrorOnFailure(false)
       .setReplaySwizzle(replay_swizzle)
-      .setReplayResize(false);
+      .setReplayResize(replay_resize);
 
   auto consumer_leaf_ids(replay_CasP.getUnorderedLeafIDs());
 
@@ -865,6 +866,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* producer,
     int64_t compute_at_axis,
     bool replay_swizzle,
+    bool replay_resize,
     bool replay_allocation) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
@@ -876,6 +878,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       compute_at_axis,
       root_map,
       replay_swizzle,
+      replay_resize,
       replay_allocation);
 }
 

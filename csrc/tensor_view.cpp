@@ -1231,7 +1231,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // setDefinition(nullptr);
 
   auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1, false, true);
+      TransformReplay::replayCasP(consumer, producer, -1, false, false, true);
 
   consumer->setDomain(replayed_consumer_pair.first);
 
@@ -1360,7 +1360,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1, false, true);
+      TransformReplay::replayCasP(consumer, producer, -1, false, false, true);
 
   consumer->setDomain(replayed_consumer_pair.first);
 
