@@ -8456,14 +8456,14 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
   testing::internal::CaptureStdout();
   {
     // generate persistent kernel
-    auto persistent_params =
-        getPersistentHeuristics(&fusion, {aten_input});
+    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
     TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
     schedulePersistentKernel(&fusion, *persistent_params);
-    
+
     // compile and run persistent kernel
     // intentionally set maxrregcount to 32 to trigger register spill
-    CompileParams compile_opts = {.maxrregcount = 32, .enable_ptxas_verbose = true};
+    CompileParams compile_opts = {
+        .maxrregcount = 32, .enable_ptxas_verbose = true};
     auto lparams = persistent_params->lparams;
     FusionExecutor fe;
     fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
@@ -8475,11 +8475,11 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         cg_outputs,
         {aten_input},
         {std::get<0>(aten_outputs),
-        std::get<1>(aten_outputs),
-        std::get<2>(aten_outputs)},
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
         __LINE__,
         __FILE__,
-        "");    
+        "");
   }
   std::string output = testing::internal::GetCapturedStdout();
   TORCH_CHECK(

@@ -1297,7 +1297,7 @@ void warnRegisterSpill(const std::string& compile_log) {
   int store_count = getRegisterSpillInfo(compile_log, str_store);
   int load_count = getRegisterSpillInfo(compile_log, str_load);
   int allowed_spill = 0;
-  if(isOptionEnabled(EnableOption::WarnRegisterSpill)){
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
     auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
     if (!optionArgs.empty()) {
       try {
@@ -1458,7 +1458,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
       << std::endl;
 
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill) || compile_params.enable_ptxas_verbose) {
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     warnRegisterSpill(log.str());
   }
 
