@@ -1741,7 +1741,10 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule6_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  int x = 128, y = 128;
+  // pointwise heuristics will avoid vectorization if can't achieve a full wave.
+  // use a large size to make sure we can achieve a full wave, e.g. x * y >= 128
+  // * sm_count
+  int x = 1024, y = 1024;
 
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
