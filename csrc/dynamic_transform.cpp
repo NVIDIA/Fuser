@@ -290,8 +290,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
-  void mutate(IterDomain* id) final;
-
   //! Concretizes the root domain of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
@@ -314,6 +312,10 @@ void DynamicTransformConcretizer::concretize() {
       mutate(stmt);
     }
   }
+
+  RCH_CHECK(
+      !info_.fusion()->hasDynamicTransform(),
+      "Fusion has dynamic transforms after concretization");
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
@@ -341,6 +343,11 @@ void DynamicTransformConcretizer::concretizeReshape() {
           incomplete_out_tv, concrete_reshape_out_tv);
     }
 
+    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
+    auto new_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
+    for (auto i : c10::irange(old_rfactor.size())) {
+      registerMutation(old_rfactor[i], new_rfactor[i]);
+    }
     incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
   }
 }
@@ -545,20 +552,6 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   registerConcretization(td, mutated_val);
 }
 
-void DynamicTransformConcretizer::mutate(IterDomain* id) {
-  auto new_val = maybeMutated(id);
-  TORCH_CHECK(
-      new_val->isA<IterDomain>(),
-      "Concretized IterDomain must not be an IterDomain. Found ",
-      new_val->toString());
-  auto new_id = new_val->as<IterDomain>();
-  TORCH_CHECK(
-      !new_id->isSymbolic(),
-      "Concretized IterDomain must not be Symbolic. Found ",
-      new_id->toString());
-  OptOutMutator::mutate(id);
-}
-
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     TensorView* consumer) {
   if (consumer->definition() == nullptr ||
@@ -698,3 +691,4 @@ size_t DynamicTransformConcretizationInfo::hash() const {
 }
 
 } // namespace nvfuser
+  
