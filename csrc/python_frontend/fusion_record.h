@@ -2615,6 +2615,14 @@ struct SizeOpRecord : RecordFunctor {
         serde::RecordData_Size,
         serde::CreateSize(builder, dim_).Union()};
   }
+  
+  virtual void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
 
  private:
   int64_t dim_;
@@ -2665,6 +2673,14 @@ struct AtOpRecord : RecordFunctor {
     return {
         serde::RecordData_At,
         serde::CreateAt(builder, index_).Union()};
+  }
+  
+  virtual void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", index=" << index_;
+    if (close_function) {
+      os << ")";
+    }
   }
 
  private:
