@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <utils.h>
 
 #include <deque>

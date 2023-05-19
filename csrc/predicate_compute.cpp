@@ -12,7 +12,7 @@
 #include <fusion.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <transform_iter.h>
 

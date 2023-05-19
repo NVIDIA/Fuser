@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <type.h>
 
 #include <iterator>
@@ -428,6 +428,10 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
+
+//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! guaranteed not to cause thread divergence
+bool isAlignedScopeExpr(const Expr* expr);
 
 } // namespace ir_utils
 } // namespace nvfuser

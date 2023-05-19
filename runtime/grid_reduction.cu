@@ -121,15 +121,9 @@ __device__ void gridReduceLastBlock(
 
   // Block reduce the per thread values into per "participating" thread values
   T inp_tmp = init_val;
-  blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-      inp_tmp,
-      inp,
-      reduction_op,
-      threadIdx,
-      blockDim,
-      shared_buf,
-      true,
-      init_val);
+  // TODO: Use aligned version
+  blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, false>(
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -213,12 +207,11 @@ __device__ void gridReduce(
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
-    blockReduce<X_THREAD, Y_THREAD, Z_THREAD>(
+    // TODO: Use aligned version
+    blockReduce<X_THREAD, Y_THREAD, Z_THREAD, false>(
         block_reduction_val,
         inp_val,
         reduction_op,
-        threadIdx,
-        blockDim,
         shared_buf,
         read_pred,
         true,
@@ -387,12 +380,11 @@ __device__ void gridReduce2PartialReduction(
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
-    blockReduce<X_THREAD, Y_THREAD, Z_THREAD>(
+    // TODO: Use aligned version
+    blockReduce<X_THREAD, Y_THREAD, Z_THREAD, false>(
         block_reduction_val,
         inp_val,
         reduction_op,
-        threadIdx,
-        blockDim,
         shared_buf,
         read_pred,
         true,
