@@ -859,13 +859,20 @@ SqueezeOp::SqueezeOp(
     if (is_squeeze_dims[i]) {
       num_removed_broadcasts++;
       auto id = in_dom[i];
+      // TODO: Could these checks be moved to SqueezeID instead?
       TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
+          id->isBroadcast() || id->isSymbolic(),
+          "Squeeze dimension should be either Symbolic or Broadcast. Found ",
+          id->getIterType());
       TORCH_INTERNAL_ASSERT(
           !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "Can not squeeze dimension(s) with size != 1.");
+      if (id->isBroadcast()) {
+        // Check concrete broadcast extent here. For Symbolic inputs, this check
+        // will be deferred to concretization. See dynamic_transform.cpp
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "Can not squeeze dimension(s) with size != 1.");
+      }
     } else {
       auto in_id = in_dom[i];
       auto out_id = out_dom[i - num_removed_broadcasts];

@@ -191,20 +191,8 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
   for (const auto idx : c10::irange(ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
-      TORCH_CHECK(
-          id->isBroadcast() || id->isSymbolic(),
-          "Squeeze dimension should be either Symbolic or Broadcast. Found ",
-          id->getIterType());
-      TORCH_CHECK(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      if (id->isBroadcast()) {
-        // Check concrete broadcast extent here. For Symbolic inputs, this check
-        // will be deferred to concretization. See dynamic_transform.cpp
-        TORCH_CHECK(
-            id->extent()->isOneInt(),
-            "Can not squeeze dimension(s) with size != 1.");
-      }
-      // Create a SqueezeID op that drops this dimension
+      // SqueezeOp constructor checks validity of inputs. Here we just create a
+      // SqueezeID op that represents dropping this dimension.
       IrBuilder::create<SqueezeID>(x->container(), id);
     } else {
       out_domain.push_back(id->cloneWithoutRFactor());

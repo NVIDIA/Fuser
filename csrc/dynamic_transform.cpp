@@ -272,6 +272,15 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  //! Use this instead of calling registerMutation directly, since it will also
+  //! check that the concretized value is a valid input to all of its uses.
+  void registerConcretization(Val* old_val, Val* new_val) {
+    std::cout << "registerConcretization(" << old_val->toString() << ", "
+              << new_val->toString() << ")" << std::endl;
+    checkConcretizedUses(old_val, new_val);
+    registerMutation(old_val, new_val);
+  }
+
   //! Check uses of old_val to ensure that new_val does not violate
   //! assumptions. This is currently only used to check that inputs to SqueezeID
   //! are marked broadcast during concretization.
@@ -445,7 +454,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concretized_out_id);
+        registerConcretization(out_id, concretized_out_id);
       }
 
       // The expr itself needs to be mutated as well in case the outputs are
@@ -513,7 +522,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, domain, contig);
-  registerMutation(td, mutated_val);
+  registerConcretization(td, mutated_val);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
@@ -580,7 +589,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     auto concretized_id =
         IterDomainBuilder(root_id).iter_type(*id_type).build();
 
-    registerMutation(root_id, concretized_id);
+    registerConcretization(root_id, concretized_id);
     is_concretized = true;
   }
 
