@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <optimization/opt_pass.h>
 
 namespace nvfuser::optimization {
