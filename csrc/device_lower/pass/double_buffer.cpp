@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 
 #include <device_lower/pass/double_buffer.h>

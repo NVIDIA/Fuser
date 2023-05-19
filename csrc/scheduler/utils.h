@@ -11,8 +11,8 @@
 #include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 
