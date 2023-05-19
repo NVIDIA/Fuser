@@ -313,7 +313,7 @@ void DynamicTransformConcretizer::concretize() {
     }
   }
 
-  RCH_CHECK(
+  TORCH_CHECK(
       !info_.fusion()->hasDynamicTransform(),
       "Fusion has dynamic transforms after concretization");
 }
@@ -691,4 +691,3 @@ size_t DynamicTransformConcretizationInfo::hash() const {
 }
 
 } // namespace nvfuser
-  
