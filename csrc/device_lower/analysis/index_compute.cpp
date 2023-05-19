@@ -12,7 +12,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <index_compute.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <transform_iter.h>
 
 namespace nvfuser {

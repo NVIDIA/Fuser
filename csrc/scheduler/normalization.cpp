@@ -11,9 +11,9 @@
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
@@ -685,10 +685,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // blocks and buffers
   if (vectorize && blocksPerKernel > device_multiprocessor_count &&
       batches_per_block_inner_reduction > 1) {
-    constexpr int64_t reg_allocation_granularity = 256;
-    constexpr double occupancy_ratio = 0.4;
-    const int64_t persistent_buffer_size = batches_per_block_inner_reduction *
-        inner_reduction_unroll_factor * max_input_dtype_size;
+    // Estimate register per thread based on buffer size, since inner reduction
+    // dim is fully parallelized, the buffer size of each element equals the
+    // total buffer size divide by inner_most_dimension_numel. Each thread will
+    // hold batches_per_block_inner_reduction * inner_reduction_unroll_factor
+    // elements.
+    const int64_t persistent_buffer_size = max_persistent_buffer_size /
+        inner_most_dimension_numel * batches_per_block_inner_reduction *
+        inner_reduction_unroll_factor;
+
     // persistent_buffer_size = 4*2, 8*2, 32*2, 64*2, 128*2
     // register_used_on_a100  = 27,  40,  62,   73,   105
     // register_used_on_v100  = xx,  xx,  45,   62,   93
@@ -696,47 +701,58 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // safe for both v100 & a100
     constexpr int64_t bytes_per_register = 4;
     constexpr int64_t overhead_register = 40;
-    const int64_t estimated_register_count =
+    int64_t estimated_register_count =
         persistent_buffer_size / bytes_per_register + overhead_register;
-    // avoid nvcc using too many registers than expected
-    nvrtc_register_per_thread = estimated_register_count;
 
-    const int64_t register_per_warp =
-        ceilDiv(
-            estimated_register_count * device_warp_size,
-            reg_allocation_granularity) *
-        reg_allocation_granularity;
-    const int64_t threadsPerBlock =
-        (pad_bdimx ? padded_bdimx : bdimx) * bdimy * bdimz;
-    const int64_t warps_per_block =
-        ceilDiv(threadsPerBlock, (int64_t)dev_prop->warpSize);
-    const int64_t estimated_warps_per_sm =
-        (int64_t)dev_prop->regsPerMultiprocessor /
-        (register_per_warp * warps_per_block) * warps_per_block;
-    const int64_t occupancy_warps_per_sm = static_cast<int64_t>(
-        (dev_prop->maxThreadsPerMultiProcessor / (double)device_warp_size) *
-        occupancy_ratio);
+    // check occupancy using blocks per sm
+    const int64_t threads_per_block =
+        pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
+    const int64_t blocks_per_sm_estimated =
+        getThreadsPerSMGivenRegPerThread(estimated_register_count) /
+        threads_per_block;
 
-    if (estimated_warps_per_sm < occupancy_warps_per_sm) {
-      const int64_t blocks_per_sm_1 =
-          (int64_t)dev_prop->maxBlocksPerMultiProcessor;
-      const int64_t blocks_per_sm_2 =
-          ceilDiv(occupancy_warps_per_sm, warps_per_block);
-      const int64_t blocks_per_sm = std::min(blocks_per_sm_1, blocks_per_sm_2);
-      const int64_t warps_per_sm = blocks_per_sm * warps_per_block;
-      const int64_t register_per_warp =
-          (int64_t)dev_prop->regsPerMultiprocessor / warps_per_sm /
-          reg_allocation_granularity * reg_allocation_granularity;
-      const int64_t occupancy_register_count =
-          register_per_warp / device_warp_size;
-      // use occupancy_register_count directly may cause register spills
-      // only allow 20% drop from estimated_register_count to balance register
-      // usage and occupancy
-      constexpr double max_adjust_fraction = 0.8;
-      nvrtc_register_per_thread = std::max(
-          static_cast<int64_t>(
-              (double)estimated_register_count * max_adjust_fraction),
-          occupancy_register_count);
+    // only allow adjust to 90% of estimated_register_count to avoid too much
+    // spills. initially we used 80%, however, the drop from 160 to 128 leads to
+    // too much spills in Layer Norm with fused ops, see
+    // https://github.com/NVIDIA/Fuser/issues/335
+    // 90% allows edge cases, e.g. 72 to 64 which is important for 32K fp16
+    // where batch = 8. With this change, however, we lost 10 % performance on
+    // Softmax_Inner_fp16/16384/4096, where the perf is best when using 64
+    // registers with 232 bytes spill stores and 276 bytes spill loads. The
+    // estimated register for this case is 104 adjusting it to 64 is too
+    // aggressive.
+    constexpr double max_adjust_fraction = 0.9;
+    int64_t register_count_minimum = static_cast<int64_t>(
+        max_adjust_fraction * static_cast<double>(estimated_register_count));
+    const int64_t blocks_per_sm_maximum =
+        getThreadsPerSMGivenRegPerThread(register_count_minimum) /
+        threads_per_block;
+    register_count_minimum = getRegPerThreadGivenThreadsPerSM(
+        blocks_per_sm_maximum * threads_per_block);
+
+    // minimum occupancy we want to achieve
+    constexpr double occupancy_ratio = 0.4;
+    const int64_t blocks_per_sm_wanted = ceilDiv(
+        static_cast<int64_t>(
+            dev_prop->maxThreadsPerMultiProcessor * occupancy_ratio),
+        threads_per_block);
+
+    // if estimated blocks is smaller than wanted and decrease register usage
+    // can increase blocks per sm, try to decrease register usage to increase
+    // occupancy but don't go below register_count_minimum
+    if (blocks_per_sm_estimated < blocks_per_sm_wanted &&
+        blocks_per_sm_maximum > blocks_per_sm_estimated) {
+      const int64_t register_count_occupancy = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm_wanted * threads_per_block);
+
+      nvrtc_register_per_thread =
+          std::max(register_count_minimum, register_count_occupancy);
+    } else {
+      // recalculate estimated_register_count using blocks_per_sm_estimated
+      // this may increase estimated_register_count due to allocation
+      // granularity e.g. 104 -> 128
+      nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm_estimated * threads_per_block);
     }
   }
 
