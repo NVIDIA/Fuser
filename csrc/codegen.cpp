@@ -1366,8 +1366,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockWelford(const WelfordOp* wop) {
-    TORCH_INTERNAL_ASSERT(ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
-                          "Not block-parallel WelfordOp: ", wop->toString());
+    TORCH_INTERNAL_ASSERT(
+        ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
+        "Not block-parallel WelfordOp: ",
+        wop->toString());
 
     const auto has_grid_reduce =
         ir_utils::getTvOutput(wop)->domain()->hasGridReduction();
@@ -1667,7 +1669,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto reduction_name = genFusedReductionName(out->view());
 
-    // template <bool ALIGNED, typename Func, typename... Types>
+    // template <bool Aligned, typename Func, typename... Types>
     // __device__ __inline__ void reduce(
     //   RefTuple<Types...> out,
     //   const LocalTuple<Types...>& inp,
@@ -2410,7 +2412,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto reduction_name = genFusedReductionName(out->view());
 
-    // template <bool ALIGNED, typename Func, typename... Types>
+    // template <bool Aligned, typename Func, typename... Types>
     // __device__ __inline__ void reduce(
     //   RefTuple<Types...> out,
     //   const LocalTuple<Types...>& inp,
