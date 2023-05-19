@@ -259,19 +259,6 @@ table LaunchParams {
   output_sizes : [TensorShape];
 }
 
-table CompileParams {
-  index_type : DataType;
-  maxrregcount : int;
-  enable_magic_zero : bool;
-}
-
-// CUmodule module
-// CUfunction function
-table NvrtcFunction {
-  module : [byte];
-  function : [byte];
-}
-
 table GlobalBufferInfo {
   tv : long = -1;
   sizes : [long];

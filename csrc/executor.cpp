@@ -18,6 +18,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <utils.h>
+#include <serde/expr_evaluator_serde.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -1898,6 +1899,12 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_keys_fb.push_back(key);
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
+
+  std::cout << "===" << std::endl;
+  serde::ExpressionSerde es;
+  es.bind(kernel());
+  es.generate();
+  std::cout << "end serialize" << std::endl;
 
   return serde::CreateFusionExecutorDirect(
       builder,

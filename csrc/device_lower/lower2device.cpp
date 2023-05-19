@@ -286,16 +286,13 @@ void GpuLower::fastLower(Fusion* fusion) {
   resolveComputeWith(fusion_);
 
   compute_at_map_->validateAndPropagatePType();
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
-  dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
 
   // Used in parallel dimension map
   concretized_broadcast_domains_ =
       std::make_shared<const ConcretizedBroadcastDomains>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
 
   parallelDimensionMap().build(fusion_);
 }
