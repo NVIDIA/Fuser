@@ -129,6 +129,27 @@ class TensorDomain;
 class TensorView;
 class RootDomainMap;
 
+struct TransformReplayOptions {
+  bool replay_swizzle = false;
+  bool replay_resize = false;
+  bool replay_allocation = false;
+
+  TransformReplayOptions& replaySwizzle(bool value = true) {
+    replay_swizzle = value;
+    return *this;
+  }
+
+  TransformReplayOptions& replayResize(bool value = true) {
+    replay_resize = value;
+    return *this;
+  }
+
+  TransformReplayOptions& replayAllocation(bool value = true) {
+    replay_allocation = value;
+    return *this;
+  }
+};
+
 class TORCH_CUDA_CU_API TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
@@ -145,17 +166,13 @@ class TORCH_CUDA_CU_API TransformReplay {
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      bool replay_swizzle = false,
-      bool replay_resize = false,
-      bool replay_allocation = false);
+      TransformReplayOptions opt = {});
   static std::pair<TensorDomain*, size_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       const RootDomainMap& root_map,
-      bool replay_swizzle = false,
-      bool replay_resize = false,
-      bool replay_allocation = false);
+      TransformReplayOptions opt = {});
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
   // consumer_compute_at_axis}.
@@ -165,17 +182,13 @@ class TORCH_CUDA_CU_API TransformReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      bool replay_swizzle = false,
-      bool replay_resize = false,
-      bool replay_allocation = false);
+      TransformReplayOptions opt = {});
   static std::pair<TensorDomain*, size_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       const RootDomainMap& root_map,
-      bool replay_swizzle = false,
-      bool replay_resize = false,
-      bool replay_allocation = false);
+      TransformReplayOptions opt = {});
 
   // Self replay.
   static TensorDomain* fullSelfReplay(

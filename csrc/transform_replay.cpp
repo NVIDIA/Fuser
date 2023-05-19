@@ -299,9 +299,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     const TensorView* consumer,
     int64_t consumer_pos,
     const RootDomainMap& root_map,
-    bool replay_swizzle,
-    bool replay_resize,
-    bool replay_allocation) {
+    TransformReplayOptions opt) {
   FUSER_PERF_SCOPE("TransformReplay::replayPasC");
   if (producer == consumer) {
     return {producer->domain(), producer->nDims()};
@@ -335,8 +333,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       (int)consumer_pos,
       root_map,
       false,
-      !replay_swizzle,
-      !replay_resize);
+      !opt.replay_swizzle,
+      !opt.replay_resize);
 
   // Make a new map based on all the leaves resulting from best effort replay
   id_map forwarded_replay_map;
@@ -352,8 +350,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   // Replay producer dimensions.
   ReplayTransformations replay_PasC(target_consumer_ids, forwarded_replay_map);
   replay_PasC.setErrorOnFailure(false)
-      .setReplaySwizzle(replay_swizzle)
-      .setReplayResize(replay_resize);
+      .setReplaySwizzle(opt.replay_swizzle)
+      .setReplayResize(opt.replay_resize);
 
   auto producer_leaf_ids(replay_PasC.getUnorderedLeafIDs());
 
@@ -520,7 +518,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
-  if (!replay_allocation) {
+  if (!opt.replay_allocation) {
     TensorDomain* replayed = IrBuilder::create<TensorDomain>(
         producer->container(),
         producer->getRootDomain(),
@@ -570,9 +568,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* producer,
     int64_t producer_pos,
     const RootDomainMap& root_map,
-    bool replay_swizzle,
-    bool replay_resize,
-    bool replay_allocation) {
+    TransformReplayOptions opt) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
 
   // If this is a reduction operation, we may call transform_replay on the same
@@ -613,8 +609,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       (int)producer_pos,
       root_map,
       false,
-      !replay_swizzle,
-      !replay_resize);
+      !opt.replay_swizzle,
+      !opt.replay_resize);
 
   // Track dangling leaves which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
@@ -633,8 +629,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   // Replay producer dimensions. Currently, resize isn't replayed.
   ReplayTransformations replay_CasP(target_producer_ids, forwarded_replay_map);
   replay_CasP.setErrorOnFailure(false)
-      .setReplaySwizzle(replay_swizzle)
-      .setReplayResize(replay_resize);
+      .setReplaySwizzle(opt.replay_swizzle)
+      .setReplayResize(opt.replay_resize);
 
   auto consumer_leaf_ids(replay_CasP.getUnorderedLeafIDs());
 
@@ -794,7 +790,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     }
   }
 
-  if (!replay_allocation) {
+  if (!opt.replay_allocation) {
     TensorDomain* replayed = IrBuilder::create<TensorDomain>(
         consumer->container(),
         consumer->getRootDomain(),
@@ -844,42 +840,24 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t compute_at_axis,
-    bool replay_swizzle,
-    bool replay_resize,
-    bool replay_allocation) {
+    TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
-  return replayPasC(
-      producer,
-      consumer,
-      compute_at_axis,
-      root_map,
-      replay_swizzle,
-      replay_resize,
-      replay_allocation);
+  return replayPasC(producer, consumer, compute_at_axis, root_map, opt);
 }
 
 std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t compute_at_axis,
-    bool replay_swizzle,
-    bool replay_resize,
-    bool replay_allocation) {
+    TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
   PairwiseRootDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
-  return replayCasP(
-      consumer,
-      producer,
-      compute_at_axis,
-      root_map,
-      replay_swizzle,
-      replay_resize,
-      replay_allocation);
+  return replayCasP(consumer, producer, compute_at_axis, root_map, opt);
 }
 
 // In a PasC replay, we want the producer to exactly match the consumer:

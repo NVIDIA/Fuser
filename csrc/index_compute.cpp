@@ -1525,7 +1525,11 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   // Resize ops can be and should be replayed.
   auto producer_replayed_as_consumer =
       TransformReplay::replayPasC(
-          producer_tv, consumer_tv, -1, pairwise_map, false, true)
+          producer_tv,
+          consumer_tv,
+          -1,
+          pairwise_map,
+          TransformReplayOptions().replayResize())
           .first;
 
   ir_utils::TVDomainGuard domain_guard(
@@ -1839,10 +1843,13 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   auto pairwise_map =
       PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
 
-  TensorDomain* producerAsC =
-      TransformReplay::replayPasC(
-          producer_tv, consumer_tv, -1, pairwise_map, false, true)
-          .first;
+  TensorDomain* producerAsC = TransformReplay::replayPasC(
+                                  producer_tv,
+                                  consumer_tv,
+                                  -1,
+                                  pairwise_map,
+                                  TransformReplayOptions().replayResize())
+                                  .first;
 
   // Make the producer_tv look like consumer while performing indexing math
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);

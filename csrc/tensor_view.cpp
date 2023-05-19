@@ -1230,8 +1230,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1, false, false, true);
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
   consumer->setDomain(replayed_consumer_pair.first);
 
@@ -1359,8 +1359,8 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   // Expr* consumer_definition =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
-  auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1, false, false, true);
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
   consumer->setDomain(replayed_consumer_pair.first);
 

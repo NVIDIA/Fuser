@@ -487,7 +487,11 @@ class VectorizeValidator : public OptInDispatch {
     auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
     auto producer_replayed_as_consumer =
         TransformReplay::replayPasC(
-            producer_tv, tv, -1, pairwise_map, false, true)
+            producer_tv,
+            tv,
+            -1,
+            pairwise_map,
+            TransformReplayOptions().replayResize())
             .first;
     ir_utils::TVDomainGuard domain_guard(
         producer_tv, producer_replayed_as_consumer);
