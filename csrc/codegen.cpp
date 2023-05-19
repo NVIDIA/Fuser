@@ -1092,8 +1092,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
-
-    std::cerr << "blockBroadcast: " << isAligned() << std::endl;
   }
 
   void genSerialReduction(
@@ -1129,8 +1127,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
              << ";\n";
-
-    std::cerr << "warpReduction: " << isAligned() << std::endl;
   }
 
   void genBlockReduction(
@@ -1162,7 +1158,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genCall("static_cast", genPtrType(data_type), "shared_mem"));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     // Pass the write predicate if available and different from the
@@ -1374,6 +1370,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ir_utils::getTvOutput(wop)->domain()->hasGridReduction();
     const auto data_type = wop->outAvg()->dtype();
     const auto index_type = wop->outN()->dtype();
+
+    // TODO: Instead of decomposing block and grid-parallel welford
+    // into blockWelford and gridWelford calls, thus requiring
+    // temporary variables like below, extend gridWelford to
+    // support block reductions. gridReduce already supports block
+    // reductions as well.
 
     auto out_avg = has_grid_reduce
         ? "block_result_avg_" + std::to_string(block_reduce_name_)
