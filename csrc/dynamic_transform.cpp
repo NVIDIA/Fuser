@@ -275,8 +275,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
-    std::cout << "registerConcretization(" << old_val->toString() << ", "
-              << new_val->toString() << ")" << std::endl;
     checkConcretizedUses(old_val, new_val);
     registerMutation(old_val, new_val);
   }
@@ -326,6 +324,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
+    // We do the replacement directly here, but we must still check that the
+    // replacement is valid
+    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+
     // Replace the old tensor with the new concretized tensor
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
       ir_utils::replaceValInExpr(
@@ -363,14 +365,35 @@ void DynamicTransformConcretizer::checkConcretizedUses(
     Val* old_val,
     Val* new_val) const {
   for (const auto use : old_val->uses()) {
-    try {
-      use->checkConcretization(old_val, new_val);
-    } catch (...) {
-      std::stringstream ss;
-      ss << "Failed while checking concretization of " << old_val->toString();
-      ss << " to " << new_val->toString();
-      ss << " in expression " << use->toString();
-      std::throw_with_nested(std::runtime_error(ss.str()));
+    use->checkConcretization(old_val, new_val);
+  }
+  if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
+    TORCH_CHECK(
+        !new_id->isSymbolic(),
+        "Concretized IterDomain must not be Symbolic. Found ",
+        new_id->toString());
+  } // If we are concretizing a TensorDomain, check that replacing the rfactor
+  // domain is valid in its later uses which may not be directly represented in
+  // the Fusion graph.
+  else if (auto new_tv = dynamic_cast<TensorView*>(new_val)) {
+    auto old_tv = old_val->as<TensorView>();
+    // Check that swapping the TensorDomain would be safe for further uses
+    checkConcretizedUses(old_tv->domain(), new_tv->domain());
+  } else if (auto new_td = dynamic_cast<TensorDomain*>(new_val)) {
+    // Check that swapping the rfactor domain would be safe for further uses
+    auto old_td = old_val->as<TensorDomain>();
+    auto old_rfactor = old_td->maybeRFactor();
+    auto new_rfactor = new_td->maybeRFactor();
+    TORCH_CHECK(
+        old_rfactor.size() == new_rfactor.size(),
+        "Replacing TensorDomain ",
+        old_td->toString(),
+        " with ",
+        new_td->toString(),
+        " changes rFactor domain length.");
+    for (auto i : c10::irange(old_rfactor.size())) {
+      // Check that replacing each rfactor ID with the new one is valid
+      checkConcretizedUses(old_rfactor[i], new_rfactor[i]);
     }
   }
 }

@@ -440,10 +440,6 @@ void Expr::checkConcretization(Val* old_val, Val* new_val) const {
   TORCH_CHECK(
       old_val->vtype() == new_val->vtype(),
       "Concretization must not change ValType");
-  if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
-    TORCH_CHECK(
-        !new_id->isSymbolic(), "Concretized IterDomain must not be Symbolic.");
-  }
 }
 
 bool Expr::sameAs(const Statement* other) const {
