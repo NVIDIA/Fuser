@@ -2205,9 +2205,11 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto params = *getPointwiseHeuristics(fusion.get(), aten_inputs);
+  schedulePointwise(fusion.get(), params);
   FusionExecutor fe;
+  fe.compileFusion(fusion.get(), aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto ref0 = t0.index({at::indexing::Slice(0, 1)});
   auto ref1 = t0.index({at::indexing::Slice(0, 0)});
@@ -2215,6 +2217,5 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
   TORCH_CHECK(ref1.equal(cg_outputs[1]));
 }
-
 
 } // namespace nvfuser
