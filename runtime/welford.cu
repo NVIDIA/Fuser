@@ -112,7 +112,7 @@ template <
     bool X_REDUCE,
     bool Y_REDUCE,
     bool Z_REDUCE,
-    bool ALIGNED,
+    bool Aligned,
     typename T,
     typename TN>
 __inline__ __device__ void blockWelford(
@@ -159,7 +159,7 @@ __inline__ __device__ void blockWelford(
     shared_mem_N[smem_offset] = 0;
   }
 
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
   // Reduce down to nearest power of 2:
   int np2 = 1 << (31 - __clz(reduction_size));
 
@@ -172,7 +172,7 @@ __inline__ __device__ void blockWelford(
         shared_mem_M2[smem_offset + np2],
         shared_mem_N[smem_offset + np2]);
   }
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -185,7 +185,7 @@ __inline__ __device__ void blockWelford(
           shared_mem_M2[smem_offset + factor],
           shared_mem_N[smem_offset + factor]);
     }
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
   }
 
   if (should_write && write_pred) {
@@ -212,7 +212,7 @@ __inline__ __device__ void blockWelford(
     out_M2 = res_M2;
     out_N = res_N;
   }
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 }
 
 // Use the same pred for both reads and writes
@@ -220,7 +220,7 @@ template <
     bool X_REDUCE,
     bool Y_REDUCE,
     bool Z_REDUCE,
-    bool ALIGNED,
+    bool Aligned,
     typename T,
     typename TN>
 __inline__ __device__ void blockWelford(
@@ -235,7 +235,7 @@ __inline__ __device__ void blockWelford(
     TN* shared_mem_N,
     bool read_write_pred,
     T init_val) {
-  blockWelford<X_REDUCE, Y_REDUCE, Z_REDUCE, ALIGNED, T, TN>(
+  blockWelford<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, TN>(
       out_avg,
       out_M2,
       out_N,
@@ -258,7 +258,7 @@ template <
     bool X_THREAD,
     bool Y_THREAD,
     bool Z_THREAD,
-    bool ALIGNED,
+    bool Aligned,
     typename T,
     typename TN>
 __device__ void gridWelfordLastBlock(
@@ -322,7 +322,7 @@ __device__ void gridWelfordLastBlock(
   T inp_avg_tmp = init_val;
   T inp_M2_tmp = init_val;
   TN inp_N_tmp = 0;
-  blockWelford<!X_THREAD, !Y_THREAD, !Z_THREAD, ALIGNED>(
+  blockWelford<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
       inp_avg_tmp,
       inp_M2_tmp,
       inp_N_tmp,
@@ -350,7 +350,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
-    bool ALIGNED,
+    bool Aligned,
     typename T,
     typename TN>
 __device__ void gridWelford(
@@ -426,11 +426,11 @@ __device__ void gridWelford(
   }
 
   if (PERSISTENT_REDUCTION) {
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, ALIGNED>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   } else {
     // Use a different sync flag for each call
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, ALIGNED>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind_ * grid_segment_size + idx_in_grid_segment],
         grid_reduction_segment_size);
   }
@@ -440,7 +440,7 @@ __device__ void gridWelford(
 
   if (last_block) {
     // final reduction
-    gridWelfordLastBlock<X_THREAD, Y_THREAD, Z_THREAD, ALIGNED>(
+    gridWelfordLastBlock<X_THREAD, Y_THREAD, Z_THREAD, Aligned>(
         out_avg,
         out_M2,
         out_N,
@@ -459,7 +459,7 @@ __device__ void gridWelford(
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, ALIGNED>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   }
 }

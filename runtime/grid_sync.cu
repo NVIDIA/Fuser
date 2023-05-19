@@ -29,7 +29,7 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool ALIGNED>
+    bool Aligned>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
@@ -38,7 +38,7 @@ __device__ void sync(
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -78,7 +78,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 }
 
 template <
@@ -86,9 +86,9 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool ALIGNED>
+    bool Aligned>
 __device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
-  sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, ALIGNED>(
+  sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
       index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim));
@@ -105,7 +105,7 @@ __device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
 //
 // Note that this is not currently used by grid and welford reduction
 // as they use a separate sync flag for each each grid sync call.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool ALIGNED>
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool Aligned>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
@@ -114,7 +114,7 @@ __device__ void sync(
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -145,7 +145,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 }
 
 } // namespace grid_sync

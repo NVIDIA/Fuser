@@ -21,7 +21,7 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
-template <bool SINGLE_WARP, bool ALIGNED, typename T, typename Func>
+template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
 __device__ void warpReduceTIDX(
     T& out,
     const T& inp_val,
@@ -55,13 +55,13 @@ __device__ void warpReduceTIDX(
     unsigned int num_of_warps = reduction_size / WARP_SIZE;
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     if (is_warp_head) {
       shared_mem[smem_offset + warp_idx] = reduce_val;
     }
 
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     if (warp_idx == 0) {
       // This assumes num_of_warps will be < 32, meaning < 1024 threads.

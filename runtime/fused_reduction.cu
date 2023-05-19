@@ -202,7 +202,7 @@ template <
     int idx,
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
-    bool ALIGNED,
+    bool Aligned,
     typename LocalTupleT,
     typename... Funcs>
 struct BlockReduceEach {
@@ -217,7 +217,7 @@ struct BlockReduceEach {
       int reduction_idx,
       Funcs... funcs) {
     // Finish the reduction of each tuple value with a smaller offset
-    BlockReduceEach<idx - 1, BROADCAST, true, ALIGNED, LocalTupleT, Funcs...>::
+    BlockReduceEach<idx - 1, BROADCAST, true, Aligned, LocalTupleT, Funcs...>::
         reduce(
             block_result,
             partial_result,
@@ -252,7 +252,7 @@ struct BlockReduceEach {
       copyTuple(shared_buf, smem_offset, block_result_i);
     }
 
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     if (tid_in_reduction < np2 &&
         tid_in_reduction + np2 < num_elements_per_reduction) {
@@ -265,7 +265,7 @@ struct BlockReduceEach {
     }
 
     // Always sync when communicating across smem
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -278,7 +278,7 @@ struct BlockReduceEach {
             smem_offset + factor,
             funcs...);
       }
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
     }
 
     copyTuple(block_result_i, shared_buf, smem_offset);
@@ -300,7 +300,7 @@ struct BlockReduceEach {
       }
 
       // Sync threads to make sure result is in smem
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
 
       copyTuple(
           block_result_i,
@@ -311,7 +311,7 @@ struct BlockReduceEach {
     block_result.val<idx>(0) = block_result_i.val<0>(0);
 
     if (FORWARD_PROTECT_SMEM) {
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
     }
   }
 };
@@ -320,14 +320,14 @@ struct BlockReduceEach {
 template <
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
-    bool ALIGNED,
+    bool Aligned,
     typename LocalTupleT,
     typename... Funcs>
 struct BlockReduceEach<
     -1,
     BROADCAST,
     FORWARD_PROTECT_SMEM,
-    ALIGNED,
+    Aligned,
     LocalTupleT,
     Funcs...> {
   __inline__ __device__ static void reduce(
@@ -358,7 +358,7 @@ struct BlockReduceEach<
 template <
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
-    bool ALIGNED,
+    bool Aligned,
     typename LocalTupleT,
     typename... Funcs>
 __inline__ __device__ void blockReduceEach(
@@ -375,7 +375,7 @@ __inline__ __device__ void blockReduceEach(
       LocalTupleT::num_vals - 1,
       BROADCAST,
       FORWARD_PROTECT_SMEM,
-      ALIGNED,
+      Aligned,
       LocalTupleT,
       Funcs...>::
       reduce(
@@ -466,7 +466,7 @@ class ParallelReduce {
   // reduceGroup does not support Welford-style reductions that reduce
   // all values of a tuple together, so this is the only entry point
   // for Welford for now.
-  template <bool ALIGNED, typename Func, typename... Types>
+  template <bool Aligned, typename Func, typename... Types>
   __device__ __inline__ void reduce(
       RefTuple<Types...> out,
       const ConstRefTuple<Types...>& inp,
@@ -480,7 +480,7 @@ class ParallelReduce {
       Func reduction_op);
 
   //! Profiled version
-  template <bool ALIGNED, typename Func, typename... Types>
+  template <bool Aligned, typename Func, typename... Types>
   __device__ __inline__ void reduce(
       RefTuple<Types...> out,
       const ConstRefTuple<Types...>& inp,
@@ -504,7 +504,7 @@ class ParallelReduce {
   //! reductions do not allow serial reduction IterDomains, there is
   //! no need to accumulate into the out parameter.
   template <
-      bool ALIGNED,
+      bool Aligned,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -521,7 +521,7 @@ class ParallelReduce {
 
   //! Profiled version
   template <
-      bool ALIGNED,
+      bool Aligned,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -551,7 +551,7 @@ class ParallelReduce {
   // simplicity. In practice, it should be really uncommon to group
   // welford ops with different data types, so this restriction
   // shouldn't be an issue.
-  template <bool ALIGNED, int NumArgs, typename DataType, typename IndexType>
+  template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
   __device__ __inline__ void welfordGroup(
       typename MakeRefTuple<NumArgs, DataType>::type out_avg,
       typename MakeRefTuple<NumArgs, DataType>::type out_var,
@@ -574,7 +574,7 @@ class ParallelReduce {
       const typename MakeLocalTuple<NumArgs, bool>::type& write_preds);
 
   //! Profiled version
-  template <bool ALIGNED, int NumArgs, typename DataType, typename IndexType>
+  template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
   __device__ __inline__ void welfordGroup(
       typename MakeRefTuple<NumArgs, DataType>::type out_avg,
       typename MakeRefTuple<NumArgs, DataType>::type out_var,
@@ -601,7 +601,7 @@ class ParallelReduce {
   // This is highly specific to the outer-reduction pattern. All the
   // assumptions should be asserted with static_assert at the begging of
   // the fuction.
-  template <bool ALIGNED, int NumVals, typename DataType, int BDIMX, int BDIMY>
+  template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
   __device__ __inline__ void welfordGroupOuter(
       DataType out_avg[NumVals],
       DataType out_var[NumVals],
@@ -616,7 +616,7 @@ class ParallelReduce {
       int64_t* global_sync_buffer);
 
   // Profiled version
-  template <bool ALIGNED, int NumVals, typename DataType, int BDIMX, int BDIMY>
+  template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
   __device__ __inline__ void welfordGroupOuter(
       DataType out_avg[NumVals],
       DataType out_var[NumVals],
@@ -650,7 +650,7 @@ class ParallelReduce {
   //! not forward protected.
   template <
       bool BLOCK_BROADCAST,
-      bool ALIGNED,
+      bool Aligned,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -667,7 +667,7 @@ class ParallelReduce {
   //! The smem buffer is assumed synchronized when it is passed in,
   //! but it isn't synchronized when returning from this function.
   template <
-      bool ALIGNED,
+      bool Aligned,
       typename... DataTypes,
       typename... Funcs,
       typename... BoolTypes>
@@ -689,7 +689,7 @@ class ParallelReduce {
   //! Welford version of reduceGroupBlock
   template <
       bool BLOCK_BROADCAST,
-      bool ALIGNED,
+      bool Aligned,
       int NumVals,
       typename DataType,
       typename IndexType>
@@ -701,7 +701,7 @@ class ParallelReduce {
       bool block_reduce_participate);
 
   //! Welford version of reduceGrouplLastBlock
-  template <bool ALIGNED, int NumVals, typename DataType, typename IndexType>
+  template <bool Aligned, int NumVals, typename DataType, typename IndexType>
   __device__ __inline__ static void welfordGroupLastBlock(
       RefWelfordTripletTuple<NumVals, DataType, IndexType>& out,
       const VolatilePtrWelfordTripletTuple<NumVals, DataType, IndexType>&
@@ -729,7 +729,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool ALIGNED, typename Func, typename... Types>
+template <bool Aligned, typename Func, typename... Types>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -817,7 +817,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Sync to make sure smem is completely initialized
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     // Round reduction size down to nearest power of 2
     int np2 = 1 << (31 - __clz(block_reduction_size));
@@ -834,7 +834,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Always need to sync while operating on shared memory
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     // Reduce down until 2 values, leaving 2 values allows us to manually
     // perform the last reduction and avoid a syncthreads
@@ -847,7 +847,7 @@ __device__ __inline__ void ParallelReduce<
             block_reduce_smem_offset + factor,
             reduction_op);
       }
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
     }
 
     // Accumulate that last valid result
@@ -883,7 +883,7 @@ __device__ __inline__ void ParallelReduce<
         }
 
         // Sync threads to make sure result is in smem
-        block_sync::sync<ALIGNED>();
+        block_sync::sync<Aligned>();
         // If the thread is participating, and is not attempting to write out
         // of bounds, return the broadcasted value.
         if (block_reduce_participate && write_pred) {
@@ -898,7 +898,7 @@ __device__ __inline__ void ParallelReduce<
       //
       // This could be avoided in some cases if we added thread syncs from
       // block reductions in the syncthread insertion pass.
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
       return;
     }
   }
@@ -988,7 +988,7 @@ __device__ __inline__ void ParallelReduce<
         isReduce(Y_BLOCK),
         isReduce(Z_BLOCK),
         PERSISTENT_REDUCTION,
-        ALIGNED>(
+        Aligned>(
         global_sync_buffer[block_red_idx_offset], grid_red_size, last_block);
   }
 
@@ -1064,7 +1064,7 @@ __device__ __inline__ void ParallelReduce<
       copyTuple(shared_buf, smem_offset, last_block_result);
     }
 
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     if (tid_in_block_reduction_2 < np2 &&
         tid_in_block_reduction_2 + np2 <
@@ -1078,7 +1078,7 @@ __device__ __inline__ void ParallelReduce<
     }
 
     // Always sync when communicating across smem
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -1091,7 +1091,7 @@ __device__ __inline__ void ParallelReduce<
             smem_offset + factor,
             reduction_op);
       }
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
     }
 
     // If this thread in each block has the final result before broadcasting
@@ -1113,7 +1113,7 @@ __device__ __inline__ void ParallelReduce<
     if (grid_reduce_participate && PERSISTENT_REDUCTION) {
       // If persistent reduction, always broadcast reduced values
       copyTuple(shared_buf, smem_offset, last_block_result);
-      block_sync::sync<ALIGNED>();
+      block_sync::sync<Aligned>();
       if (write_pred && block_reduce_participate) {
         copyTuple(
             out, shared_buf, block_reduction_idx * block_reduction_size_2);
@@ -1133,7 +1133,7 @@ __device__ __inline__ void ParallelReduce<
       }
     }
     // Forward protect the smem used in this reduction
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
   }
 }
 
@@ -1147,7 +1147,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <bool ALIGNED, typename Func, typename... Types>
+template <bool Aligned, typename Func, typename... Types>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -1177,7 +1177,7 @@ __device__ __inline__ void ParallelReduce<
     start_counter = readCycleCounter();
   }
 
-  reduce<ALIGNED>(
+  reduce<Aligned>(
       out,
       inp,
       global_work_buffer,
@@ -1205,7 +1205,7 @@ template <
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
 template <
-    bool ALIGNED,
+    bool Aligned,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1255,7 +1255,7 @@ __device__ __inline__ void ParallelReduce<
   // Initial per-block reduction. Result is broadcast if specified
   // and this call is block reduction only.
   const auto block_result = reduceGroupBlock < !GRID_REDUCE && BROADCAST,
-             ALIGNED > (inp,
+             Aligned > (inp,
                         init_val,
                         shared_mem,
                         read_preds,
@@ -1273,7 +1273,7 @@ __device__ __inline__ void ParallelReduce<
     // forward-protect the smem buffer. This block sync is not
     // necessary when a grid reduction follows since a block sync is
     // done just before the grid sync.
-    block_sync::sync<ALIGNED>();
+    block_sync::sync<Aligned>();
     return;
   }
 
@@ -1361,12 +1361,12 @@ __device__ __inline__ void ParallelReduce<
         isReduce(Y_BLOCK),
         isReduce(Z_BLOCK),
         PERSISTENT_REDUCTION,
-        ALIGNED>(
+        Aligned>(
         global_sync_buffer[block_red_idx_offset], grid_red_size, last_block);
   }
 
   // -- START BLOCK CLEANUP -- //
-  reduceGroupLastBlock<ALIGNED>(
+  reduceGroupLastBlock<Aligned>(
       out,
       global_work_buffer,
       init_val,
@@ -1382,7 +1382,7 @@ __device__ __inline__ void ParallelReduce<
       funcs...);
 
   // Forward protect the smem buffer
-  block_sync::sync<ALIGNED>();
+  block_sync::sync<Aligned>();
 }
 
 template <
@@ -1395,7 +1395,7 @@ template <
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
 template <
-    bool ALIGNED,
+    bool Aligned,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1427,7 +1427,7 @@ __device__ __inline__ void ParallelReduce<
     start_counter = readCycleCounter();
   }
 
-  reduceGroup<ALIGNED>(
+  reduceGroup<Aligned>(
       out,
       inp,
       global_work_buffer,
@@ -1456,7 +1456,7 @@ template <
     bool BROADCAST>
 template <
     bool BLOCK_BROADCAST,
-    bool ALIGNED,
+    bool Aligned,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1511,7 +1511,7 @@ __device__ __inline__ LocalTuple<DataTypes...> ParallelReduce<
   impl::blockReduceEach<
       BLOCK_BROADCAST,
       false,
-      ALIGNED,
+      Aligned,
       LocalTuple<DataTypes...>,
       Funcs...>(
       block_result,
@@ -1537,7 +1537,7 @@ template <
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
 template <
-    bool ALIGNED,
+    bool Aligned,
     typename... DataTypes,
     typename... Funcs,
     typename... BoolTypes>
@@ -1625,7 +1625,7 @@ __device__ __inline__ void ParallelReduce<
     impl::blockReduceEach<
         BROADCAST,
         false,
-        ALIGNED,
+        Aligned,
         LocalTuple<DataTypes...>,
         Funcs...>(
         last_block_result,
