@@ -12,8 +12,8 @@
 #include <c10/util/Exception.h>
 
 #include <executor_params.h>
-#include <ir_base_nodes.h>
-#include <ir_container.h>
+#include <ir/base_nodes.h>
+#include <ir/container.h>
 #include <iter_visitor.h>
 
 #include <any>

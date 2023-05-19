@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <transform_view.h>
 

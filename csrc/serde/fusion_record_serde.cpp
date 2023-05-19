@@ -900,6 +900,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)
   NVFUSER_BINARY_TV_OP("div", div)
+  NVFUSER_BINARY_TV_OP("truediv", truediv)
   NVFUSER_BINARY_TV_OP("fmod", fmod)
   NVFUSER_BINARY_TV_OP("mul", mul)
   NVFUSER_BINARY_TV_OP("nextafter", nextafter)

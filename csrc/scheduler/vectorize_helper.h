@@ -10,10 +10,10 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <ir_builder.h>
+#include <ir/builder.h>
 
 #include <sstream>
 #include <vector>

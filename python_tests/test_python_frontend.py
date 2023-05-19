@@ -2211,7 +2211,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(inputs[0][2:3], nvf_out[0])
         self.assertEqual(inputs[0][1:1], nvf_out[1])
 
-    def test_thunder420(self):
+    def test_th420(self):
         inputs = [
             torch.testing.make_tensor((4, 6, 7), dtype=torch.float32, device="cuda"),
         ]
@@ -2239,6 +2239,26 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(inputs[0][2:3], nvf_out[0])
         self.assertEqual(inputs[0][1:1], nvf_out[1])
+
+    def test_integer_division(self):
+        inputs = [
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.div(t0, t1)
+            t3 = fd.ops.truediv(t0, t1)
+            fd.add_output(t2)
+            fd.add_output(t3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(
+            nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
+        )
+        self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
 
 if __name__ == "__main__":
