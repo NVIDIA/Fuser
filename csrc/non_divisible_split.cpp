@@ -7,8 +7,8 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <non_divisible_split.h>
 
 namespace nvfuser {

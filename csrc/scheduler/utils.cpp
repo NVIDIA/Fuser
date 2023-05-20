@@ -12,7 +12,7 @@
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>

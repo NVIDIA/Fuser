@@ -10,7 +10,7 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>

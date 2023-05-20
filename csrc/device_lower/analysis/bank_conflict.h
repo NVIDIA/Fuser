@@ -9,7 +9,7 @@
 
 #include <dynamic_type.h>
 #include <executor_params.h>
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <kernel.h>
 
 #include <unordered_map>

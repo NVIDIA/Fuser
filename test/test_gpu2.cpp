@@ -19,11 +19,11 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -2355,15 +2355,13 @@ __global__ void kernel1(
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
-    blockWelford<false,true,false>(
+    blockWelford<false,true,false, true>(
         tmp_avg,
         tmp_M2,
         tmp_N,
         in,
         0.f,
         (long)1,
-        threadIdx,
-        blockDim,
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
@@ -2446,15 +2444,13 @@ __global__ void kernel1(
     float tmp_M2=0;
     long tmp_N=0;
     block_sync::init();
-    blockWelford<false,true,true>(
+    blockWelford<false,true,true, true>(
         tmp_avg,
         tmp_M2,
         tmp_N,
         in,
         0.f,
         (long) 1,
-        threadIdx,
-        blockDim,
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
@@ -2516,7 +2512,7 @@ __global__ void kernel1(
     welford::gridWelford<
         true,true,false,
         true,false,false,
-        false
+        false, true
     >(
         tmp_avg,
         tmp_M2,
