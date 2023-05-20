@@ -851,6 +851,8 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   auto tv2 = broadcast(tv1, {false, true});
 
   auto tv3 = makeConcreteTensor({7, 11});
+  fusion.addInput(tv3);
+
   auto tv4 = add(tv3, tv2);
   auto tv5 = broadcast(tv4, {false, false, true});
   // tv4[7, 11, 1]
@@ -1044,7 +1046,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
   // [w]
   auto tv4 = broadcast(tv3, {false, true});
   // [w, 1]
-  auto tv5 = add(tv4, tv2);
+  auto tv5 = add(tv4, tv1);
   // [w, x]
   fusion.addOutput(tv5);
 
@@ -1053,6 +1055,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
   // [w, 1]
   auto tv7 = add(tv6, tv2);
   // [y]
+  fusion.addOutput(tv7);
 
   for (auto tv : std::vector<TensorView*>{tv4, tv5, tv6, tv7}) {
     tv->merge(0);
