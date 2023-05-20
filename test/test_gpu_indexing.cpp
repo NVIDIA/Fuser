@@ -794,6 +794,7 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
       &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
 }
 
+#if 0
 // TODO: Finish and enable test
 TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   Fusion fusion;
@@ -830,6 +831,7 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   // ComputeAtMap ca_map(&fusion);
   // std::cout << ca_map.idGraph().loopNodes().toString() << std::endl;
 }
+#endif
 
 // TODO: Finish and enable test
 #if 0
