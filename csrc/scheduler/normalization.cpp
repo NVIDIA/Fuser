@@ -516,18 +516,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
   constexpr int64_t scheduler_per_sm = 4;
+  const int64_t min_threads_per_block = scheduler_per_sm * dev_prop->warpSize;
   if (outer_reduction_numel == 1 && vectorize) {
-    bdimx = std::min(
-        scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
+    bdimx = std::min(min_threads_per_block, threads_after_vectorize);
   }
 
-  // If we don't have a full warp, let's do multiple reductions per block.
-  // Still keep vectorization as it is important for performance since V100.
-  // Limit block size to 4 warps to avoid occupancy and SM wave tail issues.
-  if (bdimx * bdimy * bdimz < warp_size) {
+  // If we don't have enough threads, let's do multiple reductions per block.
+  // Multiple reductions per block shows better performance than unroll
+  // iterations. Still keep vectorization as it is important for performance
+  // since V100.
+  if (bdimx * bdimy * bdimz < min_threads_per_block) {
     bdimy = std::min(
-        scheduler_utils::safeDiv(
-            scheduler_per_sm * dev_prop->warpSize, bdimx * bdimz),
+        scheduler_utils::safeDiv(min_threads_per_block, bdimx * bdimz),
         max_multi_reduction_factor);
   }
 
@@ -568,24 +568,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     outer_reduction_unroll_factor *= 2;
     batches_per_block_outer_reduction = scheduler_utils::roundUpPow2Or8(
         ceilDiv(outer_reduction_numel, bdimz * outer_reduction_unroll_factor));
-  }
-
-  // If we haven't gotten to the max_unroll case, try to take it out of the
-  // iteration domain
-  if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
-          max_unroll &&
-      scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy) > 2) {
-    // Don't go over a combined inner/outer unroll of max_unroll
-    auto unroll_available = std::min(
-        scheduler_utils::safeDiv(
-            max_unroll,
-            inner_reduction_unroll_factor * outer_reduction_unroll_factor),
-        scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy));
-    if (unroll_available > 1 && godim > 2 * device_multiprocessor_count) {
-      unroll_available = std::min(
-          unroll_available, ceilDiv(godim, 2 * device_multiprocessor_count));
-      iter_unroll_factor = unroll_available;
-    }
   }
 
   // Adjust bdimx based on batches_per_block and unroll factor set as they could
