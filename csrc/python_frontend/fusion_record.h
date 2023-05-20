@@ -705,20 +705,17 @@ struct SqueezeOpRecord : RecordFunctor {
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
 
-template <typename OutputShapeType>
 struct BroadcastInDimOpRecord : RecordFunctor {
   BroadcastInDimOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::string _name,
-      serde::RecordType record_type,
-      std::vector<OutputShapeType> output_shape,
-      std::vector<int64_t> broadcast_dims)
+      std::vector<OutputShapeType> shape,
+      std::vector<int64_t> broadcast_dim)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            _name,
-            record_type),
+            "ops.broadcast_in_dim",
+            serde::RecordType_BroadcastInDim),
         output_shape_(std::move(output_shape)),
         broadcast_dims_(std::move(broadcast_dims)) {}
   virtual ~BroadcastInDimOpRecord() = default;
@@ -869,6 +866,178 @@ struct BroadcastInDimOpRecord : RecordFunctor {
       const std::vector<OutputShapeType>& shape) const;
 
  private:
+  //! Communicates which dimensions of the output the input tensor maps.
+  //! For instance, for output [2, 3, 4] and input [3]. This vector would
+  //! contain [1].
+  std::vector<int64_t> broadcast_dimensions_;
+};
+
+//! Specialized Old Record Functor for the FusionState's broadcast_in_dim op.
+
+template <typename OutputShapeType>
+struct BroadcastInDimOpOldRecord : RecordFunctor {
+  BroadcastInDimOpOldRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::string _name,
+      serde::RecordType record_type,
+      std::vector<OutputShapeType> output_shape,
+      std::vector<int64_t> broadcast_dims)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            _name,
+            record_type),
+        output_shape_(std::move(output_shape)),
+        broadcast_dims_(std::move(broadcast_dims)) {}
+  virtual ~BroadcastInDimOpOldRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new BroadcastInDimOpOldRecord(*this);
+  }
+
+  inline size_t outputShapeHash(
+      const std::vector<OutputShapeType>& shape) const;
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 -------------- 16 | 15 --------------  0 |
+  //! | broadcast_dims hash  | output_shape hash    |
+  //!
+  //! The output_shape hash is specialized in 2 ways using the method
+  //! outputShapeHash:
+  //! 1. int64_t - hashes dimension sizes.
+  //! 2. State - hashes number of dimensions
+  virtual size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t broadcast_dims_hash = 0;
+    for (auto dim : broadcast_dims_) {
+      broadcast_dims_hash |= 1 << ((output_shape_.size() - 1) - dim);
+    }
+    broadcast_dims_hash = (broadcast_dims_hash & 0xffff) << 16;
+    return result | broadcast_dims_hash |
+        (outputShapeHash(output_shape_) & 0xffff);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const BroadcastInDimOpOldRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      if (result) {
+        result =
+            ((output_shape_.size() == child_ptr->output_shape_.size()) &&
+             (broadcast_dims_.size() == child_ptr->broadcast_dims_.size()));
+        if (result) {
+          for (size_t i = 0; i < output_shape_.size(); ++i) {
+            if (output_shape_[i] != child_ptr->output_shape_[i]) {
+              result = false;
+              break;
+            }
+          }
+        }
+        if (result) {
+          for (size_t i = 0; i < broadcast_dims_.size(); ++i) {
+            if (broadcast_dims_[i] != child_ptr->broadcast_dims_[i]) {
+              result = false;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  inline c10::optional<std::vector<Val*>> expandShape(
+      const FusionState& fd,
+      const std::vector<bool>& expand_dim,
+      const std::vector<OutputShapeType>& shape) const;
+
+  //! The operator() call is specialize with th expandShape() method based on
+  //! the OutputShapeType template parameter
+  virtual void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+
+    const auto& arg_domains_nr = arg->domain()->noReductions();
+    const auto arg_ndims = arg_domains_nr.size();
+    TORCH_CHECK(
+        output_shape_.size() >= arg_ndims,
+        "The new shape is expected to be greater-then-or-equal to the input",
+        output_shape_.size(),
+        arg_ndims);
+    TORCH_CHECK(
+        arg_ndims == broadcast_dims_.size(),
+        "The broadcast dimensions should match the input dimensions.",
+        arg_ndims,
+        broadcast_dims_.size());
+
+    std::vector<bool> is_broadcast_dim(output_shape_.size(), true);
+    std::vector<bool> is_expand_dim(output_shape_.size(), true);
+    for (const auto idx : c10::irange(broadcast_dims_.size())) {
+      if (idx > 0) {
+        TORCH_CHECK(
+            broadcast_dims_[idx - 1] < broadcast_dims_[idx],
+            "Broadcast dimension is not greater than the previous value.");
+      }
+      TORCH_CHECK(
+          broadcast_dims_[idx] < static_cast<int>(output_shape_.size()),
+          "Invalid broadcast_dims value.");
+      is_broadcast_dim.at(broadcast_dims_[idx]) = false;
+      // Note: when we expand a broadcasted dimension, we need to expand it
+      // to a concrete size, hence the need for `is_expand_dim` flag and the
+      // expand operation following the broadcast.
+      is_expand_dim.at(broadcast_dims_[idx]) =
+          arg_domains_nr[idx]->isBroadcast();
+    }
+
+    auto output = broadcast(arg, is_broadcast_dim);
+
+    c10::optional<std::vector<Val*>> expand_shape =
+        expandShape(fd, is_expand_dim, output_shape_);
+    if (expand_shape.has_value()) {
+      output = expand(output, expand_shape.value());
+    }
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", output_shape=[";
+    bool first_arg = true;
+    for (auto shape : output_shape_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << shape;
+    }
+    os << "]";
+    os << ", broadcast_dims=[";
+    first_arg = true;
+    for (auto dim : broadcast_dims_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << dim;
+    }
+    os << "]";
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return outputShapeRecordData(builder, output_shape_);
+  };
+
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
+  outputShapeRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::vector<OutputShapeType>& shape) const;
+
+ private:
   //! Represents the tensor dimensions of the output tensor.
   std::vector<OutputShapeType> output_shape_;
   //! Communicates which dimensions of the output the input tensor maps.
@@ -880,7 +1049,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 //! ouputShapeHash Specializations used by hash()
 
 template <>
-inline size_t BroadcastInDimOpRecord<int64_t>::outputShapeHash(
+inline size_t BroadcastInDimOpOldRecord<int64_t>::outputShapeHash(
     const std::vector<int64_t>& shape) const {
   size_t shape_hash = 0;
   for (auto size : shape) {
@@ -890,7 +1059,7 @@ inline size_t BroadcastInDimOpRecord<int64_t>::outputShapeHash(
 }
 
 template <>
-inline size_t BroadcastInDimOpRecord<State>::outputShapeHash(
+inline size_t BroadcastInDimOpOldRecord<State>::outputShapeHash(
     const std::vector<State>& shape) const {
   return shape.size();
 }
@@ -898,7 +1067,7 @@ inline size_t BroadcastInDimOpRecord<State>::outputShapeHash(
 //! expandShape Specializations used by operator()
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
+inline c10::optional<std::vector<Val*>> BroadcastInDimOpOldRecord<int64_t>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -922,7 +1091,7 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
 }
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
+inline c10::optional<std::vector<Val*>> BroadcastInDimOpOldRecord<State>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -942,7 +1111,7 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
 
 template <>
 inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-BroadcastInDimOpRecord<int64_t>::outputShapeRecordData(
+BroadcastInDimOpOldRecord<int64_t>::outputShapeRecordData(
     flatbuffers::FlatBufferBuilder& builder,
     const std::vector<int64_t>& shape) const {
   return {
@@ -953,7 +1122,7 @@ BroadcastInDimOpRecord<int64_t>::outputShapeRecordData(
 
 template <>
 inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-BroadcastInDimOpRecord<State>::outputShapeRecordData(
+BroadcastInDimOpOldRecord<State>::outputShapeRecordData(
     flatbuffers::FlatBufferBuilder& builder,
     const std::vector<State>& shape) const {
   std::vector<serde::State> fb_output_shape;
