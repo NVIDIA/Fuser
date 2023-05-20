@@ -86,7 +86,6 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
     ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
     ${NVFUSER_SRCS_DIR}/index_compute.cpp
-    ${NVFUSER_SRCS_DIR}/lower_index_compute.cpp
     ${NVFUSER_SRCS_DIR}/id_model/id_graph.cpp
     ${NVFUSER_SRCS_DIR}/id_model/id_graphs.cpp
     ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp

@@ -428,7 +428,10 @@ class DisjointSets {
     }
 
     auto set = entry_it->second;
-    if (set->size() == 1 && set->front() == entry) {
+    if (set->size() == 1) {
+      TORCH_INTERNAL_ASSERT(
+          set->front() == entry,
+          "Disjoint set container found to be in inconsistent state.");
       disjoint_set_maps_.erase(entry);
       disjoint_sets_.erase(
           std::find(disjoint_sets_.begin(), disjoint_sets_.end(), set));
