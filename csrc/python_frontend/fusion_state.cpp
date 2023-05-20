@@ -16,11 +16,14 @@ using namespace nvfuser::inst;
 namespace nvfuser::python_frontend {
 
 bool State::operator==(const State& other) const {
-  return (index == other.index) && (stype == other.stype) && (name == other.name);;
+  return (index == other.index) && (stype == other.stype) &&
+      (name == other.name);
+  ;
 }
 
 bool State::operator!=(const State& other) const {
-  return (index != other.index) || (stype != other.stype) || (name != other.name);
+  return (index != other.index) || (stype != other.stype) ||
+      (name != other.name);
 }
 
 // Generalized printing of State
