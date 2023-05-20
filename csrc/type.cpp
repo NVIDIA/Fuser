@@ -303,6 +303,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "nearbyint";
     case UnaryOpType::Sigmoid:
       return "sigmoid";
+    case UnaryOpType::Signbit:
+      return "signbit";
     case UnaryOpType::Sin:
       return "sin";
     case UnaryOpType::Sinh:
@@ -690,6 +692,8 @@ static const char* thread_size2string(ParallelType t) {
 
 const char* load_store_type2string(LoadStoreOpType t) {
   switch (t) {
+    case LoadStoreOpType::SegmenterSet:
+      return "SegmenterSet";
     case LoadStoreOpType::Set:
       return "Set";
     case LoadStoreOpType::LdMatrix:

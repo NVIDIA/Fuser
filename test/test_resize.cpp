@@ -567,10 +567,11 @@ TEST_F(NVFuserTest, FusionResizeCat3_CUDA) {
   std::vector<int64_t> shape0({4, 2});
   std::vector<int64_t> shape1({4, 3});
 
-  auto tv0 = makeSymbolicTensor(2);
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape0);
   fusion.addInput(tv0);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeConcreteTensor(shape1);
   fusion.addInput(tv1);
 
   auto tv2 = cat({tv0, tv1}, 1);
@@ -608,10 +609,11 @@ TEST_F(NVFuserTest, FusionResizeCat4_CUDA) {
   std::vector<int64_t> shape0({11, 12});
   std::vector<int64_t> shape1({11, 13});
 
-  auto tv0 = makeSymbolicTensor(2);
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape0);
   fusion.addInput(tv0);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeConcreteTensor(shape1);
   fusion.addInput(tv1);
 
   auto tv2 = cat({tv0, tv1}, 1);
@@ -649,11 +651,12 @@ TEST_F(NVFuserTest, FusionResizeCat5_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor({11, 12});
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeConcreteTensor({11, 13});
   fusion.addInput(tv1);
-  auto tv2 = makeSymbolicTensor(2);
+  auto tv2 = makeConcreteTensor({11, 25});
   fusion.addInput(tv2);
 
   auto tv3 = cat({tv0, tv1}, 1);
@@ -743,6 +746,7 @@ TEST_F(NVFuserTest, FusionResizeCat6_CUDA) {
 // Cat many tensors
 TEST_F(NVFuserTest, FusionResizeCat7_CUDA) {
   int num_tensors_to_concat = 10;
+  std::vector<int64_t> base_shape({11, 13});
 
   for (int concat_dim : {0, 1}) {
     Fusion fusion;
@@ -751,7 +755,10 @@ TEST_F(NVFuserTest, FusionResizeCat7_CUDA) {
     std::vector<TensorView*> inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
       (void)i;
-      auto tv = makeSymbolicTensor(2);
+      // concrete shapes to avoid dynamic Fusion
+      auto shape = base_shape;
+      shape[concat_dim] = 10 + (i % 5);
+      auto tv = makeConcreteTensor(shape);
       fusion.addInput(tv);
       inputs.push_back(tv);
     }
@@ -774,7 +781,6 @@ TEST_F(NVFuserTest, FusionResizeCat7_CUDA) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::manual_seed(0);
 
-    std::vector<int64_t> base_shape({11, 13});
     std::vector<at::Tensor> aten_inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
       auto shape = base_shape;
@@ -914,7 +920,8 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
 
   std::vector<int64_t> shape({9});
 
-  auto tv0 = makeSymbolicTensor(1);
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
   auto tv1 = slice(
@@ -1004,7 +1011,8 @@ TEST_F(NVFuserTest, FusionResizeSlice4_CUDA) {
 
   std::vector<int64_t> shape({5, 100});
 
-  auto tv0 = makeSymbolicTensor(2);
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
   // Consider a fusion of:
@@ -1083,7 +1091,10 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  std::vector<int64_t> shape({11, 1000});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
   auto tv1 = slice(
@@ -1118,7 +1129,6 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
 
-  std::vector<int64_t> shape({11, 1000});
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
@@ -2041,6 +2051,121 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
       {ref_t3, ref_t4},
       __LINE__,
       __FILE__);
+}
+
+// When scheduling this test, the pointwise scheduler attempt to replay a Split
+// transform on a size-0 dimension, which is not allowed.
+TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({8});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(1)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(4),
+        IrBuilder::create<Int>(1)}});
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(4),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv4 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv5 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(1)}});
+  auto tv6 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(6),
+        IrBuilder::create<Int>(8),
+        IrBuilder::create<Int>(1)}});
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutor fe;
+
+  auto ref0 = t0.index({at::indexing::Slice(0, 2)});
+  auto ref1 = t0.index({at::indexing::Slice(2, 4)});
+  auto ref2 = t0.index({at::indexing::Slice(4, 6)});
+  auto ref3 = t0.index({at::indexing::Slice(6, 6)});
+  auto ref4 = t0.index({at::indexing::Slice(6, 6)});
+  auto ref5 = t0.index({at::indexing::Slice(6, 8)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  TORCH_CHECK(ref1.equal(cg_outputs[1]));
+  TORCH_CHECK(ref2.equal(cg_outputs[2]));
+  TORCH_CHECK(ref3.equal(cg_outputs[3]));
+  TORCH_CHECK(ref4.equal(cg_outputs[4]));
+  TORCH_CHECK(ref5.equal(cg_outputs[5]));
+}
+
+// In this test, we split and merge with size-zero dimensions directly.
+TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({4, 5});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(2),
+        IrBuilder::create<Int>(1)},
+       {IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(5),
+        IrBuilder::create<Int>(1)}});
+  // tv1 is of shape {0, 5}
+  fusion->addOutput(tv1);
+
+  tv1->merge(0, 1); // size 0*5 = 0
+  tv1->split(0, 4); // sizes (0, 4)
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

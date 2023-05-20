@@ -1,6 +1,6 @@
 #include <assume.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 
 #include <vector>
 

@@ -11,8 +11,8 @@
 #include <compute_at_map.h>
 #include <executor.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 

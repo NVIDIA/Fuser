@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
-#include <ir_utils.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -23,6 +23,16 @@ Val* set(Val* v) {
 
 TensorView* set(TensorView* tv) {
   return set(tv->as<Val>())->as<TensorView>();
+}
+
+Val* segment_set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
+  return out;
+}
+
+TensorView* segment_set(TensorView* tv) {
+  return segment_set(tv->as<Val>())->as<TensorView>();
 }
 
 TensorView* view(TensorView* x, DataType dtype) {

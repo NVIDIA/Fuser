@@ -7,12 +7,12 @@
 // clang-format on
 #include <expr_simplifier.h>
 
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
-#include <lower_magic_zero.h>
+#include <device_lower/pass/magic_zero.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <utils.h>
 
 #include <cmath>

@@ -69,6 +69,7 @@ template <
     int idx,
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
+    bool Aligned,
     int NumVals,
     typename DataType,
     typename IndexType>
@@ -84,7 +85,14 @@ struct BlockWelfordEach {
       int num_elements_per_reduction,
       int reduction_idx) {
     // Finish the reduction of each tuple value with a smaller offset
-    BlockWelfordEach<idx - 1, BROADCAST, true, NumVals, DataType, IndexType>::
+    BlockWelfordEach<
+        idx - 1,
+        BROADCAST,
+        true,
+        Aligned,
+        NumVals,
+        DataType,
+        IndexType>::
         reduce(
             block_result,
             partial_result,
@@ -117,7 +125,7 @@ struct BlockWelfordEach {
       copyTuple(shared_buf, smem_offset, block_result_i);
     }
 
-    block_sync::sync();
+    block_sync::sync<Aligned>();
     if (tid_in_reduction < np2 &&
         tid_in_reduction + np2 < num_elements_per_reduction) {
       impl::reduceTuple(
@@ -133,7 +141,7 @@ struct BlockWelfordEach {
     }
 
     // Always sync when communicating across smem
-    block_sync::sync();
+    block_sync::sync<Aligned>();
 
     // Reduce down to 2 values, last thread will do the final reduction and
     // can save a syncthreads this way
@@ -146,7 +154,7 @@ struct BlockWelfordEach {
             smem_offset + factor,
             welfordCombine<DataType, IndexType>);
       }
-      block_sync::sync();
+      block_sync::sync<Aligned>();
     }
 
     copyTuple(block_result_i, shared_buf, smem_offset);
@@ -172,7 +180,7 @@ struct BlockWelfordEach {
       }
 
       // Sync threads to make sure result is in smem
-      block_sync::sync();
+      block_sync::sync<Aligned>();
 
       copyTuple(
           block_result_i,
@@ -185,7 +193,7 @@ struct BlockWelfordEach {
     block_result.N.val<idx>(0) = block_result_i.val<2>(0);
 
     if (FORWARD_PROTECT_SMEM) {
-      block_sync::sync();
+      block_sync::sync<Aligned>();
     }
   }
 };
@@ -194,6 +202,7 @@ struct BlockWelfordEach {
 template <
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
+    bool Aligned,
     int NumVals,
     typename DataType,
     typename IndexType>
@@ -201,6 +210,7 @@ struct BlockWelfordEach<
     -1,
     BROADCAST,
     FORWARD_PROTECT_SMEM,
+    Aligned,
     NumVals,
     DataType,
     IndexType> {
@@ -221,6 +231,7 @@ struct BlockWelfordEach<
 template <
     bool BROADCAST,
     bool FORWARD_PROTECT_SMEM,
+    bool Aligned,
     int NumVals,
     typename DataType,
     typename IndexType>
@@ -238,6 +249,7 @@ __inline__ __device__ void blockWelfordEach(
       NumVals - 1,
       BROADCAST,
       FORWARD_PROTECT_SMEM,
+      Aligned,
       NumVals,
       DataType,
       IndexType>::
@@ -263,7 +275,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <int NumArgs, typename DataType, typename IndexType>
+template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -320,7 +332,12 @@ __device__ __inline__ void ParallelReduce<
 
   // Initial per-block reduction. Result is broadcast if specified
   // and this call is block reduction only.
-  welfordGroupBlock<!GRID_REDUCE && BROADCAST, NumArgs, DataType, IndexType>(
+  welfordGroupBlock<
+      !GRID_REDUCE && BROADCAST,
+      Aligned,
+      NumArgs,
+      DataType,
+      IndexType>(
       block_result, inp, shared_buf, read_preds, block_reduce_participate);
 
   // If block reduction only, save to out and exit
@@ -335,7 +352,7 @@ __device__ __inline__ void ParallelReduce<
     // forward-protect the smem buffer. This block sync is not
     // necessary when a grid reduction follows since a block sync is
     // done just before the grid sync.
-    block_sync::sync();
+    block_sync::sync<Aligned>();
     return;
   }
 
@@ -426,12 +443,13 @@ __device__ __inline__ void ParallelReduce<
         isReduce(X_BLOCK),
         isReduce(Y_BLOCK),
         isReduce(Z_BLOCK),
-        PERSISTENT_REDUCTION>(
+        PERSISTENT_REDUCTION,
+        Aligned>(
         global_sync_buffer[block_red_idx_offset], grid_red_size, last_block);
   }
 
   // -- START BLOCK CLEANUP -- //
-  welfordGroupLastBlock<NumArgs, DataType, IndexType>(
+  welfordGroupLastBlock<Aligned, NumArgs, DataType, IndexType>(
       out,
       global_work_buffer,
       LocalWelfordTripletTuple<NumArgs, DataType, IndexType>(
@@ -447,7 +465,7 @@ __device__ __inline__ void ParallelReduce<
       grid_reduce_participate);
 
   // Forward protect the smem buffer
-  block_sync::sync();
+  block_sync::sync<Aligned>();
 }
 
 template <
@@ -459,7 +477,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <int NumArgs, typename DataType, typename IndexType>
+template <bool Aligned, int NumArgs, typename DataType, typename IndexType>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -498,7 +516,7 @@ __device__ __inline__ void ParallelReduce<
     start_counter = readCycleCounter();
   }
 
-  welfordGroup<NumArgs, DataType, IndexType>(
+  welfordGroup<Aligned, NumArgs, DataType, IndexType>(
       out_avg,
       out_var,
       out_N,
@@ -534,6 +552,7 @@ template <
     bool BROADCAST>
 template <
     bool BLOCK_BROADCAST,
+    bool Aligned,
     int NumVals,
     typename DataType,
     typename IndexType>
@@ -582,7 +601,13 @@ __device__ __inline__ void ParallelReduce<
           threadIdx, blockDim);
 
   // Do not protect the smem buffer as it's not always necessary.
-  impl::blockWelfordEach<BLOCK_BROADCAST, false, NumVals, DataType, IndexType>(
+  impl::blockWelfordEach<
+      BLOCK_BROADCAST,
+      false,
+      Aligned,
+      NumVals,
+      DataType,
+      IndexType>(
       block_result,
       block_result,
       shared_buf,
@@ -602,7 +627,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <int NumVals, typename DataType, typename IndexType>
+template <bool Aligned, int NumVals, typename DataType, typename IndexType>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -677,7 +702,13 @@ __device__ __inline__ void ParallelReduce<
         maskedOffset<isIter(X_THREAD), isIter(Y_THREAD), isIter(Z_THREAD)>(
             threadIdx, blockDim);
 
-    impl::blockWelfordEach<BROADCAST, false, NumVals, DataType, IndexType>(
+    impl::blockWelfordEach<
+        BROADCAST,
+        false,
+        Aligned,
+        NumVals,
+        DataType,
+        IndexType>(
         last_block_result,
         last_block_result,
         shared_buf,

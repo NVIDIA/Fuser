@@ -8,22 +8,22 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <ir_all_nodes.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_printer.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/printer.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
@@ -44,10 +44,10 @@
 #include <c10/cuda/CUDAStream.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 
+#include <ir/builder.h>
 #include <algorithm>
 #include <iostream>
 #include "dispatch.h"
-#include "ir_builder.h"
 #include "ops/arith.h"
 #include "type.h"
 
@@ -3426,7 +3426,8 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 // Matmul test on Ampere relying on segmenter for 'C = A x B' fusion,
 //   with relaxed result verification
 TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  // skip until we have Hopper support
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
   for (auto layout : kAllSupportedMatmulLayout) {
     auto fusion = std::make_unique<Fusion>();

@@ -10,8 +10,8 @@
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
@@ -929,7 +929,7 @@ PrimDataType getIndexTypeOfKernel(
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const KernelArgumentHolder& args,
+    KernelArgumentHolder args,
     PrecomputedValues* precomputed_values,
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
@@ -938,14 +938,34 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
 
+  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
+
+  if (forced_index_type.has_value()) {
+    index_type_ = forced_index_type.value();
+  } else {
+    index_type_ = getIndexTypeOfKernel(
+        complete_fusion_,
+        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        args,
+        *expression_evaluator_);
+  }
+
+  // Convert all abstract tensor args into tensor args and do tensor stride
+  // inference
+  std::vector<TensorView*> tvs;
+  tvs.reserve(complete_fusion_->inputs().size());
+  for (auto val : complete_fusion_->inputs()) {
+    tvs.emplace_back(dynamic_cast<TensorView*>(val));
+  }
+  args.getBuffer(index_type_, tvs, *expression_evaluator_);
+
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
     auto kernel_arg = args[inp_i];
     // Note: we are skipping CpuScalar tensor here
     if (auto tensor_arg_abstract =
             dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
       auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      auto data_ptr = tensor_arg_abstract->getPointer();
-      input_ptrs_[fusion_inp] = (size_t)data_ptr;
+      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
 
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
@@ -965,18 +985,6 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         expected_stride *= size;
       }
     }
-  }
-
-  expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
-
-  if (forced_index_type.has_value()) {
-    index_type_ = forced_index_type.value();
-  } else {
-    index_type_ = getIndexTypeOfKernel(
-        complete_fusion_,
-        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
-        args,
-        *expression_evaluator_);
   }
 }
 

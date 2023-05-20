@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <device_lower/lower2device.h>
+#include <ir/utils.h>
 #include <partial_split_map.h>
 
 namespace nvfuser {

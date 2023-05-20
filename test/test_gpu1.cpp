@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -17,17 +19,15 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_magic_zero.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>

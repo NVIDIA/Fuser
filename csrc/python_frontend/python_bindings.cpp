@@ -11,8 +11,8 @@
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -641,8 +641,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("round", round)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rsqrt", rsqrt)
   NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("segment_set", segment_set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("signbit", signbit)
   NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sin", sin)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sinh", sinh)
@@ -807,6 +809,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("add", add)
   NVFUSER_PYTHON_BINDING_BINARY_OP("atan2", atan2)
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("truediv", truediv)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
   NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)

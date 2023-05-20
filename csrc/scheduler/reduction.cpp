@@ -9,15 +9,15 @@
 
 #include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 #include <transform_replay.h>
 
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -94,7 +94,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32 * 1024;
+  constexpr int64_t l1_cache = (int64_t)32 * 1024;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;

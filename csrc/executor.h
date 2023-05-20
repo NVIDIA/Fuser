@@ -6,14 +6,14 @@
  */
 // clang-format on
 #pragma once
+#include <device_lower/lower2device.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -31,6 +31,7 @@ struct TORCH_CUDA_CU_API CompileOptions {
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
+    TensorView* tv = nullptr;
     std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
@@ -47,11 +48,16 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       int id,
       CompileOptions options = CompileOptions());
 
-  //! infers output sizes via returning non-allocated KernelArgumentHolder.
-  //! this function is useful for async compilation for segmented fusion
+  //! This function is useful for parallel compilation of segmented fusions.
+  //! It returns non-allocated KernelArgumentHolder, representing the output
+  //! sizes from kernel execution.
+  //! Notes: 1. This API should ignore aliased outputs instead of
+  //! pushing scalar int 0 as a place-holder.
+  //! 2. This API does not allocate output in memory, but only returns the
+  //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints);
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -286,15 +292,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return &compile_time_info_cache_;
   }
 
-  //! returns KernelArgumentHolder representing the output sizes from kernel
-  //! execution. Note: 1. this API would ignoring aliased outputs and instead
-  //! pushing scalar int 0 as a place holder; 2. this API doesn't actually
-  //! allocate output in memory, but rather is used just to infer output sizes.
-  KernelArgumentHolder evaluateOutputSizes(
-      const KernelArgumentHolder& args,
-      ExpressionEvaluator& expr_eval,
-      const std::unordered_set<int>& alias_indices = {});
-
   //! TODO: Consider changing this to a constructor of ExecutorEntry
   void initializeExecutorEntry(
       ExecutorEntry& executor_entry,
@@ -328,6 +325,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
+
+  //! Get the corresponding TensorViews for each argument of the kernel.
+  //! If the corresponding argument is not a tensor, use nullptr as placeholder.
+  //! Right now, kernel arguments are in the following order:
+  //! inputs, outputs, intermediates, philox
+  std::vector<TensorView*> getTvsForKernelArguments() const;
 
  private:
   CompileOptions options_;
