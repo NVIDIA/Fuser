@@ -1394,7 +1394,7 @@ std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
 
     for (auto output_group : graph.outputGroups(exact_expr)) {
       // Don't overwrite initialized cases due to rfactor markings.
-      if(covered_ids.find(output_group) == covered_ids.end()){
+      if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
       }
     }
