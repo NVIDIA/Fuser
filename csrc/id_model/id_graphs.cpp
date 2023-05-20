@@ -1069,14 +1069,14 @@ IdGraph IterDomainGraphs::buildIntersection(
   if (!propagate_exprs) {
     intersection.disableExprPropagation();
   }
-  for (auto exact_group : graph0.disjointIdSets().disjointSets()) {
-    auto set_size = exact_group->size();
+  for (auto group0 : graph0.disjointIdSets().disjointSets()) {
+    auto set_size = group0->size();
     for (auto id0_i : c10::irange(set_size)) {
-      auto id0 = exact_group->vector()[id0_i];
+      auto id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
-        auto id1 = exact_group->vector()[id1_i];
-        // id0 and id1 map in the almost exact map, if they also map in the loop
-        // graph, then add the mapping to the inersection
+        auto id1 = group0->vector()[id1_i];
+        // id0 and id1 map in group0. If they also map in the group1,
+        // add the mapping to the inersection.
         if (graph1.disjointIdSets().strictAreMapped(id0, id1)) {
           intersection.mapIds(id0, id1);
         }
@@ -1115,15 +1115,16 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   // need to model broadcast promotion, and if we have two tensors like:
   //
   // T1[i0, b1] = T0[i0]
-  // T2[i0, b1] = T0[i0]
-  //
+  // T2[i0, b2] = T0[i0]
   // Then resolution of:
   // T4 = T1[i0, b1] + T3[i0, i1]
-  // T6 = T2[i0, b1] + T5[i0, i2]
+  // T6 = T2[i0, b2] + T5[i0, i2]
   //
-  // The almost exact map will map T1's and T2's b1 together, but they're being
-  // resolved to i1 and i2 respectively. So we want to have separate entries so
-  // we can have an easy to process promotion map.
+  // Then merge(0, 1) with all tensors except for T0
+  //
+  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
+  // are being resolved to i1 and i2 respectively. So we want to have separate
+  // entries so we can have an easy to process promotion map.
   //
   // Loop is a permissive like map, it could have many entries, use the exact
   // map as the one we iterate on to reduce complexity as it hopefully has
@@ -1392,7 +1393,10 @@ std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
     }
 
     for (auto output_group : graph.outputGroups(exact_expr)) {
-      covered_ids[output_group] = covered;
+      // Don't overwrite initialized cases due to rfactor markings.
+      if(covered_ids.find(output_group) == covered_ids.end()){
+        covered_ids[output_group] = covered;
+      }
     }
   }
 
