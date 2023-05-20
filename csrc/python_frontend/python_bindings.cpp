@@ -133,7 +133,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<Tensor> tensor_class(nvfuser, "Tensor");
   tensor_class.def("__repr__", [](Tensor& self) {
     std::stringstream ss;
-    ss << "Tensor(index=" << self.index << ", dims=" << self.dims << ")";
+    ss << "Tensor(index=" << self.index << ", ndim=" << self.dims << ")";
     return ss.str();
   });
   tensor_class.def_property_readonly(
@@ -165,11 +165,13 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
-  scalar_class.def("__repr__", [](Vector& self) {
+  vector_class.def("__repr__", [](Vector& self) {
     std::stringstream ss;
-    ss << "Vector(index=" << self.index << ")";
+    ss << "Vector(index=" << self.index << ", size=" << self.size << ")";
     return ss.str();
   });
+  vector_class.def_property_readonly(
+      "size", [](Vector& self) { return self.size; });
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
@@ -523,7 +525,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("FusionDefinition.define_vector (input_specific)");
         TORCH_CHECK(
             !self.completed(), "Attempting to add to a completed definition!");
-        Vector out = self.defineVector();
+        Vector out = self.defineVector(size);
         std::vector<nullptr_t> value(size, nullptr);
         self.defineRecord(new VectorRecord<std::int64_t>(
             {self.recordingState(out())},
@@ -554,7 +556,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               value.value().size() == static_cast<size_t>(size),        \
               "value size and input size do not  match!");              \
         }                                                               \
-        Vector out = self.defineVector();                               \
+        Vector out = self.defineVector(size);                           \
         auto rtype = value.has_value()                                  \
             ? serde::mapToSerdeVectorRecordType(Nvfuser_DType)          \
             : serde::RecordType_VectorInput;                            \
@@ -579,7 +581,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<CType> value,                                     \
          PrimDataType dtype) -> Vector {                               \
         FUSER_PERF_SCOPE("FusionDefinition.define_vector (constant)"); \
-        Vector out = self.defineVector();                              \
+        Vector out = self.defineVector(value.size());                  \
         self.defineRecord(new VectorRecord<CType>(                     \
             {self.recordingState(out())},                              \
             serde::mapToSerdeScalarRecordType(Nvfuser_DType),          \

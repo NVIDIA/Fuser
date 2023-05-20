@@ -71,8 +71,8 @@ struct TORCH_CUDA_CU_API Scalar {
 };
 
 struct TORCH_CUDA_CU_API Vector {
-  Vector(size_t _index, FusionDefinition* _fd)
-      : index(_index), fusion_definition(_fd) {}
+  Vector(size_t _index, size_t _size, FusionDefinition* _fd)
+      : index(_index), size(_size), fusion_definition(_fd) {}
 
   size_t operator()() const {
     return index;
@@ -80,6 +80,7 @@ struct TORCH_CUDA_CU_API Vector {
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
+  size_t size;
 
   //! Pointer to the FusionDefinition used to create this scalar
   FusionDefinition* fusion_definition;
@@ -160,7 +161,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! Defines a Tensor State Record
   Tensor defineTensor(size_t dims);
   //! Defines a Vector State Record
-  Vector defineVector();
+  Vector defineVector(size_t size);
   //! Defines a Record that records the operation required to
   //! build the corresponding Fusion IR operation on cache miss.
   void defineRecord(RecordFunctor* record);
