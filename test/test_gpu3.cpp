@@ -6163,6 +6163,8 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
 
+  at::manual_seed(0);
+
   {
     auto t0 = at::randn({768}, options);
     inputs.push_back((c10::IValue)t0);
