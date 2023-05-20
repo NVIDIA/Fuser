@@ -14,7 +14,10 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct TORCH_CUDA_CU_API State {
-  State(size_t _index, serde::StateType _stype, std::optional<std::string> _name = std::nullopt)
+  State(
+      size_t _index,
+      serde::StateType _stype,
+      std::optional<std::string> _name = std::nullopt)
       : index(_index), stype(_stype), name(std::move(_name)) {}
 
   bool operator==(const State& other) const;
