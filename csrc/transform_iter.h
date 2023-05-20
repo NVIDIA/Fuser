@@ -93,6 +93,10 @@ class ReplacementTransformCloner : OptInConstDispatch {
 
   using OptInConstDispatch::handle;
 
+  // Returns entry in provided_expr_val_2_replacement_val_ if exists otherwise
+  // returns a clone of the provided iter domain.
+  IterDomain* replaceOrClone(IterDomain* id);
+
   // We're going to replay this split operation on the corresponding ID
   void handle(const Split* split) override;
 
@@ -276,9 +280,11 @@ class ForwardingInfo {
  *
  * Given an Expr in target_domain, check if its inputs are in replay_map. If so,
  * check if the mapped domain in replay_map are recorded to be transformed by an
- * "equivelent" operation in replay_domain's history. If so, "forward" the
+ * "equivelent" operation in replay_domain's history. If so, forward the
  * operation and update replay_map to map the outputs of the expressions across
  * target_domain and reference_domain.
+ *
+ * Long Description:
  *
  * replay_map maps root IDs in the history of target_domain to root IDs in the
  * history replay_domain. PasC and CasP is just a convenient mechanism to have
@@ -322,7 +328,7 @@ class ForwardingInfo {
  * we want to make sure those transformations are consistent with T4 (between
  * T4's root and rfactor domain). Best Effort Replay does not actually add any
  * transformations to the tensors provided. However, it will provide information
- * to determine producers's transformations are consistent consumers
+ * to determine producers's transformations are consistent with consumers
  * transformations (or the other way around). Best Effort Replay will return
  * discovered mappings between tensors that it detects to be matching based on
  * provided initial information (or just through p2c/c2p root domain mappings).
