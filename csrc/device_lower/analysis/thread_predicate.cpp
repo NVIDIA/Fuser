@@ -511,7 +511,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
  public:
   // interface to run the check
   ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
-      : tv_(out_tv), root_domain_(out_tv->getRootDomain()) {
+      : tv_(out_tv), root_domain_(out_tv->getMaybeRFactorDomain()) {
     setCandidateLeafDomains();
     if (!candidate_leaf_domains_.empty()) {
       setConcretizedBroadcastRootDomain();
@@ -520,9 +520,10 @@ class ConcretizedBroadcastRedundantWriteRemover {
           // find all root domains that are merged to this leaf domain.
           const std::vector<IterDomain*>& merged_root_domains =
               getRootDomainsMergedToLeaf(ld);
-          if(!merged_root_domains.empty()) {
+          if (!merged_root_domains.empty()) {
             const ParallelType& pt = ld->getParallelType();
-            Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
+            Val* write_index =
+                getIndexWithoutBroadcast(merged_root_domains, pt);
             write_index_map_.at(pt) = write_index;
           }
         }
@@ -586,14 +587,16 @@ class ConcretizedBroadcastRedundantWriteRemover {
             TORCH_INTERNAL_ASSERT(
                 fromSameExactGroup(),
                 "All concretized domains of a broadcast root domain should be in the same group in the IdMappingMode::EXACT graph.");
-            // make sure this broadcast root domain is concretized to the same domain
-            // otherwise, treat as not concretized becase we don't know which one to use.
+            // make sure this broadcast root domain is concretized to the same
+            // domain otherwise, treat as not concretized becase we don't know
+            // which one to use.
             auto iter = concretized_broadcast_root_domains_.find(rd);
-            if(iter != concretized_broadcast_root_domains_.end() && iter->second != *all_cids.begin()) {
+            if (iter != concretized_broadcast_root_domains_.end() &&
+                iter->second != *all_cids.begin()) {
               concretized_broadcast_root_domains_.erase(iter);
               // break to move to the next broadcast root domain
               break;
-            }else{
+            } else {
               concretized_broadcast_root_domains_.at(rd) = *all_cids.begin();
             }
           }
@@ -644,7 +647,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     });
     std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
     for (size_t i = 0; i < n_elements; ++i) {
-      merged_root_domains_sorted.at(i) = merged_root_domains[indices.at(i)];
+      merged_root_domains_sorted.at(i) = merged_root_domains.at(indices.at(i));
     }
 
     return merged_root_domains_sorted;
@@ -670,7 +673,8 @@ class ConcretizedBroadcastRedundantWriteRemover {
     Val* remaining_index = NamedScalar::getParallelIndex(pt);
     std::vector<Val*> root_indices(ndim);
     for (int i = 0; i < ndim; i++) {
-      root_indices.at(i) = IrBuilder::divExpr(remaining_index, root_stride.at(i));
+      root_indices.at(i) =
+          IrBuilder::divExpr(remaining_index, root_stride.at(i));
       remaining_index = IrBuilder::modExpr(remaining_index, root_stride.at(i));
     }
 

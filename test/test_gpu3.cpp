@@ -8290,12 +8290,16 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     auto ref_2 = is_reduction ? (ref_1 + t1).sum({-1}) : ref_1 + t1;
     auto ref_3 = is_reduction ? (ref_1 + t2).sum({-1}) : ref_1 + t2;
     testValidate(
-        fec.fusion(), cg_outputs, inputs, {ref_1, ref_2, ref_3}, __LINE__, __FILE__);
+        fec.fusion(),
+        cg_outputs,
+        inputs,
+        {ref_1, ref_2, ref_3},
+        __LINE__,
+        __FILE__);
   };
   runTest(true);
   runTest(false);
 }
-
 
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
