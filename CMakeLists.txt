@@ -88,6 +88,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/index_compute.cpp
     ${NVFUSER_SRCS_DIR}/id_model/id_graph.cpp
     ${NVFUSER_SRCS_DIR}/id_model/id_graphs.cpp
+    ${NVFUSER_SRCS_DIR}/id_model/replacement_transform.cpp
     ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
     ${NVFUSER_SRCS_DIR}/id_model/visitor.cpp
     ${NVFUSER_SRCS_DIR}/instrumentation.cpp
