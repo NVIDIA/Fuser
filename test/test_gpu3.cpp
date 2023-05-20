@@ -8229,6 +8229,74 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
   runTest({true, true, true, false});
 }
 
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
+  // if the broadcasted tensor is concretized to different shapes
+  // the fusion will be segmented.
+  auto runTest = [](const bool is_reduction) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    const std::vector<bool> is_broadcast = {true, false, true, false};
+    std::vector<int64_t> shape0;
+    std::vector<int64_t> shape1({2, 64, 128, 2048});
+    std::vector<int64_t> shape2({4, 64, 256, 2048});
+    const size_t ndim = shape1.size();
+    for (size_t i = 0; i < ndim; i++) {
+      if (!is_broadcast[i]) {
+        shape0.push_back(shape1[i]);
+      }
+    }
+
+    auto tv0 = makeSymbolicTensor(shape0.size());
+    auto tv1 = makeSymbolicTensor(4);
+    auto tv2 = makeSymbolicTensor(4);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+
+    auto tv3 = broadcast(tv0, is_broadcast);
+    auto tv4 = add(tv3, IrBuilder::create<Double>(1.0));
+    // concretized to shape1
+    auto tv5 = add(tv4, tv1);
+    // concretized to shape2
+    auto tv6 = add(tv4, tv2);
+    auto tv7 = is_reduction ? sum(tv5, {-1}) : set(tv5);
+    auto tv8 = is_reduction ? sum(tv6, {-1}) : set(tv6);
+    fusion.addOutput(tv4);
+    fusion.addOutput(tv7);
+    fusion.addOutput(tv8);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn(shape0, options);
+    at::Tensor t1 = at::randn(shape1, options);
+    at::Tensor t2 = at::randn(shape2, options);
+    std::vector<c10::IValue> inputs = {t0, t1, t2};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+    auto optimized_fusion = fec.getMostRecentKernelRuntime();
+    TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+
+    at::Tensor tb = t0;
+    for (size_t i = 0; i < ndim; i++) {
+      if (is_broadcast[i]) {
+        tb = tb.unsqueeze(i);
+      }
+    }
+    auto ref_1 = tb + 1.0;
+    auto ref_2 = is_reduction ? (ref_1 + t1).sum({-1}) : ref_1 + t1;
+    auto ref_3 = is_reduction ? (ref_1 + t2).sum({-1}) : ref_1 + t2;
+    testValidate(
+        fec.fusion(), cg_outputs, inputs, {ref_1, ref_2, ref_3}, __LINE__, __FILE__);
+  };
+  runTest(true);
+  runTest(false);
+}
+
+
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();

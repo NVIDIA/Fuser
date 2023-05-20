@@ -521,9 +521,11 @@ class ConcretizedBroadcastRedundantWriteRemover {
           // find all root domains that are merged to this leaf domain.
           const std::vector<IterDomain*>& merged_root_domains =
               getRootDomainsMergedToLeaf(ld);
-          const ParallelType& pt = ld->getParallelType();
-          Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
-          write_index_map_[pt] = write_index;
+          if(!merged_root_domains.empty()) {
+            const ParallelType& pt = ld->getParallelType();
+            Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
+            write_index_map_.at(pt) = write_index;
+          }
         }
       }
     }
@@ -555,7 +557,8 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
   // For each broadcast root domain, find a concretized domain from its
-  // exact mapped domain set.
+  // exact mapped domain set and check all the concretized domains are
+  // in the same IdMappingMode::EXACT group.
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
       if (rd->isBroadcast()) {
@@ -584,8 +587,16 @@ class ConcretizedBroadcastRedundantWriteRemover {
             TORCH_INTERNAL_ASSERT(
                 fromSameExactGroup(),
                 "All concretized domains of a broadcast root domain should be in the same group in the IdMappingMode::EXACT graph.");
-            concretized_broadcast_root_domains_[rd] = *all_cids.begin();
-            break;
+            // make sure this broadcast root domain is concretized to the same domain
+            // otherwise, treat as not concretized becase we don't know which one to use.
+            auto iter = concretized_broadcast_root_domains_.find(rd);
+            if(iter != concretized_broadcast_root_domains_.end() && iter->second != *all_cids.begin()) {
+              concretized_broadcast_root_domains_.erase(iter);
+              // break to move to the next broadcast root domain
+              break;
+            }else{
+              concretized_broadcast_root_domains_.at(rd) = *all_cids.begin();
+            }
           }
         }
       }
@@ -630,11 +641,11 @@ class ConcretizedBroadcastRedundantWriteRemover {
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
-      return index_root_domain[a] < index_root_domain[b];
+      return index_root_domain.at(a) < index_root_domain.at(b);
     });
     std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
     for (size_t i = 0; i < n_elements; ++i) {
-      merged_root_domains_sorted[i] = merged_root_domains[indices[i]];
+      merged_root_domains_sorted.at(i) = merged_root_domains[indices.at(i)];
     }
 
     return merged_root_domains_sorted;
@@ -647,30 +658,30 @@ class ConcretizedBroadcastRedundantWriteRemover {
     const int ndim = (int)merged_root_domains.size();
     // get the stride if we index the leaf domain using its root domains
     std::vector<Val*> root_stride(ndim);
-    root_stride[ndim - 1] = GpuLower::current()->kernel()->oneVal();
+    root_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
     for (int i = ndim - 2; i >= 0; i--) {
-      auto pre_crd = merged_root_domains[i + 1];
+      auto pre_crd = merged_root_domains.at(i + 1);
       Val* pre_extent = pre_crd->isBroadcast()
           ? concretized_broadcast_root_domains_.at(pre_crd)->extent()
           : pre_crd->extent();
-      root_stride[i] = IrBuilder::mulExpr(root_stride[i + 1], pre_extent);
+      root_stride.at(i) = IrBuilder::mulExpr(root_stride.at(i + 1), pre_extent);
     }
     // convert the linear index of the leaf domain to the indices of the root
     // domains
     Val* remaining_index = NamedScalar::getParallelIndex(pt);
     std::vector<Val*> root_indices(ndim);
     for (int i = 0; i < ndim; i++) {
-      root_indices[i] = IrBuilder::divExpr(remaining_index, root_stride[i]);
-      remaining_index = IrBuilder::modExpr(remaining_index, root_stride[i]);
+      root_indices.at(i) = IrBuilder::divExpr(remaining_index, root_stride.at(i));
+      remaining_index = IrBuilder::modExpr(remaining_index, root_stride.at(i));
     }
 
     // get the index of the leaf domain if we skip the broadcasted root domains
     Val* index_without_broadcast = IrBuilder::create<Int>(0);
     for (int i = 0; i < ndim; i++) {
-      if (!merged_root_domains[i]->isBroadcast()) {
+      if (!merged_root_domains.at(i)->isBroadcast()) {
         index_without_broadcast = IrBuilder::addExpr(
             index_without_broadcast,
-            IrBuilder::mulExpr(root_indices[i], root_stride[i]));
+            IrBuilder::mulExpr(root_indices.at(i), root_stride.at(i)));
       }
     }
     return index_without_broadcast;
@@ -678,14 +689,19 @@ class ConcretizedBroadcastRedundantWriteRemover {
 };
 } // namespace
 
+// This function is to avoid redundant writes to global memory
+// when the tensor has a leaf domain merged from concretized
+// broadcast domains and parallelized by thread/block id.
+// Only do the write when the index of the leaf domain equals
+// write_index_map_.at(pt) where pt is the parallel type.
 void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
   ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
   const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
   if (!write_index_map.empty()) {
-    thread_predicates_[out_tv].write_index_map = write_index_map;
+    thread_predicates_.at(out_tv).write_index_map = write_index_map;
     for (auto iter : write_index_map) {
-      thread_predicates_[out_tv].redundant_types.set(iter.first);
+      thread_predicates_.at(out_tv).redundant_types.set(iter.first);
     }
   }
 }
