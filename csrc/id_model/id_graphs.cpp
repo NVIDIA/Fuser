@@ -9,11 +9,11 @@
 #include <id_model/to_string.h>
 #include <id_model/visitor.h>
 
+#include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
-#include <ir_utils.h>
-#include <lower2device.h>
-#include <lower_trivial_broadcast.h>
-#include <lower_utils.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
@@ -363,7 +363,7 @@ Expr* IterDomainGraphs::addReplayAs(
     for (auto mode : initialized_modes) {
       for (auto inp : all_inputs) {
         TORCH_INTERNAL_ASSERT(
-            idGraph(mode).disjointIdSet(inp).second,
+            idGraph(mode).hasGroup(inp),
             "All inputs for replay need to be initialized in all graphs, ",
             inp->toString(),
             " was not found in mode: ",
@@ -389,7 +389,7 @@ Expr* IterDomainGraphs::addReplayAs(
   // Initialize output iter domains in the graphs
   for (auto mode : initialized_modes) {
     idGraph(mode).disjointExprSets().initializeSet(replay);
-    auto replay_group = idGraph(mode).disjointExprSet(replay).first;
+    auto replay_group = idGraph(mode).toGroup(replay);
 
     // Initialize output ids in map
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
@@ -398,7 +398,7 @@ Expr* IterDomainGraphs::addReplayAs(
 
     // Update uses of the inputs in the graphs
     for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto inp_group = idGraph(mode).disjointIdSet(inp_id).first;
+      auto inp_group = idGraph(mode).toGroup(inp_id);
       idGraph(mode).uniqueUses().at(inp_group).pushBack(replay_group);
     }
 
@@ -408,8 +408,7 @@ Expr* IterDomainGraphs::addReplayAs(
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto inp : new_inputs) {
-      auto uses_pair =
-          graph.iterDomainGroupUses(graph.disjointIdSet(inp).first);
+      auto uses_pair = graph.iterDomainGroupUses(graph.toGroup(inp));
       if (uses_pair.second) {
         for (auto use_group : uses_pair.first) {
           representative_uses.pushBack(use_group->front());
@@ -495,7 +494,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
                ? ir_utils::filterByType<IterDomain>(old_expr->inputs())
                : ir_utils::filterByType<IterDomain>(old_expr->outputs())) {
         TORCH_INTERNAL_ASSERT(
-            idGraph(mode).disjointIdSet(inp_or_out_id).second,
+            idGraph(mode).hasGroup(inp_or_out_id),
             "Expected ",
             inp_or_out_id->toString(),
             " to be initialized in graph mode: ",
@@ -524,7 +523,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     auto& graph = idGraph(mode);
 
     graph.disjointExprSets().initializeSet(replay);
-    auto replay_group = graph.disjointExprSet(replay).first;
+    auto replay_group = graph.toGroup(replay);
 
     // Initialize any non-existant input ids, update existing ones
     for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
@@ -533,7 +532,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
         graph.initializeId(inp_id, {}, {replay});
       } else {
         // Update unique uses of existing input ids
-        auto inp_group = graph.disjointIdSet(inp_id).first;
+        auto inp_group = graph.toGroup(inp_id);
         graph.uniqueUses()[inp_group].pushBack(replay_group);
       }
     }
@@ -546,7 +545,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       } else {
         // out_id is already initialized, add the replay as a unique definition
         // of its group
-        auto out_group = graph.disjointIdSet(out_id).first;
+        auto out_group = graph.toGroup(out_id);
         graph.uniqueDefinitions()[out_group].pushBack(replay_group);
       }
     }
@@ -558,7 +557,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     // Forward
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto uses_pair = graph.iterDomainGroupUses(graph.disjointIdSet(in).first);
+      auto uses_pair = graph.iterDomainGroupUses(graph.toGroup(in));
       if (uses_pair.second) {
         for (auto use_group : uses_pair.first) {
           if (use_group == replay_group) {
@@ -576,8 +575,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     // Backwards
     VectorOfUniqueEntries<Expr*> representative_defs;
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      auto defs_pair =
-          graph.iterDomainGroupDefinitions(graph.disjointIdSet(out).first);
+      auto defs_pair = graph.iterDomainGroupDefinitions(graph.toGroup(out));
       if (defs_pair.second) {
         for (auto def_group : defs_pair.first) {
           if (def_group == replay_group) {
@@ -885,8 +883,7 @@ StatefulLoweringInfo buildInfo(
         for (auto entry : resolved_bcast_map) {
           info.p2c_root_broadcast_resolution_map[entry.first].pushBack(
               entry.second);
-          for (auto other_exact_bcast :
-               *exact_graph.disjointIdSet(entry.first).first) {
+          for (auto other_exact_bcast : *exact_graph.toGroup(entry.first)) {
             if (all_producer_ca_deps.has(other_exact_bcast)) {
               info.p2c_root_broadcast_resolution_map[other_exact_bcast]
                   .pushBack(entry.second);
@@ -1049,10 +1046,7 @@ VectorOfUniqueEntries<IterDomain*> IterDomainGraphs::computeTerminalLoopIds(
       bool all_outs_in_loop_group = uses_it->second.size() == 0 ? false : true;
       for (auto use : uses_it->second) {
         for (auto out_id : ir_utils::filterByType<IterDomain>(use->outputs())) {
-          auto out_loop_set_pair =
-              idGraph(IdMappingMode::LOOP).disjointIdSet(out_id);
-          TORCH_INTERNAL_ASSERT(out_loop_set_pair.second);
-          if (group != out_loop_set_pair.first) {
+          if (group != idGraph(IdMappingMode::LOOP).toGroup(out_id)) {
             all_outs_in_loop_group = false;
           }
         }
@@ -1173,10 +1167,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
 
     // Collect all the exact groups in the loop set containing this iel_group
-    auto loop_group_pair =
-        idGraph(IdMappingMode::LOOP).disjointIdSet(iel_group->front());
-    TORCH_INTERNAL_ASSERT(loop_group_pair.second);
-    auto loop_group = loop_group_pair.first;
+    auto loop_group = idGraph(IdMappingMode::LOOP).toGroup(iel_group->front());
     auto loop_covered_exact_groups =
         idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
 
@@ -1269,10 +1260,9 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     IdGroups promoted_input_groups;
     for (auto inp_id : promoted_inputs) {
-      auto inp_disjoint_set_pair =
-          intersection_exact_loop_graph.disjointIdSet(inp_id);
-      if (inp_disjoint_set_pair.second) {
-        promoted_input_groups.pushBack(inp_disjoint_set_pair.first);
+      if (intersection_exact_loop_graph.hasGroup(inp_id)) {
+        promoted_input_groups.pushBack(
+            intersection_exact_loop_graph.toGroup(inp_id));
       }
     }
 
@@ -1521,26 +1511,19 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       }
 
       // Grab the iel entry
-      auto iel_set_pair = intersection_exact_loop_graph.disjointIdSet(loop_id);
-      TORCH_INTERNAL_ASSERT(iel_set_pair.second);
-      auto iel_group = iel_set_pair.first;
+      auto iel_group = intersection_exact_loop_graph.toGroup(loop_id);
 
       auto iel_promo_it = iel_promotion_map.find(iel_group);
       if (iel_promo_it == iel_promotion_map.end()) {
         // If this terminal ID has a promotion, grab the promoted ID.
-        auto promo_id_exact_it =
-            idGraph(IdMappingMode::EXACT).disjointIdSet(loop_id);
-        TORCH_INTERNAL_ASSERT(promo_id_exact_it.second);
-        exact_promoted_terminal_ids.push_back(
-            std::make_pair(promo_id_exact_it.first, loop_id));
+        exact_promoted_terminal_ids.push_back(std::make_pair(
+            idGraph(IdMappingMode::EXACT).toGroup(loop_id), loop_id));
       } else {
         // If this terminal ID doesn't have a promotion associated with it, save
         // the terminal ID.
-        auto promo_id_exact_it =
-            idGraph(IdMappingMode::EXACT).disjointIdSet(iel_promo_it->second);
-        TORCH_INTERNAL_ASSERT(promo_id_exact_it.second);
-        exact_promoted_terminal_ids.push_back(
-            std::make_pair(promo_id_exact_it.first, iel_promo_it->second));
+        exact_promoted_terminal_ids.push_back(std::make_pair(
+            idGraph(IdMappingMode::EXACT).toGroup(iel_promo_it->second),
+            iel_promo_it->second));
       }
     }
 

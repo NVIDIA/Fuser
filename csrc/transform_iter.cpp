@@ -7,7 +7,7 @@
 // clang-format on
 #include <transform_iter.h>
 
-#include <ir_builder.h>
+#include <ir/builder.h>
 
 #include <c10/util/irange.h>
 #include <ir/utils.h>

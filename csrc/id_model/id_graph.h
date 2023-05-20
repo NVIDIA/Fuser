@@ -8,7 +8,7 @@
 #pragma once
 
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 #include <string>
 #include <unordered_map>
@@ -36,25 +36,16 @@ class TORCH_CUDA_CU_API IdGraph {
 
   DisjointSets<IterDomain*>& disjointIdSets();
 
-  // Returns
-  //   {
-  //     (1) The disjoint set of the provided Iter Domain if it exists,
-  //     otherwise a null shared ptr
-  //     (2) If the disjoint set of the provided Iter Domain exists
-  //   }
-  //
-  // TODO: Audit usage
-  std::pair<IdGroup, bool> disjointIdSet(IterDomain* id) const;
-
   // Returns the disjoint Expr set.
   const DisjointSets<Expr*>& disjointExprSets() const;
 
   DisjointSets<Expr*>& disjointExprSets();
 
-  // Same as getDisjointIdSet but for the Expression sets.
-  //
-  // TODO: Audit usage
-  std::pair<ExprGroup, bool> disjointExprSet(Expr* expr) const;
+  // Return if there's a group entry in the graph for this expr
+  bool hasGroup(Expr* expr) const;
+
+  // Return if there's a group entry in the graph for this id
+  bool hasGroup(IterDomain* id) const;
 
   // Convert expr to its exprGroup, assert that it exists.
   ExprGroup toGroup(Expr* expr) const;
@@ -240,16 +231,16 @@ class TORCH_CUDA_CU_API IdGraph {
   // Keeps a disjoint set entry for all Expressions for all mapping mode types.
   DisjointSets<Expr*> disjoint_exprs_;
 
-  std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
-
-  std::unordered_map<IdGroup, ExprGroups> unique_uses_;
-
   // Hold a set of IterDomains that are considered view rfactor ids. This
   // identification is particularly important to understand if split operations
   // are divisible or not.
   //
   // TODO: This should just be in IterDomainGraphs, not here.
   std::unordered_set<IterDomain*> view_rfactor_ids_;
+
+  std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
+
+  std::unordered_map<IdGroup, ExprGroups> unique_uses_;
 };
 
 } // namespace nvfuser

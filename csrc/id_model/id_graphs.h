@@ -10,7 +10,7 @@
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <id_model/id_graph.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 #include <string>
 #include <unordered_map>

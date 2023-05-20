@@ -7,7 +7,7 @@
 // clang-format on
 #include <id_model/id_graph.h>
 #include <id_model/to_string.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
@@ -20,16 +20,11 @@ IdGraph::IdGraph(const IdGraph& other)
   for (auto orig_unique_def_pair : other.unique_definitions_) {
     auto orig_id_group = orig_unique_def_pair.first;
     auto orig_expr_groups = orig_unique_def_pair.second;
-
-    auto new_id_group_pair = disjointIdSet(orig_id_group->front());
-    TORCH_INTERNAL_ASSERT(new_id_group_pair.second);
-    auto new_id_group = new_id_group_pair.first;
+    auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
     for (auto orig_expr_group : orig_expr_groups) {
-      auto new_expr_group_pair = disjointExprSet(orig_expr_group->front());
-      TORCH_INTERNAL_ASSERT(new_expr_group_pair.second);
-      new_expr_groups.pushBack(new_expr_group_pair.first);
+      new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
     unique_definitions_[new_id_group] = new_expr_groups;
@@ -38,16 +33,11 @@ IdGraph::IdGraph(const IdGraph& other)
   for (auto orig_unique_use_pair : other.unique_uses_) {
     auto orig_id_group = orig_unique_use_pair.first;
     auto orig_expr_groups = orig_unique_use_pair.second;
-
-    auto new_id_group_pair = disjointIdSet(orig_id_group->front());
-    TORCH_INTERNAL_ASSERT(new_id_group_pair.second);
-    auto new_id_group = new_id_group_pair.first;
+    auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
     for (auto orig_expr_group : orig_expr_groups) {
-      auto new_expr_group_pair = disjointExprSet(orig_expr_group->front());
-      TORCH_INTERNAL_ASSERT(new_expr_group_pair.second);
-      new_expr_groups.pushBack(new_expr_group_pair.first);
+      new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
     unique_uses_[new_id_group] = new_expr_groups;
@@ -73,14 +63,6 @@ DisjointSets<IterDomain*>& IdGraph::disjointIdSets() {
   return disjoint_ids_;
 }
 
-std::pair<IdGroup, bool> IdGraph::disjointIdSet(IterDomain* id) const {
-  auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
-  if (disjoint_set_it == disjoint_ids_.disjointSetMap().end()) {
-    return std::make_pair(IdGroup(nullptr), false);
-  }
-  return std::make_pair(disjoint_set_it->second, true);
-}
-
 const DisjointSets<Expr*>& IdGraph::disjointExprSets() const {
   return disjoint_exprs_;
 }
@@ -89,31 +71,33 @@ DisjointSets<Expr*>& IdGraph::disjointExprSets() {
   return disjoint_exprs_;
 }
 
-std::pair<ExprGroup, bool> IdGraph::disjointExprSet(Expr* expr) const {
-  auto disjoint_set_it = disjoint_exprs_.disjointSetMap().find(expr);
-  if (disjoint_set_it == disjoint_exprs_.disjointSetMap().end()) {
-    return std::make_pair(ExprGroup(nullptr), false);
-  }
-  return std::make_pair(disjoint_set_it->second, true);
+// Return if there's a group entry in the graph for this expr
+bool IdGraph::hasGroup(Expr* expr) const {
+  return disjoint_exprs_.mappingExists(expr);
+}
+
+// Return if there's a group entry in the graph for this id
+bool IdGraph::hasGroup(IterDomain* id) const {
+  return disjoint_ids_.mappingExists(id);
 }
 
 ExprGroup IdGraph::toGroup(Expr* expr) const {
-  auto disjoint_set_pair = disjointExprSet(expr);
+  auto disjoint_set_it = disjoint_exprs_.disjointSetMap().find(expr);
   TORCH_INTERNAL_ASSERT(
-      disjoint_set_pair.second,
+      disjoint_set_it != disjoint_exprs_.disjointSetMap().end(),
       "\nExpr group could not be found in graph associated with: ",
       expr->toString());
-  return disjoint_set_pair.first;
+  return disjoint_set_it->second;
 }
 
 IdGroup IdGraph::toGroup(IterDomain* id) const {
-  auto disjoint_set_pair = disjointIdSet(id);
+  auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
   TORCH_INTERNAL_ASSERT(
-      disjoint_set_pair.second,
+      disjoint_set_it != disjoint_ids_.disjointSetMap().end(),
       "\nId group could not be found in graph associated with: ",
       id->toString(),
       "\n");
-  return disjoint_set_pair.first;
+  return disjoint_set_it->second;
 }
 
 ExprGroups IdGraph::toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const {
@@ -491,11 +475,10 @@ std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>> IdGraph::
   std::unordered_map<IterDomain*, IdGroup> from_ids2set;
 
   for (auto from_id : from) {
-    auto from_disjoint_set_pair = disjointIdSet(from_id);
-    if (!from_disjoint_set_pair.second) {
+    if (!hasGroup(from_id)) {
       continue;
     }
-    from_ids2set[from_id] = from_disjoint_set_pair.first;
+    from_ids2set[from_id] = toGroup(from_id);
   }
 
   // Map from the sets associated with the IterDomains in to, to those iter
@@ -503,11 +486,10 @@ std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>> IdGraph::
   std::unordered_map<IdGroup, VectorOfUniqueEntries<IterDomain*>> set2to_ids;
 
   for (auto to_id : to) {
-    auto to_disjoint_set_pair = disjointIdSet(to_id);
-    if (!to_disjoint_set_pair.second) {
+    if (!hasGroup(to_id)) {
       continue;
     }
-    auto to_set = to_disjoint_set_pair.first;
+    auto to_set = toGroup(to_id);
     auto set2to_ids_it = set2to_ids.find(to_set);
 
     if (set2to_ids_it == set2to_ids.end()) {
@@ -789,8 +771,8 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
-  auto orig_id_group0 = disjointIdSet(id0).first;
-  auto orig_id_group1 = disjointIdSet(id1).first;
+  auto orig_id_group0 = toGroup(id0);
+  auto orig_id_group1 = toGroup(id1);
   ExprGroups orig_defs0 = uniqueDefinitions(orig_id_group0);
   ExprGroups orig_defs1 = uniqueDefinitions(orig_id_group1);
   ExprGroups orig_uses0 = uniqueUses(orig_id_group0);
@@ -800,7 +782,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
   disjointIdSets().mapEntries(id0, id1);
-  auto new_id_group = disjointIdSet(id0).first;
+  auto new_id_group = toGroup(id0);
 
   unique_definitions_.erase(orig_id_group0);
   unique_definitions_.erase(orig_id_group1);

@@ -19,9 +19,8 @@ void IdGraphVisitor::traverse() {
           graph().disjointIdSets().disjointSets().end());
     } else {
       for (auto id : sub_selection_) {
-        auto disjoint_pair = graph().disjointIdSet(id);
-        if (disjoint_pair.second) {
-          all_ids.pushBack(disjoint_pair.first);
+        if (graph().hasGroup(id)) {
+          all_ids.pushBack(graph().toGroup(id));
         }
       }
     }
