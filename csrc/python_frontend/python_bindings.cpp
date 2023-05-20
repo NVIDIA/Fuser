@@ -548,14 +548,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             !self.completed(), "Attempting to add to a completed definition!");
         std::vector<State> inputs;
         inputs.reserve(args.size());
-        for(const auto& arg : args) {
+        for (const auto& arg : args) {
           inputs.push_back(self.recordingState(arg()));
-        } 
+        }
         Vector out = self.defineVector(inputs.size());
         self.defineRecord(new VectorFromStateRecord(
-            inputs,
-            {self.recordingState(out())},
-            dtype));
+            inputs, {self.recordingState(out())}, dtype));
         return out;
       },
       py::arg("args"),

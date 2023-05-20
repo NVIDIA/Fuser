@@ -2808,7 +2808,11 @@ struct VectorFromStateRecord : RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       PrimDataType dtype)
-      : RecordFunctor(std::move(_args), std::move(_outputs), "define_vector", serde::RecordType_VectorFromState),
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "define_vector",
+            serde::RecordType_VectorFromState),
         dtype_(dtype) {}
   virtual ~VectorFromStateRecord() = default;
   virtual RecordFunctor* clone() final {
@@ -2838,8 +2842,10 @@ struct VectorFromStateRecord : RecordFunctor {
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
-    for(size_t i = 0; i < args_.size(); ++i) {
-      TORCH_CHECK(args_.at(i).stype == serde::StateType_Scalar, "Unsupported State type!");
+    for (size_t i = 0; i < args_.size(); ++i) {
+      TORCH_CHECK(
+          args_.at(i).stype == serde::StateType_Scalar,
+          "Unsupported State type!");
       output.at(i) = fd.getFusionState(args_.at(i).index);
     }
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2875,8 +2881,7 @@ struct VectorFromStateRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_VectorFromState,
-        serde::CreateVectorFromState(
-            builder, serde::mapToSerdeDtype(dtype_))
+        serde::CreateVectorFromState(builder, serde::mapToSerdeDtype(dtype_))
             .Union()};
   };
 
