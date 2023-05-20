@@ -541,7 +541,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self,
-         py::args args,
+         std::vector<Scalar> args,
          PrimDataType dtype = DataType::Int) -> Vector {
         FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalar State)");
         TORCH_CHECK(
@@ -549,7 +549,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         std::vector<State> inputs;
         inputs.reserve(args.size());
         for(const auto& arg : args) {
-          inputs.push_back(self.recordingState(arg.cast<Scalar>()()));
+          inputs.push_back(self.recordingState(arg()));
         } 
         Vector out = self.defineVector(inputs.size());
         self.defineRecord(new VectorFromStateRecord(
@@ -558,6 +558,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             dtype));
         return out;
       },
+      py::arg("args"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
