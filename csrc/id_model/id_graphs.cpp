@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <id_model/id_graphs.h>
-#include <id_model/replacement_transform.h>
 #include <id_model/to_string.h>
+#include <id_model/transform_replay.h>
 #include <id_model/visitor.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
