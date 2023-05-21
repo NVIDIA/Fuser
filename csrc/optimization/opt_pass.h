@@ -22,7 +22,7 @@ using FusionPass = std::function<void(Fusion*)>;
 //! OptimizationPass is the base class to unify optimization pass APIs.
 class TORCH_CUDA_CU_API OptimizationPass {
  public:
-  virtual FusionPass func() = 0;
+  virtual void run(Fusion*) = 0;
   virtual std::string name() = 0;
   virtual ~OptimizationPass() = default;
 };
