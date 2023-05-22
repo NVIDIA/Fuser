@@ -11,6 +11,9 @@
 namespace nvfuser::optimization {
 
 void PreSegmenter::runPass(Fusion* fusion) {
+  if (!flipEnabled(false)) {
+    return;
+  }
   ConsecutiveCastPass consecutive_cast_pass;
   consecutive_cast_pass.run(fusion);
 }

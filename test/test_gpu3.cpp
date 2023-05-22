@@ -6071,7 +6071,8 @@ TEST_F(NVFuserTest, FusionBroadcastPersistentReduction_CUDA) {
 // Repro for
 // https://github.com/csarofeen/pytorch/issues/2094
 TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
-  // disable cast optimization in pre segmenter, which causes numerical issue on tests
+  // disable cast optimization in pre segmenter, which causes numerical issue on
+  // tests
   optimization::OptimizationGroupGuard<optimization::PreSegmenter> guard(false);
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();

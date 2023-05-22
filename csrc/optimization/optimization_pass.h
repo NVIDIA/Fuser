@@ -55,9 +55,8 @@ class TORCH_CUDA_CU_API OptimizationGroup {
 template <typename OptGroup>
 class TORCH_CUDA_CU_API OptimizationGroupGuard {
  public:
-  OptimizationGroupGuard(bool enabled) {
-    prev_status_ = OptGroup::setEnabled(enabled);
-  }
+  OptimizationGroupGuard(bool enabled)
+      : prev_status_(OptGroup::setEnabled(enabled)) {}
   ~OptimizationGroupGuard() {
     OptGroup::setEnabled(prev_status_);
   }
