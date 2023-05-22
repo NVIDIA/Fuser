@@ -30,8 +30,10 @@ template <typename DerivedClass>
 class TORCH_CUDA_CU_API OptimizationGroup {
  public:
   static bool flipEnabled(bool flip) {
-    std::lock_guard<std::mutex> guard(mutex_);
+    static std::mutex mutex_;
     static bool enable_flag_ = true;
+
+    std::lock_guard<std::mutex> guard(mutex_);
     enable_flag_ = enable_flag_ ^ flip;
     return enable_flag_ ^ flip;
   }
@@ -45,8 +47,6 @@ class TORCH_CUDA_CU_API OptimizationGroup {
   }
 
   virtual ~OptimizationGroup() = default;
- private:
-  static std::mutex mutex_;
 };
 
 //! [experimental API]
