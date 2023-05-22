@@ -4045,6 +4045,70 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.has_smem_epilogue = true;
+    params.async_gmem_load_operands = true;
+    // intentionally set to false to make the generated code simple
+    params.double_buffer_options.double_buffer_smem_write = false;
+    params.double_buffer_options.double_buffer_smem_read = false;
+    params.double_buffer_options.smem_double_buffer_stage = 1;
+    scheduleMatmul(&fusion, params);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+
+    // check bank conflicts
+    const auto& bank_conflict = getBankConflictInfo(fe.kernel());
+    if (!bank_conflict.empty()) {
+      for (auto it = bank_conflict.begin(); it != bank_conflict.end(); it++) {
+        std::cout << "Bank conflict expression: " << it->first->toString()
+                  << "read conflict= " << it->second.first
+                  << ", write conflict= " << it->second.second << std::endl;
+      }
+      ASSERT_TRUE(bank_conflict.empty());
+    }
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    break;
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

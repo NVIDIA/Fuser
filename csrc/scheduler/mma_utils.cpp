@@ -379,11 +379,6 @@ bool canValidateIsInnerDim(
       if (!split->factor()->isConstInt()) {
         return false;
       }
-      if (split->factor()->evaluateInt() < inner_dim_size) {
-        // This might be too restrictive. Would need more
-        //   bookkeeping to relax.
-        return false;
-      }
       leaf = split->in();
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       // Might consider just rejecting merge.
@@ -394,9 +389,6 @@ bool canValidateIsInnerDim(
 
       // Only support merging with constant sized dims
       if (!leaf->extent()->isConstInt()) {
-        return false;
-      }
-      if (leaf->extent()->evaluateInt() != inner_dim_size) {
         return false;
       }
       leaf = merge->inner();
