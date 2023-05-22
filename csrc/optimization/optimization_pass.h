@@ -44,9 +44,9 @@ class TORCH_CUDA_CU_API OptimizationGroup {
     return tmp;
   }
 
+  virtual ~OptimizationGroup() = default;
  private:
   static std::mutex mutex_;
-  virtual ~OptimizationGroup() = default;
 };
 
 //! [experimental API]
@@ -56,7 +56,7 @@ template <typename OptGroup>
 class TORCH_CUDA_CU_API OptimizationGroupGuard {
  public:
   OptimizationGroupGuard(bool enabled) {
-    prev_status_ = OptGroup::setEnable(enabled);
+    prev_status_ = OptGroup::setEnabled(enabled);
   }
   ~OptimizationGroupGuard(){
     OptGroup::setEnabled(prev_status_);

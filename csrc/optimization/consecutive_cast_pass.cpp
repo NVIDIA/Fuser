@@ -88,11 +88,11 @@ void castOptimizationPass(Fusion* fusion) {
 
 } // namespace
 
-void ConsecutiveCastPass::run(Fusion* fusion) override {
+void ConsecutiveCastPass::run(Fusion* fusion) {
   castOptimizationPass(fusion);
 }
 
-std::string ConsecutiveCastPass::name() override {
+std::string ConsecutiveCastPass::name() {
   return "ConsecutiveCastOptimization";
 }
 

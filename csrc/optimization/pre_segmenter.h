@@ -11,7 +11,7 @@
 
 namespace nvfuser::optimization {
 
-class TORCH_CUDA_CU_API PreSegmenter : public OptimizationGroup<PreSegmenterOptimizationPass> {
+class TORCH_CUDA_CU_API PreSegmenter : public OptimizationGroup<PreSegmenter> {
  public:
   static void runPass(Fusion* fusion);
 };

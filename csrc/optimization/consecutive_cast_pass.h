@@ -9,10 +9,10 @@
 
 namespace nvfuser::optimization {
 
-class TORCH_CUDA_CU_API ConsecutiveCastPass : OptimizationPass {
+class TORCH_CUDA_CU_API ConsecutiveCastPass : public OptimizationPass {
  public:
   void run(Fusion* fusion) override;
   std::string name() override;
-}
+};
 
 } // namespace nvfuser::optimization
