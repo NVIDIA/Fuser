@@ -29,6 +29,8 @@ class TORCH_CUDA_CU_API OptimizationPass {
 //! Base class to unify optimization group APIs.
 //! OptimizationGroup composes optimization passes that is used at certain stage in the runtime system. OptimizationGroup can be turned on/off programmatically with the `setEnabled/flipEnabled` API. There's helper template OptimizationGroupGuard to temporarily switch the enablement within the context.
 //! Note the we are using a curiously recurring template pattern here to ensure that static objects are unique for each DerivedClass.
+//! In order to apply OptimizationGroup with the switch enabled, you need to run the function with
+//! `OptimizationGroup<DerivedClass>::runPass(...)`
 template <typename DerivedClass>
 class TORCH_CUDA_CU_API OptimizationGroup {
  public:
