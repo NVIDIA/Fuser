@@ -2035,7 +2035,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     auto fd = arg.fusion_definition;
     TORCH_CHECK(
         fd->ops.validUse(), "Attempting to add to a completed definition!");
-    Vector output = fd->defineVector();
+    Vector output = fd->defineVector(arg.dims);
     fd->defineRecord(new ShapeOpRecord(
         {fd->recordingState(arg())}, {fd->recordingState(output())}));
     return output;
