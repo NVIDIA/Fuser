@@ -362,27 +362,27 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! FusionKernelRuntime is responsible for segmentation and execution of a
 //! single concretized Fusion object with a given set of inputs. Each
 //! FusionKernelRuntime is valid only for a given concrete Fusion and applies
-//! only to a range of input shapes. If the shapes of some inputs change, we can
-//! check if a Fusion can be used with the new inputs, but if not then a new
-//! FusionKernelRuntime would need to be created, which means a whole new
-//! segmentation run. No additional caching is performed beneath the
+//! only to a range of input properties. If the properties of some inputs
+//! change, we can check if a Fusion can be used with the new inputs, but if not
+//! then a new FusionKernelRuntime would need to be created, which means a whole
+//! new segmentation run. No additional caching is performed beneath the
 //! FusionKernelRuntime level, so caching is implemented in
 //! FusionExecutorCache::getKernelRuntimeFor to reduce the latency in mapping
 //! from a set of inputs to a valid FusionKernelRuntime object.
 //!
 //! The content of input tensors does not affect the structure of the Fusion
-//! graph or the validity of compiled CUDA kernels, so we know that if all input
-//! shapes are the same, then a concrete Fusion which is valid for one set of
-//! inputs will be valid for another. We leverage this fact to reduce latency
-//! when Fusions are called repeatedly with inputs that differ only in their
-//! tensor content. Given inputs, we first compute an ID using
-//! InputsIdLookup::lookupId that encodes the shapes of TensorView inputs, along
-//! with values of any integer-valued input scalars that might affect
-//! concretization. This ID is guaranteed not to conflict unless the inputs can
-//! be executed by the same compiled Fusion. It is mapped to a segmented and
-//! compiled FusionKernelRuntime that can be immediately run. This is the most
-//! common, lowest-latency path and is followed when the Fusion is repeatedly
-//! evaluated with same-shaped inputs.
+//! graph or the validity of compiled CUDA kernels. However, the following other
+//! properties might: rank, DataType, contiguity, stride order, size (whether a
+//! dimension has size=1). When all of these properties are repeated, there is
+//! an opportunity to reduce the latency of producing a compiled Fusion and
+//! launch params (a FusionExecutor). Given inputs, we first compute an ID using
+//! InputsIdLookup::lookupId that encodes tensor properties along with values of
+//! any integer-valued input scalars that might affect concretization. This ID
+//! is guaranteed not to conflict unless the inputs can be executed by the same
+//! compiled Fusion. It is mapped to a segmented and compiled
+//! FusionKernelRuntime that can be immediately run. This is the most common,
+//! lowest-latency path and is followed when the Fusion is repeatedly evaluated
+//! with inputs that differ only in their tensor values.
 //!
 //! When there is no FusionKernelRuntime matching the given input ID, we first
 //! map the inputs to a concrete Fusion. For static Fusions this is trivial,
@@ -390,7 +390,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! "concretize" the Fusion by performing replacements such that the Fusion no
 //! longer contains Symbolic IterDomains. A static Fusion is considered to be
 //! already concretized. As discussed above, each concretized Fusion might have
-//! multiple FusionKernelRuntimes applying to different ranges of input shapes.
+//! multiple FusionKernelRuntimes applying to different ranges of inputs.
 //! In the second layer of post-definition caching, we map concretized Fusions
 //! (in the form of a DynamicTransformConcretizationInfo object) to a vector of
 //! FusionKernelRuntimes, and check whether each one is able to run the present
@@ -402,6 +402,24 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! a model could potentially affect the structure of a concretized Fusion, so
 //! we take care to include those scalars in the input ID along with the extents
 //! of tensor arguments.
+//!
+//! * note on unique computational graph
+//! In theory, computational graph should refer to only the computational nodes
+//! in a subgraph and should remain agnostic to input meta info, like
+//! shape, strides, type e.t.c.. However, the contract right here is fuzzy.
+//! Different executor applies their own protocol of what is a unique
+//! computational graph. e.g. Legacy Executor embeds tensor type &
+//! dimensionality in the graph, while Profiling Executor keeps symbolic shape
+//! as well as stride order in the graph as well.
+//!
+//! Our definition of a "unique" computational graph is aligned with `Fusion`
+//! IR, hence the requirement extends to meta information on input tensors.
+//! Which means, for each input tensor, following properties are fixed:
+//!     a) stride order;
+//!     b) contiguity information;
+//!     c) broadcasting semantics (size-1 or not);
+//!     d) rank;
+//!     e) scalar type;
 //!
 //! [ Note -- Segmented Fusion Tentative Design ]
 //! Segmentation adds an extra dimension in caching. Initial implementation,
@@ -593,25 +611,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 //!        - create `FusionExecutor` instances to handle different devices;
 //!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
 //!          and launch parameters to reduce latency.
-//!
-//! * note on unique computational graph
-//! In theory, computational graph should refer to only the computational nodes
-//! in a subgraph and should remain agnostic to input meta info, like
-//! shape, strides, type e.t.c.. However, the contract right here is fuzzy.
-//! Different executor applies their own protocol of what is a unique
-//! computational graph. e.g. Legacy Executor embeds tensor type &
-//! dimensionality in the graph, while Profiling Executor keeps symbolic shape
-//! as well as stride order in the graph as well.
-//!
-//! Our definition of a "unique" computational graph is aligned with `Fusion`
-//! IR, hence the requirement extends to meta information on input tensors.
-//! Which means, for each input tensor, following properties are fixed:
-//!     a) stride order;
-//!     b) contiguity information;
-//!     c) broadcasting semantics (size-1 or not);
-//!     d) rank;
-//!     e) scalar type;
-//!
 //!
 class GraphCache {
  public:
