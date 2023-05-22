@@ -13,7 +13,7 @@
 #include <c10/util/Optional.h>
 
 #include <dynamic_type.h>
-#include <ir_builder_passkey.h>
+#include <ir/builder_passkey.h>
 #include <type.h>
 #include <utils.h>
 
@@ -41,10 +41,10 @@
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable
-//! 2. ** ir_base_nodes.h ** - Statement, Expr, and Val
-//! 3. ir_internal_base_nodes.h -- IterDomain and TensorDomain
-//! 4. ir_interface_nodes.h - TensorView and Scalar
-//! 5. ir_internal_nodes.h - Any internal-only IR nodes
+//! 2. ** ir/base_nodes.h ** - Statement, Expr, and Val
+//! 3. ir/internal_base_nodes.h - IterDomain and TensorDomain
+//! 4. ir/interface_nodes.h - TensorView and Scalar
+//! 5. ir/internal_nodes.h - Any internal-only IR nodes
 
 namespace nvfuser {
 
@@ -219,8 +219,8 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!        Int::Int(const Int* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
-//! 4a) Printing functions should be added to ir_iostream.h/.cpp
-//! 4b) Graphviz generation must be added to ir_graphviz.h/.cpp
+//! 4a) Printing functions should be added to ir/iostream.h/.cpp
+//! 4b) Graphviz generation must be added to ir/graphviz.h/.cpp
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
 //!
@@ -500,7 +500,7 @@ using newObjectFuncType = Expr*(
 //!      - Implementation of bool sameAs(...)
 //!  2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //!  3) Default mutator function should be added to mutator.h/.cpp
-//!  4) Printing functions should be added to ir_iostream.h/.cpp
+//!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
 //!     user facing)
 //!  7) A string entry must be added in expr_type_string_map

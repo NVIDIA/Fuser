@@ -8,7 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 

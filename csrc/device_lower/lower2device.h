@@ -22,7 +22,7 @@
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <executor_params.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <non_divisible_split.h>

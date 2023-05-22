@@ -19,11 +19,11 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -49,6 +49,7 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -8528,6 +8529,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
+
 // Simple test to check if the aligned block sync is used in aligned
 // reductions
 TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
@@ -8567,6 +8569,68 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
           std::string::npos,
       "blockReduce with aligned sync not found: ",
       kernel_string);
+}
+
+TEST_F(NVFuserTest, IntegerDivision_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::Int);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = div(tv0, tv1);
+  auto tv3 = truediv(tv0, tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
+  at::Tensor input1 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
+  auto div_expect = at::div(input0, input1, "trunc");
+  auto truediv_expect = at::true_divide(input0, input1);
+
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
+
+  ASSERT_TRUE(cg_outputs.at(0).scalar_type() == at::kLong);
+  ASSERT_TRUE(cg_outputs.at(1).scalar_type() == at::kFloat);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {input0, input1},
+      {div_expect, truediv_expect},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(NVFuserTest, IsFinite_CUDA) {
+  for (const auto& [nvfuser_dtype, aten_dtype] :
+       std::vector<std::pair<DataType, at::ScalarType>>{
+           {DataType::Float, at::kFloat},
+           {DataType::Half, at::kHalf},
+           {DataType::BFloat16, at::kBFloat16}}) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto tv0 = makeContigTensor(1, nvfuser_dtype);
+    fusion->addInput(tv0);
+    auto tv1 = isfinite(tv0);
+    fusion->addOutput(tv1);
+
+    auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+    std::array<float, 3> data{1.0, INFINITY, NAN};
+    const auto input = at::from_blob(data.data(), {3}, {1}).to(options);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, {input});
+    const auto output = fe.runFusion({input});
+
+    testValidate(
+        fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

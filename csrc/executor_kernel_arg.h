@@ -11,7 +11,7 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/utils.h>
 #include <torch/csrc/jit/ir/ir.h>
