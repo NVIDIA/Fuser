@@ -38,10 +38,10 @@ class TORCH_CUDA_CU_API OptimizationGroup {
 
   static bool setEnabled(bool enabled) {
     auto tmp = flipEnabled(false);
-    if (enable != tmp) {
-      OptGroup::flipEnabled(true);
+    if (enabled != tmp) {
+      flipEnabled(true);
     }
-    return tmp
+    return tmp;
   }
 
  private:
@@ -55,8 +55,8 @@ class TORCH_CUDA_CU_API OptimizationGroup {
 template <typename OptGroup>
 class TORCH_CUDA_CU_API OptimizationGroupGuard {
  public:
-  OptimizationGroupGuard(bool enable) {
-    prev_status_ = OptGroup::setEnable(enable);
+  OptimizationGroupGuard(bool enabled) {
+    prev_status_ = OptGroup::setEnable(enabled);
   }
   ~OptimizationGroupGuard(){
     OptGroup::setEnabled(prev_status_);
