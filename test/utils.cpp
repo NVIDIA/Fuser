@@ -38,6 +38,13 @@ int64_t prime_number(int64_t i) {
   return p.at(i);
 }
 
+void maybeEmptyAllocator() {
+  static int calls = 0;
+  if (++calls % 100 == 0) {
+    c10::cuda::CUDACachingAllocator::emptyCache();
+  }
+}
+
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel) {
   const std::string actual_kernel =
       "\n" + codegen::generateCudaKernel(GpuLower(fusion).kernel());

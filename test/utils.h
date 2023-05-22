@@ -39,12 +39,7 @@ inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
 }
 
 //! Clear the allocator occasionally
-void maybeEmptyAllocator() {
-  static int calls = 0;
-  if (++calls % 100 == 0) {
-    c10::cuda::CUDACachingAllocator::emptyCache();
-  }
-}
+void maybeEmptyAllocator();
 
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
