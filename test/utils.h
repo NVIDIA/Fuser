@@ -38,11 +38,20 @@ inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
       std::make_move_iterator(list.end()));
 }
 
+//! Clear the allocator occasionally
+void maybeEmptyAllocator() {
+  static int calls = 0;
+  if (++calls % 100 == 0) {
+    c10::cuda::CUDACachingAllocator::emptyCache();
+  }
+}
+
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
 inline TensorView* makeContigTensor(
     size_t ndims,
     DataType dtype = DataType::Float) {
+  maybeEmptyAllocator();
   return TensorViewBuilder().ndims(ndims).dtype(dtype).contiguity(true).build();
 }
 
@@ -51,6 +60,7 @@ inline TensorView* makeContigTensor(
 inline TensorView* makeSymbolicTensor(
     size_t ndims,
     DataType dtype = DataType::Float) {
+  maybeEmptyAllocator();
   return TensorViewBuilder().ndims(ndims).dtype(dtype).build();
 }
 
@@ -65,6 +75,7 @@ inline TensorView* makeSymbolicTensor(
       s = -1;
     }
   }
+  maybeEmptyAllocator();
   return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
@@ -72,12 +83,14 @@ inline TensorView* makeSymbolicTensor(
 inline TensorView* makeConcreteTensor(
     std::vector<int64_t> shape,
     DataType dtype = DataType::Float) {
+  maybeEmptyAllocator();
   return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
 inline TensorView* makeContigConcreteTensor(
     std::vector<int64_t> shape,
     DataType dtype = DataType::Float) {
+  c10::cuda::CUDACachingAllocator::emptyCache();
   return TensorViewBuilder().shape(shape).dtype(dtype).contiguity(true).build();
 }
 
