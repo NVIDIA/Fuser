@@ -49,6 +49,13 @@ class TORCH_CUDA_CU_API OptimizationGroup {
     return tmp;
   }
 
+  static void runPass(Fusion* fusion) {
+    if (!flipEnabled(false)) {
+      return;
+    }
+    DerivedClass::runPass(fusion);
+  }
+
   virtual ~OptimizationGroup() = default;
 };
 
