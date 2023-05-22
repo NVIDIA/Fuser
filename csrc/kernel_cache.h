@@ -273,14 +273,34 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
     bool eviction = false;
   };
 
-  //! encode each input sets to with an unique id;
-  //! Returned data structure also indicates whether eviction has happened
+  //! Encode each input sets to with an unique id;
+  //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
   //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
-  //! see [ Note -- 2 level cache implementation ]
-  //! If hash_scalars is true, this unique id also contains the values of input
-  //! integer scalars. This is used for dynamic reshapes, since they might
-  //! depend on those inputs and omitting them would lead to a collision.
+  //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
+  //! cache implementation ].
+  //!
+  //! In the presence of dynamic operations like reshape and resize, the
+  //! structure of the concretized Fusion might depend on not only the extents
+  //! of input tensors, but on input scalars. For example,
+  //!
+  //!    auto s = IrBuilder::create<int>();
+  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Int>(-1), s});
+  //!
+  //!
+  //! This code will accept an integer s and reshape tv0 such that its last
+  //! dimension's extent is equal to s. During concretization,
+  //! this _dynamic_ reshape is translated to a sequence of Merge and Split
+  //! operations, which might differ depending on the value of s and the shape
+  //! of tv0. This means that both the extents of tv0 as well as the value of s
+  //! must affect the unique id returned by lookupId.
+  //!
+  //! By default, all integer scalar inputs affect the return value of this
+  //! function. However, if input_affects_concretization is provided, it is used
+  //! to restrict this so that only the scalars that are known to affect
+  //! concretization affect the computed ID. In that case, the length of
+  //! input_affects_concretization must match the length of inputs, and values
+  //! of false will cause the corresponding inputs to not affect the ID.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::vector<bool>* input_affects_concretization = nullptr);
@@ -323,57 +343,71 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   std::unordered_map<std::string, EncodingEntry> encoding_lookup_;
 };
 
-//! [ Note -- 2 level cache implementation ]
+//! [ Note -- Post-definition cache implementation ]
 //!
-//! We have 2 level cache for a separation in function to keep them simpler.
+//! First note that depending on how we acquire a computational graph, there may
+//! be additional levels of caching above those discussed in this note. For
+//! example, our Python frontend contains a cache of defined Fusions in order to
+//! speed up acquisition of a Fusion object in its designed use cases. In this
+//! note, we will discuss caching that occurs below the definition level,
+//! assuming there is another mechanism that builds a Fusion object and passes
+//! it to us.
 //!
-//! 2 level hierarchically nested cache is to handle the code generation and
-//! execution of a given PyTorch IR graph that is unique in its computational
-//! graph (see note on unique computational graph down).
+//! The primary interface to post-definition caching is the
+//! `FusionExecutorCache`. This class holds an unsegmented, unscheduled Fusion
+//! object that might contain symbolic operations. This Fusion is then evaluated
+//! using `FusionExecutorCache::runFusionWithInputs` to produce outputs in the
+//! form of ATen Tensors.
 //!
-//! The nested cache structures are:
-//!     a. GraphCache
-//!        - GraphCache translates PyTorch IR into Fusion IR and pass it to a
-//!          `FusionExecutorCache`;
-//!        - GraphCache assumes all inputs to comply with profiling information,
-//!          mostly tensor size & contiguity (see note on unique computational
-//!          graph). The assumption is assured at runtime by
-//!          `prim::CudaFusionGuard`;
-//!     b. FusionExecutorCache
-//!        - has a single `Fusion`, FusionExecutorCache handles kernel schedule
-//!          and passed scheduled tensor to `FusionExecutor` to generate code;
-//!        - create `FusionExecutor` instances to handle heuristics from dynamic
-//!          shape (varying tensor sizes);
-//!        - create `FusionExecutor` instances to handle different devices;
-//!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
-//!          and launch parameters to reduce latency.
+//! FusionKernelRuntime is responsible for segmentation and execution of a
+//! single concretized Fusion object with a given set of inputs. Each
+//! FusionKernelRuntime is valid only for a given concrete Fusion and applies
+//! only to a range of input shapes. If the shapes of some inputs change, we can
+//! check if a Fusion can be used with the new inputs, but if not then a new
+//! FusionKernelRuntime would need to be created, which means a whole new
+//! segmentation run. No additional caching is performed beneath the
+//! FusionKernelRuntime level, so caching is implemented in
+//! FusionExecutorCache::getKernelRuntimeFor to reduce the latency in mapping
+//! from a set of inputs to a valid FusionKernelRuntime object.
 //!
-//! * note on unique computational graph
-//! In theory, computational graph should refer to only the computational nodes
-//! in a subgraph and should remain agnostic to input meta info, like
-//! shape, strides, type e.t.c.. However, the contract right here is fuzzy.
-//! Different executor applies their own protocol of what is a unique
-//! computational graph. e.g. Legacy Executor embeds tensor type &
-//! dimensionality in the graph, while Profiling Executor keeps symbolic shape
-//! as well as stride order in the graph as well.
+//! The content of input tensors does not affect the structure of the Fusion
+//! graph or the validity of compiled CUDA kernels, so we know that if all input
+//! shapes are the same, then a concrete Fusion which is valid for one set of
+//! inputs will be valid for another. We leverage this fact to reduce latency
+//! when Fusions are called repeatedly with inputs that differ only in their
+//! tensor content. Given inputs, we first compute an ID using
+//! InputsIdLookup::lookupId that encodes the shapes of TensorView inputs, along
+//! with values of any integer-valued input scalars that might affect
+//! concretization. This ID is guaranteed not to conflict unless the inputs can
+//! be executed by the same compiled Fusion. It is mapped to a segmented and
+//! compiled FusionKernelRuntime that can be immediately run. This is the most
+//! common, lowest-latency path and is followed when the Fusion is repeatedly
+//! evaluated with same-shaped inputs.
 //!
-//! Our definition of a "unique" computational graph is aligned with `Fusion`
-//! IR, hence the requirement extends to meta information on input tensors.
-//! Which means, for each input tensor, following properties are fixed:
-//!     a) stride order;
-//!     b) contiguity information;
-//!     c) broadcasting semantics (size-1 or not);
-//!     d) rank;
-//!     e) scalar type;
+//! When there is no FusionKernelRuntime matching the given input ID, we first
+//! map the inputs to a concrete Fusion. For static Fusions this is trivial,
+//! but when the Fusion is dynamic it means we must use the inputs to
+//! "concretize" the Fusion by performing replacements such that the Fusion no
+//! longer contains Symbolic IterDomains. A static Fusion is considered to be
+//! already concretized. As discussed above, each concretized Fusion might have
+//! multiple FusionKernelRuntimes applying to different ranges of input shapes.
+//! In the second layer of post-definition caching, we map concretized Fusions
+//! (in the form of a DynamicTransformConcretizationInfo object) to a vector of
+//! FusionKernelRuntimes, and check whether each one is able to run the present
+//! inputs. If not, we create a new FusionKernelRuntime for those inputs and
+//! record it in the list (as well as recording a mapping from the input ID to
+//! the new runtime).
 //!
+//! In the case of a dynamic Fusion, input scalars such as integer parameters to
+//! a model could potentially affect the structure of a concretized Fusion, so
+//! we take care to include those scalars in the input ID along with the extents
+//! of tensor arguments.
 //!
 //! [ Note -- Segmented Fusion Tentative Design ]
 //! Segmentation adds an extra dimension in caching. Initial implementation,
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-//!
-//!
 class TORCH_CUDA_CU_API FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
@@ -534,6 +568,51 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
 };
 
+//! [ Note -- 2 level cache implementation ]
+//!
+//! Compiling PyTorch IR requires an addition translation to Fusion IR, which is
+//! cached using `GraphCache`.
+//!
+//! 2 level hierarchically nested cache is to handle the code generation and
+//! execution of a given PyTorch IR graph that is unique in its computational
+//! graph (see note on unique computational graph down).
+//!
+//! The nested cache structures are:
+//!     a. GraphCache
+//!        - GraphCache translates PyTorch IR into Fusion IR and pass it to a
+//!          `FusionExecutorCache`;
+//!        - GraphCache assumes all inputs to comply with profiling information,
+//!          mostly tensor size & contiguity (see note on unique computational
+//!          graph). The assumption is assured at runtime by
+//!          `prim::CudaFusionGuard`;
+//!     b. FusionExecutorCache
+//!        - has a single `Fusion`, FusionExecutorCache handles kernel schedule
+//!          and passed scheduled tensor to `FusionExecutor` to generate code;
+//!        - create `FusionExecutor` instances to handle heuristics from dynamic
+//!          shape (varying tensor sizes);
+//!        - create `FusionExecutor` instances to handle different devices;
+//!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
+//!          and launch parameters to reduce latency.
+//!
+//! * note on unique computational graph
+//! In theory, computational graph should refer to only the computational nodes
+//! in a subgraph and should remain agnostic to input meta info, like
+//! shape, strides, type e.t.c.. However, the contract right here is fuzzy.
+//! Different executor applies their own protocol of what is a unique
+//! computational graph. e.g. Legacy Executor embeds tensor type &
+//! dimensionality in the graph, while Profiling Executor keeps symbolic shape
+//! as well as stride order in the graph as well.
+//!
+//! Our definition of a "unique" computational graph is aligned with `Fusion`
+//! IR, hence the requirement extends to meta information on input tensors.
+//! Which means, for each input tensor, following properties are fixed:
+//!     a) stride order;
+//!     b) contiguity information;
+//!     c) broadcasting semantics (size-1 or not);
+//!     d) rank;
+//!     e) scalar type;
+//!
+//!
 class GraphCache {
  public:
   //! TODO: we should probably change shared_ptr to unique_ptr, as we want to
