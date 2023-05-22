@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/opt_pass.h>
+#pragma once
+
+#include <optimization/optimization_pass.h>
 
 namespace nvfuser::optimization {
 
-class TORCH_CUDA_CU_API ConsecutiveCastPass : OptimizationPass {
+class TORCH_CUDA_CU_API PreSegmenter : public OptimizationGroup<PreSegmenterOptimizationPass> {
  public:
-  void run(Fusion* fusion) override;
-  std::string name() override;
-}
+  static void runPass(Fusion* fusion);
+};
 
 } // namespace nvfuser::optimization

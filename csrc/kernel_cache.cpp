@@ -11,11 +11,10 @@
 #include <executor_params.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
-#include <optimization/opt_pass.h>
+#include <optimization/pre_segmenter.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
-
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
@@ -622,8 +621,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  applyOptimizationPass(
-      optimization::OptimizationPassCategory::PreSegmenter, fusion.get());
+  optimization::PreSegmenter.runPass(fusion.get());
 
   all_tvs_ = ir_utils::allTvs(fusion.get());
 

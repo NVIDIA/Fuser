@@ -30,7 +30,7 @@
 #include <kernel_ir_dispatch.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
-#include <optimization/opt_pass.h>
+#include <optimization/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -6071,9 +6071,8 @@ TEST_F(NVFuserTest, FusionBroadcastPersistentReduction_CUDA) {
 // Repro for
 // https://github.com/csarofeen/pytorch/issues/2094
 TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
-  // disable cast optimization, which causes numerical issue on tests
-  optimization::OptimizationPassGuard guard(
-      optimization::OptimizationPassCategory::PreSegmenter, false);
+  // disable cast optimization in pre segmenter, which causes numerical issue on tests
+  optimization::OptimizationGroupGuard guard(optimization::PreSegmenter, false);
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);

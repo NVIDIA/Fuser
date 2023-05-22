@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ir/utils.h>
-#include <optimization/opt_pass.h>
+#include <optimization/consecutive_cast_pass.h>
 
 namespace nvfuser::optimization {
 
