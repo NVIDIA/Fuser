@@ -9,6 +9,7 @@
 
 namespace nvfuser::optimization {
 
+//! ConsecutiveCastPass removes redundant consecutive cast operations
 class TORCH_CUDA_CU_API ConsecutiveCastPass : public OptimizationPass {
  public:
   void run(Fusion* fusion) override;
