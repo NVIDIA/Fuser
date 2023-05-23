@@ -14,7 +14,7 @@ namespace {
 
 void castOptimizationPass(Fusion* fusion) {
   auto is_cast_op = [](Expr* expr) {
-    if (expr->isA<UnaryOp>()) {
+    if (expr != nullptr && expr->isA<UnaryOp>()) {
       auto op = expr->as<UnaryOp>();
       if (op->getUnaryOpType() == UnaryOpType::Cast) {
         return true;
@@ -32,7 +32,9 @@ void castOptimizationPass(Fusion* fusion) {
         // in the loop, we just repetitively skip consecutive casts.
         auto intermediate_cast = expr->input(0);
         auto prev_expr = intermediate_cast->definition();
-        if (prev_expr != nullptr && is_cast_op(prev_expr)) {
+        if (prev_expr == nullptr || !is_cast_op(prev_expr)) {
+          break;
+        }
           auto original_dtype = prev_expr->input(0)->getDataType().value();
           auto intermediate_dtype = intermediate_cast->getDataType().value();
           auto out_dtype = expr->output(0)->getDataType().value();
@@ -82,7 +84,7 @@ void castOptimizationPass(Fusion* fusion) {
     }
   }
   if (!replacement_map.empty()) {
-    nvfuser::ir_utils::replaceValue(fusion, replacement_map);
+    ir_utils::replaceValue(fusion, replacement_map);
   }
 }
 
