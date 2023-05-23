@@ -186,9 +186,13 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Unexpected IterType: ",
       type2);
 
-  // If either is Iteration, the output type is also Iteration.
+  // If either is Iteration, the output type is also Iteration. If
+  // none of them is Iteration and either of them is Symbolic, the
+  // output is also Symbolic.
   if (type1 == IterType::Iteration || type2 == IterType::Iteration) {
     return IterType::Iteration;
+  } else if (type1 == IterType::Symbolic || type2 == IterType::Symbolic) {
+    return IterType::Symbolic;
   } else {
     return IterType::Broadcast;
   }
