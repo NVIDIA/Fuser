@@ -24,7 +24,6 @@ void castOptimizationPass(Fusion* fusion) {
   };
 
   // NOTE: not the most efficient pass
-  std::unordered_map<Val*, Val*> replacement_map;
   for (auto expr : fusion->exprs()) {
     if (is_cast_op(expr)) {
       bool mutated = false;
@@ -35,34 +34,37 @@ void castOptimizationPass(Fusion* fusion) {
         if (prev_expr == nullptr || !is_cast_op(prev_expr)) {
           break;
         }
-          auto original_dtype = prev_expr->input(0)->getDataType().value();
-          auto intermediate_dtype = intermediate_cast->getDataType().value();
-          auto out_dtype = expr->output(0)->getDataType().value();
-          // cases where skipping the intermediate cast is relatively safe,
-          // two conditions:
-          //   1. original_dtype is the same as out_dtype; or
-          //   2. we support direct cast from original_dtype to out_dtype.
-          // and
-          //   1. intermediate_dtype is the same type category as with
-          //   out_dtype; or
-          //   2. intermediate_dtype is more relaxed than out_dtype. e.g. a
-          //   floating point vs. integral;
-          if ((original_dtype == out_dtype ||
-               cast_func_str({original_dtype, out_dtype}).has_value()) &&
-              ((isIntegralType(intermediate_dtype) &&
-                isIntegralType(out_dtype)) ||
-               (isFloatingPointType(intermediate_dtype) &&
-                isFloatingPointType(out_dtype)) ||
-               (isComplexType(intermediate_dtype) &&
-                isComplexType(out_dtype)) ||
-               (isFloatingPointType(intermediate_dtype) &&
-                isIntegralType(out_dtype)))) {
-            expr = nvfuser::ir_utils::replaceValInExpr(
-                expr, intermediate_cast, prev_expr->input(0));
-            mutated = true;
-          } else {
-            break;
-          }
+        // Note, if intermediate_cast:
+        //   is used by other none-cast operations; or
+        //   is a direct output from fusion
+        // we skip the casting
+        if (intermediate_cast->isFusionOutput() ||
+            !std::all_of(
+                intermediate_cast->uses().begin(),
+                intermediate_cast->uses().end(),
+                is_cast_op)) {
+          break;
+        }
+        auto original_dtype = prev_expr->input(0)->getDataType().value();
+        auto intermediate_dtype = intermediate_cast->getDataType().value();
+        auto out_dtype = expr->output(0)->getDataType().value();
+        // cases where skipping the intermediate cast is relatively safe,
+        // two conditions:
+        //   1. original_dtype is the same as out_dtype; or
+        //   2. we support direct cast from original_dtype to out_dtype.
+        // and
+        //   1. intermediate_dtype is the same type category as with
+        //   out_dtype
+        if ((original_dtype == out_dtype ||
+             cast_func_str({original_dtype, out_dtype}).has_value()) &&
+            ((isIntegralType(intermediate_dtype) &&
+              isIntegralType(out_dtype)) ||
+             (isFloatingPointType(intermediate_dtype) &&
+              isFloatingPointType(out_dtype)) ||
+             (isComplexType(intermediate_dtype) && isComplexType(out_dtype)))) {
+          expr = nvfuser::ir_utils::replaceValInExpr(
+              expr, intermediate_cast, prev_expr->input(0));
+          mutated = true;
         } else {
           break;
         }
@@ -73,7 +75,8 @@ void castOptimizationPass(Fusion* fusion) {
         // casting to the same type
         if (expr->input(0)->getDataType().value() ==
             expr->output(0)->getDataType().value()) {
-          replacement_map[expr->output(0)] = expr->input(0);
+          // replacing output with input in the fusion
+          ir_utils::replaceValue(fusion, {{expr->output(0), expr->input(0)}});
           // NOTE: if current output is a fusion output, DCE won't kick in and
           // we'll ended up with an illegal cast.
           if (expr->output(0)->isFusionOutput()) {
@@ -82,9 +85,6 @@ void castOptimizationPass(Fusion* fusion) {
         }
       }
     }
-  }
-  if (!replacement_map.empty()) {
-    ir_utils::replaceValue(fusion, replacement_map);
   }
 }
 
