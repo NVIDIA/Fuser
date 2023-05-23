@@ -594,6 +594,17 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper);
 
+// TODO: vectorizable_inputs_outputs should actually be known based on the
+// computed mappings. If nothing is mapped for a tensorview it's not
+// vectorizable.
+size_t getExpandedVectorization(
+    const std::vector<ContiguousInnerDimensionsMapper>& reference_maps,
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*> vectorizable_inputs_outputs,
+    TensorView* reference_tv,
+    int break_point,
+    size_t default_word_size);
+
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,

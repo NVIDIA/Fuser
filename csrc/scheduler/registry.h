@@ -71,6 +71,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // contiguity. Ignores dimensions that are broadcast or reduction.
   size_t getMaxVectorizableWidth(TensorView* tv);
 
+  // Gets the vectorizable width of the inner most dimension of tv if it's
+  // contiguous. Ignores inner most dimensions that are broadcast or reduction.
+  size_t getInnerDimVectorizableWidth(TensorView* tv);
+
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);
 
@@ -125,6 +129,8 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> alignment_map_;
   // Cache for getMaxVectorizableWidth
   std::unordered_map<TensorView*, size_t> max_vectorword_map_;
+  // Cache for getInnerDimVectorizableWidth
+  std::unordered_map<TensorView*, size_t> inner_vectorword_map_;
 
   // Found index mode kernel needs to be run in
   PrimDataType index_type_ = PrimDataType::Int;
