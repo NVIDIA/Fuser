@@ -1281,8 +1281,7 @@ TensorView* TensorView::cacheFork() {
   fusion()->replaceOutput(this, new_output);
 
   // Transform new output according to this TV
-  auto replayed_output_pair = TransformReplay::replayCasP(
-      new_output, this, -1, TransformReplayOptions().replayAllocation());
+  auto replayed_output_pair = TransformReplay::replayCasP(new_output, this, -1);
   new_output->setDomain(replayed_output_pair.first);
 
   return new_output;
