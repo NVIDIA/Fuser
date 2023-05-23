@@ -122,21 +122,22 @@ enum BinaryOpType : int {
   CeilDiv,
   Div,
   Max,
-  Merge,
   Min,
   Mod,
   Mul,
-  Split,
   Sub,
   None,
 }
 
 enum InstructionType : int {
   Binary = 0,
+  Merge,
   NamedString,
   Scalar,
+  Split,
   Symbolic,
   Unary,
+  None,
 }
 
 // =====================================================================================
@@ -257,17 +258,39 @@ table Instruction {
   unary_type : UnaryOpType;
   binary_type : BinaryOpType;
   data_type : DataType;
-  src0 : int;
-  src1 : int;
-  dest : int;
+  src0 : long;
+  src1 : long;
+  dest : long;
   name : string;
 }
 
 // NaiveValueGenerator creates Fusion IR values
-// 1. Extents for IterDomains
-// 2. Create new extents using split and merge operations
 table NaiveValueGenerator {
   instructions : [Instruction];
+}
+
+// The extent maps to an instruction in the NaiveValueGenerator.
+table IterationDomain {
+  extent : long;
+}
+
+// Table represents a single TensorView domain
+table Domain {
+  dims : [IterationDomain];
+}
+
+// Table represents nvfuser::TensorView
+table SymbolicTensor {
+  root : Domain;
+  rfactor : Domain;
+  allocate : Domain;
+  leaf : Domain;
+}
+
+// Table represents kir::Allocate node
+table AllocateBuffer {
+  buffer : SymbolicTensor;
+  zero_init : bool;
 }
 
 //
@@ -353,7 +376,7 @@ table VectorizedTensorInfo {
 }
 
 table KernelSummary {
-  // Indicate the need to generate random numbers
+  // Indicates if random numbers are generated.
   max_rng_offsets : int = -1;
 
   // Do we have any grid reduction in a loop, or grid reductions dependent on grid reductions
@@ -492,9 +515,9 @@ table FusionExecutor {
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
-  launch_params : LaunchParams;
   kernel_summary : KernelSummary;
-  used_tvs : [ulong];
+  generator : NaiveValueGenerator;
+  global_allocations : [AllocateBuffer];
 }
 
 // implicit fields

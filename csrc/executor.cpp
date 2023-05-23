@@ -1903,10 +1903,10 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
-  std::cout << "===" << std::endl;
   serde::ExpressionSerde es;
-  es.serialize(builder, kernel());
-  std::cout << "end serialize" << std::endl;
+  auto value_generator = es.serialize(builder, kernel());
+  auto global_allocations =
+      es.serialize(builder, kernel_summary_.global_allocations);
 
   return serde::CreateFusionExecutorDirect(
       builder,
@@ -1919,9 +1919,9 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      launch_params_.serialize(builder),
       serialize(builder, kernel_summary_),
-      nullptr /* used_tvs */);
+      value_generator,
+      &global_allocations);
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2033,9 +2033,7 @@ void FusionExecutor::deserialize(
   //  kernel_code : string;
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
-  //  launch_params : LaunchParams;
   //  kernel_summary : KernelSummary;
-  //  used_tvs : [ulong];
   // }
 
   lowered_ = std::make_unique<GpuLower>(
@@ -2059,7 +2057,6 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  launch_params_.deserialize(buffer->launch_params());
   kernel_summary_ = deserialize(buffer->kernel_summary());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =

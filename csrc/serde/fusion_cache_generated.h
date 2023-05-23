@@ -51,6 +51,18 @@ struct InstructionBuilder;
 struct NaiveValueGenerator;
 struct NaiveValueGeneratorBuilder;
 
+struct IterationDomain;
+struct IterationDomainBuilder;
+
+struct Domain;
+struct DomainBuilder;
+
+struct SymbolicTensor;
+struct SymbolicTensorBuilder;
+
+struct AllocateBuffer;
+struct AllocateBufferBuilder;
+
 struct ScalarCpu;
 struct ScalarCpuBuilder;
 
@@ -504,46 +516,40 @@ enum BinaryOpType : int32_t {
   BinaryOpType_CeilDiv = 2,
   BinaryOpType_Div = 3,
   BinaryOpType_Max = 4,
-  BinaryOpType_Merge = 5,
-  BinaryOpType_Min = 6,
-  BinaryOpType_Mod = 7,
-  BinaryOpType_Mul = 8,
-  BinaryOpType_Split = 9,
-  BinaryOpType_Sub = 10,
-  BinaryOpType_None = 11,
+  BinaryOpType_Min = 5,
+  BinaryOpType_Mod = 6,
+  BinaryOpType_Mul = 7,
+  BinaryOpType_Sub = 8,
+  BinaryOpType_None = 9,
   BinaryOpType_MIN = BinaryOpType_Add,
   BinaryOpType_MAX = BinaryOpType_None
 };
 
-inline const BinaryOpType (&EnumValuesBinaryOpType())[12] {
+inline const BinaryOpType (&EnumValuesBinaryOpType())[10] {
   static const BinaryOpType values[] = {
       BinaryOpType_Add,
       BinaryOpType_And,
       BinaryOpType_CeilDiv,
       BinaryOpType_Div,
       BinaryOpType_Max,
-      BinaryOpType_Merge,
       BinaryOpType_Min,
       BinaryOpType_Mod,
       BinaryOpType_Mul,
-      BinaryOpType_Split,
       BinaryOpType_Sub,
       BinaryOpType_None};
   return values;
 }
 
 inline const char* const* EnumNamesBinaryOpType() {
-  static const char* const names[13] = {
+  static const char* const names[11] = {
       "Add",
       "And",
       "CeilDiv",
       "Div",
       "Max",
-      "Merge",
       "Min",
       "Mod",
       "Mul",
-      "Split",
       "Sub",
       "None",
       nullptr};
@@ -559,33 +565,47 @@ inline const char* EnumNameBinaryOpType(BinaryOpType e) {
 
 enum InstructionType : int32_t {
   InstructionType_Binary = 0,
-  InstructionType_NamedString = 1,
-  InstructionType_Scalar = 2,
-  InstructionType_Symbolic = 3,
-  InstructionType_Unary = 4,
+  InstructionType_Merge = 1,
+  InstructionType_NamedString = 2,
+  InstructionType_Scalar = 3,
+  InstructionType_Split = 4,
+  InstructionType_Symbolic = 5,
+  InstructionType_Unary = 6,
+  InstructionType_None = 7,
   InstructionType_MIN = InstructionType_Binary,
-  InstructionType_MAX = InstructionType_Unary
+  InstructionType_MAX = InstructionType_None
 };
 
-inline const InstructionType (&EnumValuesInstructionType())[5] {
+inline const InstructionType (&EnumValuesInstructionType())[8] {
   static const InstructionType values[] = {
       InstructionType_Binary,
+      InstructionType_Merge,
       InstructionType_NamedString,
       InstructionType_Scalar,
+      InstructionType_Split,
       InstructionType_Symbolic,
-      InstructionType_Unary};
+      InstructionType_Unary,
+      InstructionType_None};
   return values;
 }
 
 inline const char* const* EnumNamesInstructionType() {
-  static const char* const names[6] = {
-      "Binary", "NamedString", "Scalar", "Symbolic", "Unary", nullptr};
+  static const char* const names[9] = {
+      "Binary",
+      "Merge",
+      "NamedString",
+      "Scalar",
+      "Split",
+      "Symbolic",
+      "Unary",
+      "None",
+      nullptr};
   return names;
 }
 
 inline const char* EnumNameInstructionType(InstructionType e) {
   if (::flatbuffers::IsOutRange(
-          e, InstructionType_Binary, InstructionType_Unary))
+          e, InstructionType_Binary, InstructionType_None))
     return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesInstructionType()[index];
@@ -1521,14 +1541,14 @@ struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     return static_cast<nvfuser::serde::DataType>(
         GetField<int32_t>(VT_DATA_TYPE, 0));
   }
-  int32_t src0() const {
-    return GetField<int32_t>(VT_SRC0, 0);
+  int64_t src0() const {
+    return GetField<int64_t>(VT_SRC0, 0);
   }
-  int32_t src1() const {
-    return GetField<int32_t>(VT_SRC1, 0);
+  int64_t src1() const {
+    return GetField<int64_t>(VT_SRC1, 0);
   }
-  int32_t dest() const {
-    return GetField<int32_t>(VT_DEST, 0);
+  int64_t dest() const {
+    return GetField<int64_t>(VT_DEST, 0);
   }
   const ::flatbuffers::String* name() const {
     return GetPointer<const ::flatbuffers::String*>(VT_NAME);
@@ -1539,9 +1559,9 @@ struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
         VerifyField<int32_t>(verifier, VT_UNARY_TYPE, 4) &&
         VerifyField<int32_t>(verifier, VT_BINARY_TYPE, 4) &&
         VerifyField<int32_t>(verifier, VT_DATA_TYPE, 4) &&
-        VerifyField<int32_t>(verifier, VT_SRC0, 4) &&
-        VerifyField<int32_t>(verifier, VT_SRC1, 4) &&
-        VerifyField<int32_t>(verifier, VT_DEST, 4) &&
+        VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
+        VerifyField<int64_t>(verifier, VT_SRC1, 8) &&
+        VerifyField<int64_t>(verifier, VT_DEST, 8) &&
         VerifyOffset(verifier, VT_NAME) && verifier.VerifyString(name()) &&
         verifier.EndTable();
   }
@@ -1567,14 +1587,14 @@ struct InstructionBuilder {
     fbb_.AddElement<int32_t>(
         Instruction::VT_DATA_TYPE, static_cast<int32_t>(data_type), 0);
   }
-  void add_src0(int32_t src0) {
-    fbb_.AddElement<int32_t>(Instruction::VT_SRC0, src0, 0);
+  void add_src0(int64_t src0) {
+    fbb_.AddElement<int64_t>(Instruction::VT_SRC0, src0, 0);
   }
-  void add_src1(int32_t src1) {
-    fbb_.AddElement<int32_t>(Instruction::VT_SRC1, src1, 0);
+  void add_src1(int64_t src1) {
+    fbb_.AddElement<int64_t>(Instruction::VT_SRC1, src1, 0);
   }
-  void add_dest(int32_t dest) {
-    fbb_.AddElement<int32_t>(Instruction::VT_DEST, dest, 0);
+  void add_dest(int64_t dest) {
+    fbb_.AddElement<int64_t>(Instruction::VT_DEST, dest, 0);
   }
   void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
     fbb_.AddOffset(Instruction::VT_NAME, name);
@@ -1597,15 +1617,15 @@ inline ::flatbuffers::Offset<Instruction> CreateInstruction(
     nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_Cast,
     nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_Add,
     nvfuser::serde::DataType data_type = nvfuser::serde::DataType_Double,
-    int32_t src0 = 0,
-    int32_t src1 = 0,
-    int32_t dest = 0,
+    int64_t src0 = 0,
+    int64_t src1 = 0,
+    int64_t dest = 0,
     ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
   InstructionBuilder builder_(_fbb);
-  builder_.add_name(name);
   builder_.add_dest(dest);
   builder_.add_src1(src1);
   builder_.add_src0(src0);
+  builder_.add_name(name);
   builder_.add_data_type(data_type);
   builder_.add_binary_type(binary_type);
   builder_.add_unary_type(unary_type);
@@ -1620,9 +1640,9 @@ inline ::flatbuffers::Offset<Instruction> CreateInstructionDirect(
     nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_Cast,
     nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_Add,
     nvfuser::serde::DataType data_type = nvfuser::serde::DataType_Double,
-    int32_t src0 = 0,
-    int32_t src1 = 0,
-    int32_t dest = 0,
+    int64_t src0 = 0,
+    int64_t src1 = 0,
+    int64_t dest = 0,
     const char* name = nullptr) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   return nvfuser::serde::CreateInstruction(
@@ -1696,6 +1716,226 @@ CreateNaiveValueGeneratorDirect(
             *instructions)
       : 0;
   return nvfuser::serde::CreateNaiveValueGenerator(_fbb, instructions__);
+}
+
+struct IterationDomain FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef IterationDomainBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_EXTENT = 4
+  };
+  int64_t extent() const {
+    return GetField<int64_t>(VT_EXTENT, 0);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) &&
+        VerifyField<int64_t>(verifier, VT_EXTENT, 8) && verifier.EndTable();
+  }
+};
+
+struct IterationDomainBuilder {
+  typedef IterationDomain Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_extent(int64_t extent) {
+    fbb_.AddElement<int64_t>(IterationDomain::VT_EXTENT, extent, 0);
+  }
+  explicit IterationDomainBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<IterationDomain> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<IterationDomain>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<IterationDomain> CreateIterationDomain(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    int64_t extent = 0) {
+  IterationDomainBuilder builder_(_fbb);
+  builder_.add_extent(extent);
+  return builder_.Finish();
+}
+
+struct Domain FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef DomainBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DIMS = 4
+  };
+  const ::flatbuffers::Vector<
+      ::flatbuffers::Offset<nvfuser::serde::IterationDomain>>*
+  dims() const {
+    return GetPointer<const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<nvfuser::serde::IterationDomain>>*>(VT_DIMS);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_DIMS) &&
+        verifier.VerifyVector(dims()) &&
+        verifier.VerifyVectorOfTables(dims()) && verifier.EndTable();
+  }
+};
+
+struct DomainBuilder {
+  typedef Domain Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_dims(
+      ::flatbuffers::Offset<::flatbuffers::Vector<
+          ::flatbuffers::Offset<nvfuser::serde::IterationDomain>>> dims) {
+    fbb_.AddOffset(Domain::VT_DIMS, dims);
+  }
+  explicit DomainBuilder(::flatbuffers::FlatBufferBuilder& _fbb) : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<Domain> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<Domain>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<Domain> CreateDomain(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<
+        ::flatbuffers::Offset<nvfuser::serde::IterationDomain>>> dims = 0) {
+  DomainBuilder builder_(_fbb);
+  builder_.add_dims(dims);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<Domain> CreateDomainDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::IterationDomain>>*
+        dims = nullptr) {
+  auto dims__ = dims
+      ? _fbb.CreateVector<
+            ::flatbuffers::Offset<nvfuser::serde::IterationDomain>>(*dims)
+      : 0;
+  return nvfuser::serde::CreateDomain(_fbb, dims__);
+}
+
+struct SymbolicTensor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SymbolicTensorBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_ROOT = 4,
+    VT_RFACTOR = 6,
+    VT_ALLOCATE = 8,
+    VT_LEAF = 10
+  };
+  const nvfuser::serde::Domain* root() const {
+    return GetPointer<const nvfuser::serde::Domain*>(VT_ROOT);
+  }
+  const nvfuser::serde::Domain* rfactor() const {
+    return GetPointer<const nvfuser::serde::Domain*>(VT_RFACTOR);
+  }
+  const nvfuser::serde::Domain* allocate() const {
+    return GetPointer<const nvfuser::serde::Domain*>(VT_ALLOCATE);
+  }
+  const nvfuser::serde::Domain* leaf() const {
+    return GetPointer<const nvfuser::serde::Domain*>(VT_LEAF);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_ROOT) &&
+        verifier.VerifyTable(root()) && VerifyOffset(verifier, VT_RFACTOR) &&
+        verifier.VerifyTable(rfactor()) &&
+        VerifyOffset(verifier, VT_ALLOCATE) &&
+        verifier.VerifyTable(allocate()) && VerifyOffset(verifier, VT_LEAF) &&
+        verifier.VerifyTable(leaf()) && verifier.EndTable();
+  }
+};
+
+struct SymbolicTensorBuilder {
+  typedef SymbolicTensor Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_root(::flatbuffers::Offset<nvfuser::serde::Domain> root) {
+    fbb_.AddOffset(SymbolicTensor::VT_ROOT, root);
+  }
+  void add_rfactor(::flatbuffers::Offset<nvfuser::serde::Domain> rfactor) {
+    fbb_.AddOffset(SymbolicTensor::VT_RFACTOR, rfactor);
+  }
+  void add_allocate(::flatbuffers::Offset<nvfuser::serde::Domain> allocate) {
+    fbb_.AddOffset(SymbolicTensor::VT_ALLOCATE, allocate);
+  }
+  void add_leaf(::flatbuffers::Offset<nvfuser::serde::Domain> leaf) {
+    fbb_.AddOffset(SymbolicTensor::VT_LEAF, leaf);
+  }
+  explicit SymbolicTensorBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<SymbolicTensor> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<SymbolicTensor>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<SymbolicTensor> CreateSymbolicTensor(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<nvfuser::serde::Domain> root = 0,
+    ::flatbuffers::Offset<nvfuser::serde::Domain> rfactor = 0,
+    ::flatbuffers::Offset<nvfuser::serde::Domain> allocate = 0,
+    ::flatbuffers::Offset<nvfuser::serde::Domain> leaf = 0) {
+  SymbolicTensorBuilder builder_(_fbb);
+  builder_.add_leaf(leaf);
+  builder_.add_allocate(allocate);
+  builder_.add_rfactor(rfactor);
+  builder_.add_root(root);
+  return builder_.Finish();
+}
+
+struct AllocateBuffer FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef AllocateBufferBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_BUFFER = 4,
+    VT_ZERO_INIT = 6
+  };
+  const nvfuser::serde::SymbolicTensor* buffer() const {
+    return GetPointer<const nvfuser::serde::SymbolicTensor*>(VT_BUFFER);
+  }
+  bool zero_init() const {
+    return GetField<uint8_t>(VT_ZERO_INIT, 0) != 0;
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_BUFFER) &&
+        verifier.VerifyTable(buffer()) &&
+        VerifyField<uint8_t>(verifier, VT_ZERO_INIT, 1) && verifier.EndTable();
+  }
+};
+
+struct AllocateBufferBuilder {
+  typedef AllocateBuffer Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_buffer(
+      ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> buffer) {
+    fbb_.AddOffset(AllocateBuffer::VT_BUFFER, buffer);
+  }
+  void add_zero_init(bool zero_init) {
+    fbb_.AddElement<uint8_t>(
+        AllocateBuffer::VT_ZERO_INIT, static_cast<uint8_t>(zero_init), 0);
+  }
+  explicit AllocateBufferBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<AllocateBuffer> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<AllocateBuffer>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<AllocateBuffer> CreateAllocateBuffer(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> buffer = 0,
+    bool zero_init = false) {
+  AllocateBufferBuilder builder_(_fbb);
+  builder_.add_buffer(buffer);
+  builder_.add_zero_init(zero_init);
+  return builder_.Finish();
 }
 
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -3873,9 +4113,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_KERNEL_CODE = 16,
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
-    VT_LAUNCH_PARAMS = 22,
-    VT_KERNEL_SUMMARY = 24,
-    VT_USED_TVS = 26
+    VT_KERNEL_SUMMARY = 22,
+    VT_GENERATOR = 24,
+    VT_GLOBAL_ALLOCATIONS = 26
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3909,14 +4149,18 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
         ::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>*>(
         VT_EXECUTOR_ENTRY_LOOKUP_VALUES);
   }
-  const nvfuser::serde::LaunchParams* launch_params() const {
-    return GetPointer<const nvfuser::serde::LaunchParams*>(VT_LAUNCH_PARAMS);
-  }
   const nvfuser::serde::KernelSummary* kernel_summary() const {
     return GetPointer<const nvfuser::serde::KernelSummary*>(VT_KERNEL_SUMMARY);
   }
-  const ::flatbuffers::Vector<uint64_t>* used_tvs() const {
-    return GetPointer<const ::flatbuffers::Vector<uint64_t>*>(VT_USED_TVS);
+  const nvfuser::serde::NaiveValueGenerator* generator() const {
+    return GetPointer<const nvfuser::serde::NaiveValueGenerator*>(VT_GENERATOR);
+  }
+  const ::flatbuffers::Vector<
+      ::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>*
+  global_allocations() const {
+    return GetPointer<const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>*>(
+        VT_GLOBAL_ALLOCATIONS);
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
@@ -3933,12 +4177,14 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
         VerifyOffset(verifier, VT_EXECUTOR_ENTRY_LOOKUP_VALUES) &&
         verifier.VerifyVector(executor_entry_lookup_values()) &&
         verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
-        VerifyOffset(verifier, VT_LAUNCH_PARAMS) &&
-        verifier.VerifyTable(launch_params()) &&
         VerifyOffset(verifier, VT_KERNEL_SUMMARY) &&
         verifier.VerifyTable(kernel_summary()) &&
-        VerifyOffset(verifier, VT_USED_TVS) &&
-        verifier.VerifyVector(used_tvs()) && verifier.EndTable();
+        VerifyOffset(verifier, VT_GENERATOR) &&
+        verifier.VerifyTable(generator()) &&
+        VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
+        verifier.VerifyVector(global_allocations()) &&
+        verifier.VerifyVectorOfTables(global_allocations()) &&
+        verifier.EndTable();
   }
 };
 
@@ -3991,17 +4237,19 @@ struct FusionExecutorBuilder {
         FusionExecutor::VT_EXECUTOR_ENTRY_LOOKUP_VALUES,
         executor_entry_lookup_values);
   }
-  void add_launch_params(
-      ::flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params) {
-    fbb_.AddOffset(FusionExecutor::VT_LAUNCH_PARAMS, launch_params);
-  }
   void add_kernel_summary(
       ::flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary) {
     fbb_.AddOffset(FusionExecutor::VT_KERNEL_SUMMARY, kernel_summary);
   }
-  void add_used_tvs(
-      ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> used_tvs) {
-    fbb_.AddOffset(FusionExecutor::VT_USED_TVS, used_tvs);
+  void add_generator(
+      ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator) {
+    fbb_.AddOffset(FusionExecutor::VT_GENERATOR, generator);
+  }
+  void add_global_allocations(
+      ::flatbuffers::Offset<::flatbuffers::Vector<
+          ::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>>
+          global_allocations) {
+    fbb_.AddOffset(FusionExecutor::VT_GLOBAL_ALLOCATIONS, global_allocations);
   }
   explicit FusionExecutorBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
       : fbb_(_fbb) {
@@ -4027,9 +4275,10 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
         executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<
         nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
-    ::flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params = 0,
     ::flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> used_tvs = 0) {
+    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<
+        nvfuser::serde::AllocateBuffer>>> global_allocations = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
@@ -4037,9 +4286,9 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
-  builder_.add_used_tvs(used_tvs);
+  builder_.add_global_allocations(global_allocations);
+  builder_.add_generator(generator);
   builder_.add_kernel_summary(kernel_summary);
-  builder_.add_launch_params(launch_params);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
   builder_.add_kernel_code(kernel_code);
@@ -4058,9 +4307,10 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t>* executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>*
         executor_entry_lookup_values = nullptr,
-    ::flatbuffers::Offset<nvfuser::serde::LaunchParams> launch_params = 0,
     ::flatbuffers::Offset<nvfuser::serde::KernelSummary> kernel_summary = 0,
-    const std::vector<uint64_t>* used_tvs = nullptr) {
+    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>*
+        global_allocations = nullptr) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys
       ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys)
@@ -4069,7 +4319,11 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>(
             *executor_entry_lookup_values)
       : 0;
-  auto used_tvs__ = used_tvs ? _fbb.CreateVector<uint64_t>(*used_tvs) : 0;
+  auto global_allocations__ = global_allocations
+      ? _fbb.CreateVector<
+            ::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(
+            *global_allocations)
+      : 0;
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
       device_smem_limit,
@@ -4081,9 +4335,9 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       kernel_code__,
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
-      launch_params,
       kernel_summary,
-      used_tvs__);
+      generator,
+      global_allocations__);
 }
 
 struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS

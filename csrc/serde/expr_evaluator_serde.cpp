@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <serde/expr_evaluator_serde.h>
+#include <serde/utils.h>
 
 namespace nvfuser::serde {
 
@@ -13,12 +14,8 @@ namespace {
 
 template <typename VALTYPE>
 std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
-  if (val->definition()) {
-    auto expr = val->definition();
-    return expr->inputs();
-  } else {
-    return {};
-  }
+  return (val->definition()) ? val->definition()->inputs()
+                             : std::vector<VALTYPE*>();
 }
 
 //! IR-Generic utility, collects all the producers required for the
@@ -40,8 +37,6 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
   visited.clear();
 
   // Topological Sort
-  //  Note: didn't explicitly exclude producers that are not in the original
-  //   list. This should be acceptable for the intended use.
   while (!to_sort.empty()) {
     auto top_val = to_sort.back();
     if (visited.count(top_val)) {
@@ -102,20 +97,58 @@ void bind(std::vector<Val*>& all_values, std::vector<IterDomain*> domain) {
   }
 }
 
-void bind(std::vector<Val*>& all_values, TensorView* tv) {
+// 1. Generate extents for IterDomains that compose root domain
+// 2. Create new extents using split, merge, reorder operations for rfactor,
+// allocation, and leaf domains
+void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   if (tv->getMemoryType() != MemoryType::Global) {
     return;
   }
   bind(all_values, tv->getRootDomain());
-  bind(all_values, tv->getRFactorDomain());
-  bind(all_values, tv->getAllocationDomain());
-  bind(all_values, tv->getLeafDomain());
 }
 
 } // namespace
 
-flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatbuffers::FlatBufferBuilder& builder, kir::Kernel* kernel) {
-  // Collect allocation sizes:
+flatbuffers::Offset<Instruction> ExpressionSerde::serializeUnaryOp(
+    flatbuffers::FlatBufferBuilder& builder,
+    UnaryOp* uop) const {
+  serde::DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
+      ? mapToSerdeDtype(uop->out()->getDataType().value())
+      : serde::DataType_None;
+
+  auto inst = serde::CreateInstructionDirect(
+      builder,
+      serde::InstructionType_Unary,
+      mapToSerdeUnaryOp(uop->getUnaryOpType()),
+      serde::BinaryOpType_None,
+      dtype,
+      operation_stack_.at(uop->inputs().front()),
+      0,
+      (int64_t)operation_stack_.size(),
+      uop->toString().c_str());
+  return inst;
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerde::serializeBinaryOp(
+    flatbuffers::FlatBufferBuilder& builder,
+    BinaryOp* bop) const {
+  auto inst = serde::CreateInstructionDirect(
+      builder,
+      serde::InstructionType_Unary,
+      serde::UnaryOpType_None,
+      mapToSerdeBinaryOp(bop->getBinaryOpType()),
+      serde::DataType_None,
+      operation_stack_.at(bop->inputs().front()),
+      operation_stack_.at(bop->inputs().back()),
+      (int64_t)operation_stack_.size(),
+      bop->toString().c_str());
+  return inst;
+}
+
+flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    kir::Kernel* kernel) {
+  // Collect allocation sizes
   std::vector<Val*> all_values;
   for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
     if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
@@ -124,17 +157,21 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatb
   }
   auto list = makeSortedEvaluationList(all_values);
 
+  std::unordered_set<nvfuser::NamedScalar*> named_scalar_values;
+  std::unordered_set<nvfuser::Int*> const_int_values;
+  std::unordered_set<nvfuser::Val*> symbolic_values;
+  std::vector<nvfuser::Val*> derived_values;
   for (auto v : list) {
     if (v->definition() == nullptr) {
       if (NamedScalar* ns = dynamic_cast<NamedScalar*>(v)) {
-        named_scalar_values_.insert(ns->name());
-      } else if (v->isConstScalar()) {
-        const_values_.insert(v->evaluateInt());
+        named_scalar_values.insert(ns);
+      } else if (v->isConstInt()) {
+        const_int_values.insert(v->as<nvfuser::Int>());
       } else {
-        symbolic_values_.insert(v);
+        symbolic_values.insert(v);
       }
     } else {
-      derived_values_.push_back(v);
+      derived_values.push_back(v);
     }
   }
 
@@ -155,10 +192,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatb
   }
   */
 
-  using fb_instruction = flatbuffers::Offset<serde::Instruction>;
+  using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
-
-  for(const auto& name : named_scalar_values_) {
+  for (const auto& ns : named_scalar_values) {
+    std::cout << ns->name() << std::endl;
     auto inst = serde::CreateInstructionDirect(
         builder,
         serde::InstructionType_NamedString,
@@ -168,24 +205,26 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatb
         0,
         0,
         0,
-        name.c_str());
+        ns->name().c_str());
     instructions_fb.push_back(inst);
+    operation_stack_.emplace(ns, operation_stack_.size());
   }
 
-  for(const auto& v : const_values_) {
+  for (const auto& int_val : const_int_values) {
     auto inst = serde::CreateInstructionDirect(
         builder,
         serde::InstructionType_Scalar,
         serde::UnaryOpType_None,
         serde::BinaryOpType_None,
         serde::DataType_Int,
-        v,
+        int_val->evaluateInt(),
         0,
         0,
         nullptr /* name */);
     instructions_fb.push_back(inst);
+    operation_stack_.emplace(int_val, operation_stack_.size());
   }
-  for(auto& val : symbolic_values_) {
+  for (auto& val : symbolic_values) {
     auto inst = serde::CreateInstructionDirect(
         builder,
         serde::InstructionType_Symbolic,
@@ -197,27 +236,59 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatb
         0,
         val->toString().c_str());
     instructions_fb.push_back(inst);
+    operation_stack_.emplace(val, operation_stack_.size());
   }
 
-  for(auto& val : derived_values_) {
+  for (auto& val : derived_values) {
     auto def = val->definition();
     TORCH_INTERNAL_ASSERT(def, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<UnaryOp*>(def)) {
-      // TODO
-      // auto inst = makeUnaryOp(uop);
-      // instructions_fb.push_back(inst);
-      std::cout << uop->toString() << std::endl;
+      auto inst = serializeUnaryOp(builder, uop);
+      instructions_fb.push_back(inst);
+      operation_stack_.emplace(val, operation_stack_.size());
     } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
-      // TODO
-      // auto inst = makeBinaryOp(bop);
-      // instructions_fb.push_back(inst);
-      std::cout << bop->toString() << std::endl;
+      auto inst = serializeBinaryOp(builder, bop);
+      instructions_fb.push_back(inst);
+      operation_stack_.emplace(val, operation_stack_.size());
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown Expression.");
     }
   }
-
   return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
+}
+
+std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerde::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const std::vector<const kir::Allocate*>& allocations) {
+  using fb_allocate = flatbuffers::Offset<serde::AllocateBuffer>;
+  std::vector<fb_allocate> fb_global_allocations;
+
+  for (auto alloc : allocations) {
+    auto alloc_buffer_tv = alloc->buffer()->as<nvfuser::TensorView>();
+    TORCH_INTERNAL_ASSERT(alloc_buffer_tv);
+
+    auto fb_alloc = serde::CreateAllocateBuffer(
+        builder, serialize(builder, alloc_buffer_tv), alloc->zeroInit());
+    fb_global_allocations.push_back(fb_alloc);
+  }
+  return fb_global_allocations;
+}
+
+// TODO create separate functions for TensorDomain and IterDomain
+flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerde::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::TensorView* tv) {
+  std::vector<flatbuffers::Offset<IterationDomain>> fb_root_domain;
+  for (auto id : tv->getRootDomain()) {
+    TORCH_INTERNAL_ASSERT(
+        operation_stack_.count(id->extent()),
+        "Missing value in NaiveValueGenerator stack.");
+    auto extent_id = operation_stack_.at(id->extent());
+    fb_root_domain.push_back(serde::CreateIterationDomain(builder, extent_id));
+  }
+
+  return serde::CreateSymbolicTensor(
+      builder, serde::CreateDomainDirect(builder, &fb_root_domain));
 }
 
 } // namespace nvfuser::serde

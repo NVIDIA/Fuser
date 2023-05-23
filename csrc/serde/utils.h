@@ -11,6 +11,12 @@
 
 namespace nvfuser::serde {
 
+//! A function to map the nvfuser UnaryOp type to the corresponding serde type
+serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType);
+
+//! A function to map the nvfuser BinaryOp type to the corresponding serde type
+serde::BinaryOpType mapToSerdeBinaryOp(nvfuser::BinaryOpType);
+
 //! A function to map the nvfuser prim datatype to the corresponding serde dtype
 serde::DataType mapToSerdeDtype(PrimDataType t);
 
