@@ -388,9 +388,9 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
     auto device_stats = allocator->getDeviceStats(0);
-    // 2^32B is about 4GB. allocated_bytes[] holds multiple statistics but
-    // the first is AGGREGATE
-    if (device_stats.allocated_bytes[0].allocated > max_bytes) {
+    // allocated_bytes[] holds multiple statistics but the first is sum across
+    // both small and large blocks
+    if (device_stats.reserved_bytes[0].current > max_bytes) {
       allocator->emptyCache();
       return true;
     }
