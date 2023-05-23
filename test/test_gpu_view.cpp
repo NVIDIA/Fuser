@@ -375,6 +375,11 @@ std::vector<reshape_example> all_reshape_examples = {
 
 TEST_F(NVFuserTest, FusionReshapeReductionShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     reductionViewAddFusion(
         e.first, e.second, true /* reshape_before_reduction */);
   }
@@ -395,6 +400,7 @@ TEST_F(NVFuserTest, FusionReshapeReductionShmoo_CUDA) {
       {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
   for (auto e : reshape_after_reduce_examples) {
+    maybeClearAllocator(); // see above
     reductionViewAddFusion(
         e.first, e.second, false /* reshape_before_reduction */);
   }
@@ -455,11 +461,17 @@ void persistentViewAddFusion(
 
 TEST_F(NVFuserTest, FusionReshapePersistentShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     persistentViewAddFusion(
         e.first, e.second, true /* reshape_before_persistent */);
   }
 
   for (auto e : all_reshape_examples) {
+    maybeClearAllocator(); // see above
     persistentViewAddFusion(
         e.first, e.second, false /* reshape_before_persistent */);
   }
@@ -525,6 +537,11 @@ TEST_F(NVFuserTest, FusionReshapeMerge_CUDA) {
 
 TEST_F(NVFuserTest, FusionReshapeAllShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     addViewGeluFusion(e.first, e.second);
   }
 }

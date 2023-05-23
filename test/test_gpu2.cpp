@@ -2929,6 +2929,11 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
               (dtype == DataType::Half || dtype == DataType::BFloat16)) {
             continue;
           }
+          // Shmoo tests can occupy a lot of memory due to allocating many
+          // different tensor sizes. So in order to avoid an OOM during this
+          // test, we manually clear the allocator after it's reached a certain
+          // threshold.
+          maybeClearAllocator();
           testWelford(dtype, axis, odim, rdim);
         }
       }

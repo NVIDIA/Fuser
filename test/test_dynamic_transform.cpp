@@ -780,6 +780,12 @@ void reductionDynamicViewAddFusion(
   };
 
   for (auto& inv : invocations) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
+
     auto input_shape = std::get<0>(inv);
     auto output_shape = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
@@ -896,6 +902,12 @@ void reductionDynamicPadAddFusion(
   };
 
   for (auto& inv : invocations) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
+
     auto input_shape = std::get<0>(inv);
     auto pad_widths = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);

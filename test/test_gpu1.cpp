@@ -6660,6 +6660,12 @@ TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
   for (auto dtype : dtypes) {
     at::ScalarType aten_dtype = data_type_to_aten(dtype);
     for (auto& rdim : red_dims) {
+      // Shmoo tests can occupy a lot of memory due to allocating many
+      // different tensor sizes. So in order to avoid an OOM during this
+      // test, we manually clear the allocator after it's reached a certain
+      // threshold.
+      maybeClearAllocator();
+
       Fusion fusion;
       FusionGuard fg(&fusion);
 
@@ -6741,6 +6747,12 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
     for (auto& axis : red_axis) {
       for (auto& odim : output_dims) {
         for (auto& rdim : red_dims) {
+          // Shmoo tests can occupy a lot of memory due to allocating many
+          // different tensor sizes. So in order to avoid an OOM during this
+          // test, we manually clear the allocator after it's reached a certain
+          // threshold.
+          maybeClearAllocator();
+
           Fusion fusion;
           FusionGuard fg(&fusion);
 

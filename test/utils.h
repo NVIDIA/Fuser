@@ -383,6 +383,21 @@ class ContextCudnnTF32Disabled {
   bool flag_;
 };
 
+inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
+  // check used memory and empty allocator cache if above a set threshold
+  auto allocator = c10::cuda::CUDACachingAllocator::get();
+  if (allocator->initialized()) {
+    auto device_stats = allocator->getDeviceStats(0);
+    // 2^32B is about 4GB. allocated_bytes[] holds multiple statistics but
+    // the first is AGGREGATE
+    if (device_stats.allocated_bytes[0].allocated > max_bytes) {
+      allocator->emptyCache();
+      return true;
+    }
+  }
+  return false;
+}
+
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
@@ -394,16 +409,7 @@ class NVFuserTest : public ::testing::Test {
     }
     setFillAllocationWithNan(true);
 
-    // check used memory and empty allocator cache if above a set threshold
-    auto allocator = c10::cuda::CUDACachingAllocator::get();
-    if (allocator->initialized()) {
-      auto device_stats = allocator->getDeviceStats(0);
-      // 2^32B is about 4GB. allocated_bytes[] holds multiple statistics but
-      // the first is AGGREGATE
-      if (device_stats.allocated_bytes[0].allocated > ((int64_t)1 << 32)) {
-        allocator->emptyCache();
-      }
-    }
+    maybeClearAllocator();
   }
 };
 
