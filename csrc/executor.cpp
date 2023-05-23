@@ -1891,9 +1891,9 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  kernel_code : string;
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
-  //  launch_params : LaunchParams;
   //  kernel_summary : KernelSummary;
-  //  used_tvs : [ulong];
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
   // }
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
   std::vector<size_t> executor_entry_lookup_keys_fb;
@@ -1903,7 +1903,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
-  serde::ExpressionSerde es;
+  serde::ExpressionSerializer es;
   auto value_generator = es.serialize(builder, kernel());
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);

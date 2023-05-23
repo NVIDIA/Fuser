@@ -12,9 +12,9 @@
 
 namespace nvfuser::serde {
 
-class ExpressionSerde {
+class ExpressionSerializer {
  public:
-  ExpressionSerde() = default;
+  ExpressionSerializer() = default;
 
   flatbuffers::Offset<serde::NaiveValueGenerator> serialize(
       flatbuffers::FlatBufferBuilder& builder,

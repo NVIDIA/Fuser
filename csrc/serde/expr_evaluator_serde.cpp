@@ -109,13 +109,12 @@ void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
 
 } // namespace
 
-flatbuffers::Offset<Instruction> ExpressionSerde::serializeUnaryOp(
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeUnaryOp(
     flatbuffers::FlatBufferBuilder& builder,
     UnaryOp* uop) const {
   serde::DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
       ? mapToSerdeDtype(uop->out()->getDataType().value())
       : serde::DataType_None;
-
   auto inst = serde::CreateInstructionDirect(
       builder,
       serde::InstructionType_Unary,
@@ -129,7 +128,7 @@ flatbuffers::Offset<Instruction> ExpressionSerde::serializeUnaryOp(
   return inst;
 }
 
-flatbuffers::Offset<Instruction> ExpressionSerde::serializeBinaryOp(
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
     flatbuffers::FlatBufferBuilder& builder,
     BinaryOp* bop) const {
   auto inst = serde::CreateInstructionDirect(
@@ -145,18 +144,21 @@ flatbuffers::Offset<Instruction> ExpressionSerde::serializeBinaryOp(
   return inst;
 }
 
-flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(
+flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     kir::Kernel* kernel) {
-  // Collect allocation sizes
+  // 1) Collect allocation sizes
   std::vector<Val*> all_values;
   for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
     if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
     }
   }
+
+  // 2) Sort values by dependency order
   auto list = makeSortedEvaluationList(all_values);
 
+  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
   std::unordered_set<nvfuser::NamedScalar*> named_scalar_values;
   std::unordered_set<nvfuser::Int*> const_int_values;
   std::unordered_set<nvfuser::Val*> symbolic_values;
@@ -175,27 +177,27 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(
     }
   }
 
-  /*
-  table NaiveValueGenerator {
-    instructions : [Instruction];
-  }
-
-  table Instruction {
-    instruction : InstructionType;
-    unary_type : UnaryOpType;
-    binary_type : BinaryOpType;
-    data_type : DataType;
-    src0 : int;
-    src1 : int;
-    dest : int;
-    name : string;
-  }
-  */
+  // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
+  // an instruction.
+  //
+  // table NaiveValueGenerator {
+  //   instructions : [Instruction];
+  // }
+  //
+  // table Instruction {
+  //  instruction : InstructionType;
+  //  unary_type : UnaryOpType;
+  //  binary_type : BinaryOpType;
+  //  data_type : DataType;
+  //  src0 : int;
+  //  src1 : int;
+  //  dest : int;
+  //  name : string;
+  // }
 
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
   for (const auto& ns : named_scalar_values) {
-    std::cout << ns->name() << std::endl;
     auto inst = serde::CreateInstructionDirect(
         builder,
         serde::InstructionType_NamedString,
@@ -224,6 +226,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(
     instructions_fb.push_back(inst);
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
+
   for (auto& val : symbolic_values) {
     auto inst = serde::CreateInstructionDirect(
         builder,
@@ -257,9 +260,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(
   return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
 }
 
-std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerde::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const std::vector<const kir::Allocate*>& allocations) {
+std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
+    serialize(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<const kir::Allocate*>& allocations) {
   using fb_allocate = flatbuffers::Offset<serde::AllocateBuffer>;
   std::vector<fb_allocate> fb_global_allocations;
 
@@ -275,9 +279,11 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerde::serialize(
 }
 
 // TODO create separate functions for TensorDomain and IterDomain
-flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerde::serialize(
+flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::TensorView* tv) {
+  // Only serialize root domain because we do not support split, merge, reorder
+  // operations to move between rfactor, allocate, and leaf domains.
   std::vector<flatbuffers::Offset<IterationDomain>> fb_root_domain;
   for (auto id : tv->getRootDomain()) {
     TORCH_INTERNAL_ASSERT(
