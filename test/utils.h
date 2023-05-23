@@ -392,6 +392,7 @@ class NVFuserTest : public ::testing::Test {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
     }
     setFillAllocationWithNan(true);
+    at::manual_seed(0);
   }
 };
 

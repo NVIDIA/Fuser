@@ -27,7 +27,6 @@ TEST_F(NVFuserTest, FusionResizePad1_CUDA) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -57,7 +56,6 @@ TEST_F(NVFuserTest, FusionResizePad2_CUDA) {
   tv1->split(0, 4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -103,7 +101,6 @@ TEST_F(NVFuserTest, FusionResizePad3_CUDA) {
   tv2->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
@@ -135,7 +132,6 @@ TEST_F(NVFuserTest, FusionResizePad4_CUDA) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -184,7 +180,6 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
       "Block sync not found");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -228,7 +223,6 @@ TEST_F(NVFuserTest, FusionResizePad6_CUDA) {
   tv4->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
@@ -278,7 +272,6 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
   scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -326,7 +319,6 @@ TEST_F(NVFuserTest, FusionResizePad8_CUDA) {
   scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(999, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -354,7 +346,6 @@ TEST_F(NVFuserTest, FusionResizePadScheduler1_CUDA) {
   std::vector<int64_t> shape({99, 111});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -386,7 +377,6 @@ TEST_F(NVFuserTest, FusionResizePadScheduler2_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
@@ -425,7 +415,6 @@ TEST_F(NVFuserTest, FusionResizePadScheduler3_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(999, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -471,7 +460,6 @@ TEST_F(NVFuserTest, FusionResizePadScheduler4_CUDA) {
   std::vector<int64_t> shape({99, 111});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<int64_t> pad_extents{1, 1};
@@ -511,7 +499,6 @@ TEST_F(NVFuserTest, FusionResizeCat1_CUDA) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -544,7 +531,6 @@ TEST_F(NVFuserTest, FusionResizeCat2_CUDA) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -586,7 +572,6 @@ TEST_F(NVFuserTest, FusionResizeCat3_CUDA) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -631,7 +616,6 @@ TEST_F(NVFuserTest, FusionResizeCat4_CUDA) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -680,7 +664,6 @@ TEST_F(NVFuserTest, FusionResizeCat5_CUDA) {
   std::vector<int64_t> shape2({shape0[0], shape0[1] + shape1[1]});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -727,7 +710,6 @@ TEST_F(NVFuserTest, FusionResizeCat6_CUDA) {
   scheduler_utils::parallelizeAllLike(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -779,7 +761,6 @@ TEST_F(NVFuserTest, FusionResizeCat7_CUDA) {
     scheduler_utils::parallelizeAllLike(concat_tv);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
 
     std::vector<at::Tensor> aten_inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
@@ -820,7 +801,6 @@ TEST_F(NVFuserTest, FusionResizeCatScheduler1_CUDA) {
   std::vector<int64_t> shape1({3});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -856,7 +836,6 @@ TEST_F(NVFuserTest, FusionResizeCatScheduler2_CUDA) {
   std::vector<int64_t> shape2({shape0[0], shape0[1] + shape1[1]});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -898,7 +877,6 @@ TEST_F(NVFuserTest, FusionResizeCatScheduler3_CUDA) {
   std::vector<int64_t> shape2({3, 4});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -931,7 +909,6 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -966,7 +943,6 @@ TEST_F(NVFuserTest, FusionResizeSlice2_CUDA) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1071,7 +1047,6 @@ TEST_F(NVFuserTest, FusionResizeSlice4_CUDA) {
   tv7->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1127,7 +1102,6 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1166,7 +1140,6 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
   std::vector<int64_t> shape({9});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1204,7 +1177,6 @@ TEST_F(NVFuserTest, FusionResizePadReduceScheduler1_CUDA) {
   std::vector<int64_t> pad_extents{1, 2, 2, 1};
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1250,7 +1222,6 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler1_CUDA) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   std::vector<int64_t> shape({123, 999});
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
@@ -1305,7 +1276,6 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler2_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   std::vector<int64_t> shape({123, 1024});
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
@@ -1360,7 +1330,6 @@ TEST_F(NVFuserTest, FusionSliceReduceScheduler3_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   std::vector<int64_t> shape({123, 999});
   std::vector<int64_t> slice_inputs({1, shape[1] - 2});
@@ -1411,7 +1380,6 @@ TEST_F(NVFuserTest, FusionResizeCatReduceScheduler1_CUDA) {
   std::vector<int64_t> shape1({shape0[0], 13});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -1449,7 +1417,6 @@ TEST_F(NVFuserTest, FusionResizeCatSoftmaxScheduler1_CUDA) {
   std::vector<int64_t> shape1({shape0[0], 100});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
@@ -1488,7 +1455,6 @@ TEST_F(NVFuserTest, FusionResizeReductionSliceScheduler1_CUDA) {
   std::vector<int64_t> shape0({10, 1234});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1528,7 +1494,6 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler1_CUDA) {
   std::vector<int64_t> shape0({13, 1234});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1570,7 +1535,6 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
   std::vector<int64_t> shape0({110, 12345});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1609,7 +1573,6 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1640,7 +1603,6 @@ TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::ones(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1671,7 +1633,6 @@ TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::ones(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1727,7 +1688,6 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT1_CUDA) {
   fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(input_shape0, options);
   auto t1 = at::randn(input_shape1, options);
@@ -1799,7 +1759,6 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   fusion.addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(input_shape0, options);
   auto t1 = at::randn(input_shape1, options);
@@ -1923,7 +1882,6 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -1978,7 +1936,6 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
   std::vector<int64_t> shape({4, 8});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -2020,7 +1977,6 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -2103,7 +2059,6 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
   fusion->addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -2156,7 +2111,6 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
   fe.compileFusion(fusion.get());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
