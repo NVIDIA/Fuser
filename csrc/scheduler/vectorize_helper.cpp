@@ -218,9 +218,16 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
           reference_ids.end()) {
         reordered_rfactor.push_back(id);
-        // Initiailze the extent for the mapped iter domain
+        // Initialize the extent for the mapped iter domain
         ProjectedExtent pe;
-        pe.multiplyNumeratorValue(commonOrConstExtent(ca_map_, id));
+        auto ext = commonOrConstExtent(ca_map_, id);
+        if (ext->isConstInt() && ext->evaluateInt() == 0) {
+          // A size-zero extent ID will be predicated out always, so it should
+          // not affect the projected extent calculation
+          continue;
+        } else {
+          pe.multiplyNumeratorValue(ext);
+        }
         addProjectedExtent(id, pe);
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
@@ -239,9 +246,16 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
           reference_ids.end()) {
         reordered_root.push_back(id);
-        // Initiailze the extent for the mapped iter domain
+        // Initialize the extent for the mapped iter domain
         ProjectedExtent pe;
-        pe.multiplyNumeratorValue(commonOrConstExtent(ca_map_, id));
+        auto ext = commonOrConstExtent(ca_map_, id);
+        if (ext->isConstInt() && ext->evaluateInt() == 0) {
+          // A size-zero extent ID will be predicated out always, so it should
+          // not affect the projected extent calculation
+          continue;
+        } else {
+          pe.multiplyNumeratorValue(ext);
+        }
         addProjectedExtent(id, pe);
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
