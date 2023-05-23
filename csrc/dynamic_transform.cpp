@@ -339,11 +339,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
           incomplete_out_tv, concrete_reshape_out_tv);
     }
 
-    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    auto new_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    for (auto i : c10::irange(old_rfactor.size())) {
-      registerMutation(old_rfactor[i], new_rfactor[i]);
-    }
     incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
   }
 }
