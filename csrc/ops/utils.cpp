@@ -242,16 +242,15 @@ std::vector<IterDomain*> newOutputDomain(
     // Symbolic if there are any Symbolic inputs else Broadcast.
     for (const auto i : c10::irange(dom.size())) {
       auto iter_type = dom[i]->getIterType();
-      if (iter_types[i].has_value()) {
+      auto prev_iter_type = iter_types[i];
+      if (prev_iter_type.has_value()) {
         // Clang-tidy complains about unchecked access to optional value here
-        // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
-        auto prev_iter_type = iter_types[i].value();
         if (iter_type == IterType::Iteration &&
-            prev_iter_type == IterType::Symbolic) {
+            prev_iter_type.value() == IterType::Symbolic) {
           // Prefer the Iteration extent, since Symbolic could be broadcast
           extent_vals[i] = nullptr;
         } else if (iter_type == IterType::Symbolic) {
-          switch (prev_iter_type) {
+          switch (prev_iter_type.value()) {
             case IterType::Iteration:
               // Previously found Iteration domain, so ignore all Symbolic
               // domains
@@ -285,7 +284,7 @@ std::vector<IterDomain*> newOutputDomain(
               TORCH_CHECK(
                   false,
                   "Encountered unexpected IterType when creating new output domain: ",
-                  prev_iter_type);
+                  prev_iter_type.value());
           }
         }
       }
@@ -297,10 +296,9 @@ std::vector<IterDomain*> newOutputDomain(
         continue;
       }
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
-      if (iter_types[i].has_value()) {
+      if (prev_iter_type.has_value()) {
         iter_types[i] =
-            // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
-            promoteIterType(iter_types[i].value(), dom[i]->getIterType());
+            promoteIterType(prev_iter_type.value(), dom[i]->getIterType());
       } else {
         iter_types[i] = dom[i]->getIterType();
       }
@@ -322,22 +320,21 @@ std::vector<IterDomain*> newOutputDomain(
     }
   }
   for (const auto dim_i : c10::irange(out_domain.size())) {
-    if (iter_types[dim_i] == IterType::Symbolic &&
-        mismatched_symbolic_extents[dim_i]) {
+    auto iter_type = iter_types[dim_i];
+    if (iter_type == IterType::Symbolic && mismatched_symbolic_extents[dim_i]) {
       // if we have a symbolic output but the input symbolic extents did not
       // match, create a new extent
       extent_vals[dim_i] = nullptr;
     }
     if (extent_vals[dim_i] != nullptr) {
       TORCH_INTERNAL_ASSERT(
-          iter_types[dim_i].has_value(),
+          iter_type.has_value(),
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
               IrBuilder::create<Int>(start_offsets[dim_i]), extent_vals[dim_i])
               .stop_offset(IrBuilder::create<Int>(stop_offsets[dim_i]))
-              // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
-              .iter_type(iter_types[dim_i].value())
+              .iter_type(iter_type.value())
               .build();
     } else {
       out_domain[dim_i] = IterDomainBuilder(
