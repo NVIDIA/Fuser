@@ -1733,6 +1733,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
     auto ee = executor_utils::bindInputs(args, kernel());
     // TODO update kir::Kernel with fast GpuLower
+    // TODO create secondary struct that takes elements from KernelSummary that
+    // are only used in Executor. Reason: Minimize information necessary for
+    // Executor serialization.
     auto arg_buffer = args.getBuffer(
         kernel_summary_.index_type_, getTvsForKernelArguments(), ee);
     if (!kernel()->summary().has_cooperative_grid_reduction) {
@@ -1902,8 +1905,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   std::cout << "===" << std::endl;
   serde::ExpressionSerde es;
-  es.bind(kernel());
-  es.generate();
+  es.serialize(builder, kernel());
   std::cout << "end serialize" << std::endl;
 
   return serde::CreateFusionExecutorDirect(

@@ -42,6 +42,15 @@ struct ComplexDoubleBuilder;
 struct ComplexFloat;
 struct ComplexFloatBuilder;
 
+struct TensorShape;
+struct TensorShapeBuilder;
+
+struct Instruction;
+struct InstructionBuilder;
+
+struct NaiveValueGenerator;
+struct NaiveValueGeneratorBuilder;
+
 struct ScalarCpu;
 struct ScalarCpuBuilder;
 
@@ -56,9 +65,6 @@ struct ArgAbstractBuilder;
 
 struct KernelArgumentHolder;
 struct KernelArgumentHolderBuilder;
-
-struct TensorShape;
-struct TensorShapeBuilder;
 
 struct LaunchParams;
 struct LaunchParamsBuilder;
@@ -464,6 +470,125 @@ inline const char* EnumNameRecordType(RecordType e) {
     return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesRecordType()[index];
+}
+
+enum UnaryOpType : int32_t {
+  UnaryOpType_Cast = 0,
+  UnaryOpType_Neg = 1,
+  UnaryOpType_None = 2,
+  UnaryOpType_MIN = UnaryOpType_Cast,
+  UnaryOpType_MAX = UnaryOpType_None
+};
+
+inline const UnaryOpType (&EnumValuesUnaryOpType())[3] {
+  static const UnaryOpType values[] = {
+      UnaryOpType_Cast, UnaryOpType_Neg, UnaryOpType_None};
+  return values;
+}
+
+inline const char* const* EnumNamesUnaryOpType() {
+  static const char* const names[4] = {"Cast", "Neg", "None", nullptr};
+  return names;
+}
+
+inline const char* EnumNameUnaryOpType(UnaryOpType e) {
+  if (::flatbuffers::IsOutRange(e, UnaryOpType_Cast, UnaryOpType_None))
+    return "";
+  const size_t index = static_cast<size_t>(e);
+  return EnumNamesUnaryOpType()[index];
+}
+
+enum BinaryOpType : int32_t {
+  BinaryOpType_Add = 0,
+  BinaryOpType_And = 1,
+  BinaryOpType_CeilDiv = 2,
+  BinaryOpType_Div = 3,
+  BinaryOpType_Max = 4,
+  BinaryOpType_Merge = 5,
+  BinaryOpType_Min = 6,
+  BinaryOpType_Mod = 7,
+  BinaryOpType_Mul = 8,
+  BinaryOpType_Split = 9,
+  BinaryOpType_Sub = 10,
+  BinaryOpType_None = 11,
+  BinaryOpType_MIN = BinaryOpType_Add,
+  BinaryOpType_MAX = BinaryOpType_None
+};
+
+inline const BinaryOpType (&EnumValuesBinaryOpType())[12] {
+  static const BinaryOpType values[] = {
+      BinaryOpType_Add,
+      BinaryOpType_And,
+      BinaryOpType_CeilDiv,
+      BinaryOpType_Div,
+      BinaryOpType_Max,
+      BinaryOpType_Merge,
+      BinaryOpType_Min,
+      BinaryOpType_Mod,
+      BinaryOpType_Mul,
+      BinaryOpType_Split,
+      BinaryOpType_Sub,
+      BinaryOpType_None};
+  return values;
+}
+
+inline const char* const* EnumNamesBinaryOpType() {
+  static const char* const names[13] = {
+      "Add",
+      "And",
+      "CeilDiv",
+      "Div",
+      "Max",
+      "Merge",
+      "Min",
+      "Mod",
+      "Mul",
+      "Split",
+      "Sub",
+      "None",
+      nullptr};
+  return names;
+}
+
+inline const char* EnumNameBinaryOpType(BinaryOpType e) {
+  if (::flatbuffers::IsOutRange(e, BinaryOpType_Add, BinaryOpType_None))
+    return "";
+  const size_t index = static_cast<size_t>(e);
+  return EnumNamesBinaryOpType()[index];
+}
+
+enum InstructionType : int32_t {
+  InstructionType_Binary = 0,
+  InstructionType_NamedString = 1,
+  InstructionType_Scalar = 2,
+  InstructionType_Symbolic = 3,
+  InstructionType_Unary = 4,
+  InstructionType_MIN = InstructionType_Binary,
+  InstructionType_MAX = InstructionType_Unary
+};
+
+inline const InstructionType (&EnumValuesInstructionType())[5] {
+  static const InstructionType values[] = {
+      InstructionType_Binary,
+      InstructionType_NamedString,
+      InstructionType_Scalar,
+      InstructionType_Symbolic,
+      InstructionType_Unary};
+  return values;
+}
+
+inline const char* const* EnumNamesInstructionType() {
+  static const char* const names[6] = {
+      "Binary", "NamedString", "Scalar", "Symbolic", "Unary", nullptr};
+  return names;
+}
+
+inline const char* EnumNameInstructionType(InstructionType e) {
+  if (::flatbuffers::IsOutRange(
+          e, InstructionType_Binary, InstructionType_Unary))
+    return "";
+  const size_t index = static_cast<size_t>(e);
+  return EnumNamesInstructionType()[index];
 }
 
 enum RecordData : uint8_t {
@@ -1321,6 +1446,258 @@ inline ::flatbuffers::Offset<ComplexFloat> CreateComplexFloat(
   return builder_.Finish();
 }
 
+struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorShapeBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SHAPE = 4
+  };
+  const ::flatbuffers::Vector<int64_t>* shape() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SHAPE);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
+        verifier.VerifyVector(shape()) && verifier.EndTable();
+  }
+};
+
+struct TensorShapeBuilder {
+  typedef TensorShape Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
+    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
+  }
+  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<TensorShape> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<TensorShape>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
+  TensorShapeBuilder builder_(_fbb);
+  builder_.add_shape(shape);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    const std::vector<int64_t>* shape = nullptr) {
+  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
+  return nvfuser::serde::CreateTensorShape(_fbb, shape__);
+}
+
+struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef InstructionBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INSTRUCTION = 4,
+    VT_UNARY_TYPE = 6,
+    VT_BINARY_TYPE = 8,
+    VT_DATA_TYPE = 10,
+    VT_SRC0 = 12,
+    VT_SRC1 = 14,
+    VT_DEST = 16,
+    VT_NAME = 18
+  };
+  nvfuser::serde::InstructionType instruction() const {
+    return static_cast<nvfuser::serde::InstructionType>(
+        GetField<int32_t>(VT_INSTRUCTION, 0));
+  }
+  nvfuser::serde::UnaryOpType unary_type() const {
+    return static_cast<nvfuser::serde::UnaryOpType>(
+        GetField<int32_t>(VT_UNARY_TYPE, 0));
+  }
+  nvfuser::serde::BinaryOpType binary_type() const {
+    return static_cast<nvfuser::serde::BinaryOpType>(
+        GetField<int32_t>(VT_BINARY_TYPE, 0));
+  }
+  nvfuser::serde::DataType data_type() const {
+    return static_cast<nvfuser::serde::DataType>(
+        GetField<int32_t>(VT_DATA_TYPE, 0));
+  }
+  int32_t src0() const {
+    return GetField<int32_t>(VT_SRC0, 0);
+  }
+  int32_t src1() const {
+    return GetField<int32_t>(VT_SRC1, 0);
+  }
+  int32_t dest() const {
+    return GetField<int32_t>(VT_DEST, 0);
+  }
+  const ::flatbuffers::String* name() const {
+    return GetPointer<const ::flatbuffers::String*>(VT_NAME);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) &&
+        VerifyField<int32_t>(verifier, VT_INSTRUCTION, 4) &&
+        VerifyField<int32_t>(verifier, VT_UNARY_TYPE, 4) &&
+        VerifyField<int32_t>(verifier, VT_BINARY_TYPE, 4) &&
+        VerifyField<int32_t>(verifier, VT_DATA_TYPE, 4) &&
+        VerifyField<int32_t>(verifier, VT_SRC0, 4) &&
+        VerifyField<int32_t>(verifier, VT_SRC1, 4) &&
+        VerifyField<int32_t>(verifier, VT_DEST, 4) &&
+        VerifyOffset(verifier, VT_NAME) && verifier.VerifyString(name()) &&
+        verifier.EndTable();
+  }
+};
+
+struct InstructionBuilder {
+  typedef Instruction Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_instruction(nvfuser::serde::InstructionType instruction) {
+    fbb_.AddElement<int32_t>(
+        Instruction::VT_INSTRUCTION, static_cast<int32_t>(instruction), 0);
+  }
+  void add_unary_type(nvfuser::serde::UnaryOpType unary_type) {
+    fbb_.AddElement<int32_t>(
+        Instruction::VT_UNARY_TYPE, static_cast<int32_t>(unary_type), 0);
+  }
+  void add_binary_type(nvfuser::serde::BinaryOpType binary_type) {
+    fbb_.AddElement<int32_t>(
+        Instruction::VT_BINARY_TYPE, static_cast<int32_t>(binary_type), 0);
+  }
+  void add_data_type(nvfuser::serde::DataType data_type) {
+    fbb_.AddElement<int32_t>(
+        Instruction::VT_DATA_TYPE, static_cast<int32_t>(data_type), 0);
+  }
+  void add_src0(int32_t src0) {
+    fbb_.AddElement<int32_t>(Instruction::VT_SRC0, src0, 0);
+  }
+  void add_src1(int32_t src1) {
+    fbb_.AddElement<int32_t>(Instruction::VT_SRC1, src1, 0);
+  }
+  void add_dest(int32_t dest) {
+    fbb_.AddElement<int32_t>(Instruction::VT_DEST, dest, 0);
+  }
+  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
+    fbb_.AddOffset(Instruction::VT_NAME, name);
+  }
+  explicit InstructionBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<Instruction> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<Instruction>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<Instruction> CreateInstruction(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    nvfuser::serde::InstructionType instruction =
+        nvfuser::serde::InstructionType_Binary,
+    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_Cast,
+    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_Add,
+    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_Double,
+    int32_t src0 = 0,
+    int32_t src1 = 0,
+    int32_t dest = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
+  InstructionBuilder builder_(_fbb);
+  builder_.add_name(name);
+  builder_.add_dest(dest);
+  builder_.add_src1(src1);
+  builder_.add_src0(src0);
+  builder_.add_data_type(data_type);
+  builder_.add_binary_type(binary_type);
+  builder_.add_unary_type(unary_type);
+  builder_.add_instruction(instruction);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<Instruction> CreateInstructionDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    nvfuser::serde::InstructionType instruction =
+        nvfuser::serde::InstructionType_Binary,
+    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_Cast,
+    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_Add,
+    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_Double,
+    int32_t src0 = 0,
+    int32_t src1 = 0,
+    int32_t dest = 0,
+    const char* name = nullptr) {
+  auto name__ = name ? _fbb.CreateString(name) : 0;
+  return nvfuser::serde::CreateInstruction(
+      _fbb,
+      instruction,
+      unary_type,
+      binary_type,
+      data_type,
+      src0,
+      src1,
+      dest,
+      name__);
+}
+
+struct NaiveValueGenerator FLATBUFFERS_FINAL_CLASS
+    : private ::flatbuffers::Table {
+  typedef NaiveValueGeneratorBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INSTRUCTIONS = 4
+  };
+  const ::flatbuffers::Vector<
+      ::flatbuffers::Offset<nvfuser::serde::Instruction>>*
+  instructions() const {
+    return GetPointer<const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<nvfuser::serde::Instruction>>*>(VT_INSTRUCTIONS);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) &&
+        VerifyOffset(verifier, VT_INSTRUCTIONS) &&
+        verifier.VerifyVector(instructions()) &&
+        verifier.VerifyVectorOfTables(instructions()) && verifier.EndTable();
+  }
+};
+
+struct NaiveValueGeneratorBuilder {
+  typedef NaiveValueGenerator Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_instructions(
+      ::flatbuffers::Offset<::flatbuffers::Vector<
+          ::flatbuffers::Offset<nvfuser::serde::Instruction>>> instructions) {
+    fbb_.AddOffset(NaiveValueGenerator::VT_INSTRUCTIONS, instructions);
+  }
+  explicit NaiveValueGeneratorBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<NaiveValueGenerator> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<NaiveValueGenerator>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<NaiveValueGenerator> CreateNaiveValueGenerator(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<
+        ::flatbuffers::Offset<nvfuser::serde::Instruction>>> instructions = 0) {
+  NaiveValueGeneratorBuilder builder_(_fbb);
+  builder_.add_instructions(instructions);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<NaiveValueGenerator>
+CreateNaiveValueGeneratorDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::Instruction>>*
+        instructions = nullptr) {
+  auto instructions__ = instructions
+      ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::Instruction>>(
+            *instructions)
+      : 0;
+  return nvfuser::serde::CreateNaiveValueGenerator(_fbb, instructions__);
+}
+
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -1767,53 +2144,6 @@ CreateKernelArgumentHolderDirect(
       : 0;
   return nvfuser::serde::CreateKernelArgumentHolder(
       _fbb, arguments__, device_index, cache_id);
-}
-
-struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef TensorShapeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SHAPE = 4
-  };
-  const ::flatbuffers::Vector<int64_t>* shape() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SHAPE);
-  }
-  bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
-        verifier.VerifyVector(shape()) && verifier.EndTable();
-  }
-};
-
-struct TensorShapeBuilder {
-  typedef TensorShape Table;
-  ::flatbuffers::FlatBufferBuilder& fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
-    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
-  }
-  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
-      : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<TensorShape> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<TensorShape>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
-  TensorShapeBuilder builder_(_fbb);
-  builder_.add_shape(shape);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    const std::vector<int64_t>* shape = nullptr) {
-  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
-  return nvfuser::serde::CreateTensorShape(_fbb, shape__);
 }
 
 struct LaunchParams FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

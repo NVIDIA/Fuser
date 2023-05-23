@@ -16,30 +16,16 @@ class ExpressionSerde {
  public:
   ExpressionSerde() = default;
 
-  void bind(kir::Kernel* kernel);
-
-  void bind(TensorView* tv, bool is_input = false);
-
-  void bind(std::vector<IterDomain*> domain, bool is_input = false) {
-    for (auto d : domain) {
-      bind(d->extent(), is_input);
-    }
-  }
-
-  void bind(Val* v, bool is_input = false) {
-    if (is_input) {
-      input_values_.push_back(v);
-    }
-    all_values_.push_back(v);
-  }
-
-  void generate();
+  flatbuffers::Offset<serde::NaiveValueGenerator> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      kir::Kernel* kernel);
 
  private:
-  void bindInputs(kir::Kernel* kernel);
-
   std::vector<Val*> all_values_;
-  std::vector<Val*> input_values_;
+  std::unordered_set<std::string> named_scalar_values_;
+  std::unordered_set<int64_t> const_values_;
+  std::unordered_set<Val*> symbolic_values_;
+  std::vector<Val*> derived_values_;
 };
 
 } // namespace nvfuser::serde

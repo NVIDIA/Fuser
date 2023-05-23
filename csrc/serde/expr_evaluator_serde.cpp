@@ -65,19 +65,6 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
   return sorted;
 }
 
-} // namespace
-
-void ExpressionSerde::generate() {
-  auto list = makeSortedEvaluationList(all_values_);
-  for (auto v : list) {
-    if (NamedScalar* ns = dynamic_cast<NamedScalar*>(v)) {
-      std::cout << "named scalar\t" << ns->toString() << std::endl;
-    } else {
-      std::cout << "es input\t" << v->toString() << std::endl;
-    }
-  }
-}
-
 //! Kernel IR utility, collects all the symbolic values used in allocation
 //! nodes.
 std::vector<kir::Allocate*> collectBufferSizes(
@@ -105,44 +92,132 @@ std::vector<kir::Allocate*> collectBufferSizes(
   return buffers;
 }
 
-void ExpressionSerde::bind(kir::Kernel* kernel) {
-  // Collect allocation sizes:
-  for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
-    if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        bind(tv);
-      }
-    }
-  }
-  bindInputs(kernel);
+void bind(std::vector<Val*>& all_values, Val* v) {
+  all_values.push_back(v);
 }
 
-void ExpressionSerde::bind(TensorView* tv, bool is_input) {
+void bind(std::vector<Val*>& all_values, std::vector<IterDomain*> domain) {
+  for (auto d : domain) {
+    bind(all_values, d->extent());
+  }
+}
+
+void bind(std::vector<Val*>& all_values, TensorView* tv) {
   if (tv->getMemoryType() != MemoryType::Global) {
     return;
   }
-  if (is_input) {
-    bind(tv->getMaybeRFactorDomain(), is_input);
-    return;
-  }
-  bind(tv->getRootDomain());
-  bind(tv->getRFactorDomain());
-  bind(tv->getAllocationDomain());
-  bind(tv->getLeafDomain());
+  bind(all_values, tv->getRootDomain());
+  bind(all_values, tv->getRFactorDomain());
+  bind(all_values, tv->getAllocationDomain());
+  bind(all_values, tv->getLeafDomain());
 }
 
-void ExpressionSerde::bindInputs(kir::Kernel* kernel) {
-  for (auto input : kernel->inputs()) {
-    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
-      bind(tv, true /* is_inputs */);
-    } else {
-      bind(input, true /* is_inputs */);
+} // namespace
+
+flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerde::serialize(flatbuffers::FlatBufferBuilder& builder, kir::Kernel* kernel) {
+  // Collect allocation sizes:
+  std::vector<Val*> all_values;
+  for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
+    if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
+      bind(all_values, tv);
     }
   }
-  auto list = makeSortedEvaluationList(input_values_);
+  auto list = makeSortedEvaluationList(all_values);
+
   for (auto v : list) {
-    std::cout << "es input\t" << v->toString() << std::endl;
+    if (v->definition() == nullptr) {
+      if (NamedScalar* ns = dynamic_cast<NamedScalar*>(v)) {
+        named_scalar_values_.insert(ns->name());
+      } else if (v->isConstScalar()) {
+        const_values_.insert(v->evaluateInt());
+      } else {
+        symbolic_values_.insert(v);
+      }
+    } else {
+      derived_values_.push_back(v);
+    }
   }
+
+  /*
+  table NaiveValueGenerator {
+    instructions : [Instruction];
+  }
+
+  table Instruction {
+    instruction : InstructionType;
+    unary_type : UnaryOpType;
+    binary_type : BinaryOpType;
+    data_type : DataType;
+    src0 : int;
+    src1 : int;
+    dest : int;
+    name : string;
+  }
+  */
+
+  using fb_instruction = flatbuffers::Offset<serde::Instruction>;
+  std::vector<fb_instruction> instructions_fb;
+
+  for(const auto& name : named_scalar_values_) {
+    auto inst = serde::CreateInstructionDirect(
+        builder,
+        serde::InstructionType_NamedString,
+        serde::UnaryOpType_None,
+        serde::BinaryOpType_None,
+        serde::DataType_None,
+        0,
+        0,
+        0,
+        name.c_str());
+    instructions_fb.push_back(inst);
+  }
+
+  for(const auto& v : const_values_) {
+    auto inst = serde::CreateInstructionDirect(
+        builder,
+        serde::InstructionType_Scalar,
+        serde::UnaryOpType_None,
+        serde::BinaryOpType_None,
+        serde::DataType_Int,
+        v,
+        0,
+        0,
+        nullptr /* name */);
+    instructions_fb.push_back(inst);
+  }
+  for(auto& val : symbolic_values_) {
+    auto inst = serde::CreateInstructionDirect(
+        builder,
+        serde::InstructionType_Symbolic,
+        serde::UnaryOpType_None,
+        serde::BinaryOpType_None,
+        serde::DataType_Int,
+        val->name(),
+        0,
+        0,
+        val->toString().c_str());
+    instructions_fb.push_back(inst);
+  }
+
+  for(auto& val : derived_values_) {
+    auto def = val->definition();
+    TORCH_INTERNAL_ASSERT(def, "Expected definition with derived value.");
+    if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+      // TODO
+      // auto inst = makeUnaryOp(uop);
+      // instructions_fb.push_back(inst);
+      std::cout << uop->toString() << std::endl;
+    } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
+      // TODO
+      // auto inst = makeBinaryOp(bop);
+      // instructions_fb.push_back(inst);
+      std::cout << bop->toString() << std::endl;
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "Unknown Expression.");
+    }
+  }
+
+  return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
 }
 
 } // namespace nvfuser::serde

@@ -14,7 +14,7 @@ file_identifier "NV00";
 // Enum definitions
 
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType:int {
+enum DataType : int {
     Double = 0,
     Float,
     Half,
@@ -29,13 +29,14 @@ enum DataType:int {
 
 // The StateType enum is used to indicate the whether the state object is a
 // Scalar or Tensor.
-enum StateType:int {
+enum StateType : int {
     Tensor = 0,
     Scalar,
     None,
 }
 
-enum Contiguity:int {
+// Contiguity state for Tensor
+enum Contiguity : int {
     Strided = 0,
     Contiguous,
     None,
@@ -45,7 +46,7 @@ enum Contiguity:int {
 // Otherwise, the record type is determined via the success of dynamic casting.
 // We enumerate the template arguments of a RecordFunctor, so we can specify
 // them during deserialization.
-enum RecordType:int {
+enum RecordType : int {
     Base = 0,
     BatchNormOp,
     BroadcastOp,
@@ -109,10 +110,39 @@ enum RecordType:int {
     VarianceMeanOp,
 }
 
+enum UnaryOpType : int {
+  Cast = 0,
+  Neg,
+  None,
+}
+
+enum BinaryOpType : int {
+  Add = 0,
+  And,
+  CeilDiv,
+  Div,
+  Max,
+  Merge,
+  Min,
+  Mod,
+  Mul,
+  Split,
+  Sub,
+  None,
+}
+
+enum InstructionType : int {
+  Binary = 0,
+  NamedString,
+  Scalar,
+  Symbolic,
+  Unary,
+}
+
 // =====================================================================================
 // Union definitions
 
-// The RecordData hold the attribute information for each Record Functor.
+// The RecordData union holds the attribute information for each Record Functor.
 union RecordData {
   BatchNorm,
   Bool,
@@ -140,6 +170,7 @@ union RecordData {
   TensorCreationSymbolic,
 }
 
+// The ArgAbstractData union holds the attribute information for each ArgAbstract.
 union ArgAbstractData {
   Bool,
   ComplexDouble,
@@ -150,6 +181,7 @@ union ArgAbstractData {
   TensorArg,
 }
 
+// The ScalarCpuData union holds the attribute information for each ScalarCpu.
 union ScalarCpuData {
   Bool,
   ComplexDouble,
@@ -212,19 +244,48 @@ table ComplexFloat {
   imag: float;
 }
 
+// Data representing a tensor shape
+table TensorShape {
+  shape : [long];
+}
+
 //
 // =====================================================================================
 
+table Instruction {
+  instruction : InstructionType;
+  unary_type : UnaryOpType;
+  binary_type : BinaryOpType;
+  data_type : DataType;
+  src0 : int;
+  src1 : int;
+  dest : int;
+  name : string;
+}
+
+// NaiveValueGenerator creates Fusion IR values
+// 1. Extents for IterDomains
+// 2. Create new extents using split and merge operations
+table NaiveValueGenerator {
+  instructions : [Instruction];
+}
+
+//
+// =====================================================================================
+
+// The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
   instance : [byte];
   size : ulong;
 }
 
+// Data of PhiloxCudaState
 table PhiloxCudaState {
   seed : ulong;
   offset : ulong;
 }
 
+// Data of TensorArg
 table TensorArg {
   ptr : ulong;
   sizes : [long];
@@ -234,18 +295,15 @@ table TensorArg {
   index_type_resolved : bool;
 }
 
+// This table corresponds with a given ArgAbstract object.
 table ArgAbstract {
-  data  : ArgAbstractData;
+  data : ArgAbstractData;
 }
 
 table KernelArgumentHolder {
   arguments : [ArgAbstract];
   device_index : byte;
   cache_id : ulong;
-}
-
-table TensorShape {
-  shape : [long];
 }
 
 table LaunchParams {
