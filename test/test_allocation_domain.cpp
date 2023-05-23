@@ -889,6 +889,170 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// Similar to NHWC4d_To_NHWC4d_CUDA, but does a cacheFork
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  std::vector<IterDomain*> tv0_nhwc = {
+      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_nhwc, true);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  std::vector<IterDomain*> tv2_nhwc = {
+      tv2->axis(0), tv2->axis(2), tv2->axis(3), tv2->axis(1)};
+  tv2->setAllocationDomain(tv2_nhwc, true);
+
+  auto tv3 = tv1->cacheFork();
+
+  std::vector<IterDomain*> expected_new_allocation_domain{
+      tv3->axis(0), tv3->axis(2), tv3->axis(3), tv3->axis(1)};
+
+  ASSERT_EQ(tv0->getAllocationDomain(), tv0_nhwc);
+  ASSERT_EQ(tv1->getAllocationDomain(), tv1_nhwc);
+  ASSERT_EQ(tv2->getAllocationDomain(), tv2_nhwc);
+  ASSERT_EQ(tv3->getAllocationDomain(), expected_new_allocation_domain);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    // [N, C, H, W]
+    tv->reorder({{1, -1}});
+    // [N, H, W, C]
+    tv->merge(0);
+    tv->merge(0);
+    tv->merge(0);
+    // [N*H*W*C]
+    tv->split(0, 4);
+    tv->axis(1)->parallelize(ParallelType::Vectorize);
+    tv->split(0, 128);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    // [BIDx, TIDx, V]
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 =
+      t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
+}
+
+// Similar to NHWC2d_To_NHWC2d_CUDA, but does a cacheFork
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h / 8, 8 * w * c});
+  fusion.addInput(tv0);
+
+  std::vector<IterDomain*> tv0_2d = {tv0->axis(0), tv0->axis(1)};
+  tv0->setAllocationDomain(tv0_2d, true);
+  tv0->merge(0);
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
+  // [N, H, W, C]
+  tv0->reorder({{-1, 1}});
+  // [N, C, H, W]
+  tv0->commitLeafToRFactor();
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  for (auto tv : {tv1, tv2}) {
+    // [N, C, H, W]
+    tv->reorder({{1, -1}});
+    // [N, H, W, C]
+    tv->merge(0);
+    tv->merge(1);
+    tv->merge(0);
+    // [N*H*W*C]
+
+    tv->split(0, 4);
+    // [N*H*W*C/4, 4]
+  }
+
+  std::vector<IterDomain*> tv2_2d = {tv2->axis(0), tv2->axis(1)};
+  tv2->setAllocationDomain(tv2_2d, true);
+
+  auto tv3 = tv1->cacheFork();
+
+  std::vector<IterDomain*> expected_new_allocation_domain{
+      tv3->getMaybeRFactorDomain().at(0),
+      tv3->getMaybeRFactorDomain().at(2),
+      tv3->getMaybeRFactorDomain().at(3),
+      tv3->getMaybeRFactorDomain().at(1)};
+
+  ASSERT_EQ(tv0->getAllocationDomain(), tv0_2d);
+  ASSERT_EQ(tv1->getAllocationDomain(), tv1_nhwc);
+  ASSERT_EQ(tv2->getAllocationDomain(), tv2_2d);
+  ASSERT_EQ(tv3->getAllocationDomain(), expected_new_allocation_domain);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(2)->parallelize(ParallelType::Vectorize);
+    // [BIDx, TIDx, V]
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 =
+      t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion({t0_wrong_format}); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+
+  auto cg_outputs = fe.runFusion({t0});
+
+  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
+}
+
 // Check that the maximum vectorizable width is computed correctly
 TEST_F(AllocationDomainTest, NHWCMaxVectorizableWidth_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
