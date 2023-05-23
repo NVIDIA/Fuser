@@ -2217,7 +2217,7 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
       "Concretization should fail when passing incompatible sizes");
   TORCH_CHECK(
       exc_msg.value().find(
-          "must concretize to Broadcast IterDomain but found") !=
+          "must concretize to IterType::Broadcast but found") !=
           std::string::npos,
       "Found incorrect exception: ",
       exc_msg.value());

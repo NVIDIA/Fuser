@@ -899,6 +899,42 @@ std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
+  Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
+  TORCH_CHECK(
+      old_val == in(),
+      "Pre-concretized Val ",
+      old_val->toString(),
+      " does not match input TV ",
+      in()->toString());
+  auto old_tv = old_val->as<TensorView>();
+  auto new_tv = new_val->as<
+      TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
+  auto old_rfactor = old_tv->getMaybeRFactorDomain();
+  auto new_rfactor = new_tv->getMaybeRFactorDomain();
+  TORCH_CHECK(
+      new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
+      "New TV ",
+      new_tv->toString(),
+      " has rfactor of length ",
+      new_rfactor.size(),
+      " but expected ",
+      old_tv->getMaybeRFactorDomain().size());
+  auto flags = getSqueezeDimFlags();
+  for (auto i : c10::irange(flags.size())) {
+    if (!flags.at(i)) {
+      continue;
+    }
+    // Check that squeezed dimension concretizes to Broadcast
+    TORCH_CHECK(
+        new_rfactor.at(i)->getIterType() == IterType::Broadcast,
+        "Squeezed IterDomain ",
+        old_rfactor.at(i)->toString(),
+        " must concretize to IterType::Broadcast but found ",
+        new_rfactor.at(i)->toString());
+  }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SqueezeOp)
 
 ReductionOp::ReductionOp(
@@ -3260,7 +3296,6 @@ void TensorDomain::setAllocationDomain(
 }
 
 void SqueezeID::checkConcretization(Val* old_val, Val* new_val) const {
-  TORCH_CHECK(old_val && new_val, "Cannot check concretization with nullptrs");
   Expr::checkConcretization(old_val, new_val);
   if (auto new_id = dynamic_cast<IterDomain*>(new_val)) {
     TORCH_CHECK(

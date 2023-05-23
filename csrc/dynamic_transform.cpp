@@ -280,7 +280,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
   }
 
   //! Check uses of old_val to ensure that new_val does not violate
-  //! assumptions. This is currently only used to check that inputs to SqueezeID
+  //! assumptions. This is currently only used to check that inputs to SqueezeOp
   //! are marked broadcast during concretization.
   void checkConcretizedUses(Val* old_val, Val* new_val) const;
 
