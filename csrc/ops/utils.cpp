@@ -232,48 +232,61 @@ std::vector<IterDomain*> newOutputDomain(
         dom.size(),
         " dimensions but expected ",
         out_domain.size());
+    // If there is any Iteration domain, we should use the first one's
+    // extent.
+    //
+    // If all inputs are Symbolic or Broadcast, then we can use the
+    // symbolic extent if all the symbolic extents agree.
+    //
+    // Otherwise, we don't know the output extent and iter_type should be
+    // Symbolic if there are any Symbolic inputs else Broadcast.
     for (const auto i : c10::irange(dom.size())) {
       auto iter_type = dom[i]->getIterType();
-      // If there is any Iteration domain, we should use the first one's
-      // extent.
-      //
-      // If all inputs are Symbolic or Broadcast, then we can use the
-      // symbolic extent if all the symbolic extents agree.
-      //
-      // Otherwise, we don't know the output extent and iter_type should be
-      // Symbolic if there are any Symbolic inputs else Broadcast.
-      if (iter_type == IterType::Iteration && iter_types[i].has_value() &&
-          iter_types[i].value() == IterType::Symbolic) {
-        // Current is Iteration, previous was Symbolic. Erase symbolic since
-        // we'll go with the Iteration extent.
-        extent_vals[i] = nullptr;
-      }
-      if (iter_type == IterType::Symbolic && iter_types[i].has_value()) {
-        switch (iter_types[i].value()) {
-          case IterType::Iteration:
-            // Previously found Iteration domain, so ignore all Symbolic domains
-            continue;
-          case IterType::Symbolic:
-            if (extent_vals[i]->sameAs(dom[i]->extent())) {
-              // Found another matching symbolic domain
+      if (iter_types[i].has_value()) {
+        // Clang-tidy complains about unchecked access to optional value here
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
+        auto prev_iter_type = iter_types[i].value();
+        if (iter_type == IterType::Iteration &&
+            prev_iter_type == IterType::Symbolic) {
+          // Prefer the Iteration extent, since Symbolic could be broadcast
+          extent_vals[i] = nullptr;
+        } else if (iter_type == IterType::Symbolic) {
+          switch (prev_iter_type) {
+            case IterType::Iteration:
+              // Previously found Iteration domain, so ignore all Symbolic
+              // domains
               continue;
-            } else {
-              // Mismatched symbolic input extents => Don't know output extent
-              // TODO: set mismatch_symbolic for this axis
-              mismatched_symbolic_extents[i] = true;
-            }
-            break;
-          case IterType::Broadcast:
-            // Previously found only Broadcast. Output should be symbolic and
-            // default to extent of dom[i]
-            iter_types[i] = std::nullopt;
-            extent_vals[i] = nullptr;
-            break;
-          default:
-            TORCH_CHECK(
-                false,
-                "Encountered unexpected IterType when creating new output domain: ",
-                iter_types[i].value());
+            case IterType::Symbolic:
+              if (extent_vals[i]->sameAs(dom[i]->extent())) {
+                // matching symbolic extent
+                continue;
+              } else {
+                // Mismatched symbolic input extents. Any one of the symbolic
+                // inputs could be a Broadcast or Iteration domain. Until
+                // concretization, we will not know which one holds the true
+                // extent (or whether they all are Broadcast, so that the output
+                // is also Broadcast). We record that these symbolic extents
+                // mismatched so that we can introduce a new symbolic extent
+                // later.
+                mismatched_symbolic_extents[i] = true;
+              }
+              break;
+            case IterType::Broadcast:
+              // Previously found only broadcast, so this will either also
+              // broadcast or resolve those broadcasts. If the expanded
+              // extent of any of the broadcasts is not 1, then it will need to
+              // match that of the dom[i]. In either case, prefer dom[i]'s
+              // extent, so clear iter_types[i] and extent_vals[i] so that the
+              // rest of this iteration will mark output as Symbolic.
+              iter_types[i] = std::nullopt;
+              extent_vals[i] = nullptr;
+              break;
+            default:
+              TORCH_CHECK(
+                  false,
+                  "Encountered unexpected IterType when creating new output domain: ",
+                  prev_iter_type);
+          }
         }
       }
       if (dom[i]->isBroadcast()) {
@@ -286,6 +299,7 @@ std::vector<IterDomain*> newOutputDomain(
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
       if (iter_types[i].has_value()) {
         iter_types[i] =
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
             promoteIterType(iter_types[i].value(), dom[i]->getIterType());
       } else {
         iter_types[i] = dom[i]->getIterType();
@@ -322,6 +336,7 @@ std::vector<IterDomain*> newOutputDomain(
           IterDomainBuilder(
               IrBuilder::create<Int>(start_offsets[dim_i]), extent_vals[dim_i])
               .stop_offset(IrBuilder::create<Int>(stop_offsets[dim_i]))
+              // NOLINTNEXTLINE(bugprone-unchecked-optional-access,-warnings-as-errors)
               .iter_type(iter_types[dim_i].value())
               .build();
     } else {
