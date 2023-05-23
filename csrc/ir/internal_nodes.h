@@ -1390,32 +1390,6 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   }
 };
 
-//! Represents dropping an IterDomain due to squeezing a broadcast dimension
-class TORCH_CUDA_CU_API SqueezeID : public Expr {
- public:
-  using Expr::Expr;
-
-  SqueezeID(IrBuilderPasskey passkey, IterDomain* in) : Expr(passkey) {
-    addInput(in);
-  }
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "SqueezeID";
-  }
-
-  void checkConcretization(Val* old_id, Val* new_id) const override;
-
-  std::string toString(int indent_size = 0) const override;
-
-  std::string toInlineString(int indent_size = 0) const override;
-
-  IterDomain* in() const {
-    return input(0)->as<IterDomain>();
-  }
-};
-
 //! Representation a split on an IterDomain by "factor"
 //! inner_split dictates if the factor section of the split should be inside the
 //! remainer or outside.

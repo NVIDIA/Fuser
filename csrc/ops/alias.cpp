@@ -190,11 +190,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
   std::vector<IterDomain*> out_domain;
   for (const auto idx : c10::irange(ndims)) {
     auto id = x_dom[idx];
-    if (to_squeeze[idx]) {
-      // SqueezeOp constructor checks validity of inputs. Here we just create a
-      // SqueezeID op that represents dropping this dimension.
-      IrBuilder::create<SqueezeID>(x->container(), id);
-    } else {
+    if (!to_squeeze[idx]) {
       out_domain.push_back(id->cloneWithoutRFactor());
     }
   }
