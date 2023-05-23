@@ -312,10 +312,6 @@ void DynamicTransformConcretizer::concretize() {
       mutate(stmt);
     }
   }
-
-  TORCH_CHECK(
-      !info_.fusion()->hasDynamicTransform(),
-      "Fusion has dynamic transforms after concretization");
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
