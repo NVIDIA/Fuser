@@ -518,8 +518,6 @@ void RecordFunctorFactory::registerAllParsers() {
         return new python_frontend::BroadcastInDimOpRecord(
             parseStateArgs(buffer->args()),
             parseStateArgs(buffer->outputs()),
-            buffer->name()->str(),
-            serde::RecordType_BroadcastInDim,
             data->output_size(),
             parseVector(data->broadcast_dims()));
       };

@@ -723,9 +723,6 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return new BroadcastInDimOpRecord(*this);
   }
 
-  inline size_t outputShapeHash(
-      const std::vector<OutputShapeType>& shape) const;
-
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------------------------------------  0 |
   //! | broadcast_dims hash                         |
@@ -759,11 +756,9 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return result;
   }
 
-  //! The operator() call is specialize with th expandShape() method based on
-  //! the OutputShapeType template parameter
   virtual void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto& output_shape = fd.getFusionStateVector(args_.at(1).index);
+    const auto& output_shape = fd.getFusionStateVector(args_.at(1).index);
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
@@ -779,7 +774,6 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         broadcast_dims_.size());
 
     std::vector<bool> is_broadcast_dim(output_size_, true);
-    std::vector<bool> is_expand_dim(output_size_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
       if (idx > 0) {
         TORCH_CHECK(
@@ -790,26 +784,12 @@ struct BroadcastInDimOpRecord : RecordFunctor {
           broadcast_dims_[idx] < static_cast<int>(output_size_),
           "Invalid broadcast_dims value.");
       is_broadcast_dim.at(broadcast_dims_[idx]) = false;
-      // Note: when we expand a broadcasted dimension, we need to expand it
-      // to a concrete size, hence the need for `is_expand_dim` flag and the
-      // expand operation following the broadcast.
-      is_expand_dim.at(broadcast_dims_[idx]) =
-          arg_domains_nr[idx]->isBroadcast();
     }
 
     auto output = broadcast(arg, is_broadcast_dim);
+    auto expanded_output = expand(output, output_shape);
 
-    std::vector<Val*> expand_shape(output_size_, nullptr);
-    std::transform(
-        output_shape.begin(),
-        output_shape.end(),
-        expand_shape.begin(),
-        [&fd](const State& state) {
-          return fd.getFusionState(state.index)->template as<Val>();
-        });
-    output = expand(output, expand_shape);
-
-    fd.setFusionState(outputs_.at(0).index, output);
+    fd.setFusionState(outputs_.at(0).index, expanded_output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {

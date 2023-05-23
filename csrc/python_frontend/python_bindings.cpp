@@ -1734,7 +1734,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("channels_last") = false,
       py::return_value_policy::reference);
   // Concreate Output Shape Overload
-  nvf_ops.def(
+  /*nvf_ops.def(
       "broadcast_in_dim",
       [](FusionDefinition::Operators& self,
          Tensor arg,
@@ -1760,9 +1760,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("output_shape"),
       py::arg("broadcast_dims"),
-      py::return_value_policy::reference);
+      py::return_value_policy::reference);*/
   // Symbolic Output Shape Overload
-  nvf_ops.def(
+  /*nvf_ops.def(
       "broadcast_in_dim",
       [](FusionDefinition::Operators& self,
          Tensor arg,
@@ -1795,7 +1795,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("output_shape"),
       py::arg("broadcast_dims"),
-      py::return_value_policy::reference);
+      py::return_value_policy::reference);*/
   nvf_ops.def(
       "broadcast",
       [](FusionDefinition::Operators& self,
