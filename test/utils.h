@@ -38,15 +38,11 @@ inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
       std::make_move_iterator(list.end()));
 }
 
-//! Clear the allocator occasionally
-void maybeEmptyAllocator();
-
 // Make a tensor that is known to be fully contiguous of dimensionality=ndims,
 // but unknown sizes
 inline TensorView* makeContigTensor(
     size_t ndims,
     DataType dtype = DataType::Float) {
-  maybeEmptyAllocator();
   return TensorViewBuilder().ndims(ndims).dtype(dtype).contiguity(true).build();
 }
 
@@ -55,7 +51,6 @@ inline TensorView* makeContigTensor(
 inline TensorView* makeSymbolicTensor(
     size_t ndims,
     DataType dtype = DataType::Float) {
-  maybeEmptyAllocator();
   return TensorViewBuilder().ndims(ndims).dtype(dtype).build();
 }
 
@@ -70,7 +65,6 @@ inline TensorView* makeSymbolicTensor(
       s = -1;
     }
   }
-  maybeEmptyAllocator();
   return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
@@ -78,7 +72,6 @@ inline TensorView* makeSymbolicTensor(
 inline TensorView* makeConcreteTensor(
     std::vector<int64_t> shape,
     DataType dtype = DataType::Float) {
-  maybeEmptyAllocator();
   return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
@@ -400,6 +393,17 @@ class NVFuserTest : public ::testing::Test {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
     }
     setFillAllocationWithNan(true);
+
+    // check used memory and empty allocator cache if above a set threshold
+    auto allocator = c10::cuda::CUDACachingAllocator::get();
+    if (allocator->initialized()) {
+      auto device_stats = allocator->getDeviceStats(0);
+      // 2^32B is about 4GB. allocated_bytes[] holds multiple statistics but
+      // the first is AGGREGATE
+      if (device_stats.allocated_bytes[0].allocated > ((int64_t)1 << 32)) {
+        allocator->emptyCache();
+      }
+    }
   }
 };
 
