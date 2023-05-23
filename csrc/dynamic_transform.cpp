@@ -367,30 +367,6 @@ void DynamicTransformConcretizer::checkConcretizedUses(
   for (const auto use : old_val->uses()) {
     use->checkConcretization(old_val, new_val);
   }
-  // If we are concretizing a TensorDomain, check that replacing the rfactor
-  // domain is valid in its later uses which may not be directly represented in
-  // the Fusion graph.
-  if (auto new_tv = dynamic_cast<TensorView*>(new_val)) {
-    auto old_tv = old_val->as<TensorView>();
-    // Check that swapping the TensorDomain would be safe for further uses
-    checkConcretizedUses(old_tv->domain(), new_tv->domain());
-  } else if (auto new_td = dynamic_cast<TensorDomain*>(new_val)) {
-    // Check that swapping the rfactor domain would be safe for further uses
-    auto old_td = old_val->as<TensorDomain>();
-    auto old_rfactor = old_td->maybeRFactor();
-    auto new_rfactor = new_td->maybeRFactor();
-    TORCH_CHECK(
-        old_rfactor.size() == new_rfactor.size(),
-        "Replacing TensorDomain ",
-        old_td->toString(),
-        " with ",
-        new_td->toString(),
-        " changes rFactor domain length.");
-    for (auto i : c10::irange(old_rfactor.size())) {
-      // Check that replacing each rfactor ID with the new one is valid
-      checkConcretizedUses(old_rfactor[i], new_rfactor[i]);
-    }
-  }
 }
 
 // Concretizes inherited symbolic domains. Note that when this is
