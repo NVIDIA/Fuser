@@ -2698,15 +2698,16 @@ struct RandomOpRecord : RecordFunctor {
   RandomOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<State> output_shape,
       std::string _name,
+      serde::RecordType _record_type,
+      size_t output_size,
       PrimDataType dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             _name,
-            serde::RecordType_RandomOp),
-        output_shape_(std::move(output_shape)),
+            _record_type),
+        output_size_(output_size),
         dtype_(dtype) {}
   virtual ~RandomOpRecord() = default;
   virtual RecordFunctor* clone() final {
@@ -2714,29 +2715,18 @@ struct RandomOpRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! |   distribution hash  | output_shape hash    |
+  //! | 31 -------------------------------------  0 |
+  //! | output_size                                 |
   virtual size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (output_shape_.size() & 0xffff) |
-        (std::hash<std::string>{}(name_.c_str()) & 0xffff << 16);
+    return result | (output_size_ & 0xffffffff);
   }
 
   virtual bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const RandomOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      if (result) {
-        result = (output_shape_.size() == child_ptr->output_shape_.size());
-        if (result) {
-          for (size_t i = 0; i < output_shape_.size(); ++i) {
-            if (output_shape_[i] != child_ptr->output_shape_[i]) {
-              result = false;
-              break;
-            }
-          }
-        }
-      }
+      result = result && (output_size_ == child_ptr->output_size_);
     }
     return result;
   }
@@ -2744,19 +2734,12 @@ struct RandomOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index);
     auto arg2 = fd.getFusionState(args_.at(1).index);
+    auto output_shape = fd.getFusionStateVector(args_.at(2).index);
 
-    std::vector<Val*> output_shape(output_shape_.size(), nullptr);
-    std::transform(
-        output_shape_.begin(),
-        output_shape_.end(),
-        output_shape.begin(),
-        [&fd](const State& state) {
-          return fd.getFusionState(state.index)->template as<Val>();
-        });
     Val* output = nullptr;
-    if (name_.compare("ops.uniform") == 0) {
+    if (record_type_ == serde::RecordType_RandomUniformOp) {
       output = uniform(output_shape, arg1, arg2, dtype_);
-    } else if (name_.compare("ops.normal") == 0) {
+    } else if (record_type_ == serde::RecordType_RandomNormalOp) {
       output = normal(output_shape, arg1, arg2, dtype_);
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -2767,24 +2750,13 @@ struct RandomOpRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", shape=[";
-    bool first_arg = true;
-    for (auto shape : output_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
     os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  /*virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     std::vector<serde::State> fb_shape;
     for (auto& it : output_shape_) {
@@ -2795,11 +2767,11 @@ struct RandomOpRecord : RecordFunctor {
         serde::CreateTensorCreationSymbolicDirect(
             builder, &fb_shape, serde::mapToSerdeDtype(dtype_))
             .Union()};
-  }
+  }*/
 
  private:
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<State> output_shape_;
+  //! Size of the output tensor.
+  size_t output_size_;
   //! DataType of output
   PrimDataType dtype_;
 };
@@ -2856,7 +2828,7 @@ struct VectorFromStateRecord : RecordFunctor {
       }
       os << output;
     }
-    os << "fd." << name_ << "([";
+    os << " = fd." << name_ << "([";
     bool first_arg = true;
     for (auto& arg : args_) {
       if (first_arg) {
