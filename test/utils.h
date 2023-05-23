@@ -387,6 +387,19 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   // check used memory and empty allocator cache if above a set threshold
   auto allocator = c10::cuda::CUDACachingAllocator::get();
   if (allocator->initialized()) {
+    int device = 0;
+#define TORCH_VERSION_GREATER(major, minor, patch)                    \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+#if TORCH_VERSION_GREATER(2, 0, 1)
+    // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
+    // in order to properly handle new CUDA 112 behavior
+    GetDevice(&device);
+#else
+    cudaGetDevice(&device);
+#endif
+
     auto device_stats = allocator->getDeviceStats(0);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
