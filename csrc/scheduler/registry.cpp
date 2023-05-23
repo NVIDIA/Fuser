@@ -970,14 +970,14 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getAllocRank();
+      auto dims = tensor_arg_abstract->getRank();
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getAllocSize((int)dim);
+        auto size = tensor_arg_abstract->getSize((int)dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
+        auto stride = tensor_arg_abstract->getStride((int)dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
