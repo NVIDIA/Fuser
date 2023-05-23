@@ -78,7 +78,6 @@ inline TensorView* makeConcreteTensor(
 inline TensorView* makeContigConcreteTensor(
     std::vector<int64_t> shape,
     DataType dtype = DataType::Float) {
-  c10::cuda::CUDACachingAllocator::emptyCache();
   return TensorViewBuilder().shape(shape).dtype(dtype).contiguity(true).build();
 }
 
