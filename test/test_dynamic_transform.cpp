@@ -183,7 +183,6 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn(shape_before, options);
   at::Tensor t1 = at::randn(shape_after, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -665,7 +664,6 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   TORCH_CHECK(countRuntimes().second == 0, "Expect to start with no runtimes");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   { // trivial reshape
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({3, 4}, options);

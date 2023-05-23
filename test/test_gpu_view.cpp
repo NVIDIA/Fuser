@@ -171,7 +171,6 @@ TEST_F(NVFuserTest, FusionReshapeRfactorExtentReplacement_CUDA) {
   fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({12, 8}, options);
   auto t1 = at::randn({4, 3}, options);
 
@@ -666,7 +665,6 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain_CUDA) {
   tv1->computeAt(tv5, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({2, 3}, options);
   auto t1 = at::randn({1, 6}, options);
 
@@ -997,7 +995,6 @@ TEST_F(NVFuserTest, FusionExpandView1_CUDA) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({4, 1, 8}, options);
   auto t1 = at::randn({12, 8}, options);
 
@@ -1028,7 +1025,6 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({1, 8}, options);
   auto t1 = at::randn({3, 4, 8}, options);
 
@@ -1360,7 +1356,6 @@ TEST_F(NVFuserTest, FusionReductionFlatten1_CUDA) {
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({2, 3, 5}, options);
   auto ref = t0.sum({1}).flatten(0, 1);
 
@@ -2442,7 +2437,6 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   std::vector<int64_t> shape({4, 8});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});

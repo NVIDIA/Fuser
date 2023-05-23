@@ -410,6 +410,8 @@ class NVFuserTest : public ::testing::Test {
     setFillAllocationWithNan(true);
 
     maybeClearAllocator();
+
+    at::manual_seed(0);
   }
 };
 
