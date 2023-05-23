@@ -15,18 +15,12 @@ serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType t) {
 
 serde::BinaryOpType mapToSerdeBinaryOp(nvfuser::BinaryOpType t) {
   switch (t) {
-    case nvfuser::BinaryOpType::And:
-      return serde::BinaryOpType_And;
     case nvfuser::BinaryOpType::Add:
       return serde::BinaryOpType_Add;
     case nvfuser::BinaryOpType::CeilDiv:
       return serde::BinaryOpType_CeilDiv;
     case nvfuser::BinaryOpType::Div:
       return serde::BinaryOpType_Div;
-    case nvfuser::BinaryOpType::Max:
-      return serde::BinaryOpType_Max;
-    case nvfuser::BinaryOpType::Min:
-      return serde::BinaryOpType_Min;
     case nvfuser::BinaryOpType::Mod:
       return serde::BinaryOpType_Mod;
     case nvfuser::BinaryOpType::Mul:

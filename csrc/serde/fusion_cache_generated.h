@@ -512,27 +512,21 @@ inline const char* EnumNameUnaryOpType(UnaryOpType e) {
 
 enum BinaryOpType : int32_t {
   BinaryOpType_Add = 0,
-  BinaryOpType_And = 1,
-  BinaryOpType_CeilDiv = 2,
-  BinaryOpType_Div = 3,
-  BinaryOpType_Max = 4,
-  BinaryOpType_Min = 5,
-  BinaryOpType_Mod = 6,
-  BinaryOpType_Mul = 7,
-  BinaryOpType_Sub = 8,
-  BinaryOpType_None = 9,
+  BinaryOpType_CeilDiv = 1,
+  BinaryOpType_Div = 2,
+  BinaryOpType_Mod = 3,
+  BinaryOpType_Mul = 4,
+  BinaryOpType_Sub = 5,
+  BinaryOpType_None = 6,
   BinaryOpType_MIN = BinaryOpType_Add,
   BinaryOpType_MAX = BinaryOpType_None
 };
 
-inline const BinaryOpType (&EnumValuesBinaryOpType())[10] {
+inline const BinaryOpType (&EnumValuesBinaryOpType())[7] {
   static const BinaryOpType values[] = {
       BinaryOpType_Add,
-      BinaryOpType_And,
       BinaryOpType_CeilDiv,
       BinaryOpType_Div,
-      BinaryOpType_Max,
-      BinaryOpType_Min,
       BinaryOpType_Mod,
       BinaryOpType_Mul,
       BinaryOpType_Sub,
@@ -541,18 +535,8 @@ inline const BinaryOpType (&EnumValuesBinaryOpType())[10] {
 }
 
 inline const char* const* EnumNamesBinaryOpType() {
-  static const char* const names[11] = {
-      "Add",
-      "And",
-      "CeilDiv",
-      "Div",
-      "Max",
-      "Min",
-      "Mod",
-      "Mul",
-      "Sub",
-      "None",
-      nullptr};
+  static const char* const names[8] = {
+      "Add", "CeilDiv", "Div", "Mod", "Mul", "Sub", "None", nullptr};
   return names;
 }
 

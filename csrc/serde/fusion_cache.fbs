@@ -118,11 +118,8 @@ enum UnaryOpType : int {
 
 enum BinaryOpType : int {
   Add = 0,
-  And,
   CeilDiv,
   Div,
-  Max,
-  Min,
   Mod,
   Mul,
   Sub,

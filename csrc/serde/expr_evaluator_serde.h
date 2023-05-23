@@ -40,4 +40,17 @@ class ExpressionSerializer {
   std::unordered_map<Val*, long> operation_stack_;
 };
 
+class ExpressionBuilder {
+ public:
+  ExpressionBuilder(kir::Kernel* kernel);
+  void deserialize(const NaiveValueGenerator* buffer);
+
+ private:
+  void deserialize(const Instruction* buffer);
+  Val* buildUnaryOp(const Instruction* buffer);
+  Val* buildBinaryOp(const Instruction* buffer);
+
+  std::vector<Val*> operation_stack_;
+};
+
 } // namespace nvfuser::serde

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ops/arith.h>
 #include <serde/expr_evaluator_serde.h>
 #include <serde/utils.h>
 
@@ -177,6 +178,19 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     }
   }
 
+  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
+  // TODO Get deterministic order
+  for (auto input : kernel->inputs()) {
+    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      for (auto id : tv->getRootDomain()) {
+        auto extent = id->extent();
+        if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
+          symbolic_values.insert(extent);
+        }
+      }
+    }
+  }
+
   // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
   // an instruction.
   //
@@ -197,6 +211,22 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
 
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
+
+  for (auto& val : symbolic_values) {
+    auto inst = serde::CreateInstructionDirect(
+        builder,
+        serde::InstructionType_Symbolic,
+        serde::UnaryOpType_None,
+        serde::BinaryOpType_None,
+        serde::DataType_Int,
+        val->name(),
+        0,
+        0,
+        val->toString().c_str());
+    instructions_fb.push_back(inst);
+    operation_stack_.emplace(val, operation_stack_.size());
+  }
+
   for (const auto& ns : named_scalar_values) {
     auto inst = serde::CreateInstructionDirect(
         builder,
@@ -225,21 +255,6 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
         nullptr /* name */);
     instructions_fb.push_back(inst);
     operation_stack_.emplace(int_val, operation_stack_.size());
-  }
-
-  for (auto& val : symbolic_values) {
-    auto inst = serde::CreateInstructionDirect(
-        builder,
-        serde::InstructionType_Symbolic,
-        serde::UnaryOpType_None,
-        serde::BinaryOpType_None,
-        serde::DataType_Int,
-        val->name(),
-        0,
-        0,
-        val->toString().c_str());
-    instructions_fb.push_back(inst);
-    operation_stack_.emplace(val, operation_stack_.size());
   }
 
   for (auto& val : derived_values) {
@@ -295,6 +310,120 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
 
   return serde::CreateSymbolicTensor(
       builder, serde::CreateDomainDirect(builder, &fb_root_domain));
+}
+
+ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) {
+  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
+  // TODO Get deterministic order
+  std::unordered_set<nvfuser::Val*> symbolic_values;
+  for (auto input : kernel->inputs()) {
+    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      for (auto id : tv->getRootDomain()) {
+        auto extent = id->extent();
+        if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
+          symbolic_values.insert(extent);
+        }
+      }
+    }
+  }
+  operation_stack_.insert(
+      operation_stack_.end(), symbolic_values.begin(), symbolic_values.end());
+}
+
+void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
+  // table NaiveValueGenerator {
+  //   instructions : [Instruction];
+  // }
+  for (auto inst : *buffer->instructions()) {
+    deserialize(inst);
+  }
+}
+
+void ExpressionBuilder::deserialize(const Instruction* buffer) {
+  // table Instruction {
+  //  instruction : InstructionType;
+  //  unary_type : UnaryOpType;
+  //  binary_type : BinaryOpType;
+  //  data_type : DataType;
+  //  src0 : int;
+  //  src1 : int;
+  //  dest : int;
+  //  name : string;
+  // }
+  switch (buffer->instruction()) {
+    case serde::InstructionType_Symbolic:
+      // Add check for symbolic extent
+      break;
+    case serde::InstructionType_NamedString: {
+      auto ns = IrBuilder::create<NamedScalar>(
+          buffer->name()->str(), nvfuser::DataType::Int);
+      operation_stack_.push_back(ns);
+      break;
+    }
+    case serde::InstructionType_Scalar: {
+      auto int_val = IrBuilder::create<nvfuser::Int>(buffer->src0());
+      operation_stack_.push_back(int_val);
+      break;
+    }
+    case serde::InstructionType_Unary: {
+      auto uop = buildUnaryOp(buffer);
+      operation_stack_.push_back(uop);
+      break;
+    }
+    case serde::InstructionType_Binary: {
+      auto bop = buildBinaryOp(buffer);
+      operation_stack_.push_back(bop);
+      break;
+    }
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unsupported instruction.");
+  }
+}
+
+Val* ExpressionBuilder::buildUnaryOp(const Instruction* buffer) {
+  switch (buffer->unary_type()) {
+    case serde::UnaryOpType_Cast:
+      return castOp(
+          mapToDtypeStruct(buffer->data_type()),
+          operation_stack_.at(buffer->src0()));
+    case serde::UnaryOpType_Neg:
+      return neg(operation_stack_.at(buffer->src0()));
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.");
+      return nullptr;
+  }
+}
+
+Val* ExpressionBuilder::buildBinaryOp(const Instruction* buffer) {
+  switch (buffer->binary_type()) {
+    case serde::BinaryOpType_Add:
+      return add(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    case serde::BinaryOpType_CeilDiv:
+      return ceilDiv(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    case serde::BinaryOpType_Div:
+      return div(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    case serde::BinaryOpType_Mod:
+      return mod(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    case serde::BinaryOpType_Mul:
+      return mul(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    case serde::BinaryOpType_Sub:
+      return sub(
+          operation_stack_.at(buffer->src0()),
+          operation_stack_.at(buffer->src1()));
+    default:
+      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.");
+      return nullptr;
+  }
 }
 
 } // namespace nvfuser::serde

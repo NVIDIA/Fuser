@@ -2034,6 +2034,8 @@ void FusionExecutor::deserialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  kernel_summary : KernelSummary;
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
   // }
 
   lowered_ = std::make_unique<GpuLower>(
@@ -2056,6 +2058,9 @@ void FusionExecutor::deserialize(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
+
+  serde::ExpressionBuilder es(kernel());
+  es.deserialize(buffer->generator());
 
   kernel_summary_ = deserialize(buffer->kernel_summary());
 
