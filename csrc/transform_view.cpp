@@ -9,9 +9,9 @@
 
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_builder.h>
-#include <ir_internal_nodes.h>
-#include <ir_iostream.h>
+#include <ir/builder.h>
+#include <ir/internal_nodes.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>

@@ -12,7 +12,7 @@ namespace block_sync {
 __forceinline__ __device__ void init() {}
 
 // Thread-block synchronization
-template <bool aligned = false>
+template <bool aligned>
 __forceinline__ __device__ void sync() {
   if constexpr (aligned) {
     __syncthreads();

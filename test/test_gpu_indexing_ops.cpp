@@ -137,7 +137,6 @@ TEST_F(NVFuserTest, FusionIndexSelectSimple_CUDA) {
   for (int i = 0; i < 5; ++i) {
     // fix seed
     std::srand(i);
-    at::manual_seed(i);
 
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -198,7 +197,6 @@ TEST_F(NVFuserTest, FusionIndexSelect_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nElem, nFeat}, options); // lookup
   at::Tensor input1 =
@@ -242,7 +240,6 @@ TEST_F(NVFuserTest, FusionIndexSelect1DSch_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nElem, nFeat}, options); // lookup
   at::Tensor input1 =
@@ -285,7 +282,6 @@ TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(27.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nElem, nFeat0, nFeat1}, options); // lookup
   at::Tensor input1 =
@@ -307,7 +303,6 @@ TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
 
 TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // fix seed
-  at::manual_seed(0);
   // dimensionality of the problem
   int nDims = 2;
   int nElem = 31;
@@ -425,7 +420,6 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   auto tv3 = sum(tv_add, {1});
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nElem, nFeat}, options); // lookup
   at::Tensor input1 =
@@ -475,7 +469,6 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nElem, nFeat}, options); // lookup
   at::Tensor input1 =
@@ -501,7 +494,6 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
   for (int i = 0; i < 5; ++i) {
     // fix seed
     std::srand(i);
-    at::manual_seed(i);
 
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -568,7 +560,6 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank3_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nFeat0, nFeat1, nElem}, options); // lookup
   at::Tensor input1 =
@@ -611,7 +602,6 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank3_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({nFeat0, nElem, nFeat1}, options); // lookup
   at::Tensor input1 =
@@ -655,7 +645,6 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
   TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
   fusion.addOutput(tv3);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 =
       at::randn({nFeat0, nElem, nFeat1, nFeat2}, options); // lookup

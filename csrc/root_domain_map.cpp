@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 
@@ -102,12 +102,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
-  // Sanity check that the given producer and consumer domains are
-  // really the TensorDomains of the producer and consumer TensorViews
-  // given to the constructor.
-  TORCH_INTERNAL_ASSERT(producer_tv_->domain() == producer);
-  TORCH_INTERNAL_ASSERT(consumer_tv_->domain() == consumer);
-
   std::vector<bool> broadcast_flags;
   if (BroadcastOp* bop =
           dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {

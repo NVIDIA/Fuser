@@ -8,7 +8,7 @@
 #include <codegen.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <scheduler/mma_utils.h>
@@ -118,6 +118,23 @@ std::string genCall(
   std::stringstream ss;
   ss << func_name << "<" << template_arg << ">(" << func_arg << ")";
   return ss.str();
+}
+
+template <typename T>
+std::string genPtrType(const T& type) {
+  std::stringstream ss;
+  ss << type << "*";
+  return ss.str();
+}
+
+template <typename CastType, typename ArgType>
+std::string genStaticCast(const CastType& type, const ArgType& arg) {
+  return genCall("static_cast", type, arg);
+}
+
+template <typename CastType, typename ArgType>
+std::string genReinterpretCast(const CastType& type, const ArgType& arg) {
+  return genCall("reinterpret_cast", type, arg);
 }
 
 class CudaKernelGenerator : private kir::ConstIrVisitor {
@@ -1057,23 +1074,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         !parallel_types.hasBID(),
         "Parallel broadcast across blocks should have been translated to a GridBroadcast IR node");
 
-    std::stringstream flags_str;
+    ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeTIDs) {
-      const bool parallel_bcast = parallel_types.get(pt);
-      if (pt != kParallelTypeTIDs[0]) {
-        flags_str << ", ";
-      }
-      flags_str << (parallel_bcast ? "true" : "false");
+      template_args.arg(parallel_types.get(pt));
     }
+    template_args.arg(isAligned());
 
     const auto data_type = stmt->out()->dtype();
-    indent() << "broadcast::blockBroadcast<" << flags_str.str() << ">(\n";
-    indent() << kTab << gen(stmt->out()) << ",\n";
-    indent() << kTab << gen(stmt->in()) << ",\n";
-    indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(stmt->out()));
+    func_args.arg(gen(stmt->in()));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     TORCH_INTERNAL_ASSERT(
         stmt->predicate() != nullptr && stmt->predicate()->hasValue());
-    indent() << kTab << genInline(stmt->predicate()) << ");\n";
+    func_args.arg(genInline(stmt->predicate()));
+
+    indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
+             << ";\n";
   }
 
   void genSerialReduction(
@@ -1094,26 +1112,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred) {
-    bool is_single_warp =
-        kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp;
+    ArgumentBuilder template_args;
+    template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+    template_args.arg(isAligned());
 
-    indent() << "warp::warpReduceTIDX";
-    if (is_single_warp) {
-      code_ << "<true>(\n";
-    } else {
-      code_ << "<false>(\n";
-    }
-    indent() << kTab << gen(output) << ",\n";
-    indent() << kTab << gen(input) << ",\n";
-    indent() << kTab << genReductionOp(reduction_op_type, output->dtype())
-             << ",\n";
-    indent() << kTab << "threadIdx,\n";
-    indent() << kTab << "blockDim,\n";
-    indent() << kTab << "static_cast<" << output->dtype()
-             << "*>(shared_mem),\n";
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
     TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
-    indent() << kTab << genInline(read_pred) << ",\n";
-    indent() << kTab << output->dtype() << "(" << genInline(init) << "));\n";
+    func_args.arg(genInline(read_pred));
+    func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+
+    indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
+             << ";\n";
   }
 
   void genBlockReduction(
@@ -1145,7 +1158,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg("static_cast<").append(data_type).append("*>(shared_mem)");
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     // Pass the write predicate if available and different from the
@@ -1352,11 +1365,93 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void genBlockWelford(const WelfordOp* wop) {
+    TORCH_INTERNAL_ASSERT(
+        ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
+        "Not block-parallel WelfordOp: ",
+        wop->toString());
+
+    const auto has_grid_reduce =
+        ir_utils::getTvOutput(wop)->domain()->hasGridReduction();
+    const auto data_type = wop->outAvg()->dtype();
+    const auto index_type = wop->outN()->dtype();
+
+    // TODO: Instead of decomposing block and grid-parallel welford
+    // into blockWelford and gridWelford calls, thus requiring
+    // temporary variables like below, extend gridWelford to
+    // support block reductions. gridReduce already supports block
+    // reductions as well.
+
+    auto out_avg = has_grid_reduce
+        ? "block_result_avg_" + std::to_string(block_reduce_name_)
+        : gen(wop->outAvg());
+    auto out_var = has_grid_reduce
+        ? "block_result_var_" + std::to_string(block_reduce_name_)
+        : gen(wop->outVar());
+    auto out_n = has_grid_reduce
+        ? "block_result_n_" + std::to_string(block_reduce_name_)
+        : gen(wop->outN());
+
+    if (has_grid_reduce) {
+      // allocate block result
+      indent() << data_type << " " << out_avg << " = " << gen(wop->initAvg())
+               << ";\n";
+      indent() << data_type << " " << out_var << " = " << gen(wop->initVar())
+               << ";\n";
+      indent() << index_type << " " << out_n << " = " << gen(wop->initN())
+               << ";\n";
+    }
+
+    const auto par_domains = ir_utils::getParallelDomains(wop->out());
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+
+    ArgumentBuilder template_args;
+    template_args.arg(tidx).arg(tidy).arg(tidz);
+    template_args.arg(isAligned());
+
+    ArgumentBuilder func_args;
+    func_args.arg(out_avg);
+    func_args.arg(out_var);
+    func_args.arg(out_n);
+    func_args.arg(gen(wop->inAvg()));
+    // inVar can be ZeroVal, and in that case cast seems necessary
+    if (wop->inVar()->isZeroInt()) {
+      func_args.arg(genStaticCast(data_type, gen(wop->inVar())));
+    } else {
+      func_args.arg(gen(wop->inVar()));
+    }
+    // This seems always necessary
+    func_args.arg(genStaticCast(index_type, gen(wop->inN())));
+    func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_avg"));
+    func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_var"));
+    func_args.arg(genReinterpretCast(genPtrType(index_type), "shared_mem_n"));
+    TORCH_INTERNAL_ASSERT(wop->predicate() != nullptr);
+    TORCH_INTERNAL_ASSERT(
+        wop->predicate() != nullptr && wop->predicate()->hasValue());
+    func_args.arg(genInline(wop->predicate()));
+    if (wop->writePredicate() != nullptr) {
+      TORCH_INTERNAL_ASSERT(wop->writePredicate()->hasValue());
+      func_args.arg(genInline(wop->writePredicate()));
+    }
+    func_args.arg(genStaticCast(data_type, 0));
+
+    indent() << genCall("blockWelford", template_args, func_args) << ";\n";
+  }
+
   void handle(const WelfordOp* wop) final {
     TORCH_INTERNAL_ASSERT(wop->out()->isA<kir::TensorIndex>());
 
     const auto out = wop->out()->as<kir::TensorIndex>();
-    const auto domain = out->view()->domain();
+    const auto& domain = out->view()->domain();
 
     const auto out_var = wop->outVar();
     const auto out_avg = wop->outAvg();
@@ -1373,7 +1468,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_block_reduce = domain->hasBlockReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
 
-    // Serial WelfordOp generation
     if (!has_block_reduce && !has_grid_reduce) {
       indent() << "welfordCombine ("
                << "\n";
@@ -1384,70 +1478,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << kTab << "(" << out_avg->dtype() << ")" << gen(in_var)
                << ",\n";
       indent() << kTab << "(" << out_N->dtype() << ")" << gen(in_N) << ");\n";
-      return;
-    }
-
-    const auto par_domains = ir_utils::getParallelDomains(wop->out());
-    // Get parallel reduction domains
-    const bool tidx =
-        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
-        par_domains.at(ParallelType::TIDx)->isReduction();
-    const bool tidy =
-        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
-        par_domains.at(ParallelType::TIDy)->isReduction();
-    const bool tidz =
-        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
-        par_domains.at(ParallelType::TIDz)->isReduction();
-
-    const auto data_type = wop->out()->dtype();
-
-    if (has_block_reduce) {
-      if (has_grid_reduce) {
-        // allocate block result
-        indent() << data_type << " "
-                 << "block_result_avg_" << block_reduce_name_ << " = "
-                 << gen(wop->initAvg()) << ";\n";
-        indent() << data_type << " "
-                 << "block_result_var_" << block_reduce_name_ << " = "
-                 << gen(wop->initVar()) << ";\n";
-        indent() << out_N->dtype() << " "
-                 << "block_result_n_" << block_reduce_name_ << " = "
-                 << gen(wop->initN()) << ";\n";
-      }
-      indent() << "blockWelford<" << (tidx ? "true" : "false") << ", "
-               << (tidy ? "true" : "false") << ", " << (tidz ? "true" : "false")
-               << ">(\n";
-      if (has_grid_reduce) {
-        indent() << kTab << "block_result_avg_" << block_reduce_name_ << ",\n";
-        indent() << kTab << "block_result_var_" << block_reduce_name_ << ",\n";
-        indent() << kTab << "block_result_n_" << block_reduce_name_ << ",\n";
-      } else {
-        indent() << kTab << gen(wop->outAvg()) << ",\n";
-        indent() << kTab << gen(wop->outVar()) << ",\n";
-        indent() << kTab << gen(wop->outN()) << ",\n";
-      }
-      indent() << kTab << gen(in_avg) << ",\n";
-      indent() << kTab << out_avg->dtype() << "(" << gen(in_var) << "),\n";
-      indent() << kTab << out_N->dtype() << "(" << gen(in_N) << "),\n";
-      indent() << kTab << "threadIdx,\n";
-      indent() << kTab << "blockDim,\n";
-      indent() << kTab << "reinterpret_cast<" << data_type
-               << "*>(shared_mem_avg),\n";
-      indent() << kTab << "reinterpret_cast<" << data_type
-               << "*>(shared_mem_var),\n";
-      indent() << kTab << "reinterpret_cast<" << out_N->dtype()
-               << "*>(shared_mem_n),\n";
-      TORCH_INTERNAL_ASSERT(wop->predicate() != nullptr);
-      TORCH_INTERNAL_ASSERT(
-          wop->predicate() != nullptr && wop->predicate()->hasValue());
-      auto read_pred = genInline(wop->predicate());
-      indent() << kTab << read_pred << ",\n";
-      if (wop->writePredicate() != nullptr) {
-        TORCH_INTERNAL_ASSERT(wop->writePredicate()->hasValue());
-        auto write_pred = genInline(wop->writePredicate());
-        indent() << kTab << write_pred << ",\n";
-      }
-      indent() << kTab << data_type << "(0));\n";
+    } else if (has_block_reduce) {
+      genBlockWelford(wop);
     }
   }
 
@@ -1588,7 +1620,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // with tidx/y/z being true do not participate in the grid
     // reduction.
     ArgumentBuilder template_args;
-    template_args.arg(flags_str).arg(persistent_sync);
+    template_args.arg(flags_str).arg(persistent_sync).arg(isAligned());
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
     func_args.arg(gen(grop->out()));
@@ -1637,7 +1669,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto reduction_name = genFusedReductionName(out->view());
 
-    // template <typename Func, typename... Types>
+    // template <bool Aligned, typename Func, typename... Types>
     // __device__ __inline__ void reduce(
     //   RefTuple<Types...> out,
     //   const LocalTuple<Types...>& inp,
@@ -1650,7 +1682,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     //   const LocalTuple<Types...>& init_val,
     //   Func reduction_op);
 
-    indent() << reduction_name << ".reduce(\n";
+    ArgumentBuilder template_args;
+    template_args.arg(isAligned());
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
     // out
@@ -1686,7 +1719,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     addProfileArguments(func_args, grop);
 
-    indent() << kTab << func_args << ");\n";
+    indent() << genCall(reduction_name + ".reduce", template_args, func_args)
+             << ";\n";
   }
 
   void handle(const kir::GroupedGridReduction* grouped_grop) final {
@@ -1719,7 +1753,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // with tidx/y/z being true do not participate in the grid
     // reduction.
     ArgumentBuilder template_args;
-    template_args.arg(flags_str).arg(persistent_sync);
+    template_args.arg(flags_str).arg(persistent_sync).arg(isAligned());
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
 
@@ -1883,6 +1917,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         kMaxNumGroupedReductions,
         " reductions are allowed.");
 
+    ArgumentBuilder template_flags;
+    template_flags.arg(isAligned());
+
     ArgumentBuilder types;
     ArgumentBuilder outputs;
     ArgumentBuilder inputs;
@@ -1986,9 +2023,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     func_args.arg(reduction_ops);
 
-    indent() << genFusedReductionName(ir_utils::getTvOutput(grouped_grop))
-             << ".reduceGroup(\n";
-    indent() << kTab << func_args << ");\n";
+    indent() << genCall(
+                    genFusedReductionName(ir_utils::getTvOutput(grouped_grop)) +
+                        ".reduceGroup",
+                    template_flags,
+                    func_args)
+             << ";\n";
   }
 
   // Mostly the same as the grouped grid redution version
@@ -2131,6 +2171,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     addProfileArguments(func_args, grouped_gwop);
 
     ArgumentBuilder func_template_args;
+    func_template_args.arg(isAligned());
     func_template_args.arg(
         grouped_gwop->numHorizontallyGroupedExprs() *
         index_replacement_maps.size());
@@ -2218,6 +2259,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     addProfileArguments(func_args, grouped_gwop);
 
     ArgumentBuilder func_template_args;
+    func_template_args.arg(isAligned());
     func_template_args.arg(num_grouped_iterations);
     func_template_args.arg(data_type);
 
@@ -2253,26 +2295,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         grop->broadcast_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
-    std::stringstream flags_str;
+    ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeThreads) {
-      const bool parallel_bcast = parallel_types.get(pt);
-      if (pt != kParallelTypeThreads[0]) {
-        flags_str << ", ";
-      }
-      flags_str << (parallel_bcast ? "true" : "false");
+      template_args.arg(parallel_types.get(pt));
     }
+    template_args.arg(isAligned());
 
     // Since block-level broadcast has not necessarily been performed before
     // this function call, so grid broadcast may be broadcasting across both
     // the grid and the block level.
-    indent() << "grid_broadcast::broadcast<" << flags_str.str() << ">(\n";
-    indent() << kTab << gen(bop->out()) << ",\n";
-    indent() << kTab << gen(bop->in()) << ",\n";
-    indent() << kTab << "&" << ir_utils::varName(work_buffer) << "[0],\n";
-    indent() << kTab << ir_utils::varName(sync_buffer) << ",\n";
+    ArgumentBuilder func_args;
+    func_args.arg(gen(bop->out()));
+    func_args.arg(gen(bop->in()));
+    func_args.arg("&").append(ir_utils::varName(work_buffer)).append("[0]");
+    func_args.arg(ir_utils::varName(sync_buffer));
     TORCH_INTERNAL_ASSERT(
         grop->predicate() != nullptr && grop->predicate()->hasValue());
-    indent() << kTab << genInline(grop->predicate()) << ");\n";
+    func_args.arg(genInline(grop->predicate()));
+
+    indent() << genCall("grid_broadcast::broadcast", template_args, func_args)
+             << ";\n";
   }
 
   void handle(const kir::GridWelford* gwop) final {
@@ -2284,6 +2326,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(domain->hasGridReduction());
 
     const auto data_type = out->dtype();
+    const auto index_type = wop->outN()->dtype();
 
     TORCH_INTERNAL_ASSERT(gwop->var_buffer()->buffer()->isA<TensorView>());
     TORCH_INTERNAL_ASSERT(gwop->sync_buffer()->buffer()->isA<TensorView>());
@@ -2304,53 +2347,52 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const std::string flags_str =
         generateGridReduceTemplateFlags(wop, gwop->threadPredicate());
 
-    // Since block-level reduction is already done, those dimensions
-    // with tidx/y/z being true do not participate in the grid reduction.
-    indent() << "welford::gridWelford<" << flags_str << ", "
-             << (persistent_sync ? "true" : "false") << ">(\n";
-    indent() << kTab << gen(wop->outAvg()) << ",\n";
-    indent() << kTab << gen(wop->outVar()) << ",\n";
-    indent() << kTab << gen(wop->outN()) << ",\n";
+    ArgumentBuilder template_args;
+    template_args.arg(flags_str);
+    template_args.arg(persistent_sync);
+    template_args.arg(isAligned());
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(wop->outAvg()));
+    func_args.arg(gen(wop->outVar()));
+    func_args.arg(gen(wop->outN()));
     if (domain->hasBlockReduction()) {
-      indent() << kTab << "block_result_avg_" << block_reduce_name_ << ",\n";
-      indent() << kTab << "block_result_var_" << block_reduce_name_ << ",\n";
-      indent() << kTab << "block_result_n_" << block_reduce_name_ << ",\n";
+      func_args.arg("block_result_avg_").append(block_reduce_name_);
+      func_args.arg("block_result_var_").append(block_reduce_name_);
+      func_args.arg("block_result_n_").append(block_reduce_name_);
       block_reduce_name_++;
     } else {
-      indent() << kTab << gen(wop->inAvg()) << ",\n";
+      func_args.arg(gen(wop->inAvg()));
       TORCH_INTERNAL_ASSERT(
           wop->inVar() != nullptr, "Welford var input nullptr not allowed");
-      indent() << kTab << "(" << wop->outVar()->dtype() << ")"
-               << gen(wop->inVar()) << ",\n";
-      indent() << kTab << "(" << wop->outN()->dtype() << ")" << gen(wop->inN())
-               << ",\n";
+      func_args.arg(genStaticCast(data_type, gen(wop->inVar())));
+      func_args.arg(genStaticCast(index_type, gen(wop->inN())));
     }
-    indent() << kTab << "&" << ir_utils::varName(avg_buffer) << "[0],\n";
-    indent() << kTab << "&" << ir_utils::varName(var_buffer) << "[0],\n";
-    indent() << kTab << "&" << ir_utils::varName(n_buffer) << "[0],\n";
-    indent() << kTab << ir_utils::varName(sync_buffer) << ",\n";
-    indent() << kTab << "reinterpret_cast<" << data_type
-             << "*>(shared_mem_avg),\n";
-    indent() << kTab << "reinterpret_cast<" << data_type
-             << "*>(shared_mem_var),\n";
-    indent() << kTab << "reinterpret_cast<" << wop->outN()->dtype()
-             << "*>(shared_mem_n),\n";
+    func_args.arg("&").append(ir_utils::varName(avg_buffer)).append("[0]");
+    func_args.arg("&").append(ir_utils::varName(var_buffer)).append("[0]");
+    func_args.arg("&").append(ir_utils::varName(n_buffer)).append("[0]");
+    func_args.arg(ir_utils::varName(sync_buffer));
+    func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_avg"));
+    func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_var"));
+    func_args.arg(genReinterpretCast(genPtrType(index_type), "shared_mem_n"));
     TORCH_INTERNAL_ASSERT(
         gwop->predicate() != nullptr && gwop->predicate()->hasValue());
     auto read_pred = genInline(gwop->predicate());
-    indent() << kTab << read_pred << ",\n";
+    func_args.arg(read_pred);
     if (gwop->writePredicate() != nullptr) {
       TORCH_INTERNAL_ASSERT(gwop->writePredicate()->hasValue());
       auto write_pred = genInline(gwop->writePredicate());
-      indent() << kTab << write_pred << ",\n";
+      func_args.arg(write_pred);
     } else {
-      indent() << kTab << read_pred << ",\n";
+      func_args.arg(read_pred);
     }
     // TODO : init value support or remove.
-    indent() << kTab << data_type << "(0),\n";
-    indent() << kTab << genInline(gwop->entrance_index()) << ",\n";
-    indent() << kTab << genInline(gwop->entrances());
-    code_ << ");\n";
+    func_args.arg(genStaticCast(data_type, 0));
+    func_args.arg(genInline(gwop->entrance_index()));
+    func_args.arg(genInline(gwop->entrances()));
+
+    indent() << genCall("welford::gridWelford", template_args, func_args)
+             << ";\n";
   }
 
   void generateGridAllreduce(const kir::GridWelford* gwop) {
@@ -2370,7 +2412,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto reduction_name = genFusedReductionName(out->view());
 
-    // template <typename Func, typename... Types>
+    // template <bool Aligned, typename Func, typename... Types>
     // __device__ __inline__ void reduce(
     //   RefTuple<Types...> out,
     //   const LocalTuple<Types...>& inp,
@@ -2382,6 +2424,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     //   bool write_pred, // Prevent from writing out of bounds
     //   const LocalTuple<Types...>& init_val,
     //   Func reduction_op);
+
+    ArgumentBuilder template_args;
+    template_args.arg(isAligned());
 
     ArgumentBuilder out_args;
     out_args.arg(gen(wop->outAvg()));
@@ -2451,8 +2496,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genTemplate(
         "welfordCombine", ArgumentBuilder().arg(data_type).arg(index_type)));
 
-    indent() << reduction_name << ".reduce(\n";
-    indent() << kTab << func_args << ");\n";
+    indent() << genCall(reduction_name + ".reduce", template_args, func_args)
+             << ";\n";
   }
 
   void handle(const kir::AllocateFusedReduction* alloc_fused_reduction) final {
@@ -2752,7 +2797,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true);
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
+        isAligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <scheduler/reduction_heuristic.h>
 
 namespace nvfuser {

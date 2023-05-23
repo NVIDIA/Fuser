@@ -12,7 +12,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 
 #include <functional>

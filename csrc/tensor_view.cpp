@@ -11,12 +11,12 @@
 #include <device_lower/pass/double_buffer.h>
 #include <fusion.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_interface_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/interface_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -1192,6 +1192,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
           container(),
           getRootDomain(),
           getRFactorDomain(),
+          getAllocationDomain(),
           getLeafDomain(),
           getContiguity()),
       getDataType().value());
@@ -1207,6 +1208,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
   }
 
+  // Warning: allocation domain is temporarily discarded. It will be recovered
+  // later.
   consumer->setDomain(IrBuilder::create<TensorDomain>(
       container(),
       new_root_domain,
@@ -1227,8 +1230,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1);
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+
   consumer->setDomain(replayed_consumer_pair.first);
 
   return producer;
@@ -1354,6 +1358,11 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 
   // Expr* consumer_definition =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+
+  consumer->setDomain(replayed_consumer_pair.first);
 
   return consumer;
 }

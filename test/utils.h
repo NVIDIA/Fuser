@@ -12,7 +12,7 @@
 #include <device_lower/pass/magic_zero.h>
 #include <executor.h>
 #include <expr_evaluator.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
 #include <transform_replay.h>
@@ -392,6 +392,7 @@ class NVFuserTest : public ::testing::Test {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
     }
     setFillAllocationWithNan(true);
+    at::manual_seed(0);
   }
 };
 

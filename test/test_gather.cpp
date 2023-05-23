@@ -10,8 +10,8 @@
 
 #include <executor.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
@@ -84,7 +84,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 
   const std::vector<std::vector<int64_t>> idx_dims = {{2, 2}};
 
-  at::manual_seed(0);
   for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -134,7 +133,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -175,7 +173,6 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -222,7 +219,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
 TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -272,7 +268,6 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
   const int max_dim_size = 32;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -329,7 +324,6 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -406,8 +400,6 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
 
-  at::manual_seed(0);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
 
@@ -471,7 +463,6 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
     std::vector<int64_t> out_dims = input_dims;
     out_dims[1] = index_dims[0];
 
-    at::manual_seed(0);
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn(input_dims, options);
@@ -532,7 +523,6 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         auto tv5 = add(tv4, tv2);
         fusion.addOutput(tv5);
 
-        at::manual_seed(0);
         auto options =
             at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
         auto options_i =
@@ -628,7 +618,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
       "Failed to promote memory type: ",
       take_along_axis_input->toString());
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -663,7 +652,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   auto tv4 = take_along_axis(tv2, tv3, 1);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -700,7 +688,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
   auto tv4 = take_along_axis(tv2, tv1, 0);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -740,7 +727,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
   auto tv6 = sum(tv5, {0});
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -779,7 +765,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -823,7 +808,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto tv6 = set(tv5);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -863,7 +847,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto tv6 = take_along_axis(tv4, tv5, 1);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -907,7 +890,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
   auto tv8 = div(tv5, tv7);
   fusion.addOutput(tv8);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -949,7 +931,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
   auto tv6 = div(tv3, tv5);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -992,7 +973,6 @@ TEST_F(
   auto tv6 = sum(tv5, {0, 1});
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1042,7 +1022,6 @@ TEST_F(
   auto tv8 = sum(tv7, {1});
   fusion.addOutput(tv8);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1087,7 +1066,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   auto tv5 = transpose(tv4, 1, 2);
   fusion.addOutput(tv5);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1130,7 +1108,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   auto tv4 = take_along_axis(tv2, tv1, 0);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1172,7 +1149,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   auto tv5 = transpose(tv4, 1, 2);
   fusion.addOutput(tv5);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before, options);

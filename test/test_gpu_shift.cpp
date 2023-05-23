@@ -15,11 +15,11 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -2964,7 +2964,6 @@ TEST_F(NVFuserTest, FusionConv2D_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 3, 3}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3057,7 +3056,6 @@ TEST_F(NVFuserTest, FusionConv2DNoPadding_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 3, 3}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3151,7 +3149,6 @@ TEST_F(NVFuserTest, FusionConv2DNoPaddingStrided_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 2, 2}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3270,7 +3267,6 @@ TEST_F(NVFuserTest, FusionConv2DChain_CUDA) {
   const int dim_k3 = 7;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_k1, dim_h, dim_w}, options);
   at::Tensor at_w1 = at::randn({dim_k2, dim_k1, dim_w1_h, dim_w1_w}, options);
   at::Tensor at_w2 = at::randn({dim_k3, dim_k2, dim_w2_h, dim_w2_w}, options);
@@ -3365,7 +3361,6 @@ TEST_F(NVFuserTest, FusionConv2DStaticEvenSizedWindow_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 2, 2}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3467,7 +3462,6 @@ TEST_F(NVFuserTest, FusionConv4x4Pad1x1_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 4, 4}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3561,7 +3555,6 @@ TEST_F(NVFuserTest, FusionConv4x5Pad1x2_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 4, 5}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3663,7 +3656,6 @@ TEST_F(NVFuserTest, FusionConv4x4Pad1x1Stride4_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 4, 4}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};
@@ -3738,7 +3730,6 @@ TEST_F(NVFuserTest, FusionIm2Col_CUDA) {
   const int dim_n = 3;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_n, dim_c, dim_h, dim_w}, options);
   std::vector<c10::IValue> inputs = {at_inp};
 
@@ -3790,7 +3781,6 @@ TEST_F(NVFuserTest, FusionShiftNoPadding1_CUDA) {
   int numel_y = 101;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -3846,7 +3836,6 @@ TEST_F(NVFuserTest, FusionShiftNoPadding2_CUDA) {
   int numel_y = 101;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -3908,7 +3897,6 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -4019,7 +4007,6 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingChain_CUDA) {
   int numel_y = 101;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -4094,7 +4081,6 @@ TEST_F(NVFuserTest, FusionShiftPadding1_CUDA) {
   int numel_y = 101;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -4168,7 +4154,6 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
       "Invalid extent of outer domain of partial split");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -4247,7 +4232,6 @@ TEST_F(NVFuserTest, FusionPartialSplit3_CUDA) {
   const int numel_y = 32 + 3;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({numel_x, numel_y}, options);
   std::vector<c10::IValue> inputs = {t0};
 
@@ -5157,7 +5141,6 @@ TEST_F(NVFuserTest, FusionConv2DStaticStrided_CUDA) {
   const int dim_f = 20;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor at_inp = at::randn({dim_c, dim_h, dim_w}, options);
   at::Tensor at_w = at::randn({dim_f, dim_c, 3, 3}, options);
   std::vector<c10::IValue> inputs = {at_inp, at_w};

@@ -6,10 +6,10 @@
  */
 // clang-format on
 
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <type.h>

@@ -17,11 +17,11 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -113,7 +113,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -163,7 +162,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -212,7 +210,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx, ny}, options);
 
   FusionExecutor fe;
@@ -258,7 +255,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -320,7 +316,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({iter, nx}, options);
   auto t5 = at::randn({bdimy, bdimx}, options);
 
@@ -374,7 +369,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   tv1->axis(4)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -421,7 +415,6 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -472,7 +465,6 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx, ny}, options);
 
   FusionExecutor fe;
@@ -584,7 +576,6 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_half = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(input_shape, options_half);
   auto t1 = at::randn(input_shape[1], options_half);
   auto t2 = at::randn(input_shape[1], options_half);
@@ -1281,9 +1272,9 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t11 = t8 / t8.sum({0}).unsqueeze(0).to(at::kComplexDouble);
+  auto t11 = at::div(t8, t8.sum({0}).unsqueeze(0), "trunc");
   auto t15 = t12 / t12.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t19 = t16 / t16.sum({0}).unsqueeze(0);
+  auto t19 = t16 / t16.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto ref = t3 + t7 + t11 + t15 + t19;
   testValidate(fe.kernel(), outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
@@ -1542,7 +1533,6 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   std::vector<int64_t> shape({99, 999});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
 
@@ -1878,7 +1868,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -1957,7 +1946,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2042,7 +2030,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2135,7 +2122,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2198,7 +2184,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2265,7 +2250,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
       validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2401,7 +2385,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
         validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
 
     const std::vector<int64_t> input_shape{
         params.N, params.H, params.W, params.C};
@@ -2496,7 +2479,6 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   fusion.addOutput(t27);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
 
   // reference values
   at::Tensor at_grad = at::randn(tensor_shape, options);
@@ -2561,7 +2543,6 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   scheduler_utils::parallelizeAllLike(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto at_log_probs = at::randn({batch_size, num_classes}, options);
   auto at_labels =
       at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
