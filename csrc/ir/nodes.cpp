@@ -924,13 +924,19 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
     if (!flags.at(i)) {
       continue;
     }
+    auto new_id = new_rfactor.at(i);
     // Check that squeezed dimension concretizes to Broadcast
     TORCH_CHECK(
-        new_rfactor.at(i)->getIterType() == IterType::Broadcast,
+        new_id->getIterType() == IterType::Broadcast,
         "Squeezed IterDomain ",
-        old_rfactor.at(i)->toString(),
+        new_id->toString(),
         " must concretize to IterType::Broadcast but found ",
-        new_rfactor.at(i)->toString());
+        new_id->toString());
+    TORCH_CHECK(
+        !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+    TORCH_CHECK(
+        new_id->extent()->isOneInt(),
+        "Can not squeeze dimension(s) with size != 1.");
   }
 }
 
