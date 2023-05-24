@@ -970,14 +970,14 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getRank();
+      auto dims = tensor_arg_abstract->getAllocRank();
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getSize((int)dim);
+        auto size = tensor_arg_abstract->getAllocSize((int)dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getStride((int)dim);
+        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1063,36 +1063,36 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   // If we don't have an record, either it is a tv with innermost broadcast,
   // or it is an intermediate tensor allocated by fuser. Logic copied to get
   // root according to scheduler_utils::innerMostRootDim.
-  auto tv_root = tv->hasReduction() && tv->hasRFactor()
+  auto tv_alloc = tv->hasReduction() && tv->hasRFactor()
       ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
+      : tv->getMaybeAllocationDomain();
 
-  auto tv_root_no_reductions = TensorDomain::noReductions(tv_root);
+  auto tv_alloc_no_reductions = TensorDomain::noReductions(tv_alloc);
 
   auto contiguity = tv->domain()->contiguity();
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
-  if (contiguity.size() == tv_root.size() &&
-      contiguity.size() != tv_root_no_reductions.size()) {
+  if (contiguity.size() == tv_alloc.size() &&
+      contiguity.size() != tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(tv_root.size())) {
-      if (!tv_root[i]->isReduction()) {
+    for (auto i : c10::irange(tv_alloc.size())) {
+      if (!tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
     }
     contiguity = new_contiguity;
   }
-  tv_root = tv_root_no_reductions;
+  tv_alloc = tv_alloc_no_reductions;
 
-  auto tv_root_size = tv_root.size();
+  auto tv_alloc_size = tv_alloc.size();
 
   // Filter out 0-dim tensors
-  if (tv_root_size < 1) {
+  if (tv_alloc_size < 1) {
     return 1;
   }
 
   // Filter out mismatched contiguity info
-  if (tv_root_size != contiguity.size()) {
+  if (tv_alloc_size != contiguity.size()) {
     return 1;
   }
 
@@ -1107,9 +1107,9 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   }
 
   size_t numel = 1;
-  for (auto i : c10::irange(tv_root_size)) {
-    auto root_i = tv_root_size - i - 1;
-    auto root_id = tv_root[root_i];
+  for (auto i : c10::irange(tv_alloc_size)) {
+    auto root_i = tv_alloc_size - i - 1;
+    auto root_id = tv_alloc[root_i];
 
     if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
       continue;
