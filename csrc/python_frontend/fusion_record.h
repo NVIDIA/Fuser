@@ -1462,8 +1462,9 @@ struct TensorRecord : RecordFunctor {
     }
     size_t contig_hash = 0;
     for (size_t i = 0; i < contiguity_.size(); ++i) {
+      auto contiguity_value = contiguity_[i];
       contig_hash |=
-          ((contiguity_[i].has_value() && contiguity_[i].value())
+          ((contiguity_value.has_value() && contiguity_value.value())
            << (contiguity_.size() - 1 - i));
     }
 
@@ -1503,8 +1504,8 @@ struct TensorRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
-    int rank = symbolic_sizes_.size();
+  void operator()(FusionState& fd) final {
+    auto rank = symbolic_sizes_.size();
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
@@ -1694,7 +1695,7 @@ struct OutputRecord : RecordFunctor {
         if (!stride_order_.empty()) {
           std::vector<int64_t> reverse_perm(stride_order_.size());
           int64_t duplicate_check = 0;
-          for (const auto i : c10::irange(stride_order_.size())) {
+          for (const auto i : c10::irange((int64_t)stride_order_.size())) {
             TORCH_CHECK(
                 stride_order_[i] >= 0 &&
                     stride_order_[i] < (int64_t)reverse_perm.size(),
@@ -1770,7 +1771,7 @@ struct ReductionOpRecord : RecordFunctor {
             std::move(_outputs),
             _name,
             record_type),
-        fusion_op_(fusion_op),
+        fusion_op_(std::move(fusion_op)),
         axes_(std::move(axes)),
         keep_dim_(keep_dim),
         dtype_(dtype) {}
@@ -2138,8 +2139,8 @@ struct SliceOpRecord : RecordFunctor {
             std::move(_outputs),
             "ops.slice",
             serde::RecordType_SliceOp),
-        start_indices_(start_indices),
-        end_indices_(end_indices),
+        start_indices_(std::move(start_indices)),
+        end_indices_(std::move(end_indices)),
         strides_(std::move(strides)) {}
   ~SliceOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -2401,7 +2402,7 @@ struct VarianceOpRecord : NormOpRecord {
     return new VarianceOpRecord(*this);
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto output = variance(arg, axes_, correction_, keep_dim_);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2610,8 +2611,7 @@ struct FullOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
-  virtual void print(std::ostream& os, bool close_function = true)
-      const override {
+  void print(std::ostream& os, bool close_function = true) const override {
     RecordFunctor::print(os, false);
     os << ", shape=[";
     bool first_arg = true;

@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <c10/util/Exception.h>
+#include <functional>
+
 namespace nvfuser::serde {
 
 // Flatbuffer enum are represented as an unscoped enumeration, so we can map
@@ -25,7 +28,7 @@ class Factory {
   Factory(size_t num_parsers) : parsers_(num_parsers, nullptr){};
 
   void registerParser(int serde_type, SerdeParser parser) {
-    TORCH_CHECK(
+    TORCH_INTERNAL_ASSERT(
         serde_type >= 0 && serde_type < (int)parsers_.size(),
         "RegisterParser: Invalid serde type: ",
         serde_type);
@@ -33,7 +36,7 @@ class Factory {
   }
 
   BaseTypePtr parse(int serde_type, const SerdeBuffer* buffer) {
-    TORCH_CHECK(
+    TORCH_INTERNAL_ASSERT(
         serde_type >= 0 && serde_type < (int)parsers_.size(),
         "Deserialize: Invalid serde type: ",
         serde_type);
