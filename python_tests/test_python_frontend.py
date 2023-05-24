@@ -698,7 +698,7 @@ class TestNvFuserFrontend(TestCase):
             )
 
             t1_b = fd.ops.broadcast_in_dim(t1, t0.shape(), [0, 1, 2])
-            t2_b = fd.ops.broadcast_in_dim(t2, t1.shape(), [0, 1, 2])
+            t2_b = fd.ops.broadcast_in_dim(t2, t1_b.shape(), [0, 1, 2])
 
             fd.add_output(t2_b)
 

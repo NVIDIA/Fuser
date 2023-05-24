@@ -56,7 +56,7 @@ Vector define_vector_from_scalars_fn(FusionDefinition& fd, std::vector<Scalar>& 
   inputs.reserve(args.size());
   for(const auto& arg : args) {
     inputs.push_back(fd.recordingState(arg()));
-  } 
+  }
   Vector out = fd.defineVector(inputs.size());
   fd.defineRecord(new VectorFromStateRecord(
       inputs,
@@ -106,7 +106,7 @@ Tensor random_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, S
     op.validUse(), "Attempting to add to a completed definition!");
   FusionDefinition* fd = op.fusion_definition;
   size_t output_size = 0;
-  if constexpr(std::is_same_v<ShapeType, Vector>) {
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
     output_size = shape.size;
   } else {
     output_size = shape.size(); 
@@ -133,6 +133,16 @@ Tensor random_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, S
       output_size,
       dtype));
   return output;
+}
+
+template<class ShapeType>
+Tensor uniform_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, ShapeType shape, PrimDataType dtype) {
+  return random_op_fn<ShapeType>(op, arg1, arg2, shape, dtype, "ops.uniform", serde::RecordType_RandomUniformOp);
+}
+
+template<class ShapeType>
+Tensor normal_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, ShapeType shape, PrimDataType dtype) {
+  return random_op_fn<ShapeType>(op, arg1, arg2, shape, dtype, "ops.normal", serde::RecordType_RandomNormalOp);
 }
 
 } // namespace anonymous
@@ -1787,7 +1797,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<Vector>,
+      broadcast_in_dim_fn<python_frontend::Vector>,
       py::arg("arg"),
       py::arg("shape"),
       py::arg("broadcast_dims"),
@@ -2365,15 +2375,11 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction"),
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
+  // The Vector signature needs to go first so it doesn't get
+  // caught by std::vector<Scalar> for some reason.
   nvf_ops.def(
       "uniform",
-      [](FusionDefinition::Operators& self,
-         Scalar minval,
-         Scalar maxval, 
-         std::vector<int64_t> shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<std::vector<int64_t>>(self, minval, maxval, shape, dtype, "ops.uniform", serde::RecordType_RandomUniformOp);
-      },
+      uniform_op_fn<Vector>,
       py::arg("minval"),
       py::arg("maxval"),
       py::arg("shape"),
@@ -2381,13 +2387,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "uniform",
-      [](FusionDefinition::Operators& self,
-         Scalar minval,
-         Scalar maxval,
-         std::vector<Scalar> shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<std::vector<Scalar>>(self, minval, maxval, shape, dtype, "ops.uniform", serde::RecordType_RandomUniformOp);
-      },
+      uniform_op_fn<std::vector<int64_t>>,
       py::arg("minval"),
       py::arg("maxval"),
       py::arg("shape"),
@@ -2395,27 +2395,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "uniform",
-      [](FusionDefinition::Operators& self,
-         Scalar minval,
-         Scalar maxval,
-         Vector shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<Vector>(self, minval, maxval, shape, dtype, "ops.uniform", serde::RecordType_RandomUniformOp);
-      },
+      uniform_op_fn<std::vector<Scalar>>,
       py::arg("minval"),
       py::arg("maxval"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
       py::return_value_policy::reference);
+  // The Vector signature needs to go first so it doesn't get
+  // caught by std::vector<Scalar> for some reason.
   nvf_ops.def(
       "normal",
-      [](FusionDefinition::Operators& self,
-         Scalar mean,
-         Scalar std,
-         std::vector<int64_t> shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<std::vector<int64_t>>(self, mean, std, shape, dtype, "ops.normal", serde::RecordType_RandomNormalOp);
-      },
+      normal_op_fn<Vector>,
       py::arg("mean"),
       py::arg("std"),
       py::arg("shape"),
@@ -2423,13 +2413,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "normal",
-      [](FusionDefinition::Operators& self,
-         Scalar mean,
-         Scalar std,
-         std::vector<Scalar> shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<std::vector<Scalar>>(self, mean, std, shape, dtype, "ops.normal", serde::RecordType_RandomNormalOp);
-      },
+      normal_op_fn<std::vector<int64_t>>,
       py::arg("mean"),
       py::arg("std"),
       py::arg("shape"),
@@ -2437,13 +2421,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "normal",
-      [](FusionDefinition::Operators& self,
-         Scalar mean,
-         Scalar std,
-         Vector shape,
-         PrimDataType dtype) -> Tensor {
-        return random_op_fn<Vector>(self, mean, std, shape, dtype, "ops.normal", serde::RecordType_RandomNormalOp);
-      },
+      normal_op_fn<std::vector<Scalar>>,
       py::arg("mean"),
       py::arg("std"),
       py::arg("shape"),
