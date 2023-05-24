@@ -1098,12 +1098,10 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   TORCH_CHECK(id_1_relook.eviction == false);
 
   // test scalars don't affect ID only if we mask them with record_scalar
-  std::vector<bool> record_scalar({true, true, false});
-  auto id_3 = inputs_id_lookup.lookupId({t0, t1, 5.0});
-  auto id_3_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5});
-  auto id_3_norecord = inputs_id_lookup.lookupId({t0, t1, 5.0}, record_scalar);
-  auto id_3_lookup_norecord =
-      inputs_id_lookup.lookupId({t0, t1, 2.5}, record_scalar);
+  auto id_3 = inputs_id_lookup.lookupId({t0, t1, 5.0}, {2});
+  auto id_3_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5}, {2});
+  auto id_3_norecord = inputs_id_lookup.lookupId({t0, t1, 5.0}, {});
+  auto id_3_lookup_norecord = inputs_id_lookup.lookupId({t0, t1, 2.5}, {});
   TORCH_CHECK(id_3.id != id_3_lookup.id);
   TORCH_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
 }

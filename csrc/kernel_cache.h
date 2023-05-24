@@ -302,12 +302,17 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! false will cause the corresponding inputs to not affect the ID.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<bool>& record_scalar);
+      const std::unordered_set<size_t>& scalar_inputs_affecting_concretization);
   IdLookupReturn lookupId(const at::ArrayRef<c10::IValue>& inputs) {
     // By default, assume all inputs affect concretization so that all scalars
     // appear in ID
-    const std::vector<bool> record_scalar(inputs.size(), true);
-    return lookupId(inputs, record_scalar);
+    std::unordered_set<size_t> to_record;
+    for (size_t i : c10::irange(inputs.size())) {
+      if (!inputs.at(i).isTensor()) {
+        to_record.insert(i);
+      }
+    }
+    return lookupId(inputs, to_record);
   }
 
   //! debugging API that returns the size of lookup table

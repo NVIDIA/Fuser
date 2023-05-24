@@ -72,16 +72,16 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
     finalizeDynamicVals();
 
-    // initial_info_ provides a set of input Vals that are used for
-    // concretization. Here we check which inputs, if any, correspond to any of
-    // those Vals. These will be the inputs that are explicitly used in the
-    // cache Id for KernelArgumentHolder.
-    info_.input_affects_concretization_.resize(fusion->inputs().size(), false);
+    // initial_info_ provides a set of Vals that are used for concretization.
+    // Here we check which scalar inputs, if any, correspond to any of those
+    // Vals. These will be the inputs that are explicitly used in the cache ID
+    // for KernelArgumentHolder.
     auto dyn_vals = info_.getRootDynamicVals();
     for (const auto i : c10::irange(fusion->inputs().size())) {
       auto input = fusion->inputs().at(i);
-      info_.input_affects_concretization_[i] =
-          input->isA<TensorView>() || dyn_vals.find(input) != dyn_vals.end();
+      if (dyn_vals.find(input) != dyn_vals.end()) {
+        info_.scalar_inputs_affecting_concretization_.insert(i);
+      }
     }
   }
 
