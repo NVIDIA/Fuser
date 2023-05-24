@@ -3403,16 +3403,12 @@ void test_op(
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
   std::vector<at::Tensor> output_vect = {cg_output};
   cudaDeviceSynchronize();
-  if (fusion.isStochastic())
-    at::manual_seed(0);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs_ivalues);
   fe.runFusion(aten_inputs_ivalues, output_vect);
   cudaDeviceSynchronize();
 
-  if (fusion.isStochastic())
-    at::manual_seed(0);
   at::Tensor aten_output = af(aten_inputs);
   cudaDeviceSynchronize(); // This sync shouldn't be necessary;
 
@@ -5458,7 +5454,6 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   int numel_y = 100;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor input = at::randn({numel_x, numel_y}, options);
 
   FusionExecutor fe;
