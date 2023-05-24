@@ -11,8 +11,11 @@ namespace nvfuser.serde;
 // breaking change is applied to the schema.
 file_identifier "NV00";
 
+// =====================================================================================
+// Enum definitions
+
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType:int {
+enum DataType : int {
     Double = 0,
     Float,
     Half,
@@ -27,13 +30,13 @@ enum DataType:int {
 
 // The StateType enum is used to indicate the whether the state object is a
 // Scalar or Tensor.
-enum StateType:int {
+enum StateType : int {
     Tensor = 0,
     Scalar,
     None,
 }
 
-enum Contiguity:int {
+enum Contiguity : int {
     Strided = 0,
     Contiguous,
     None,
@@ -43,7 +46,7 @@ enum Contiguity:int {
 // Otherwise, the record type is determined via the success of dynamic casting.
 // We enumerate the template arguments of a RecordFunctor, so we can specify
 // them during deserialization.
-enum RecordType:int {
+enum RecordType : int {
     Base = 0,
     BatchNormOp,
     BroadcastOp,
@@ -53,9 +56,12 @@ enum RecordType:int {
     CastVal,
     CatOp,
     ConstantBool,
-    ConstantInt,
-    ConstantDouble,
     ConstantComplexDouble,
+    ConstantComplexFloat,
+    ConstantDouble,
+    ConstantFloat,
+    ConstantInt,
+    ConstantLong,
     End,
     FullOp,
     IotaOp,
@@ -104,6 +110,9 @@ enum RecordType:int {
     VarianceMeanOp,
 }
 
+// =====================================================================================
+// Union definitions
+
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
   BatchNorm,
@@ -112,10 +121,13 @@ union RecordData {
   BroadcastInDim,
   BroadcastInDimSymbolic,
   ComplexDouble,
+  ComplexFloat,
+  Dimension,
   Double,
   Dtype,
-  Dimension,
+  Float,
   Int,
+  Long,
   Norm,
   Output,
   Pad,
@@ -129,22 +141,63 @@ union RecordData {
   TensorCreationSymbolic,
 }
 
+// =====================================================================================
+// Basic data tables
+
 // Data for Constant Bool
 table Bool {
-  bool_val: bool;
+  value: bool;
 }
 
-// Data for Constant Double or Float
+// Data for Constant Double
 table Double {
-  double_val: double;
-  dtype: DataType;
+  value: double;
+}
+
+// Data for Constant Double
+table Float {
+  value: float;
 }
 
 // Data for Constant Int or Long
 table Int {
-  int_val: long;
-  dtype: DataType;
+  value: int;
 }
+
+// Data for Constant Long
+table Long {
+  value: long;
+}
+
+// Data for Half
+table Half {
+  value: ushort;
+}
+
+// Data for BFloat16
+table BFloat16 {
+  value: ushort;
+}
+
+// Data for Constant Complex Double or Float
+table ComplexDouble {
+  real: double;
+  imag: double;
+}
+
+// Data for Constant Complex Float
+table ComplexFloat {
+  real: float;
+  imag: float;
+}
+
+// Data representing a tensor shape
+table TensorShape {
+  shape : [long];
+}
+
+//
+// =====================================================================================
 
 // Data for BatchNormOpRecord
 table BatchNorm {
@@ -167,13 +220,6 @@ table BroadcastInDim {
 table BroadcastInDimSymbolic {
   output_shape: [State];
   broadcast_dims: [long];
-}
-
-// Data for Constant Complex Double or Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
 }
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord
@@ -255,6 +301,9 @@ table TensorCreationSymbolic {
   shape: [State];
   dtype: DataType;
 }
+
+//
+// =====================================================================================
 
 // The State struct represents each scalar and tensor value.
 // e.g., all input, output and intermediate values in the fusion.
