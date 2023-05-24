@@ -1070,7 +1070,7 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   nvfuser::InputsIdLookup inputs_id_lookup(2);
 
   // testing basic function, same encoding for identical inputs
-  auto id_0 = inputs_id_lookup.lookupId({t0, t1, 5.0});
+  auto id_0 = inputs_id_lookup.lookupId({t0, t1, 2.5});
   auto id_0_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5});
   TORCH_CHECK(id_0.id == id_0_lookup.id);
   TORCH_CHECK(inputs_id_lookup.size() == 1);
@@ -1096,6 +1096,16 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   auto id_1_relook = inputs_id_lookup.lookupId({t0, t1});
   TORCH_CHECK(id_1_relook.id == id_1.id);
   TORCH_CHECK(id_1_relook.eviction == false);
+
+  // test scalars don't affect ID only if we mask them with record_scalar
+  std::vector<bool> record_scalar({true, true, false});
+  auto id_3 = inputs_id_lookup.lookupId({t0, t1, 5.0});
+  auto id_3_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5});
+  auto id_3_norecord = inputs_id_lookup.lookupId({t0, t1, 5.0}, record_scalar);
+  auto id_3_lookup_norecord =
+      inputs_id_lookup.lookupId({t0, t1, 2.5}, record_scalar);
+  TORCH_CHECK(id_3.id != id_3_lookup.id);
+  TORCH_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {

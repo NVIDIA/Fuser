@@ -44,9 +44,12 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-void encodeBuffer(size_t value, std::string& buffer) {
+// Copy bytes of value to back of buffer. This is templated in order to avoid
+// implicit cast such as int64_t -> size_t that might lose information.
+template <typename T>
+void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : c10::irange(sizeof(size_t))) {
+  for (const auto i : c10::irange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -238,11 +241,25 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       // encode s for scalar;
       encoding_.push_back('s');
       if (record_scalar.at(i)) {
-        // Add value of integer scalars here only if it is one of the scalars
-        // provided, as these are used in determining concretization. If no
-        // inputs are provided, then any of them might determine the
-        // concretization, so include the scalar then.
-        encodeBuffer(input.toInt(), encoding_);
+        // Add value of scalars here only if it is one of the scalars
+        // provided, as these are used in determining concretization.
+        // Note that although most commonly these will be Int or Bool scalars,
+        // any DataType might appear via `cast` and `where`, so we handle all
+        // cases here.
+        if (input.isInt()) {
+          encodeBuffer(input.toInt(), encoding_);
+        } else if (input.isBool()) {
+          encodeBuffer(input.toBool(), encoding_);
+        } else if (input.isDouble()) {
+          encodeBuffer(input.toDouble(), encoding_);
+        } else if (input.isComplexDouble()) {
+          encodeBuffer(input.toComplexDouble(), encoding_);
+        } else {
+          TORCH_INTERNAL_ASSERT(
+              false,
+              "Unhandled input type when creating input ID. Cannot record ",
+              input);
+        }
       }
     }
     encoding_.push_back(';');
