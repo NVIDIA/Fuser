@@ -1904,7 +1904,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   }
 
   serde::ExpressionSerializer es;
-  auto value_generator = es.serialize(builder, kernel(), kernel_summary_.global_allocations);
+  auto value_generator =
+      es.serialize(builder, kernel(), kernel_summary_.global_allocations);
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
 

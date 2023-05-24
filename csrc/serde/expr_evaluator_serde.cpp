@@ -156,8 +156,8 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       bind(all_values, tv);
     }
   }
-  // A deserialized fusion may not contain global allocations in its kir::Kernel.
-  // Add global allocations directly to handle this case.
+  // A deserialized fusion may not contain global allocations in its
+  // kir::Kernel. Add global allocations directly to handle this case.
   for (auto allocate : global_allocations) {
     if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
