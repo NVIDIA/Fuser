@@ -1157,6 +1157,11 @@ int64_t getVectorizationSize(
     auto denominator = denominator_optional->as<int64_t>();
     auto extent = extent_optional->as<int64_t>();
 
+    // TODO: we should clean this up with expr simplifier
+    auto gcd = std::gcd(numerator, denominator);
+    numerator = numerator / gcd;
+    denominator = denominator / gcd;
+
     if (denominator != 1) {
       break;
     }
@@ -1228,7 +1233,7 @@ size_t getVectorizationFactor(
     return 1;
   }
 
-  size_t max_expand_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  size_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   size_t common_alignment_size =
       SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
@@ -1236,18 +1241,18 @@ size_t getVectorizationFactor(
     auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
 
-    max_expand_size = std::min(
-        max_expand_size,
+    max_vec_size = std::min(
+        max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
-    max_expand_size = std::min(
-        max_expand_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
+    max_vec_size = std::min(
+        max_vec_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
     common_alignment_size = std::min(
         common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
   }
 
   auto reference_map = vectorize_maps_entry.get().at(break_point);
   // Initialize to max the tensors could support.
-  size_t max_supported_vector_size = max_expand_size;
+  size_t max_supported_vector_size = max_vec_size;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     size_t contig_dim_size = getVectorizationSize(
         getContigVectorSizesOf(inp_or_out, reference_map),
@@ -1255,7 +1260,7 @@ size_t getVectorizationFactor(
     size_t local_max_vec_size = 1;
 
     while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
-           local_max_vec_size < max_expand_size) {
+           local_max_vec_size < max_vec_size) {
       contig_dim_size /= 2;
       local_max_vec_size *= 2;
     }
