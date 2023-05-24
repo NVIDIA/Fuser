@@ -202,7 +202,7 @@ class ArgumentManager {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    const std::unordered_set<size_t>& scalar_inputs_affecting_concretization) {
+    const std::unordered_set<size_t>& scalar_inputs_to_record) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
@@ -233,8 +233,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
-      if (scalar_inputs_affecting_concretization.find(i) !=
-          scalar_inputs_affecting_concretization.end()) {
+      if (scalar_inputs_to_record.find(i) != scalar_inputs_to_record.end()) {
         // Add value of scalars here only if it is one of the scalars
         // provided, as these are used in determining concretization.
         // Note that although most commonly these will be Int or Bool scalars,

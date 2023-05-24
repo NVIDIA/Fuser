@@ -295,25 +295,13 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of tv0. This means that both the extents of tv0 as well as the value of s
   //! must affect the unique id returned by lookupId.
   //!
-  //! By default, all scalar inputs affect the return value of this function.
-  //! However, if record_scalar is provided, it is used to restrict this so that
-  //! only certain scalar input values are included when computing this ID. The
-  //! length of record_scalar must match the length of inputs, and values of
-  //! false will cause the corresponding inputs to not affect the ID.
+  //! By default, no scalar inputs affect the return value of this function.
+  //! However, if scalar_inputs_to_record is provided, then the values of scalar
+  //! inputs at the integer locations specified in that argument will affect the
+  //! returned ID.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::unordered_set<size_t>& scalar_inputs_affecting_concretization);
-  IdLookupReturn lookupId(const at::ArrayRef<c10::IValue>& inputs) {
-    // By default, assume all inputs affect concretization so that all scalars
-    // appear in ID
-    std::unordered_set<size_t> to_record;
-    for (size_t i : c10::irange(inputs.size())) {
-      if (!inputs.at(i).isTensor()) {
-        to_record.insert(i);
-      }
-    }
-    return lookupId(inputs, to_record);
-  }
+      const std::unordered_set<size_t>& scalar_inputs_to_record = {});
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
