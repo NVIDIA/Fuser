@@ -52,9 +52,8 @@ Bool* getPredicatePerParallelType(
     valid_index = GpuLower::current()->kernel()->zeroVal();
   }
   return SimplifyingIrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(pt),
-              valid_index)
-        ->as<Bool>();
+             NamedScalar::getParallelIndex(pt), valid_index)
+      ->as<Bool>();
 }
 
 } // namespace
