@@ -513,25 +513,26 @@ class ConcretizedBroadcastRedundantWriteRemover {
   ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
       : tv_(out_tv), root_domain_(out_tv->getMaybeRFactorDomain()) {
     setCandidateLeafDomains();
-    if (!candidate_leaf_domains_.empty()) {
-      setConcretizedBroadcastRootDomain();
-      if (!concretized_broadcast_root_domains_.empty()) {
-        for (auto ld : candidate_leaf_domains_) {
-          // find all root domains that are merged to this leaf domain.
-          const std::vector<IterDomain*>& merged_root_domains =
-              getRootDomainsMergedToLeaf(ld);
-          if (!merged_root_domains.empty()) {
-            const ParallelType& pt = ld->getParallelType();
-            Val* write_index =
-                getIndexWithoutBroadcast(merged_root_domains, pt);
-            write_index_map_[pt] = write_index;
-          }
-        }
+    if (candidate_leaf_domains_.empty()) {
+      return;
+    }
+    setConcretizedBroadcastRootDomain();
+    if (concretized_broadcast_root_domains_.empty()) {
+      return;
+    }
+    for (auto ld : candidate_leaf_domains_) {
+      // find all root domains that are merged to this leaf domain.
+      const std::vector<IterDomain*>& merged_root_domains =
+          getRootDomainsMergedToLeaf(ld);
+      if (!merged_root_domains.empty()) {
+        const ParallelType& pt = ld->getParallelType();
+        Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
+        write_index_map_[pt] = write_index;
       }
     }
   }
   // interface to get results
-  std::unordered_map<ParallelType, Val*> getWriteIndexMap() {
+  const std::unordered_map<ParallelType, Val*>& getWriteIndexMap() {
     return write_index_map_;
   }
 
@@ -563,53 +564,58 @@ class ConcretizedBroadcastRedundantWriteRemover {
   // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
-      if (rd->isBroadcast()) {
-        IterDomain* identical_concretized_domain = nullptr;
-        // find this broadcast root domain's identical concretized domain
-        // from its exact map (includes itself).
-        const auto& mapped_rd_exact_set = GpuLower::current()
-                                              ->caMap()
-                                              ->getIdSets(IdMappingMode::EXACT)
-                                              .getDisjointSetOf(rd);
-        for (auto mapped_rd : mapped_rd_exact_set) {
-          std::unordered_set<IterDomain*> all_cids =
-              GpuLower::current()
-                  ->concretizedBroadcastDomains()
-                  ->allConcretizedDomains(mapped_rd);
-
-          if (!all_cids.empty()) {
-            auto fromSameExactGroup = [&all_cids]() {
-              const auto& exact_set = GpuLower::current()
-                                          ->caMap()
-                                          ->getIdSets(IdMappingMode::EXACT)
-                                          .getDisjointSetOf(*all_cids.begin());
-              return std::all_of(
-                  all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
-                    return exact_set.has(id);
-                  });
-            };
-            if (!fromSameExactGroup()) {
-              break;
-            }
-            // if we have one
-            if (identical_concretized_domain) {
-              // make sure the new one is the same as the previous one
-              if (identical_concretized_domain != *all_cids.begin()) {
-                // if not the same, we can't handle this case
-                // move to the next broadcast root domain
-                identical_concretized_domain = nullptr;
-                break;
-              }
-            } else {
-              identical_concretized_domain = *all_cids.begin();
-            }
-          }
+      if (!rd->isBroadcast()) {
+        continue;
+      }
+      IterDomain* identical_concretized_domain = nullptr;
+      // find this broadcast root domain's identical concretized domain
+      // from its exact map (includes itself).
+      const auto& mapped_rd_exact_set = GpuLower::current()
+                                            ->caMap()
+                                            ->getIdSets(IdMappingMode::EXACT)
+                                            .getDisjointSetOf(rd);
+      for (auto mapped_rd : mapped_rd_exact_set) {
+        std::unordered_set<IterDomain*> all_cids =
+            GpuLower::current()
+                ->concretizedBroadcastDomains()
+                ->allConcretizedDomains(mapped_rd);
+        auto fromSameExactGroup = [&all_cids]() {
+          const auto& exact_set = GpuLower::current()
+                                      ->caMap()
+                                      ->getIdSets(IdMappingMode::EXACT)
+                                      .getDisjointSetOf(*all_cids.begin());
+          return std::all_of(
+              all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
+                return exact_set.has(id);
+              });
+        };
+        // skip if this mapped domain is not concretized
+        // don't need to reset identical_concretized_domain
+        // since we only needs to make sure all the concretized domains are same
+        if (all_cids.empty()) {
+          continue;
         }
-        // store the concretized domain if it is the only one
+        // Not from same exact group, not a valid case
+        if (!fromSameExactGroup()) {
+          identical_concretized_domain = nullptr;
+          break;
+        }
+        // if we have one
         if (identical_concretized_domain) {
-          concretized_broadcast_root_domains_[rd] =
-              identical_concretized_domain;
+          // make sure the new one is the same as the previous one
+          if (identical_concretized_domain != *all_cids.begin()) {
+            // if not the same, we can't handle this case
+            // move to the next broadcast root domain
+            identical_concretized_domain = nullptr;
+            break;
+          }
+        } else {
+          identical_concretized_domain = *all_cids.begin();
         }
+      }
+      // store the concretized domain if it is the only one
+      if (identical_concretized_domain) {
+        concretized_broadcast_root_domains_[rd] = identical_concretized_domain;
       }
     }
   }
