@@ -97,7 +97,7 @@ struct DataType {
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
-  DataType(const VariantOfSupportedTypes& type) : type(type) {}
+  DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
   DataType(const PrimDataType& type) : type(type) {}
   DataType(const ArrayOf& type) : type(type) {}
   DataType(const PointerOf& type) : type(type) {}
@@ -348,6 +348,7 @@ enum class UnaryOpType {
   Rsqrt,
   Round,
   Sigmoid,
+  Signbit,
   Sin,
   Sinh,
   Sqrt,
@@ -424,6 +425,7 @@ enum class RNGOpType {
   UniformRange, // Uniform in [low, high]
   NormalStandard, // Normal with mean 0, std 1
   NormalGeneral, // Normal with given mean and std
+  Undefined,
 };
 
 // Return if output of operator should be a boolean
@@ -477,14 +479,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
 
 enum class MemoryType { Local, Shared, Global };
 
-// sometimes broadcasted tensors may be inputed in the kernel with an explicit 1
-// size. If that size is there, we need to account that there's also a stride
-// there, even if the stride = 0. If we don't account for that stride when
-// accessing a tensor like: [b2{1}, i0, i1] we would linearize the access like:
-// [i0*stride[0] + i1*stride[1]] when it should be: [i0*stride[1] +
-// i1*stride[2]]. Broadcasts that translate to a physical memory dim we consider
-// "with stride", Broadcasts only through our broadcast op we consider "without
-// stride"
+// Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
   Iteration,
   Reduction,
@@ -492,7 +487,8 @@ enum class IterType {
   Gather,
   Stride,
   GatherScatter,
-  VectorComponent
+  VectorComponent,
+  Symbolic
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
@@ -511,10 +507,14 @@ static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
     IdMappingMode::PERMISSIVE,
     IdMappingMode::PERMISSIVE_RESIZE};
 
-// Used to annotate the special memory intrinsics that a loadstore
-//  op will be lowered to.
+//! Used to annotate the special memory intrinsics that a loadstore op will be
+//!  lowered to.
+//!
+//!  SegmenterSet here is used to hint segmenter to break kernel on the output
+//!  of the node
 enum class LoadStoreOpType {
   Set,
+  SegmenterSet,
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,
@@ -639,9 +639,9 @@ inline DataType promoteType(
 }
 
 inline DataType promoteType(const std::vector<DataType>& types) {
-  TORCH_CHECK(types.size() > 0, "Can not promote empty type vector")
+  TORCH_CHECK(!types.empty(), "Can not promote empty type vector")
   DataType result = types.at(0);
-  for (auto t : types) {
+  for (const auto& t : types) {
     result = promoteType(result, t);
   }
   return result;

@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <inlining.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
@@ -98,7 +98,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->domain()->domain();
+  auto dom = tv->getLeafDomain();
   auto iter = std::find_if(dom.begin(), dom.end(), [=](IterDomain* id) {
     return !isAllowedID(
         id,

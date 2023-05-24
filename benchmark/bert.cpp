@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/utils.h>
@@ -22,6 +22,9 @@
 #include <sstream>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // Return reduction tensor view and output of reduction
 static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
@@ -32,7 +35,7 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
   TensorView* tv0 = TensorViewBuilder()
                         .ndims(4)
                         .dtype(dtype)
-                        .contiguity({true, c10::nullopt, c10::nullopt, true})
+                        .contiguity({true, std::nullopt, std::nullopt, true})
                         .shape({-1, 1, 1, -1})
                         .build();
   TensorView* tv1 = makeContigTensor(4, dtype);
@@ -356,13 +359,13 @@ static void setupBiasDropoutAddLayernormBwd1(Fusion* fusion, DataType dtype) {
   TensorView* tv3 = TensorViewBuilder()
                         .ndims(3)
                         .dtype(dtype)
-                        .contiguity({true, true, c10::nullopt})
+                        .contiguity({true, true, std::nullopt})
                         .shape({-1, -1, 1})
                         .build();
   TensorView* tv4 = TensorViewBuilder()
                         .ndims(3)
                         .dtype(dtype)
-                        .contiguity({true, true, c10::nullopt})
+                        .contiguity({true, true, std::nullopt})
                         .shape({-1, -1, 1})
                         .build();
 
@@ -464,7 +467,7 @@ static void setupBiasDropoutAddLayernormBwd2(Fusion* fusion, DataType dtype) {
   TensorView* tv4 = TensorViewBuilder()
                         .ndims(3)
                         .dtype(dtype)
-                        .contiguity({true, true, c10::nullopt})
+                        .contiguity({true, true, std::nullopt})
                         .shape({-1, -1, 1})
                         .build();
   TensorView* tv5 = makeContigTensor(1, dtype);

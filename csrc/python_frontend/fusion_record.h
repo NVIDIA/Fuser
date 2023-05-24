@@ -7,14 +7,12 @@
 // clang-format on
 #pragma once
 #include <c10/util/complex.h>
-#include <ir_interface_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/normalization.h>
+#include <ir/interface_nodes.h>
+#include <ops/all_ops.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <serde/fusion_cache_generated.h>
 #include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
 #include <utils.h>
 
 #include <algorithm>
@@ -1418,7 +1416,7 @@ struct TensorRecord : RecordFunctor {
   TensorRecord(
       std::vector<State> _outputs,
       std::vector<int64_t> _symbolic_sizes,
-      std::vector<c10::optional<bool>> _contiguity,
+      std::vector<std::optional<bool>> _contiguity,
       PrimDataType _dtype,
       bool _is_cpu = false)
       : RecordFunctor(
@@ -1560,7 +1558,7 @@ struct TensorRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_sizes = builder.CreateVector(symbolic_sizes_);
 
-    auto mapOptionalToEnum = [](c10::optional<bool> v) -> int {
+    auto mapOptionalToEnum = [](std::optional<bool> v) -> int {
       if (!v.has_value()) {
         return serde::Contiguity_None;
       } else if (v.value()) {
@@ -1593,7 +1591,7 @@ struct TensorRecord : RecordFunctor {
   std::vector<int64_t> symbolic_sizes_;
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
-  std::vector<c10::optional<bool>> contiguity_;
+  std::vector<std::optional<bool>> contiguity_;
   //! Tensor data type.
   PrimDataType dtype_;
   //! Notes a scalar CPU Tensor
@@ -1963,6 +1961,60 @@ struct TorchGatherOpRecord : RecordFunctor {
   virtual bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const TorchGatherOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData_Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
+//! Similar to TorchGatherOpRecord but enforces that non-index dimension
+//! extents match between index tensor and value tensor.
+struct TakeAlongAxisOpRecord : RecordFunctor {
+  TakeAlongAxisOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.take_along_axis",
+            serde::RecordType_TakeAlongAxisOp),
+        dim_(dim) {}
+  virtual ~TakeAlongAxisOpRecord() = default;
+  virtual RecordFunctor* clone() final {
+    return new TakeAlongAxisOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = take_along_axis(arg1, arg3, dim_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  virtual bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const TakeAlongAxisOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
     }
     return result;

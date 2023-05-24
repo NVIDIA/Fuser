@@ -7,14 +7,17 @@
 // clang-format on
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   FusionGuard fg(fusion);
@@ -23,12 +26,12 @@ static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   auto t3 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   auto t4 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   auto t7 = makeContigTensor(3, DataType::Half);
 
@@ -545,14 +548,14 @@ static void setup_vit_base_patch16_224_LN_BWD(Fusion* fusion, void* null) {
   auto t5 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   fusion->addInput(t5);
 
   auto t6 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   fusion->addInput(t6);
 

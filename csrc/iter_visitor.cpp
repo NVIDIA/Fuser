@@ -8,9 +8,9 @@
 #include <iter_visitor.h>
 
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -69,7 +69,7 @@ class MemberStatements : public OptOutDispatch {
 
   void handle(TensorDomain* stmt) final {
     next_stmts_.insert(
-        next_stmts_.end(), stmt->domain().begin(), stmt->domain().end());
+        next_stmts_.end(), stmt->leaf().begin(), stmt->leaf().end());
   }
 
   void handle(TensorView* tv) final {

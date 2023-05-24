@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -34,7 +37,7 @@ static void setupRMSNorm_BWD(Fusion* fusion, DataType dtype) {
   auto input = makeContigTensor(3, dtype);
   auto weight = makeContigTensor(1, dtype);
   auto rstd = TensorViewBuilder()
-                  .contiguity({false, false, c10::nullopt})
+                  .contiguity({false, false, std::nullopt})
                   .shape({-1, -1, 1})
                   .dtype(dtype)
                   .build();

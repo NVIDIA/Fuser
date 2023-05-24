@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -147,8 +147,6 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
     Int* init_N = nullptr);
-
-TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
 
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
@@ -315,6 +313,9 @@ TORCH_CUDA_CU_API TensorView* round(TensorView*);
 // sigmoid
 TORCH_CUDA_CU_API Val* sigmoid(Val*);
 TORCH_CUDA_CU_API TensorView* sigmoid(TensorView*);
+// signbit
+TORCH_CUDA_CU_API Val* signbit(Val*);
+TORCH_CUDA_CU_API TensorView* signbit(TensorView*);
 // sin
 TORCH_CUDA_CU_API Val* sin(Val*);
 TORCH_CUDA_CU_API TensorView* sin(TensorView*);
@@ -402,18 +403,18 @@ TORCH_CUDA_CU_API Val* atan2(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* atan2(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, TensorView* v2);
-// div: promote to float for integer division, has the same semantics as the
+// truediv: promote to float for integer division, has the same semantics as the
 // python's operator /
+TORCH_CUDA_CU_API Val* truediv(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* truediv(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, TensorView* v2);
+// div: don't promote to float, instead, truncate the result, this has the same
+// semantics as the C++'s operator /
 TORCH_CUDA_CU_API Val* div(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* div(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* div(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* div(TensorView* v1, TensorView* v2);
-// cpp_div: similar to div, but don't promote to float, this has the same
-// semantics as the C++'s operator /
-TORCH_CUDA_CU_API Val* cpp_div(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* cpp_div(TensorView* v1, TensorView* v2);
 // fmod
 TORCH_CUDA_CU_API Val* fmod(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* fmod(TensorView* v1, Val* v2);
@@ -581,28 +582,6 @@ TORCH_CUDA_CU_API TensorView* lerp(
     TensorView* start,
     TensorView* end,
     TensorView* weight);
-// index_select
-TORCH_CUDA_CU_API TensorView* index_select(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.gather
-TORCH_CUDA_CU_API TensorView* torch_gather(
-    TensorView* input,
-    int dim,
-    TensorView* index);
-// torch.scatter
-TORCH_CUDA_CU_API TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
-TORCH_CUDA_CU_API TensorView* scatter(
-    TensorView* self,
-    int dim,
-    TensorView* index,
-    TensorView* src);
 
 // addcmul
 TORCH_CUDA_CU_API Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);

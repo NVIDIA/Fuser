@@ -52,7 +52,7 @@ sass::Container getSASSFor(
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = matmul(tv0, tv1, layout);
+  auto tv2 = matmul(tv0, tv1, layout, true);
 
   fusion.addOutput(tv2);
 
@@ -70,8 +70,7 @@ sass::Container getSASSFor(
   params.double_buffer_options.smem_double_buffer_stage = 4;
   scheduleMatmul(&fusion, params);
 
-  at::manual_seed(0);
-  auto inputs = fp16MatmulAtInput(M, N, K, layout);
+  auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);
@@ -137,6 +136,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
 TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   bool found_LDGSTS = false;

@@ -9,11 +9,11 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <assume.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
-#include <lower2device.h>
 
 #include <functional>
 #include <sstream>
@@ -42,7 +42,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->getLeafDomain()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
         continue;

@@ -6,19 +6,19 @@
  */
 // clang-format on
 #include <codegen.h>
+#include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -96,12 +96,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
   for (const auto& i : from->managed_data_) {
-    to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    if (i.first.has_value()) {
+      to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    } else {
+      // Don't clone managed data if it has been reset
+      to->managed_data_.emplace_back(i.first, i.second);
+    }
   }
 
   for (auto [k, v] : from->managed_named_data_) {
-    to->managed_named_data_.insert(std::make_pair(
-        k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    if (v.first.has_value()) {
+      to->managed_named_data_.insert(std::make_pair(
+          k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    }
   }
 
   return ir_cloner;
@@ -819,6 +826,10 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   // outputs are present
 
   return alias_indices;
+}
+
+bool Fusion::hasDynamicTransform() {
+  return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
 } // namespace nvfuser

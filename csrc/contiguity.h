@@ -10,21 +10,21 @@
 #include <c10/macros/Export.h>
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/shift.h>
+#include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
-#include <lower_shift.h>
-#include <lower_trivial_broadcast.h>
+#include <ir/all_nodes.h>
 
 namespace nvfuser {
 
-// Goes through the transformations associated with a series of ids and root
-// ids. Checks the ordering of the iteration domains through these operations to
-// pick out which operations are consistently ordered. For example:
-// [i0, i1, i2]
+// Goes through the transformations associated with a series of ids and
+// alloction ids. Checks the ordering of the iteration domains through these
+// operations to pick out which operations are consistently ordered. For
+// example: [i0, i1, i2]
 // ->split(0, 4)->merge(1)->merge(1)->merge(0)
 // are consistently ordered from largest to smallest extents, but
 // ->split(0, 4)->merge(1)->merge(0, 2)->merge(0) is not consistently ordered
-// with the roots.
+// with the alloction domain.
 //
 // This property is important to understand the contiguity of dimensions through
 // complex transformations.
@@ -34,12 +34,12 @@ class OrderedIdInformation : public OptInDispatch {
 
   OrderedIdInformation(
       const std::vector<IterDomain*>& ids,
-      const std::vector<IterDomain*>& root_domain,
+      const std::vector<IterDomain*>& alloc_domain,
       std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info);
 
   const std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
-  idToRootIds() const {
-    return id_to_root_ids_;
+  idToAllocIds() const {
+    return id_to_alloc_ids_;
   }
 
   bool isConsistentlyOrdered(IterDomain* id) const {
@@ -47,14 +47,14 @@ class OrderedIdInformation : public OptInDispatch {
         consistently_ordered_ids_.end();
   }
 
-  bool exclusivelyConsumesRoots(IterDomain* id) const {
-    return exclusively_consumes_roots_.find(id) !=
-        exclusively_consumes_roots_.end();
+  bool exclusivelyConsumesAllocs(IterDomain* id) const {
+    return exclusively_consumes_allocs_.find(id) !=
+        exclusively_consumes_allocs_.end();
   }
 
  private:
-  // Returns if the id in active_ids should be in exclusively_consumes_roots_
-  bool checkExclusivelyConsumesRoots(IterDomain* id);
+  // Returns if the id in active_ids should be in exclusively_consumes_allocs_
+  bool checkExclusivelyConsumesAllocs(IterDomain* id);
 
   void handle(Split*) override;
 
@@ -64,22 +64,22 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Resize* resize) override;
 
-  // Track which root ids were used to generate each iter domain
+  // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-      id_to_root_ids_;
+      id_to_alloc_ids_;
 
   // Track all IterDomains that have correct ordered transforms for contiguity.
   // i.e. if we have:
   //
-  // root = [i0, i1, i2]
+  // alloc = [i0, i1, i2]
   // i3 = merge(i0, i2)
   // would not be consistently ordered transformed
   //
-  // root = [i0, i1, i2]
+  // alloc = [i0, i1, i2]
   // i4, i5 = spit(merge(merge(i0, i1), i2), 4)
   // would be consistently ordered transforms
   //
-  // root = [i0, i1, i2, i3]
+  // alloc = [i0, i1, i2, i3]
   // i4 = merge(i1, i2) would also be consistently ordered transformed
   std::unordered_set<IterDomain*> consistently_ordered_ids_;
 
@@ -88,19 +88,17 @@ class OrderedIdInformation : public OptInDispatch {
   // for intermediate storage, not to return.
   std::vector<IterDomain*> active_ids_;
 
-  // IterDomains in this set exclusively consume all the uses of their roots.
-  // For example:
-  // [i0, i1] split(0, f)->merge(1)
-  // [ceilDiv(i0, f), f*i1]
-  // neither iter domains exclusively consume the roots. With another:
-  // merge(0) -> [ceilDiv(i0, f)*f*i1]
-  // The resulting iter domain does exclusively consume the roots.
+  // IterDomains in this set exclusively consume all the uses of their
+  // allocations. For example: [i0, i1] split(0, f)->merge(1) [ceilDiv(i0, f),
+  // f*i1] neither iter domains exclusively consume the allocations. With
+  // another: merge(0) -> [ceilDiv(i0, f)*f*i1] The resulting iter domain does
+  // exclusively consume the allocations.
   //
   // Also:
   // [i0, i1, i2, i3] merge(1)->merge(1)
   // ->[i0, i1*i2*i3]
-  // both resulting iter domains do exclusively consume their roots
-  std::unordered_set<IterDomain*> exclusively_consumes_roots_;
+  // both resulting iter domains do exclusively consume their allocations
+  std::unordered_set<IterDomain*> exclusively_consumes_allocs_;
 
   // Broadcast domains that are concretized cannot be considered contiguously
   // indexable.
@@ -118,7 +116,7 @@ class NonDivisibleSplitDependencies : public OptInDispatch {
 
   NonDivisibleSplitDependencies(
       const std::vector<IterDomain*>& ids,
-      const std::vector<IterDomain*>& root_domain,
+      const std::vector<IterDomain*>& alloc_domain,
       const std::unordered_set<Split*>& divisible_splits);
 
   bool dependsOnNonDivisibleSplit(IterDomain* id) const {
@@ -131,23 +129,23 @@ class NonDivisibleSplitDependencies : public OptInDispatch {
 };
 
 // A merge is contiguous if:
-//   Inputs of outer are to the left in the root domain of the inputs of RHS.
-//   All inputs are contiguous in the root domain:
+//   Inputs of outer are to the left in the allocation domain of the inputs of
+//   RHS. All inputs are contiguous in the allocation domain:
 //     - All marked as contiguous
 //     - Only gaps between inputs are broadcast or reductoin dims
 //   There are no split transformations performed on outer or inner
 //   All transformations on outer or inner are contiguous merges
-// If this criteria holds, then we can index the input root domains of this
-// merge with the indexing provided to the output of the merge in the backward
-// index pass
+// If this criteria holds, then we can index the input allocation domains of
+// this merge with the indexing provided to the output of the merge in the
+// backward index pass
 
 class ContigIDs : public OptInDispatch {
  public:
-  //! Check through the history of ids whose inputs map to root_domain with
-  //! contiguity root_contiguity. Return unordered_set of all merges that are
-  //! contiguous. Ignore root order is primarily used for predicate generation.
-  //! In this case we can linearize indexing of any ID that only consists of
-  //! merge operations.
+  //! Check through the history of ids whose inputs map to alloc_domain with
+  //! contiguity alloc_contiguity. Return unordered_set of all merges that are
+  //! contiguous. Ignore allocation order is primarily used for predicate
+  //! generation. In this case we can linearize indexing of any ID that only
+  //! consists of merge operations.
   //!
   //! Mapping information from CA Index concrete to reference domains
   //! is used to find if merged output domains can be indexed. If there's
@@ -165,8 +163,8 @@ class ContigIDs : public OptInDispatch {
   //! std::unordered_map if passed as a const reference.
   ContigIDs(
       const std::vector<IterDomain*>& ids,
-      const std::vector<IterDomain*>& root_domain,
-      const std::vector<c10::optional<bool>>& root_contiguity,
+      const std::vector<IterDomain*>& alloc_domain,
+      const std::vector<std::optional<bool>>& alloc_contiguity,
       const std::unordered_set<IterDomain*>& final_ids,
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
@@ -176,9 +174,9 @@ class ContigIDs : public OptInDispatch {
 
   //! \param ids IterDomains on the leaves of the domain we're looking for
   //! contiguous indexing into.
-  //! \param root_domain the root domain of the domain we're looking for
+  //! \param alloc_domain the allocation domain of the domain we're looking for
   //! contiguous indexing into.
-  //! \param root_contiguity the contiguity of the root_domain.
+  //! \param alloc_contiguity the contiguity of the alloc_domain.
   //! \param concrete_to_ref concrete ids of the exact map that the reference
   //! index is using for indexing.
   //! \param divisible_splits a set of all splits in the fusion that are
@@ -196,8 +194,8 @@ class ContigIDs : public OptInDispatch {
   //! indexable based on the reference.
   ContigIDs(
       const std::vector<IterDomain*>& ids,
-      const std::vector<IterDomain*>& root_domain,
-      const std::vector<c10::optional<bool>>& root_contiguity,
+      const std::vector<IterDomain*>& alloc_domain,
+      const std::vector<std::optional<bool>>& alloc_contiguity,
       const std::unordered_set<IterDomain*>& final_ids,
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
@@ -220,24 +218,24 @@ class ContigIDs : public OptInDispatch {
     return within_contig_ids_;
   }
 
-  const std::unordered_map<IterDomain*, IterDomain*>& rootToIndexedID() const {
-    return root_to_indexed_id_;
+  const std::unordered_map<IterDomain*, IterDomain*>& allocToIndexedID() const {
+    return alloc_to_indexed_id_;
   }
 
-  VectorOfUniqueEntries<IterDomain*> indexedRootIDs(IterDomain* id) const {
-    auto root_ids_it = consistent_transform_info_->idToRootIds().find(id);
-    if (root_ids_it == consistent_transform_info_->idToRootIds().end()) {
+  VectorOfUniqueEntries<IterDomain*> indexedAllocIDs(IterDomain* id) const {
+    auto alloc_ids_it = consistent_transform_info_->idToAllocIds().find(id);
+    if (alloc_ids_it == consistent_transform_info_->idToAllocIds().end()) {
       return {};
     }
-    return root_ids_it->second;
+    return alloc_ids_it->second;
   }
 
  private:
   using OptInDispatch::handle;
 
-  bool inRoot(const std::vector<IterDomain*>& ids) {
+  bool inAlloc(const std::vector<IterDomain*>& ids) {
     return std::all_of(ids.begin(), ids.end(), [this](IterDomain* id) {
-      return is_contig_root_.find(id) != is_contig_root_.end();
+      return is_contig_alloc_.find(id) != is_contig_alloc_.end();
     });
   }
 
@@ -272,10 +270,10 @@ class ContigIDs : public OptInDispatch {
  private:
   void build(const std::vector<IterDomain*>& ids);
 
-  //! Root domains to analyze contiguity
-  const std::vector<IterDomain*>& root_domain_;
-  //! Contiguity of root_domain_
-  const std::vector<c10::optional<bool>>& root_contiguity_;
+  //! Allocation domains to analyze contiguity
+  const std::vector<IterDomain*>& alloc_domain_;
+  //! Contiguity of alloc_domain_
+  const std::vector<std::optional<bool>>& alloc_contiguity_;
   //! Domains where indexing/predicates cannot be done with their
   //! consumers domains
   const std::unordered_set<IterDomain*>& final_ids_;
@@ -297,16 +295,16 @@ class ContigIDs : public OptInDispatch {
   const bool ignore_indexability_ = false;
   const bool ignore_consistent_ordering_ = false;
 
-  //! Mapping of root domain to bool indicating contiguity
-  std::unordered_map<IterDomain*, bool> is_contig_root_;
+  //! Mapping of allocation domain to bool indicating contiguity
+  std::unordered_map<IterDomain*, bool> is_contig_alloc_;
   // Mark if ids are result of contigous merges
   std::unordered_set<IterDomain*> contig_ids_;
   // Given contiguous domain, return all iter domains within its history.
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       within_contig_ids_;
-  //! Mapping of root domain to the actual indexed domain, which can
+  //! Mapping of allocation domain to the actual indexed domain, which can
   //! be itself or a contig merged domain if found.
-  std::unordered_map<IterDomain*, IterDomain*> root_to_indexed_id_;
+  std::unordered_map<IterDomain*, IterDomain*> alloc_to_indexed_id_;
 
   std::unique_ptr<const OrderedIdInformation> consistent_transform_info_;
 

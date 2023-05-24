@@ -8,9 +8,9 @@
 #include <parser.h>
 
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <type_inference.h>
 #include <type_promotion.h>
@@ -2736,7 +2736,7 @@ class IrParser {
                 axis += int(self->nDims());
               }
               num_features =
-                  mul(num_features, self->domain()->domain()[axis]->extent());
+                  mul(num_features, self->getLeafDomain()[axis]->extent());
             }
             auto out = div(o_sum, num_features);
             value_map.emplace(node->output()->unique(), out);

@@ -7,12 +7,12 @@
 // clang-format on
 #include <predicate_compute.h>
 
+#include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <transform_iter.h>
 
@@ -173,13 +173,13 @@ ParallelizedDomainPredicate::getPredicateMap(
     for (auto tv : output_tvs) {
       // Check if the loop domain is used by the output tensor
       auto it = std::find_if(
-          tv->domain()->domain().begin(),
-          tv->domain()->domain().end(),
+          tv->getLeafDomain().begin(),
+          tv->getLeafDomain().end(),
           [&](auto tv_id) {
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
-      if (it == tv->domain()->domain().end()) {
+      if (it == tv->getLeafDomain().end()) {
         continue;
       }
 
@@ -193,9 +193,8 @@ ParallelizedDomainPredicate::getPredicateMap(
       // If it's a root domain, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->domain()->getRootDomain().begin(),
-              tv->domain()->getRootDomain().end(),
-              tv_id) != tv->domain()->getRootDomain().end()) {
+              tv->getRootDomain().begin(), tv->getRootDomain().end(), tv_id) !=
+          tv->getRootDomain().end()) {
         continue;
       }
 
@@ -260,8 +259,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
 
   std::vector<Val*> all_parallelized_consumer_leaf_ids;
   std::copy_if(
-      consumer_tv->domain()->domain().begin(),
-      consumer_tv->domain()->domain().end(),
+      consumer_tv->getLeafDomain().begin(),
+      consumer_tv->getLeafDomain().end(),
       std::back_inserter(all_parallelized_consumer_leaf_ids),
       [](IterDomain* x) { return isParallelTypeThread(x->getParallelType()); });
 
@@ -277,8 +276,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   // Just pick leaf domains
   std::vector<IterDomain*> parallelized_consumer_leaf_ids;
   std::copy_if(
-      consumer_tv->domain()->domain().begin(),
-      consumer_tv->domain()->domain().end(),
+      consumer_tv->getLeafDomain().begin(),
+      consumer_tv->getLeafDomain().end(),
       std::back_inserter(parallelized_consumer_leaf_ids),
       [&](IterDomain* x) {
         return std::find(

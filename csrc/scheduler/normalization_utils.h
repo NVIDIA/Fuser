@@ -8,13 +8,14 @@
 #pragma once
 
 #include <executor_params.h>
-
+#include <ir/all_nodes.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
 #include <vector>
 
 namespace nvfuser {
+class SchedulerRuntimeInfo;
 namespace normalization_scheduler_utils {
 
 //! Utility class to iterate candidates of launch configurations in a
@@ -152,5 +153,32 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t vectorize_factor,
     int64_t persistent_buffer_size);
 
+//! check iter type of each domain in inner and outer reduction tvs
+//! inner reduction must be [I,I,...R,R]
+//! outer reduction must be [R,R,...I,I]
+bool checkIfReductionsAreInnerOuter(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs);
+
+//! check if the inner reduction has shared input with outer reduction
+bool hasSharedInput(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs);
+
+//! The first part of outer reduction is computed with inner reduction and the
+//! second part is scheduled separately. So, (1) the outer reduction tvs can
+//! only be connected with inner reduction tvs through their producers. (2)
+//! Outer reduction tvs are also scheduled separately and they can only be
+//! connected through their producers.
+bool isConnectedOnlyThroughReductionProducer(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs);
+
+//! in combined_inner_outer_reduction, the partial results of outer reductions
+//! must be persistent, calculate the size of these buffers when estimate
+//! register usage
+int64_t partialReductionBufferSize(
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    SchedulerRuntimeInfo& runtime_info);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

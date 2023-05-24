@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 #include <memory>
 #include <vector>
@@ -41,6 +41,16 @@ struct AnalyzeViewResult {
   std::vector<bool> broadcast_axes;
   std::vector<bool> squeeze_axes;
   std::vector<std::shared_ptr<ViewTransform>> transforms;
+
+  std::string toString() const;
+
+  bool operator==(const AnalyzeViewResult& other) const;
+
+  bool operator!=(const AnalyzeViewResult& other) const {
+    return !(*this == other);
+  }
+
+  size_t hash() const;
 };
 
 struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
@@ -62,11 +72,7 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
         (int64_t)new_constraint.size(),
         -3};
     auto add_vec = [&conglomerate](const std::vector<int64_t>& vec) {
-      for (auto element : vec) {
-        conglomerate.push_back(element);
-      }
-      // TODO: Why doesn't this work?
-      // conglomerate.insert(conglomerate.back(), vec.begin(), vec.end());
+      conglomerate.insert(conglomerate.end(), vec.begin(), vec.end());
       conglomerate.push_back(-3);
     };
     add_vec(original_constraint);
@@ -83,7 +89,7 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
 
   // Naive hashing function, likely has a lot of collisions, but may not matter
   // too much if we don't expact many types of views.
-  size_t hash() {
+  size_t hash() const {
     size_t hash_value = 0;
     for (auto val : conglomerateString()) {
       if (val == std::numeric_limits<int64_t>::max()) {
@@ -121,5 +127,8 @@ TORCH_CUDA_CU_API AnalyzeViewConstraint analyzeViewConstraint(
 TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);
+
+//! Apply the reshape transformations of view_analysis to inp_tv
+TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
 
 } // namespace nvfuser

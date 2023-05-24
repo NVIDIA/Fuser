@@ -8,13 +8,13 @@
 #pragma once
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/pass/magic_zero.h>
 #include <executor.h>
 #include <expr_evaluator.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_magic_zero.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -52,6 +52,20 @@ inline TensorView* makeSymbolicTensor(
     size_t ndims,
     DataType dtype = DataType::Float) {
   return TensorViewBuilder().ndims(ndims).dtype(dtype).build();
+}
+
+// Similar to the other overload but uses shape only to create
+// broadcast IterDomains for size-1 axes. The extents of other axes
+// remain symbolic.
+inline TensorView* makeSymbolicTensor(
+    std::vector<int64_t> shape,
+    DataType dtype = DataType::Float) {
+  for (auto& s : shape) {
+    if (s != 1) {
+      s = -1;
+    }
+  }
+  return TensorViewBuilder().shape(shape).dtype(dtype).build();
 }
 
 // Make a non-contiguous tensor of compile-time known sizes
@@ -378,17 +392,7 @@ class NVFuserTest : public ::testing::Test {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
     }
     setFillAllocationWithNan(true);
-  }
-};
-
-// Please see note [Limitation of boundary assert]
-class EnableOutOfBoundAssert {
- public:
-  EnableOutOfBoundAssert() {
-    setAssertOutOfBound(true);
-  }
-  ~EnableOutOfBoundAssert() {
-    setAssertOutOfBound(false);
+    at::manual_seed(0);
   }
 };
 
@@ -485,25 +489,32 @@ inline bool cudaArchGuardShouldSkip(
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
+using MatmulLayout = MmaOptions::MmaLayout;
 
-static constexpr std::array<MatmulLayout, 3> kAllSupportedMatmulLayout = {
+static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayout = {
     MatmulLayout::TT,
     MatmulLayout::NT,
-    MatmulLayout::TN};
+    MatmulLayout::TN,
+    MatmulLayout::NN};
 
 // Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout);
+TensorView* matmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
 // Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
+std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout);
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
 // A, B - input
@@ -519,7 +530,7 @@ at::Tensor matmulAtInput(
     const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
-    const c10::ScalarType dType = at::kHalf,
+    const c10::ScalarType dtype = at::kHalf,
     const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \
@@ -536,5 +547,11 @@ bool isSchedulerInUse(
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+
+// Validate that the fusion is segmented with desired scheduler, currently only
+// supporting two segments
+void validateSegmentation(
+    FusionKernelRuntime* runtime,
+    const std::vector<ScheduleHeuristic>& expected_heuristics);
 
 } // namespace nvfuser

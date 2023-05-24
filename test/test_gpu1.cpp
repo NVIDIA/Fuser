@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -17,17 +19,15 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
-#include <lower_magic_zero.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
@@ -1008,7 +1008,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->domain()->domain().begin(), tv->domain()->domain().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -1017,7 +1017,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->domain().begin(), tv->domain()->domain().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -1026,7 +1026,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->domain().begin(), tv->domain()->domain().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_right);
   TORCH_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -1036,7 +1036,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->domain()->domain().begin(), tv->domain()->domain().end());
+      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
   tv->reorder(swap);
   TORCH_CHECK(ref[0]->sameAs(tv->axis(2)));
   TORCH_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -1200,18 +1200,18 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 1. this can be moved to a dedicated "golden" file
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
-  int64_t i590;
-  i590 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i590 < T0.size[0])) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
+  int64_t i86;
+  i86 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  if ((i86 < T0.size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
-       = T1[i590];
+       = T1[i86];
     float T4[1];
     T4[0] = 0;
     T4[0]
-       = T0[i590];
+       = T0[i86];
     float T2[1];
     T2[0]
       = T4[0]
@@ -1220,7 +1220,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Te
     T6[0]
       = T2[0]
       * T4[0];
-    T3[i590]
+    T3[i86]
        = T6[0];
   }
 }
@@ -1920,13 +1920,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->domain()->domain();
+  auto tv5_domain = tv5->getLeafDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->domain()->domain();
+  auto tv5_domain_current = tv5->getLeafDomain();
   TORCH_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;
@@ -3403,16 +3403,12 @@ void test_op(
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
   std::vector<at::Tensor> output_vect = {cg_output};
   cudaDeviceSynchronize();
-  if (fusion.isStochastic())
-    at::manual_seed(0);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs_ivalues);
   fe.runFusion(aten_inputs_ivalues, output_vect);
   cudaDeviceSynchronize();
 
-  if (fusion.isStochastic())
-    at::manual_seed(0);
   at::Tensor aten_output = af(aten_inputs);
   cudaDeviceSynchronize(); // This sync shouldn't be necessary;
 
@@ -5458,7 +5454,6 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   int numel_y = 100;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor input = at::randn({numel_x, numel_y}, options);
 
   FusionExecutor fe;

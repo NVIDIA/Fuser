@@ -8,8 +8,8 @@
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <python_frontend/fusion_record.h>
+#include <serde/fusion_cache_generated.h>
 #include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
 #include <functional>
 
 namespace nvfuser::serde {
@@ -94,17 +94,17 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   return PrimDataType::Null;
 }
 
-c10::optional<bool> mapContiguityEnumToOptional(int v) {
+std::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:
-      return c10::optional<bool>(false);
+      return std::optional<bool>(false);
     case serde::Contiguity_Contiguous:
-      return c10::optional<bool>(true);
+      return std::optional<bool>(true);
     case serde::Contiguity_None:
-      return c10::nullopt;
+      return std::nullopt;
   }
   TORCH_INTERNAL_ASSERT(false, "Invalid contiguity type.");
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 template <class fn_type, class... Signature>
@@ -589,6 +589,15 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
 
+  auto deserializeTakeAlongAxisRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::TakeAlongAxisOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(
+      serde::RecordType_TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
+
   auto deserializeIndexSelectRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::IndexSelectOpRecord(
         parseStateArgs(buffer->args()),
@@ -683,7 +692,7 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeTensorRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
-    std::vector<c10::optional<bool>> contiguity;
+    std::vector<std::optional<bool>> contiguity;
     std::transform(
         data->contiguity()->cbegin(),
         data->contiguity()->cend(),
@@ -734,6 +743,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   unary_tv.emplace(                                                         \
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
+
+#define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
+  binary_tv.emplace(                               \
+      ("ops." op_str),                             \
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name));
 
 #define NVFUSER_BINARY_TV_OP(op_str, op_name)                           \
   binary_tv.emplace(                                                    \
@@ -857,9 +871,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("reciprocal", reciprocal)
   NVFUSER_UNARY_TV_OP("round", round)
   NVFUSER_UNARY_TV_OP("rsqrt", rsqrt)
+  NVFUSER_UNARY_TV_OP("segment_set", segment_set)
   NVFUSER_UNARY_TV_OP("set", set)
   NVFUSER_UNARY_TV_OP("sign", sign)
   NVFUSER_UNARY_TV_OP("sigmoid", sigmoid)
+  NVFUSER_UNARY_TV_OP("signbit", signbit)
   NVFUSER_UNARY_TV_OP("silu", silu)
   NVFUSER_UNARY_TV_OP("sin", sin)
   NVFUSER_UNARY_TV_OP("sinh", sinh)
@@ -876,9 +892,15 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nn", _matmul_nn)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nt", _matmul_nt)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tn", _matmul_tn)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tt", _matmul_tt)
+
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)
   NVFUSER_BINARY_TV_OP("div", div)
+  NVFUSER_BINARY_TV_OP("truediv", truediv)
   NVFUSER_BINARY_TV_OP("fmod", fmod)
   NVFUSER_BINARY_TV_OP("mul", mul)
   NVFUSER_BINARY_TV_OP("nextafter", nextafter)

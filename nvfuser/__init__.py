@@ -2,6 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import logging
 import os
 import sys
 from typing import Optional, Union  # noqa: F401
@@ -18,14 +19,15 @@ if pytorch_lib_dir not in sys.path:
 try:
     from . import _C
 except ImportError as err:
-    import logging
-
     logging.getLogger("nvfuser").error(
         """==== importing nvfuser failed ====
              try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
     )
     raise err
 from ._C import *  # noqa: F401,F403
+
+
+logger = logging.getLogger("nvfuser")
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -106,9 +108,41 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             result = self._execute(inputs, override_user_schedule, device=device)
         except Exception as err:
-            print("\nError executing nvFuser FusionDefinition:")
-            print(self)
-            raise RuntimeError(err)
+            msg = (
+                f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
+                "If you believe this is a bug or need assistance, please file an issue at "
+                "https://github.com/NVIDIA/Fuser/issues/new\n"
+            )
+            msg += (
+                f"Here's a script to reproduce the error:\n"
+                "```\n"
+                "import torch\n"
+                "from nvfuser import FusionDefinition, DataType\n"
+                f"{self}"
+                "with FusionDefinition() as fd:\n"
+                f"    nvfuser_fusion_id{self.id()}(fd)\n"
+                "\n"
+                "inputs = [\n"
+            )
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    if i.dtype.is_floating_point:
+                        msg += (
+                            f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                    else:
+                        msg += (
+                            f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                else:
+                    msg += f"    {i},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+            msg += "```\n"
+            logger.exception(msg)
+            raise
 
         return result
 

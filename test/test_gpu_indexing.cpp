@@ -10,8 +10,8 @@
 
 #include <executor.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -547,7 +547,6 @@ TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
   tv1->computeAt(tv5, 2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor aten_input = at::randn({9, 5}, options);
 
   auto t1 = aten_input.add(1.0);
@@ -726,7 +725,6 @@ TEST_F(NVFuserTest, FusionIndexing16_CUDA) {
   tv1->computeAt(tv2, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5, 4, 3}, options);
   at::Tensor t1 = at::randn({5, 3}, options);
   auto t2 = t1.unsqueeze(1);
@@ -766,7 +764,6 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
   tv3->computeAt(tv7, -1, ComputeAtMode::BestEffort);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5, 4, 3}, options);
   at::Tensor t1 = at::randn({4}, options);
 
@@ -816,7 +813,6 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   inlineAllAt(tv4, 1, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5}, options);
   at::Tensor t1 = at::randn({5, 3}, options);
   std::vector<c10::IValue> inputs = {t0, t1};

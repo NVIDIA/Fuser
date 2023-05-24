@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
-#include <lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -244,7 +244,7 @@ class ValidateAllocation : private OptOutConstDispatch {
         if (tv == nullptr) {
           continue;
         }
-        for (const auto& axis : tv->domain()->domain()) {
+        for (const auto& axis : tv->getLeafDomain()) {
           if (!GpuLower::current()->caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;

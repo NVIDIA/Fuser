@@ -9,10 +9,10 @@
 
 #include <compute_at_map.h>
 #include <contiguity.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <iter_visitor.h>
-#include <lower_divisible_split.h>
 #include <scheduler/registry.h>
 
 #include <c10/util/irange.h>
@@ -172,7 +172,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     // the info object for reference. It's not really needed on construction,
     // just before traversal.
     : MaxInfoSpanningTree(reference, std::make_shared<MappedDomain>()),
-      ca_map_(ca_map),
+      ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
@@ -563,7 +563,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
         ids.erase(find_outer_it);
       } else {
         // Clear to the left of inner in since only inner maps
-        ids.erase(ids.begin(), ids.begin() + inner_pos);
+        ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
       }
 
       propagateExtentSplitBackward(split, outer_mapped);
@@ -710,7 +710,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
         ids.erase(find_outer_it);
       } else {
         // Clear to the left of inner in since only inner maps
-        ids.erase(ids.begin(), ids.begin() + inner_pos);
+        ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
       }
 
       propagateExtentMergeForward(merge, outer_mapped);
@@ -800,7 +800,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       }
       auto p_id = c_it->second;
       if ((!c_id->isBroadcast()) && p_id->isBroadcast()) {
-        clear_pos = i;
+        clear_pos = (int)i;
       }
     }
     // Clear everything to the left of the inner most resolved broadcast
@@ -864,7 +864,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     int clear_pos = -1;
     for (auto i : c10::irange(from->getMaybeRFactorDomain().size())) {
       if (from->getMaybeRFactorDomain()[i]->isReduction()) {
-        clear_pos = i;
+        clear_pos = (int)i;
       }
     }
     // Clear everything to the left of the inner most reduction dimension.
@@ -1051,7 +1051,7 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
   // This only matters if the result of the reduction is an output
   if (contiguity.size() == of_tv_root.size() &&
       contiguity.size() != of_tv_root_no_reductions.size()) {
-    std::vector<c10::optional<bool>> new_contiguity;
+    std::vector<std::optional<bool>> new_contiguity;
     for (auto i : c10::irange(of_tv_root.size())) {
       if (!of_tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
@@ -1094,9 +1094,14 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       continue;
     }
 
-    // Not contiguous
-    if (!*contiguity[root_i]) {
-      break;
+    auto contiguity_i = contiguity.at(root_i);
+    if (!contiguity_i.has_value()) {
+      TORCH_INTERNAL_ASSERT(false, "contiguity flag at root_i can't be null");
+    } else {
+      // Not contiguous
+      if (!contiguity_i.value()) {
+        break;
+      }
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
@@ -1109,7 +1114,7 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       break;
     }
 
-    vectorizable_dim_sizes.push_back({mapped_extent_PE, root_id});
+    vectorizable_dim_sizes.emplace_back(mapped_extent_PE, root_id);
   }
   return vectorizable_dim_sizes;
 }

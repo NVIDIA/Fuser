@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <mutator.h>
 
 #include <vector>
@@ -94,18 +94,26 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->getRootDomain());
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->getMaybeRFactorDomain())
+      ? updateIdVec(td->rfactor())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->domain());
+  std::vector<IterDomain*> allocation_dom = td->hasAllocation()
+      ? updateIdVec(td->allocation())
+      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
 
   if (!mutated) {
     return;
   }
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, domain, td->contiguity());
+      td->container(),
+      root_dom,
+      rfactor_dom,
+      allocation_dom,
+      domain,
+      td->contiguity());
   registerMutation(td, mutated_val);
 }
 

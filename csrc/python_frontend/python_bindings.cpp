@@ -11,10 +11,9 @@
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
@@ -22,11 +21,12 @@
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <complex>
 #include <iostream>
+#include <optional>
 #include <tuple>
 
 namespace nvfuser::python_frontend {
 
-std::vector<c10::optional<bool>> computeContiguity(
+std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
   TORCH_CHECK(
@@ -36,7 +36,7 @@ std::vector<c10::optional<bool>> computeContiguity(
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
   // Contiguity defaults to vector of all None's
-  std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
   if (contiguity.empty()) { // zero-dim tensor
     return contiguity;
   }
@@ -379,7 +379,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguity,
+             std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
@@ -649,8 +649,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("round", round)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rsqrt", rsqrt)
   NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("segment_set", segment_set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("signbit", signbit)
   NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sin", sin)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sinh", sinh)
@@ -706,6 +708,33 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
+
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+  nvf_ops.def(                                                                 \
+      op_str,                                                                  \
+      [](FusionDefinition::Operators& self,                                    \
+         Tensor arg1,                                                          \
+         Tensor arg2) -> Tensor {                                              \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        TORCH_CHECK(                                                           \
+            self.validUse(), "Attempting to add to a completed definition!");  \
+        FusionDefinition* fd = self.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Binary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
@@ -788,6 +817,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("add", add)
   NVFUSER_PYTHON_BINDING_BINARY_OP("atan2", atan2)
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("truediv", truediv)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
   NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
@@ -1804,6 +1834,23 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.gather");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
         fd->defineRecord(new TorchGatherOpRecord(
@@ -1815,6 +1862,27 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim));
         return output;
       },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        The dimension of arg1 and index must match. For all axes other than dim
+        the extent of index in that axis need not be equal to its counterpart
+        in arg1 but must not be greater than it.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Mi...,J,Mk...)` where all the extents other than `J` are less
+                than or equal to their counterparts in `arg1`; for example `Mk
+                <= Nk`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Mi...,J,Mk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
       py::arg("arg1"),
       py::arg("index"),
       py::arg("dim"),
@@ -1845,6 +1913,65 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "take_along_axis",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.take_along_axis");
+        TORCH_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+        fd->defineRecord(new TakeAlongAxisOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        This operation is very similar to :meth:'gather' but enforces that all
+        dimensions other than dim must be equal between arg1 and index.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Ni...,J,Nk...)`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Ni...,J,Nk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "permute",

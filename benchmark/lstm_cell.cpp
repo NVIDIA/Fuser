@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <lower2device.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -16,6 +16,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 // TODO: add LSTM function to composite operations
 // Function Signature: cy, hy = lstm(x, cx)

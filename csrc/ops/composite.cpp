@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ir/builder.h>
+#include <ops/all_ops.h>
 #include <transform_view.h>
 
 namespace nvfuser {
@@ -51,6 +51,59 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   auto dx = mul(grad_mask, scale);
 
   return dx;
+}
+
+TensorView* _matmul_nn(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  TORCH_CHECK(
+      device_prop->major == 8,
+      "Only the Ampere MMA Op is currently supported!");
+  auto tv0t = transpose(a, 0, 1);
+  auto tv0b = broadcast(tv0t, {false, true, false});
+  auto tv1b = broadcast(b, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+TensorView* _matmul_nt(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  TORCH_CHECK(
+      device_prop->major == 8,
+      "Only the Ampere MMA Op is currently supported!");
+  auto tv0t = transpose(a, 0, 1);
+  auto tv1t = transpose(b, 0, 1);
+  auto tv0b = broadcast(tv0t, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+TensorView* _matmul_tn(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  TORCH_CHECK(
+      device_prop->major == 8,
+      "Only the Ampere MMA Op is currently supported!");
+  auto tv0b = broadcast(a, {false, true, false});
+  auto tv1b = broadcast(b, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
+}
+TensorView* _matmul_tt(TensorView* a, TensorView* b) {
+  TORCH_CHECK(
+      a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  TORCH_CHECK(
+      device_prop->major == 8,
+      "Only the Ampere MMA Op is currently supported!");
+  auto tv1t = transpose(b, 0, 1);
+  auto tv0b = broadcast(a, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  return tv2;
 }
 
 LstmResult lstm(

@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
-#include <ir_utils.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
@@ -35,10 +35,9 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
         ref->getRootDomain().at(i), other->getRootDomain().at(i));
   }
 
-  auto replay =
-      BestEffortReplay(
-          other->domain()->domain(), ref->domain()->domain(), ref_2_other)
-          .getIterDomainEquivalence();
+  auto replay = BestEffortReplay(
+                    other->getLeafDomain(), ref->getLeafDomain(), ref_2_other)
+                    .getIterDomainEquivalence();
 
   for (const auto i : c10::irange(ref->nDims())) {
     if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {

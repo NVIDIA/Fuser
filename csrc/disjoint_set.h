@@ -16,7 +16,7 @@
 #include <vector>
 
 // For printing of the set when using a Statement as the type for the set
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 
 namespace nvfuser {
 
@@ -98,6 +98,11 @@ class VectorOfUniqueEntries {
   // Returns if this container is empty
   bool empty() const {
     return vector_.empty();
+  }
+
+  void clear() {
+    vector_.clear();
+    set_.clear();
   }
 
   // Returns the number of elements in this container
