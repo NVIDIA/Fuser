@@ -2160,21 +2160,12 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
 
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
 
-  std::optional<std::string> exc_msg = std::nullopt;
-  try {
-    fec.runFusionWithInputs({t0, 10});
-  } catch (const std::exception& e) {
-    exc_msg = e.what();
-  }
-  TORCH_CHECK(
-      exc_msg.has_value(),
-      "Concretization should fail when passing incompatible sizes");
-  TORCH_CHECK(
-      exc_msg.value().find(
-          "must concretize to IterType::Broadcast but found") !=
-          std::string::npos,
-      "Found incorrect exception: ",
-      exc_msg.value());
+  EXPECT_THAT(
+      [&]() {
+        fec.runFusionWithInputs({t0, 10});
+      },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "must concretize to IterType::Broadcast but found")));
 }
 
 } // namespace nvfuser
