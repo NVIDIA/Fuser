@@ -1904,7 +1904,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   }
 
   serde::ExpressionSerializer es;
-  auto value_generator = es.serialize(builder, kernel());
+  auto value_generator = es.serialize(builder, kernel(), kernel_summary_.global_allocations);
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
 
@@ -2040,8 +2040,7 @@ void FusionExecutor::deserialize(
 
   lowered_ = std::make_unique<GpuLower>(
       fusion, CompileParams(), true /* fast-lower */);
-  // We need to replace integers that are tensor sizes by named scalars as
-  // "T0.size[0]"
+  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
   setUsedTVs();
 

@@ -18,7 +18,8 @@ class ExpressionSerializer {
 
   flatbuffers::Offset<serde::NaiveValueGenerator> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      kir::Kernel* kernel);
+      kir::Kernel* kernel,
+      const std::vector<const kir::Allocate*>& global_allocations);
 
   std::vector<flatbuffers::Offset<AllocateBuffer>> serialize(
       flatbuffers::FlatBufferBuilder& builder,

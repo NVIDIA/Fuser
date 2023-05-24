@@ -147,10 +147,18 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
 
 flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    kir::Kernel* kernel) {
+    kir::Kernel* kernel,
+    const std::vector<const kir::Allocate*>& global_allocations) {
   // 1) Collect allocation sizes
   std::vector<Val*> all_values;
   for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
+    if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
+      bind(all_values, tv);
+    }
+  }
+  // A deserialized fusion may not contain global allocations in its kir::Kernel.
+  // Add global allocations directly to handle this case.
+  for (auto allocate : global_allocations) {
     if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
     }
