@@ -524,7 +524,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
             const ParallelType& pt = ld->getParallelType();
             Val* write_index =
                 getIndexWithoutBroadcast(merged_root_domains, pt);
-            write_index_map_.at(pt) = write_index;
+            write_index_map_[pt] = write_index;
           }
         }
       }
@@ -597,7 +597,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
               // break to move to the next broadcast root domain
               break;
             } else {
-              concretized_broadcast_root_domains_.at(rd) = *all_cids.begin();
+              concretized_broadcast_root_domains_[rd] = *all_cids.begin();
             }
           }
         }
@@ -702,9 +702,9 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
   ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
   const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
   if (!write_index_map.empty()) {
-    thread_predicates_.at(out_tv).write_index_map = write_index_map;
+    thread_predicates_[out_tv].write_index_map = write_index_map;
     for (auto iter : write_index_map) {
-      thread_predicates_.at(out_tv).redundant_types.set(iter.first);
+      thread_predicates_[out_tv].redundant_types.set(iter.first);
     }
   }
 }
