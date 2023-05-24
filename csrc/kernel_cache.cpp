@@ -199,17 +199,15 @@ class ArgumentManager {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    const std::vector<bool>* input_affects_concretization) {
+    const std::vector<bool>& record_scalar) {
   IdLookupReturn ret;
 
-  if (input_affects_concretization) {
-    TORCH_CHECK(
-        input_affects_concretization->size() == inputs.size(),
-        "Size mismatch between inputs and input_affects_concretization: inputs has size ",
-        inputs.size(),
-        " but expected ",
-        input_affects_concretization->size());
-  }
+  TORCH_CHECK(
+      record_scalar.size() == inputs.size(),
+      "Size mismatch between inputs and record_scalar: inputs has size ",
+      inputs.size(),
+      " but record_scalar has size ",
+      record_scalar.size());
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
@@ -239,9 +237,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
-      if (input.isInt() &&
-          (!input_affects_concretization ||
-           input_affects_concretization->at(i))) {
+      if (record_scalar.at(i)) {
         // Add value of integer scalars here only if it is one of the scalars
         // provided, as these are used in determining concretization. If no
         // inputs are provided, then any of them might determine the
@@ -299,7 +295,7 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret = inputs_id_lookup_.lookupId(
-      inputs, &(initialInfo().inputsAffectConcretization()));
+      inputs, initialInfo().inputsAffectConcretization());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }

@@ -148,6 +148,13 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
  private:
   DynamicTransformInitialInfo info_;
 
+  //! This is a collection of scalars that are explicitly checked during
+  //! concretization of dynamic ops, meaning they influence the structure of the
+  //! resulting concretized Fusion. We track these while traversing the graph
+  //! and when we are finished traversing we extract all of the corresponding
+  //! non-constant root Vals, which provides us with a minimal list of input
+  //! scalars that influence concretization. That list of scalars is then used
+  //! to compute a minimal cache key in InputsIdLookup::lookupId().
   std::vector<Val*> leaf_dynamic_vals_;
 };
 

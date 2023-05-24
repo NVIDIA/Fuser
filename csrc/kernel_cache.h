@@ -295,15 +295,20 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of tv0. This means that both the extents of tv0 as well as the value of s
   //! must affect the unique id returned by lookupId.
   //!
-  //! By default, all integer scalar inputs affect the return value of this
-  //! function. However, if input_affects_concretization is provided, it is used
-  //! to restrict this so that only the scalars that are known to affect
-  //! concretization affect the computed ID. In that case, the length of
-  //! input_affects_concretization must match the length of inputs, and values
-  //! of false will cause the corresponding inputs to not affect the ID.
+  //! By default, all scalar inputs affect the return value of this function.
+  //! However, if record_scalar is provided, it is used to restrict this so that
+  //! only certain scalar input values are included when computing this ID. The
+  //! length of record_scalar must match the length of inputs, and values of
+  //! false will cause the corresponding inputs to not affect the ID.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<bool>* input_affects_concretization = nullptr);
+      const std::vector<bool>& record_scalar);
+  IdLookupReturn lookupId(const at::ArrayRef<c10::IValue>& inputs) {
+    // By default, assume all inputs affect concretization so that all scalars
+    // appear in ID
+    const std::vector<bool> record_scalar(inputs.size(), true);
+    return lookupId(inputs, record_scalar);
+  }
 
   //! debugging API that returns the size of lookup table
   size_t size() const {

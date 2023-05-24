@@ -68,6 +68,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
 
+  //! Return a vector of bools matching the length of fusion()->inputs(), where
+  //! any scalar input that would affect the structure of the concretized Fusion
+  //! has a value of true, and any other scalar corresponds to false. TensorView
+  //! inputs correspond to values of true in this vector.
   const std::vector<bool>& inputsAffectConcretization() const {
     return input_affects_concretization_;
   }
