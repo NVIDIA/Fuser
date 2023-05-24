@@ -2004,19 +2004,13 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
   // table KernelSummary {
   //   max_rng_offsets : int = -1;
   //   has_cooperative_grid_reduction : bool;
-  //   lhs_splits_to_validate : [long];
-  //   rhs_splits_to_validate : [long];
   //   PrimDataType index_type_ = PrimDataType::Int;
-  //   vectorized_set_info : VectorizedTensorInfo;
   // }
-  return CreateKernelSummaryDirect(
+  return CreateKernelSummary(
       builder,
       summary.max_rng_offsets,
       summary.has_cooperative_grid_reduction,
-      nullptr /* lhs_splits_to_validate */,
-      nullptr /* rhs_splits_to_validate */,
-      serde::mapToSerdeDtype(summary.index_type_),
-      0 /* vectorized_set_info */);
+      serde::mapToSerdeDtype(summary.index_type_));
 }
 
 void FusionExecutor::deserialize(
@@ -2059,7 +2053,12 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  kernel_summary_ = deserialize(buffer->kernel_summary());
+  kernel_summary_ = lowered_->kernel()->summary();
+  kernel_summary_.max_rng_offsets = buffer->kernel_summary()->max_rng_offsets();
+  kernel_summary_.has_cooperative_grid_reduction =
+      buffer->kernel_summary()->has_cooperative_grid_reduction();
+  kernel_summary_.index_type_ =
+      serde::mapToNvfuserDtype(buffer->kernel_summary()->index_type());
 
   serde::ExpressionBuilder es(lowered_->kernel());
   es.deserialize(buffer->generator());
@@ -2140,16 +2139,6 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
-}
-
-kir::KernelSummary FusionExecutor::deserialize(
-    const serde::KernelSummary* buffer) {
-  kir::KernelSummary summary;
-  summary.max_rng_offsets = buffer->max_rng_offsets();
-  summary.has_cooperative_grid_reduction =
-      buffer->has_cooperative_grid_reduction();
-  summary.index_type_ = serde::mapToNvfuserDtype(buffer->index_type());
-  return summary;
 }
 
 } // namespace nvfuser

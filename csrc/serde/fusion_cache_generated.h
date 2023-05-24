@@ -15,6 +15,8 @@ static_assert(
 namespace nvfuser {
 namespace serde {
 
+struct State;
+
 struct Bool;
 struct BoolBuilder;
 
@@ -41,9 +43,6 @@ struct ComplexDoubleBuilder;
 
 struct ComplexFloat;
 struct ComplexFloatBuilder;
-
-struct TensorShape;
-struct TensorShapeBuilder;
 
 struct Instruction;
 struct InstructionBuilder;
@@ -78,6 +77,9 @@ struct ArgAbstractBuilder;
 struct KernelArgumentHolder;
 struct KernelArgumentHolderBuilder;
 
+struct TensorShape;
+struct TensorShapeBuilder;
+
 struct LaunchParams;
 struct LaunchParamsBuilder;
 
@@ -86,9 +88,6 @@ struct GlobalBufferInfoBuilder;
 
 struct ExecutorEntry;
 struct ExecutorEntryBuilder;
-
-struct VectorizedTensorInfo;
-struct VectorizedTensorInfoBuilder;
 
 struct KernelSummary;
 struct KernelSummaryBuilder;
@@ -160,8 +159,6 @@ struct KernelRuntimesBuilder;
 
 struct FusionExecutorCache;
 struct FusionExecutorCacheBuilder;
-
-struct State;
 
 struct RecordFunctor;
 struct RecordFunctorBuilder;
@@ -1037,25 +1034,6 @@ bool VerifyScalarCpuDataVector(
     const ::flatbuffers::Vector<::flatbuffers::Offset<void>>* values,
     const ::flatbuffers::Vector<uint8_t>* types);
 
-FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(8) EncodingEntry FLATBUFFERS_FINAL_CLASS {
- private:
-  uint64_t id_;
-  uint64_t lru_iter_;
-
- public:
-  EncodingEntry() : id_(0), lru_iter_(0) {}
-  EncodingEntry(uint64_t _id, uint64_t _lru_iter)
-      : id_(::flatbuffers::EndianScalar(_id)),
-        lru_iter_(::flatbuffers::EndianScalar(_lru_iter)) {}
-  uint64_t id() const {
-    return ::flatbuffers::EndianScalar(id_);
-  }
-  uint64_t lru_iter() const {
-    return ::flatbuffers::EndianScalar(lru_iter_);
-  }
-};
-FLATBUFFERS_STRUCT_END(EncodingEntry, 16);
-
 FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) State FLATBUFFERS_FINAL_CLASS {
  private:
   int32_t index_;
@@ -1075,6 +1053,25 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) State FLATBUFFERS_FINAL_CLASS {
   }
 };
 FLATBUFFERS_STRUCT_END(State, 8);
+
+FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(8) EncodingEntry FLATBUFFERS_FINAL_CLASS {
+ private:
+  uint64_t id_;
+  uint64_t lru_iter_;
+
+ public:
+  EncodingEntry() : id_(0), lru_iter_(0) {}
+  EncodingEntry(uint64_t _id, uint64_t _lru_iter)
+      : id_(::flatbuffers::EndianScalar(_id)),
+        lru_iter_(::flatbuffers::EndianScalar(_lru_iter)) {}
+  uint64_t id() const {
+    return ::flatbuffers::EndianScalar(id_);
+  }
+  uint64_t lru_iter() const {
+    return ::flatbuffers::EndianScalar(lru_iter_);
+  }
+};
+FLATBUFFERS_STRUCT_END(EncodingEntry, 16);
 
 struct Bool FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef BoolBuilder Builder;
@@ -1448,53 +1445,6 @@ inline ::flatbuffers::Offset<ComplexFloat> CreateComplexFloat(
   builder_.add_imag(imag);
   builder_.add_real(real);
   return builder_.Finish();
-}
-
-struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef TensorShapeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SHAPE = 4
-  };
-  const ::flatbuffers::Vector<int64_t>* shape() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SHAPE);
-  }
-  bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
-        verifier.VerifyVector(shape()) && verifier.EndTable();
-  }
-};
-
-struct TensorShapeBuilder {
-  typedef TensorShape Table;
-  ::flatbuffers::FlatBufferBuilder& fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
-    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
-  }
-  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
-      : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<TensorShape> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<TensorShape>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
-  TensorShapeBuilder builder_(_fbb);
-  builder_.add_shape(shape);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    const std::vector<int64_t>* shape = nullptr) {
-  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
-  return nvfuser::serde::CreateTensorShape(_fbb, shape__);
 }
 
 struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -2381,6 +2331,53 @@ CreateKernelArgumentHolderDirect(
       _fbb, arguments__, device_index, cache_id);
 }
 
+struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorShapeBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SHAPE = 4
+  };
+  const ::flatbuffers::Vector<int64_t>* shape() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(VT_SHAPE);
+  }
+  bool Verify(::flatbuffers::Verifier& verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_SHAPE) &&
+        verifier.VerifyVector(shape()) && verifier.EndTable();
+  }
+};
+
+struct TensorShapeBuilder {
+  typedef TensorShape Table;
+  ::flatbuffers::FlatBufferBuilder& fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
+    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
+  }
+  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<TensorShape> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<TensorShape>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
+  TensorShapeBuilder builder_(_fbb);
+  builder_.add_shape(shape);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
+    ::flatbuffers::FlatBufferBuilder& _fbb,
+    const std::vector<int64_t>* shape = nullptr) {
+  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
+  return nvfuser::serde::CreateTensorShape(_fbb, shape__);
+}
+
 struct LaunchParams FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef LaunchParamsBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -2792,154 +2789,12 @@ inline ::flatbuffers::Offset<ExecutorEntry> CreateExecutorEntryDirect(
       rand_offset);
 }
 
-struct VectorizedTensorInfo FLATBUFFERS_FINAL_CLASS
-    : private ::flatbuffers::Table {
-  typedef VectorizedTensorInfoBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ALIGNED_VECTORIZED_INP_TENSOR_POS = 4,
-    VT_ALIGNED_VECTORIZED_OUT_TENSOR_POS = 6,
-    VT_ALIGNED_VECTORIZED_INP_TENSOR_WORD_SIZE = 8,
-    VT_ALIGNED_VECTORIZED_OUT_TENSOR_WORD_SIZE = 10
-  };
-  const ::flatbuffers::Vector<int64_t>* aligned_vectorized_inp_tensor_pos()
-      const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_ALIGNED_VECTORIZED_INP_TENSOR_POS);
-  }
-  const ::flatbuffers::Vector<int64_t>* aligned_vectorized_out_tensor_pos()
-      const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_ALIGNED_VECTORIZED_OUT_TENSOR_POS);
-  }
-  const ::flatbuffers::Vector<int64_t>* aligned_vectorized_inp_tensor_word_size()
-      const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_ALIGNED_VECTORIZED_INP_TENSOR_WORD_SIZE);
-  }
-  const ::flatbuffers::Vector<int64_t>* aligned_vectorized_out_tensor_word_size()
-      const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_ALIGNED_VECTORIZED_OUT_TENSOR_WORD_SIZE);
-  }
-  bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) &&
-        VerifyOffset(verifier, VT_ALIGNED_VECTORIZED_INP_TENSOR_POS) &&
-        verifier.VerifyVector(aligned_vectorized_inp_tensor_pos()) &&
-        VerifyOffset(verifier, VT_ALIGNED_VECTORIZED_OUT_TENSOR_POS) &&
-        verifier.VerifyVector(aligned_vectorized_out_tensor_pos()) &&
-        VerifyOffset(verifier, VT_ALIGNED_VECTORIZED_INP_TENSOR_WORD_SIZE) &&
-        verifier.VerifyVector(aligned_vectorized_inp_tensor_word_size()) &&
-        VerifyOffset(verifier, VT_ALIGNED_VECTORIZED_OUT_TENSOR_WORD_SIZE) &&
-        verifier.VerifyVector(aligned_vectorized_out_tensor_word_size()) &&
-        verifier.EndTable();
-  }
-};
-
-struct VectorizedTensorInfoBuilder {
-  typedef VectorizedTensorInfo Table;
-  ::flatbuffers::FlatBufferBuilder& fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_aligned_vectorized_inp_tensor_pos(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          aligned_vectorized_inp_tensor_pos) {
-    fbb_.AddOffset(
-        VectorizedTensorInfo::VT_ALIGNED_VECTORIZED_INP_TENSOR_POS,
-        aligned_vectorized_inp_tensor_pos);
-  }
-  void add_aligned_vectorized_out_tensor_pos(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          aligned_vectorized_out_tensor_pos) {
-    fbb_.AddOffset(
-        VectorizedTensorInfo::VT_ALIGNED_VECTORIZED_OUT_TENSOR_POS,
-        aligned_vectorized_out_tensor_pos);
-  }
-  void add_aligned_vectorized_inp_tensor_word_size(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          aligned_vectorized_inp_tensor_word_size) {
-    fbb_.AddOffset(
-        VectorizedTensorInfo::VT_ALIGNED_VECTORIZED_INP_TENSOR_WORD_SIZE,
-        aligned_vectorized_inp_tensor_word_size);
-  }
-  void add_aligned_vectorized_out_tensor_word_size(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          aligned_vectorized_out_tensor_word_size) {
-    fbb_.AddOffset(
-        VectorizedTensorInfo::VT_ALIGNED_VECTORIZED_OUT_TENSOR_WORD_SIZE,
-        aligned_vectorized_out_tensor_word_size);
-  }
-  explicit VectorizedTensorInfoBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
-      : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<VectorizedTensorInfo> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<VectorizedTensorInfo>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<VectorizedTensorInfo> CreateVectorizedTensorInfo(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        aligned_vectorized_inp_tensor_pos = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        aligned_vectorized_out_tensor_pos = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        aligned_vectorized_inp_tensor_word_size = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        aligned_vectorized_out_tensor_word_size = 0) {
-  VectorizedTensorInfoBuilder builder_(_fbb);
-  builder_.add_aligned_vectorized_out_tensor_word_size(
-      aligned_vectorized_out_tensor_word_size);
-  builder_.add_aligned_vectorized_inp_tensor_word_size(
-      aligned_vectorized_inp_tensor_word_size);
-  builder_.add_aligned_vectorized_out_tensor_pos(
-      aligned_vectorized_out_tensor_pos);
-  builder_.add_aligned_vectorized_inp_tensor_pos(
-      aligned_vectorized_inp_tensor_pos);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<VectorizedTensorInfo>
-CreateVectorizedTensorInfoDirect(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    const std::vector<int64_t>* aligned_vectorized_inp_tensor_pos = nullptr,
-    const std::vector<int64_t>* aligned_vectorized_out_tensor_pos = nullptr,
-    const std::vector<int64_t>* aligned_vectorized_inp_tensor_word_size =
-        nullptr,
-    const std::vector<int64_t>* aligned_vectorized_out_tensor_word_size =
-        nullptr) {
-  auto aligned_vectorized_inp_tensor_pos__ = aligned_vectorized_inp_tensor_pos
-      ? _fbb.CreateVector<int64_t>(*aligned_vectorized_inp_tensor_pos)
-      : 0;
-  auto aligned_vectorized_out_tensor_pos__ = aligned_vectorized_out_tensor_pos
-      ? _fbb.CreateVector<int64_t>(*aligned_vectorized_out_tensor_pos)
-      : 0;
-  auto aligned_vectorized_inp_tensor_word_size__ =
-      aligned_vectorized_inp_tensor_word_size
-      ? _fbb.CreateVector<int64_t>(*aligned_vectorized_inp_tensor_word_size)
-      : 0;
-  auto aligned_vectorized_out_tensor_word_size__ =
-      aligned_vectorized_out_tensor_word_size
-      ? _fbb.CreateVector<int64_t>(*aligned_vectorized_out_tensor_word_size)
-      : 0;
-  return nvfuser::serde::CreateVectorizedTensorInfo(
-      _fbb,
-      aligned_vectorized_inp_tensor_pos__,
-      aligned_vectorized_out_tensor_pos__,
-      aligned_vectorized_inp_tensor_word_size__,
-      aligned_vectorized_out_tensor_word_size__);
-}
-
 struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef KernelSummaryBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_MAX_RNG_OFFSETS = 4,
     VT_HAS_COOPERATIVE_GRID_REDUCTION = 6,
-    VT_LHS_SPLITS_TO_VALIDATE = 8,
-    VT_RHS_SPLITS_TO_VALIDATE = 10,
-    VT_INDEX_TYPE = 12,
-    VT_VECTORIZED_SET_INFO = 14
+    VT_INDEX_TYPE = 8
   };
   int32_t max_rng_offsets() const {
     return GetField<int32_t>(VT_MAX_RNG_OFFSETS, -1);
@@ -2947,33 +2802,15 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   bool has_cooperative_grid_reduction() const {
     return GetField<uint8_t>(VT_HAS_COOPERATIVE_GRID_REDUCTION, 0) != 0;
   }
-  const ::flatbuffers::Vector<int64_t>* lhs_splits_to_validate() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_LHS_SPLITS_TO_VALIDATE);
-  }
-  const ::flatbuffers::Vector<int64_t>* rhs_splits_to_validate() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t>*>(
-        VT_RHS_SPLITS_TO_VALIDATE);
-  }
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(
         GetField<int32_t>(VT_INDEX_TYPE, 0));
-  }
-  const nvfuser::serde::VectorizedTensorInfo* vectorized_set_info() const {
-    return GetPointer<const nvfuser::serde::VectorizedTensorInfo*>(
-        VT_VECTORIZED_SET_INFO);
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
     return VerifyTableStart(verifier) &&
         VerifyField<int32_t>(verifier, VT_MAX_RNG_OFFSETS, 4) &&
         VerifyField<uint8_t>(verifier, VT_HAS_COOPERATIVE_GRID_REDUCTION, 1) &&
-        VerifyOffset(verifier, VT_LHS_SPLITS_TO_VALIDATE) &&
-        verifier.VerifyVector(lhs_splits_to_validate()) &&
-        VerifyOffset(verifier, VT_RHS_SPLITS_TO_VALIDATE) &&
-        verifier.VerifyVector(rhs_splits_to_validate()) &&
-        VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
-        VerifyOffset(verifier, VT_VECTORIZED_SET_INFO) &&
-        verifier.VerifyTable(vectorized_set_info()) && verifier.EndTable();
+        VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) && verifier.EndTable();
   }
 };
 
@@ -2991,26 +2828,9 @@ struct KernelSummaryBuilder {
         static_cast<uint8_t>(has_cooperative_grid_reduction),
         0);
   }
-  void add_lhs_splits_to_validate(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          lhs_splits_to_validate) {
-    fbb_.AddOffset(
-        KernelSummary::VT_LHS_SPLITS_TO_VALIDATE, lhs_splits_to_validate);
-  }
-  void add_rhs_splits_to_validate(
-      ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-          rhs_splits_to_validate) {
-    fbb_.AddOffset(
-        KernelSummary::VT_RHS_SPLITS_TO_VALIDATE, rhs_splits_to_validate);
-  }
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(
         KernelSummary::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
-  }
-  void add_vectorized_set_info(
-      ::flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
-          vectorized_set_info) {
-    fbb_.AddOffset(KernelSummary::VT_VECTORIZED_SET_INFO, vectorized_set_info);
   }
   explicit KernelSummaryBuilder(::flatbuffers::FlatBufferBuilder& _fbb)
       : fbb_(_fbb) {
@@ -3027,46 +2847,12 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(
     ::flatbuffers::FlatBufferBuilder& _fbb,
     int32_t max_rng_offsets = -1,
     bool has_cooperative_grid_reduction = false,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        lhs_splits_to_validate = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>>
-        rhs_splits_to_validate = 0,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    ::flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
-        vectorized_set_info = 0) {
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
   KernelSummaryBuilder builder_(_fbb);
-  builder_.add_vectorized_set_info(vectorized_set_info);
   builder_.add_index_type(index_type);
-  builder_.add_rhs_splits_to_validate(rhs_splits_to_validate);
-  builder_.add_lhs_splits_to_validate(lhs_splits_to_validate);
   builder_.add_max_rng_offsets(max_rng_offsets);
   builder_.add_has_cooperative_grid_reduction(has_cooperative_grid_reduction);
   return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
-    ::flatbuffers::FlatBufferBuilder& _fbb,
-    int32_t max_rng_offsets = -1,
-    bool has_cooperative_grid_reduction = false,
-    const std::vector<int64_t>* lhs_splits_to_validate = nullptr,
-    const std::vector<int64_t>* rhs_splits_to_validate = nullptr,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    ::flatbuffers::Offset<nvfuser::serde::VectorizedTensorInfo>
-        vectorized_set_info = 0) {
-  auto lhs_splits_to_validate__ = lhs_splits_to_validate
-      ? _fbb.CreateVector<int64_t>(*lhs_splits_to_validate)
-      : 0;
-  auto rhs_splits_to_validate__ = rhs_splits_to_validate
-      ? _fbb.CreateVector<int64_t>(*rhs_splits_to_validate)
-      : 0;
-  return nvfuser::serde::CreateKernelSummary(
-      _fbb,
-      max_rng_offsets,
-      has_cooperative_grid_reduction,
-      lhs_splits_to_validate__,
-      rhs_splits_to_validate__,
-      index_type,
-      vectorized_set_info);
 }
 
 struct BatchNorm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

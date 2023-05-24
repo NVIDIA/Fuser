@@ -195,6 +195,13 @@ union ScalarCpuData {
 // =====================================================================================
 // Basic data tables
 
+// The State struct represents each scalar and tensor value.
+// e.g., all input, output and intermediate values in the fusion.
+struct State {
+  index: int;
+  type: StateType;
+}
+
 // Data for Constant Bool
 table Bool {
   value: bool;
@@ -240,11 +247,6 @@ table ComplexDouble {
 table ComplexFloat {
   real: float;
   imag: float;
-}
-
-// Data representing a tensor shape
-table TensorShape {
-  shape : [long];
 }
 
 //
@@ -293,6 +295,7 @@ table AllocateBuffer {
 
 //
 // =====================================================================================
+// Tables for KernelArgumentHolder used in FusionExecutor
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
@@ -327,6 +330,15 @@ table KernelArgumentHolder {
   cache_id : ulong;
 }
 
+//
+// =====================================================================================
+// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and KernelSummary used in FusionExecutor
+
+// Data representing a tensor shape
+table TensorShape {
+  shape : [long];
+}
+
 table LaunchParams {
   gdimx : long;
   gdimy : long;
@@ -358,21 +370,6 @@ table ExecutorEntry {
     rand_offset : ulong;
 }
 
-// Do not serialize if there is misaligned vectorized tensors.
-table VectorizedTensorInfo {
-  // Aligned vectorized fusion inputs
-  aligned_vectorized_inp_tensor_pos : [long];
-
-  // Aligned vectorized fusion outputs
-  aligned_vectorized_out_tensor_pos : [long];
-
-  // Track which tensor views are inputs or outputs of a vectorized operation
-  // and their maximum vectorized access size.
-  // Analogous to map<TensorView*, int> kernel_summary.vectorized_accesses.
-  aligned_vectorized_inp_tensor_word_size : [long];
-  aligned_vectorized_out_tensor_word_size : [long];
-}
-
 table KernelSummary {
   // Indicates if random numbers are generated.
   max_rng_offsets : int = -1;
@@ -380,16 +377,9 @@ table KernelSummary {
   // Do we have any grid reduction in a loop, or grid reductions dependent on grid reductions
   has_cooperative_grid_reduction : bool;
 
-  // ceilDiv extents that must be divisible
-  lhs_splits_to_validate : [long];
-  rhs_splits_to_validate : [long];
-
   // Is this kernel being compiled with int32 or int64 indexing. This
   // information is required to resolve DataType::Index
   index_type : DataType;
-
-  // Track information on vectorized set operations for runtime validation
-  vectorized_set_info : VectorizedTensorInfo;
 }
 
 // =====================================================================================
@@ -558,13 +548,6 @@ table FusionExecutorCache {
   kernel_cache_keys : [ulong];
   // indices into kernel_runtime_values
   kernel_cache_values : [ulong];
-}
-
-// The State struct represents each scalar and tensor value.
-// e.g., all input, output and intermediate values in the fusion.
-struct State {
-  index: int;
-  type: StateType;
 }
 
 // RecordFunctor is represents operations in the Fusion. It is a node in the
