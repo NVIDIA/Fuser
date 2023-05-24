@@ -69,7 +69,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // Gets maximum vectorizable width of tv, assumes we can merge across all
   // iteration domains if contiguous. Cannot permute the dimensions to fix
   // contiguity. Ignores dimensions that are broadcast or reduction.
-  size_t getMaxVectorizableWidth(TensorView* tv);
+  size_t getMaxVectorizableWidth(TensorView* tv, bool contig_merge = true);
 
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);

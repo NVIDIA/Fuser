@@ -1051,7 +1051,9 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
 // Gets maximum vectorizable width of tv, assumes we can merge across all
 // iteration domains if contiguous. Cannot permute the dimensions to fix
 // contiguity.
-size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
+size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
+    TensorView* tv,
+    bool contig_merge) {
   // Gets the vectorizable width of the tv starting from the inner most
   // dimension, working its way towards the outer most dimension, if they're
   // contiguous. Ignores broadcast and reduction domains.
@@ -1130,6 +1132,10 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
 
     // Still contiguous
     numel *= dim_size->as<int64_t>();
+
+    if (!contig_merge) {
+      break;
+    }
   }
 
   // Assuming intermediate tensors have friendly alignment, and

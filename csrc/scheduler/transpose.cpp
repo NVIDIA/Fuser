@@ -699,7 +699,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   size_t vectorize_factor2 = max_unroll_factor;
 
   for (auto tv : grouped_inputs_outputs[0]) {
-    const auto tv_vectorize_factor = runtime_info.getMaxVectorizableWidth(tv);
+    const auto tv_vectorize_factor =
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
   }
   // TODO: Since group2 only has global->shared and shared->global set op, we
@@ -707,7 +708,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // We should not be using a single global vectorize factor for the entire
   // group 2
   for (auto tv : grouped_inputs_outputs[1]) {
-    const auto tv_vectorize_factor = runtime_info.getMaxVectorizableWidth(tv);
+    const auto tv_vectorize_factor =
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
   }
 
