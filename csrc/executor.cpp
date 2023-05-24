@@ -1583,7 +1583,7 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
   for (auto val : kernel()->outputs()) {
     tvs.emplace_back(dynamic_cast<TensorView*>(val));
   }
-  for (auto alloc : kernel()->summary().global_allocations) {
+  for (auto alloc : kernel_summary_.global_allocations) {
     auto tv = alloc->buffer()->as<TensorView>();
     if (tv->isFusionOutput()) {
       continue;
@@ -2059,10 +2059,12 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  serde::ExpressionBuilder es(kernel());
-  es.deserialize(buffer->generator());
-
   kernel_summary_ = deserialize(buffer->kernel_summary());
+
+  serde::ExpressionBuilder es(lowered_->kernel());
+  es.deserialize(buffer->generator());
+  kernel_summary_.global_allocations =
+      es.deserialize(buffer->global_allocations());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(

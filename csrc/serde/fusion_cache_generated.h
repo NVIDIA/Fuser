@@ -1802,11 +1802,16 @@ inline ::flatbuffers::Offset<Domain> CreateDomainDirect(
 struct SymbolicTensor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef SymbolicTensorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ROOT = 4,
-    VT_RFACTOR = 6,
-    VT_ALLOCATE = 8,
-    VT_LEAF = 10
+    VT_DTYPE = 4,
+    VT_ROOT = 6,
+    VT_RFACTOR = 8,
+    VT_ALLOCATE = 10,
+    VT_LEAF = 12
   };
+  nvfuser::serde::DataType dtype() const {
+    return static_cast<nvfuser::serde::DataType>(
+        GetField<int32_t>(VT_DTYPE, 0));
+  }
   const nvfuser::serde::Domain* root() const {
     return GetPointer<const nvfuser::serde::Domain*>(VT_ROOT);
   }
@@ -1820,9 +1825,10 @@ struct SymbolicTensor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     return GetPointer<const nvfuser::serde::Domain*>(VT_LEAF);
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_ROOT) &&
-        verifier.VerifyTable(root()) && VerifyOffset(verifier, VT_RFACTOR) &&
-        verifier.VerifyTable(rfactor()) &&
+    return VerifyTableStart(verifier) &&
+        VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+        VerifyOffset(verifier, VT_ROOT) && verifier.VerifyTable(root()) &&
+        VerifyOffset(verifier, VT_RFACTOR) && verifier.VerifyTable(rfactor()) &&
         VerifyOffset(verifier, VT_ALLOCATE) &&
         verifier.VerifyTable(allocate()) && VerifyOffset(verifier, VT_LEAF) &&
         verifier.VerifyTable(leaf()) && verifier.EndTable();
@@ -1833,6 +1839,10 @@ struct SymbolicTensorBuilder {
   typedef SymbolicTensor Table;
   ::flatbuffers::FlatBufferBuilder& fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_dtype(nvfuser::serde::DataType dtype) {
+    fbb_.AddElement<int32_t>(
+        SymbolicTensor::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+  }
   void add_root(::flatbuffers::Offset<nvfuser::serde::Domain> root) {
     fbb_.AddOffset(SymbolicTensor::VT_ROOT, root);
   }
@@ -1858,6 +1868,7 @@ struct SymbolicTensorBuilder {
 
 inline ::flatbuffers::Offset<SymbolicTensor> CreateSymbolicTensor(
     ::flatbuffers::FlatBufferBuilder& _fbb,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     ::flatbuffers::Offset<nvfuser::serde::Domain> root = 0,
     ::flatbuffers::Offset<nvfuser::serde::Domain> rfactor = 0,
     ::flatbuffers::Offset<nvfuser::serde::Domain> allocate = 0,
@@ -1867,24 +1878,25 @@ inline ::flatbuffers::Offset<SymbolicTensor> CreateSymbolicTensor(
   builder_.add_allocate(allocate);
   builder_.add_rfactor(rfactor);
   builder_.add_root(root);
+  builder_.add_dtype(dtype);
   return builder_.Finish();
 }
 
 struct AllocateBuffer FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef AllocateBufferBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BUFFER = 4,
+    VT_TV = 4,
     VT_ZERO_INIT = 6
   };
-  const nvfuser::serde::SymbolicTensor* buffer() const {
-    return GetPointer<const nvfuser::serde::SymbolicTensor*>(VT_BUFFER);
+  const nvfuser::serde::SymbolicTensor* tv() const {
+    return GetPointer<const nvfuser::serde::SymbolicTensor*>(VT_TV);
   }
   bool zero_init() const {
     return GetField<uint8_t>(VT_ZERO_INIT, 0) != 0;
   }
   bool Verify(::flatbuffers::Verifier& verifier) const {
-    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_BUFFER) &&
-        verifier.VerifyTable(buffer()) &&
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_TV) &&
+        verifier.VerifyTable(tv()) &&
         VerifyField<uint8_t>(verifier, VT_ZERO_INIT, 1) && verifier.EndTable();
   }
 };
@@ -1893,9 +1905,8 @@ struct AllocateBufferBuilder {
   typedef AllocateBuffer Table;
   ::flatbuffers::FlatBufferBuilder& fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_buffer(
-      ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> buffer) {
-    fbb_.AddOffset(AllocateBuffer::VT_BUFFER, buffer);
+  void add_tv(::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> tv) {
+    fbb_.AddOffset(AllocateBuffer::VT_TV, tv);
   }
   void add_zero_init(bool zero_init) {
     fbb_.AddElement<uint8_t>(
@@ -1914,10 +1925,10 @@ struct AllocateBufferBuilder {
 
 inline ::flatbuffers::Offset<AllocateBuffer> CreateAllocateBuffer(
     ::flatbuffers::FlatBufferBuilder& _fbb,
-    ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> buffer = 0,
+    ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> tv = 0,
     bool zero_init = false) {
   AllocateBufferBuilder builder_(_fbb);
-  builder_.add_buffer(buffer);
+  builder_.add_tv(tv);
   builder_.add_zero_init(zero_init);
   return builder_.Finish();
 }

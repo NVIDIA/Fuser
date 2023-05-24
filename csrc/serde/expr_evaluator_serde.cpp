@@ -134,7 +134,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
     BinaryOp* bop) const {
   auto inst = serde::CreateInstructionDirect(
       builder,
-      serde::InstructionType_Unary,
+      serde::InstructionType_Binary,
       serde::UnaryOpType_None,
       mapToSerdeBinaryOp(bop->getBinaryOpType()),
       serde::DataType_None,
@@ -309,10 +309,12 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
   }
 
   return serde::CreateSymbolicTensor(
-      builder, serde::CreateDomainDirect(builder, &fb_root_domain));
+      builder,
+      mapToSerdeDtype(tv->getDataType().value()),
+      serde::CreateDomainDirect(builder, &fb_root_domain));
 }
 
-ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) {
+ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   // TODO Get deterministic order
   std::unordered_set<nvfuser::Val*> symbolic_values;
@@ -350,6 +352,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
   //  dest : int;
   //  name : string;
   // }
+  FusionGuard fg(kernel_);
   switch (buffer->instruction()) {
     case serde::InstructionType_Symbolic:
       // Add check for symbolic extent
@@ -389,7 +392,7 @@ Val* ExpressionBuilder::buildUnaryOp(const Instruction* buffer) {
     case serde::UnaryOpType_Neg:
       return neg(operation_stack_.at(buffer->src0()));
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.");
+      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.\t");
       return nullptr;
   }
 }
@@ -421,9 +424,57 @@ Val* ExpressionBuilder::buildBinaryOp(const Instruction* buffer) {
           operation_stack_.at(buffer->src0()),
           operation_stack_.at(buffer->src1()));
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.");
+      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.\t");
       return nullptr;
   }
+}
+
+std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
+    const ExpressionBuilder::Allocations* buffers) {
+  // table IterationDomain {
+  //  extent : long;
+  // }
+  //
+  // table Domain {
+  //  dims : [IterationDomain];
+  // }
+  //
+  // table SymbolicTensor {
+  //  dtype : DataType;
+  //  root : Domain;
+  //  rfactor : Domain;
+  //  allocate : Domain;
+  //  leaf : Domain;
+  // }
+  //
+  // table AllocateBuffer {
+  //  tv : SymbolicTensor;
+  //  zero_init : bool;
+  // }
+  FusionGuard fg(kernel_);
+
+  std::vector<const kir::Allocate*> results;
+  for (auto buffer : *buffers) {
+    std::vector<IterDomain*> new_buffer_ids;
+    for (auto fb_id : *buffer->tv()->root()->dims()) {
+      auto id = IrBuilder::create<IterDomain>(IterDomainBuilder(
+          kernel_->zeroVal(), operation_stack_.at(fb_id->extent())));
+      new_buffer_ids.push_back(id);
+    }
+
+    const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
+
+    const auto buffer_tv = IrBuilder::create<TensorView>(
+        buffer_domain,
+        mapToNvfuserDtype(buffer->tv()->dtype()),
+        MemoryType::Global);
+
+    auto node = IrBuilder::create<kir::Allocate>(
+        buffer_tv, buffer_tv->getMemoryType(), nullptr, buffer->zero_init());
+
+    results.push_back(node);
+  }
+  return results;
 }
 
 } // namespace nvfuser::serde

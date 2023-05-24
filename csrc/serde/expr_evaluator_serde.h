@@ -41,15 +41,19 @@ class ExpressionSerializer {
 };
 
 class ExpressionBuilder {
+  using Allocations = flatbuffers::Vector<flatbuffers::Offset<AllocateBuffer>>;
+
  public:
   ExpressionBuilder(kir::Kernel* kernel);
   void deserialize(const NaiveValueGenerator* buffer);
+  std::vector<const kir::Allocate*> deserialize(const Allocations* buffers);
 
  private:
   void deserialize(const Instruction* buffer);
   Val* buildUnaryOp(const Instruction* buffer);
   Val* buildBinaryOp(const Instruction* buffer);
 
+  kir::Kernel* kernel_;
   std::vector<Val*> operation_stack_;
 };
 
