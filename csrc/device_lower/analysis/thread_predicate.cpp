@@ -49,6 +49,16 @@ Bool* getPredicatePerParallelType(
                NamedScalar::getParallelIndex(pt), write_index_map.at(pt))
         ->as<Bool>();
   }
+Val* valid_index = nullptr;
+if (auto it = write_index_map.find(pt); it != write_index_map.end()) {
+  valid_index = it->second;
+} else {
+  valid_index = GpuLower::current()->kernel()->zeroVal();
+}
+return SimplifyingIrBuilder::eqExpr(
+             NamedScalar::getParallelIndex(pt),
+             valid_index)
+      ->as<Bool>();
 
   // Otherwise, only thread of index 0 executes the computation
   return SimplifyingIrBuilder::eqExpr(
