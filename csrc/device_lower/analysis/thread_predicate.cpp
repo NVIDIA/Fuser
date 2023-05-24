@@ -556,12 +556,16 @@ class ConcretizedBroadcastRedundantWriteRemover {
       }
     }
   }
-  // For each broadcast root domain, find a concretized domain from its
-  // exact mapped domain set and check all the concretized domains are
-  // in the same IdMappingMode::EXACT group.
+
+  // Current implementation only works for broadcast root domain uniquely concretized.
+  // Will skip if concretized to differet domains, and usually should be segmented, see
+  // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
       if (rd->isBroadcast()) {
+        IterDomain* identical_concretized_domain = nullptr;
+        // find this broadcast root domain's identical concretized domain
+        // from its exact map (includes itself).
         const auto& mapped_rd_exact_set = GpuLower::current()
                                               ->caMap()
                                               ->getIdSets(IdMappingMode::EXACT)
@@ -571,35 +575,38 @@ class ConcretizedBroadcastRedundantWriteRemover {
               GpuLower::current()
                   ->concretizedBroadcastDomains()
                   ->allConcretizedDomains(mapped_rd);
-          auto fromSameExactGroup = [&all_cids]() {
-            const auto& exact_set = GpuLower::current()
-                                        ->caMap()
-                                        ->getIdSets(IdMappingMode::EXACT)
-                                        .getDisjointSetOf(*all_cids.begin());
-            return std::all_of(
-                all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
-                  return exact_set.has(id);
-                });
-          };
+
           if (!all_cids.empty()) {
-            // assert that all_cids are in the same group in the
-            // IdMappingMode::EXACT graph
-            TORCH_INTERNAL_ASSERT(
-                fromSameExactGroup(),
-                "All concretized domains of a broadcast root domain should be in the same group in the IdMappingMode::EXACT graph.");
-            // make sure this broadcast root domain is concretized to the same
-            // domain otherwise, treat as not concretized becase we don't know
-            // which one to use.
-            auto iter = concretized_broadcast_root_domains_.find(rd);
-            if (iter != concretized_broadcast_root_domains_.end() &&
-                iter->second != *all_cids.begin()) {
-              concretized_broadcast_root_domains_.erase(iter);
-              // break to move to the next broadcast root domain
+            auto fromSameExactGroup = [&all_cids]() {
+              const auto& exact_set = GpuLower::current()
+                                          ->caMap()
+                                          ->getIdSets(IdMappingMode::EXACT)
+                                          .getDisjointSetOf(*all_cids.begin());
+              return std::all_of(
+                  all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
+                    return exact_set.has(id);
+                  });
+            };
+            if(!fromSameExactGroup()) {
               break;
+            }
+            // if we have one
+            if (identical_concretized_domain) {
+              // make sure the new one is the same as the previous one
+              if(identical_concretized_domain != *all_cids.begin()) {
+                // if not the same, we can't handle this case
+                // move to the next broadcast root domain
+                identical_concretized_domain = nullptr;
+                break;                
+              }
             } else {
-              concretized_broadcast_root_domains_[rd] = *all_cids.begin();
+              identical_concretized_domain = *all_cids.begin();
             }
           }
+        }
+        // store the concretized domain if it is the only one
+        if(identical_concretized_domain) {
+          concretized_broadcast_root_domains_[rd] = identical_concretized_domain;
         }
       }
     }
