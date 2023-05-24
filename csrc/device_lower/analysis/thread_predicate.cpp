@@ -557,8 +557,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
 
-  // Current implementation only works for broadcast root domain uniquely concretized.
-  // Will skip if concretized to differet domains, and usually should be segmented, see
+  // Current implementation only works for broadcast root domain uniquely
+  // concretized. Will skip if concretized to differet domains, and usually
+  // should be segmented, see
   // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
@@ -587,17 +588,17 @@ class ConcretizedBroadcastRedundantWriteRemover {
                     return exact_set.has(id);
                   });
             };
-            if(!fromSameExactGroup()) {
+            if (!fromSameExactGroup()) {
               break;
             }
             // if we have one
             if (identical_concretized_domain) {
               // make sure the new one is the same as the previous one
-              if(identical_concretized_domain != *all_cids.begin()) {
+              if (identical_concretized_domain != *all_cids.begin()) {
                 // if not the same, we can't handle this case
                 // move to the next broadcast root domain
                 identical_concretized_domain = nullptr;
-                break;                
+                break;
               }
             } else {
               identical_concretized_domain = *all_cids.begin();
@@ -605,8 +606,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
           }
         }
         // store the concretized domain if it is the only one
-        if(identical_concretized_domain) {
-          concretized_broadcast_root_domains_[rd] = identical_concretized_domain;
+        if (identical_concretized_domain) {
+          concretized_broadcast_root_domains_[rd] =
+              identical_concretized_domain;
         }
       }
     }

@@ -8229,23 +8229,22 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     at::Tensor t2 = at::randn(shape2, options);
     std::vector<c10::IValue> inputs = {t0, t1, t2};
 
-    if(direct_lowering) {
+    if (direct_lowering) {
       auto heuristics_params = getReductionHeuristics(&fusion, inputs);
       TORCH_CHECK(heuristics_params, "Reduction schedule was not generated!");
       scheduleReduction(&fusion, *heuristics_params);
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
-          [&]() {
-            GpuLower gpulw(&fusion);
-          },
+          [&]() { GpuLower gpulw(&fusion); },
           testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
-    }else{
+    } else {
       FusionExecutorCache fec(std::move(fusion_ptr));
       auto cg_outputs = fec.runFusionWithInputs(inputs);
 
       auto optimized_fusion = fec.getMostRecentKernelRuntime();
-      TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+      TORCH_CHECK(
+          optimized_fusion->isSegmented(), "segmentation didn't happen!");
 
       at::Tensor tb = t0;
       for (size_t i = 0; i < ndim; i++) {
