@@ -368,6 +368,18 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  //! Use this instead of calling registerMutation directly, since it will also
+  //! check that the concretized value is a valid input to all of its uses.
+  void registerConcretization(Val* old_val, Val* new_val) {
+    checkConcretizedUses(old_val, new_val);
+    registerMutation(old_val, new_val);
+  }
+
+  //! Check uses of old_val to ensure that new_val does not violate
+  //! assumptions. This is currently only used to check that inputs to SqueezeOp
+  //! are marked broadcast during concretization.
+  void checkConcretizedUses(Val* old_val, Val* new_val) const;
+
   using OptOutMutator::mutate;
 
   void mutate(TensorView* tv) final;
@@ -408,6 +420,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
+    // We do the replacement directly here, but we must still check that the
+    // replacement is valid
+    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+
     // Replace the old tensor with the new concretized tensor
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
       ir_utils::replaceValInExpr(
@@ -437,7 +453,15 @@ void DynamicTransformConcretizer::concretizeResize() {
         id->isRFactorProduct(),
         iter_type);
 
-    registerMutation(id, new_id);
+    registerConcretization(id, new_id);
+  }
+}
+
+void DynamicTransformConcretizer::checkConcretizedUses(
+    Val* old_val,
+    Val* new_val) const {
+  for (const auto use : old_val->uses()) {
+    use->checkConcretization(old_val, new_val);
   }
 }
 
@@ -520,7 +544,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
-        registerMutation(out_id, concretized_out_id);
+        registerConcretization(out_id, concretized_out_id);
       }
 
       // The expr itself needs to be mutated as well in case the outputs are
@@ -588,7 +612,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, domain, contig);
-  registerMutation(td, mutated_val);
+  registerConcretization(td, mutated_val);
 }
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
@@ -655,7 +679,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     auto concretized_id =
         IterDomainBuilder(root_id).iter_type(*id_type).build();
 
-    registerMutation(root_id, concretized_id);
+    registerConcretization(root_id, concretized_id);
     is_concretized = true;
   }
 
