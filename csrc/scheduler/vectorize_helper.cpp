@@ -292,12 +292,9 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
     //      !hasPartialExtent(merge->inner())) {
     //      Comment here.
 
-    const auto inner_numerator = inner_mapping.getNumerator();
-    const auto inner_denominator = inner_mapping.getDenominator();
-
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        SimplifyingIrBuilder::divExpr(inner_numerator, inner_denominator),
+        inner_mapping.quotient(),
         commonOrConstExtent(ca_map_, split->inner()));
 
     // Divisibility checks are done later, simply propagate fractional
@@ -325,12 +322,8 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
   // Map inner and outer dimensions. If outer doesn't map fully this will be
   // found during evaluation. Don't have to worry about it here.
 
-  const auto out_numerator = out_mapping.getNumerator();
-  const auto out_denominator = out_mapping.getDenominator();
-
   auto out_bigger_than_inner = IrBuilder::gtExpr(
-      SimplifyingIrBuilder::divExpr(out_numerator, out_denominator),
-      commonOrConstExtent(ca_map_, merge->inner()));
+      out_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -381,13 +374,10 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     // merge(I0*I1, I2*I3) -> I0*I1*I2*I3
     // However, I2*I3 completely maps, and I1 partially maps, then we can
     // forward a partially mapped domain to the output of size I1*I2*I3
-    const auto inner_numerator = inner_mapping.getNumerator();
-    const auto inner_denominator = inner_mapping.getDenominator();
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        SimplifyingIrBuilder::divExpr(inner_numerator, inner_denominator),
-        commonOrConstExtent(ca_map_, merge->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
@@ -410,12 +400,9 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
   if (in_mapping.isZero()) {
     return;
   }
-  const auto in_numerator = in_mapping.getNumerator();
-  const auto in_denominator = in_mapping.getDenominator();
 
   auto in_bigger_than_inner = IrBuilder::gtExpr(
-      SimplifyingIrBuilder::divExpr(in_numerator, in_denominator),
-      commonOrConstExtent(ca_map_, split->inner()));
+      in_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -1142,59 +1129,45 @@ int64_t getVectorizationSize(
       continue;
     }
     auto orig_extent_val = dim.second->extent();
-    auto numerator_optional = expr_eval.evaluate(pe.getNumerator());
-    auto denominator_optional = expr_eval.evaluate(pe.getDenominator());
+    auto is_divisible_optional = expr_eval.evaluate(pe.isDivisible());
+    auto quotient_optional = expr_eval.evaluate(pe.quotient());
     auto extent_optional = expr_eval.evaluate(orig_extent_val);
     TORCH_INTERNAL_ASSERT(
-        numerator_optional.has_value() && denominator_optional.has_value() &&
-            extent_optional.has_value(),
+        quotient_optional.has_value() && extent_optional.has_value(),
         "Vectorization heuristic could not evaluate required extents.");
     TORCH_INTERNAL_ASSERT(
-        numerator_optional->isInt() && denominator_optional->isInt() &&
+        is_divisible_optional->isBool() && quotient_optional->isInt() &&
             extent_optional->isInt(),
         "Vectorization heuristic expects integer values only.");
-    auto numerator = numerator_optional->as<int64_t>();
-    auto denominator = denominator_optional->as<int64_t>();
+    auto is_divisible = is_divisible_optional->as<bool>();
+    auto quotient = quotient_optional->as<int64_t>();
     auto extent = extent_optional->as<int64_t>();
 
-    if (denominator != 1) {
+    if (!is_divisible) {
       break;
     }
 
     // Full mapping of numerator
-    if (numerator == extent) {
+    if (quotient == extent) {
       // Full mappings can continue to the next dimension
       vectorize_size = vectorize_size * extent;
       continue;
     }
 
     TORCH_INTERNAL_ASSERT(
-        numerator < extent,
+        quotient < extent,
         "Mapped extent in vectorization analysis should never be greater than the extent but ",
-        numerator,
+        quotient,
         " > ",
         extent);
 
-    if (extent % numerator) {
-      vectorize_size = vectorize_size * numerator;
+    if (extent % quotient) {
+      vectorize_size = vectorize_size * quotient;
       // partial mappings cannot continue to the next dimension
       break;
     }
 
-    int64_t greatest_common_factor = 1;
-    // Look for a common factors of 3 and 2
-    while (extent % 3 == 0 && numerator % 3 == 0) {
-      extent /= 3;
-      numerator /= 3;
-      greatest_common_factor = greatest_common_factor * 3;
-    }
-
-    while (extent % 2 == 0 && numerator % 2 == 0) {
-      extent /= 2;
-      numerator /= 2;
-      greatest_common_factor = greatest_common_factor * 2;
-    }
-    vectorize_size = vectorize_size * greatest_common_factor;
+    vectorize_size = vectorize_size * std::gcd(extent, quotient);
     // partial mappings cannot continue to the next dimension
     break;
   }

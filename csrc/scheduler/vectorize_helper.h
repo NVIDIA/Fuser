@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 
 #include <sstream>
@@ -71,37 +72,23 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // Multiply numerator by provided value, or if currently zero set numerator to
   // provided value.
   void multiplyNumeratorValue(Val* new_numerator_val) {
-    TORCH_INTERNAL_ASSERT(
-        !new_numerator_val->isZeroInt() &&
-            (!new_numerator_val->isConstInt() ||
-             new_numerator_val->evaluateInt() > 0),
-        "Adding numerator value of zero not supported in ProjectedExtent.");
+    if (numerator_ == nullptr) {
+      numerator_ = new_numerator_val;
+    } else {
+      numerator_ = SimplifyingIrBuilder::mulExpr(numerator_, new_numerator_val);
+    }
 
     zero_ = false;
-    if (new_numerator_val->isConstInt()) {
-      const_numerator_vals_.push_back(new_numerator_val->evaluateInt());
-    } else {
-      symb_numerator_vals_.push_back(new_numerator_val);
-    }
-    valid_extents_ = false;
-    is_simplified_ = false;
   }
 
   // Multiply denominator by provided value
   void multiplyDenominatorValue(Val* new_denominator_val) {
-    TORCH_INTERNAL_ASSERT(
-        !new_denominator_val->isZeroInt(), "Divide by zero detected.");
-    if (new_denominator_val->isConstInt()) {
-      TORCH_INTERNAL_ASSERT(
-          new_denominator_val->evaluateInt() > 0,
-          "Divide by zero or negative value detected, not supported: ",
-          new_denominator_val->evaluateInt());
-      const_denominator_vals_.push_back(new_denominator_val->evaluateInt());
+    if (numerator_ == nullptr) {
+      denominator_ = new_denominator_val;
     } else {
-      symb_denominator_vals_.push_back(new_denominator_val);
+      denominator_ =
+          SimplifyingIrBuilder::mulExpr(denominator_, new_denominator_val);
     }
-    valid_extents_ = false;
-    is_simplified_ = false;
   }
 
   // Multiply by other but wrap each value in other with the provided predicate.
@@ -113,50 +100,32 @@ class TORCH_CUDA_CU_API ProjectedExtent {
     TORCH_INTERNAL_ASSERT(
         pred != nullptr && pred->isA<Bool>(),
         "Predicate must be a bool value for this function.");
-    for (auto other_const_numer : other.const_numerator_vals_) {
-      multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-          pred,
-          IrBuilder::create<Int>(other_const_numer),
-          FusionGuard::getCurFusion()->oneVal()));
-    }
 
-    for (auto other_symb_numer : other.symb_numerator_vals_) {
-      multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-          pred, other_symb_numer, FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    for (auto other_const_denom : other.const_denominator_vals_) {
-      multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-          pred,
-          IrBuilder::create<Int>(other_const_denom),
-          FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    for (auto other_symb_numer : other.symb_denominator_vals_) {
-      multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-          pred, other_symb_numer, FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    valid_extents_ = false;
-    is_simplified_ = false;
+    multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
+        pred, other.numerator(), FusionGuard::getCurFusion()->oneVal()));
+    multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
+        pred, other.denominator(), FusionGuard::getCurFusion()->oneVal()));
   }
 
-  // If necessary simplify the PartialExtent and return all the numerator values
-  // multiplied together as a single Val.
-  Val* getNumerator() {
-    if (!valid_extents_) {
-      computeNumerDenomir();
-    }
-    return numerator_;
+  Val* numerator() const {
+    return numerator_ != nullptr ? numerator_
+                                 : FusionGuard::getCurFusion()->oneVal();
   }
 
-  // If necessary simplify the PartialExtent and return all the denominator
-  // values multiplied together as a single Val.
-  Val* getDenominator() {
-    if (!valid_extents_) {
-      computeNumerDenomir();
-    }
-    return denominator_;
+  Val* denominator() const {
+    return denominator_ != nullptr ? denominator_
+                                   : FusionGuard::getCurFusion()->oneVal();
+  }
+
+  Val* quotient() const {
+    return simplifyExpr(
+        SimplifyingIrBuilder::divExpr(numerator(), denominator()));
+  }
+
+  Val* isDivisible() const {
+    return simplifyExpr(SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(numerator(), denominator()),
+        numerator()->container()->zeroVal()));
   }
 
   bool isZero() const {
@@ -165,138 +134,12 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
   std::string toString() const {
     std::stringstream ss;
-    ss << "{";
-    bool first = true;
-    for (auto numer : const_numerator_vals_) {
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << numer;
-    }
-
-    for (auto numer : symb_numerator_vals_) {
-      if (numer == nullptr || numer->isOneInt()) {
-        continue;
-      }
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-      ss << numer->toInlineString();
-    }
-
-    ss << "} / {";
-    first = true;
-    for (auto denom : const_denominator_vals_) {
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << denom;
-    }
-
-    for (auto denom : symb_denominator_vals_) {
-      if (denom == nullptr || denom->isOneInt()) {
-        continue;
-      }
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << denom->toInlineString();
-    }
-    ss << "}";
+    ss << numerator()->toInlineString() << " , "
+       << denominator()->toInlineString();
     return ss.str();
   }
 
  private:
-  // Simplify the partial extent as much as possibly by removing common factors
-  // from the numerator and denominator.
-  void simplify() {
-    if (is_simplified_) {
-      return;
-    }
-
-    std::tie(const_numerator_vals_, const_denominator_vals_) =
-        factorization_helpers::removeCommonFactors(
-            const_numerator_vals_, const_denominator_vals_);
-
-    std::tie(symb_numerator_vals_, symb_denominator_vals_) =
-        factorization_helpers::removeSameVals(
-            symb_numerator_vals_, symb_denominator_vals_);
-
-    valid_extents_ = false;
-    is_simplified_ = true;
-  }
-
-  // Simplify the partial extent and generate the Val* for numerator and
-  // denominator by multiplying all the factors.
-  void computeNumerDenomir() {
-    if (valid_extents_) {
-      return;
-    }
-    simplify();
-
-    numerator_ = nullptr;
-
-    int64_t const_numerator_factor = 1;
-    for (auto factor : const_numerator_vals_) {
-      const_numerator_factor *= factor;
-    }
-
-    if (const_numerator_factor > 1) {
-      numerator_ = IrBuilder::create<Int>(const_numerator_factor);
-    }
-
-    for (auto numerator_val : symb_numerator_vals_) {
-      if (numerator_ == nullptr) {
-        numerator_ = numerator_val;
-      } else {
-        numerator_ = SimplifyingIrBuilder::mulExpr(numerator_, numerator_val);
-      }
-    }
-
-    if (numerator_ == nullptr) {
-      numerator_ = isZero() ? FusionGuard::getCurFusion()->zeroVal()
-                            : FusionGuard::getCurFusion()->oneVal();
-    }
-
-    denominator_ = nullptr;
-
-    int64_t const_denominator_factor = 1;
-    for (auto factor : const_denominator_vals_) {
-      const_denominator_factor *= factor;
-    }
-
-    if (const_denominator_factor > 1) {
-      denominator_ = IrBuilder::create<Int>(const_denominator_factor);
-    }
-
-    for (auto denominator_val : symb_denominator_vals_) {
-      if (denominator_ == nullptr) {
-        denominator_ = denominator_val;
-      } else {
-        denominator_ =
-            SimplifyingIrBuilder::mulExpr(denominator_, denominator_val);
-      }
-    }
-
-    if (denominator_ == nullptr) {
-      denominator_ = FusionGuard::getCurFusion()->oneVal();
-    }
-    valid_extents_ = true;
-  }
-
-  // True if numerator and denominator have been computed and don't need to be
-  // updated
-  bool valid_extents_ = false;
-  // True if no numerator or denominator was added since the last simplify() was
-  // called
-  bool is_simplified_ = false;
   // Fraction starts at zero, but if a value is ever added in the numerator it
   // can never be zero again, it must be at least 1.
   bool zero_ = true;
@@ -304,12 +147,6 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // numerator and denominator values (product of the sets below)
   Val* numerator_ = nullptr;
   Val* denominator_ = nullptr;
-
-  // Const and symbolic numerator and denominator values.
-  std::vector<int64_t> const_numerator_vals_;
-  std::vector<Val*> symb_numerator_vals_;
-  std::vector<int64_t> const_denominator_vals_;
-  std::vector<Val*> symb_denominator_vals_;
 };
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
