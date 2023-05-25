@@ -446,6 +446,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        if (!out_id->isSymbolic()) {
+          continue;
+        }
         auto concretized_out_id =
             IterDomainBuilder(out_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
