@@ -294,8 +294,7 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.quotient(),
-        commonOrConstExtent(ca_map_, split->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
