@@ -1209,11 +1209,9 @@ TEST_F(NVFuserTest, FusionVectorizeSpanningTree_CUDA) {
           }
           for (auto axis : tv->getRootDomain()) {
             TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).numerator()->evaluateInt() ==
-                2);
+                mapper.getMappedExtent(axis).numerator()->evaluateInt() == 2);
             TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).denominator()->evaluateInt() ==
-                1);
+                mapper.getMappedExtent(axis).denominator()->evaluateInt() == 1);
           }
         }
       }
