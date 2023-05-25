@@ -154,12 +154,12 @@ table Double {
   value: double;
 }
 
-// Data for Constant Double
+// Data for Constant Float
 table Float {
   value: float;
 }
 
-// Data for Constant Int or Long
+// Data for Constant Int32
 table Int {
   value: int;
 }
@@ -179,7 +179,7 @@ table BFloat16 {
   value: ushort;
 }
 
-// Data for Constant Complex Double or Float
+// Data for Constant Complex Double
 table ComplexDouble {
   real: double;
   imag: double;
