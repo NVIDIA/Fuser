@@ -1096,6 +1096,18 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   auto id_1_relook = inputs_id_lookup.lookupId({t0, t1});
   TORCH_CHECK(id_1_relook.id == id_1.id);
   TORCH_CHECK(id_1_relook.eviction == false);
+
+  // test scalars don't affect ID unless we ask them to
+  auto id_3 = inputs_id_lookup.lookupId(
+      {t0, t1, 5.0, 1, true}, /*scalar_inputs_to_record*/ {2, 3, 4});
+  auto id_3_lookup = inputs_id_lookup.lookupId(
+      {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {2, 3, 4});
+  auto id_3_norecord = inputs_id_lookup.lookupId(
+      {t0, t1, 5.0, 1, true}, /*scalar_inputs_to_record*/ {});
+  auto id_3_lookup_norecord = inputs_id_lookup.lookupId(
+      {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {});
+  TORCH_CHECK(id_3.id != id_3_lookup.id);
+  TORCH_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {
