@@ -442,11 +442,14 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      std::optional<int8_t> selected_device = std::nullopt);
 
   //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
   //! lookup
-  KernelArgumentHolder prepareInputs(const at::ArrayRef<c10::IValue>& inputs);
+  KernelArgumentHolder prepareInputs(
+      const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
   bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
