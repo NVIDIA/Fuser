@@ -1860,6 +1860,10 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
     return attribute(0)->as<Attribute<int>>()->value;
   }
 
+  Val* out() const {
+    return output(0);
+  }
+
   //! The index val that determines which input tensor should be used
   //! to fill the particular output position of this expression. Only
   //! valid after indexing

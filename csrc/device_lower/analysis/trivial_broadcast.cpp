@@ -64,6 +64,59 @@ void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   }
 }
 
+void ConcretizedBroadcastDomains::handle(CatOp* op) {
+  auto id =
+      op->out()->as<TensorView>()->getMaybeRFactorDomain().at(op->concatenatedDim());
+  if (id->isBroadcast()) {
+    broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
+  }
+}
+
+void ConcretizedBroadcastDomains::handle(PadOp* op) {
+  std::cout << "handle(PadOp* " << op->toString() << ")" << std::endl;
+  for (auto i : op->getPaddedAxes()) {
+    std::cout << "padded axis " << i << std::endl;
+    // Instead of the root domain of the output, as with BroadcastOp, we set the
+    // origin as the RFactor domain, since PadOp inserts Resize ops between root
+    // and rfactor
+    auto id = op->out()->as<TensorView>()->getMaybeRFactorDomain().at(i);
+    std::cout << "id = " << id->toString() << std::endl;
+    if (id->isBroadcast()) {
+      std::cout << "broadcast_origin_map_.emplace(";
+      std::cout << id->toString() << ", std::unordered_set<IterDomain*>({";
+      std::cout << "id"/*id->toString()*/ << "}));" << std::endl;;
+      broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
+    }
+  }
+}
+
+void ConcretizedBroadcastDomains::handle(SliceOp* op) {
+  auto consumer_root = op->out()->as<TensorView>()->getMaybeRFactorDomain();
+  auto producer_rfactor = TensorDomain::noReductions(
+      op->in()->as<TensorView>()->getMaybeRFactorDomain());
+  TORCH_INTERNAL_ASSERT(
+      consumer_root.size() == producer_rfactor.size(),
+      "Consumer root size ",
+      consumer_root.size(),
+      " does not match producer rfactor size ",
+      producer_rfactor.size());
+  for (auto i : c10::irange(consumer_root.size())) {
+    auto cid = consumer_root.at(i);
+    auto pid = producer_rfactor.at(i);
+    if (cid->isBroadcast()) {
+      // Map to producer ID if it was already broadcast. Otherwise to consumer
+      // ID
+      if (pid->isBroadcast()) {
+        broadcast_origin_map_.emplace(
+            pid, std::unordered_set<IterDomain*>({cid, pid}));
+      } else {
+        broadcast_origin_map_.emplace(
+            cid, std::unordered_set<IterDomain*>({cid}));
+      }
+    }
+  }
+}
+
 void ConcretizedBroadcastDomains::handle(Expr* expr) {
   IterVisitor::handle(expr);
 

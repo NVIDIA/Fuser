@@ -870,7 +870,9 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
   }
 
   if (consumer_id->isBroadcast()) {
-    TORCH_INTERNAL_ASSERT(producer_id->isBroadcast());
+    // Note that consumer may be broadcast even though producer is not if it is
+    // the output of a Resize op.
+
     // Get bcast_map_ entry for consumer_id
     const auto consumer_bcast_domains =
         root_map_.getConcretizedKeys(consumer_td, consumer_id);

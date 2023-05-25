@@ -47,6 +47,13 @@ class TORCH_CUDA_CU_API ConcretizedBroadcastDomains : private IterVisitor {
 
   void handle(BroadcastOp* bop) final;
 
+  // After concretization, ops with Resized IterDomains in their outputs may set
+  // the broadcast flag, even though they are not BroadcastOps themselves. In
+  // these cases, we set the output as the origin.
+  void handle(CatOp* op) final;
+  void handle(PadOp* op) final;
+  void handle(SliceOp* op) final;
+
   void handle(Expr* expr) final;
 
   void markAsConcretized(
