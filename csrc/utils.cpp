@@ -287,7 +287,7 @@ int8_t getCommonDeviceCUDA(
     std::optional<int8_t> selected_device) {
   int8_t index = 0;
   // have we found or selected at least one device yet?
-  size_t found_device = false;
+  bool found_device = false;
   if (selected_device.has_value()) {
     index = selected_device.value();
     found_device = true;
