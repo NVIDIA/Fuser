@@ -115,9 +115,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         mapped_id = expr->output(0)->as<IterDomain>();
       } else {
         TORCH_INTERNAL_ASSERT(
-            false,
-            "Unhandled IterDomain expression: ",
-            expr->toString());
+            false, "Unhandled IterDomain expression: ", expr->toString());
       }
     }
     // Find the position of the leaf id
