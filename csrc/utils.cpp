@@ -109,6 +109,7 @@ auto parseDebugDumpOptions() {
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
+      {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"ca_map", DebugDumpOption::ComputeAtMap},
       {"cuda_kernel", DebugDumpOption::CudaKernel},

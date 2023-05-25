@@ -38,6 +38,12 @@ class NaiveValueMachine {
   //!  and stores them in the private state.
   NaiveValueMachine(PrecomputedValues& precomputed_values);
 
+  //! Copy all values other than `precomputed_values_` from other
+  //! This would be better implemented as a copy constructor, except that would
+  //! also presumably bind precomputed_values_ which we could not then rebind,
+  //! as we need to during cloning.
+  void copyFrom(const NaiveValueMachine& other);
+
   //! Runs all the instructions and write results to the associated
   //!  precomputed_values.
   void run();
@@ -155,6 +161,8 @@ class PrecomputedValues {
 
   //! Debugging helper, prints all the currently known values
   void print() const;
+
+  PrecomputedValues clone(IrCloner& ir_cloner) const;
 
  protected:
   // Fusion IR associated with the precomputed values. Can be kir::Kernel or
