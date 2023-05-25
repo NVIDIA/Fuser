@@ -13,7 +13,6 @@
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <expr_simplifier.h>
 #include <ir/builder.h>
 
 #include <sstream>
@@ -118,14 +117,13 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   }
 
   Val* quotient() const {
-    return simplifyExpr(
-        SimplifyingIrBuilder::divExpr(numerator(), denominator()));
+    return SimplifyingIrBuilder::divExpr(numerator(), denominator());
   }
 
   Val* isDivisible() const {
-    return simplifyExpr(SimplifyingIrBuilder::eqExpr(
+    return SimplifyingIrBuilder::eqExpr(
         SimplifyingIrBuilder::modExpr(numerator(), denominator()),
-        numerator()->container()->zeroVal()));
+        numerator()->container()->zeroVal());
   }
 
   bool isZero() const {
