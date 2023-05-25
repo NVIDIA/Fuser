@@ -436,6 +436,14 @@ std::string Expr::getGraphvizLabel() const {
   return ss.str();
 }
 
+void Expr::checkConcretization(Val* old_val, Val* new_val) const {
+  TORCH_CHECK(old_val, "Pre-concretized value was null");
+  TORCH_CHECK(new_val, "Concretized value is null");
+  TORCH_CHECK(
+      old_val->vtype() == new_val->vtype(),
+      "Concretization must not change ValType");
+}
+
 bool Expr::sameAs(const Statement* other) const {
   if (this == other) {
     return true;

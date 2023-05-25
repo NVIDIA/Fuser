@@ -63,7 +63,9 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, 4);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -80,7 +82,9 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, -1);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -99,7 +103,13 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // This should fail as (4 * 3) is not evenly divisible by 5
     EXPECT_THAT(
-        [&]() { DynamicTransform::getConcretizationInfo(&fusion, &expr_eval); },
+        [&]() {
+          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+          auto info = DynamicTransform::getConcretizationInfo(
+              &fusion, &initial_info, &expr_eval);
+          DynamicTransform::getConcretizationInfo(
+              &fusion, &initial_info, &expr_eval);
+        },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Cannot infer")));
   }
@@ -136,7 +146,9 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     expr_eval.bind(tv2->axis(0)->extent(), 3);
     expr_eval.bind(tv2->axis(1)->extent(), 4);
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
@@ -176,7 +188,9 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv1->axis(0)->extent(), shape_after.at(0));
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
   TORCH_CHECK(
@@ -240,7 +254,9 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
       expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
     }
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -287,7 +303,9 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     expr_eval.bind(tv1->axis(0)->extent(), before_after.second.at(0));
     expr_eval.bind(tv1->axis(1)->extent(), before_after.second.at(1));
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -339,7 +357,9 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
       }
     }
 
-    auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -418,8 +438,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
     }
 
-    auto ref_info =
-        DynamicTransform::getConcretizationInfo(&fusion, &ref_expr_eval);
+    auto ref_initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto ref_info = DynamicTransform::getConcretizationInfo(
+        &fusion, &ref_initial_info, &ref_expr_eval);
 
     for (const auto& transform : pattern.equal_transforms) {
       TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
@@ -432,7 +453,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
         }
       }
 
-      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+      auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+      auto info = DynamicTransform::getConcretizationInfo(
+          &fusion, &initial_info, &expr_eval);
 
       TORCH_CHECK(
           ref_info == info,
@@ -453,7 +476,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
         }
       }
 
-      auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+      auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+      auto info = DynamicTransform::getConcretizationInfo(
+          &fusion, &initial_info, &expr_eval);
 
       TORCH_CHECK(
           ref_info != info,
@@ -517,7 +542,9 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   expr_eval.bind(tv0->axis(1)->extent(), 4);
   expr_eval.bind(reshape_shape0, 12);
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
@@ -555,7 +582,9 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   expr_eval.bind(tv1->axis(0)->extent(), 4);
   expr_eval.bind(tv1->axis(1)->extent(), 3);
 
-  auto info = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval);
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  auto info = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info, &expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -589,7 +618,9 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval1.bind(tv1->axis(1)->extent(), 2);
   expr_eval1.bind(tv1->axis(2)->extent(), 3);
 
-  auto info1 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval1);
+  auto initial_info1 = DynamicTransform::getInitialInfo(&fusion);
+  auto info1 = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info1, &expr_eval1);
 
   ExpressionEvaluator expr_eval2;
   ;
@@ -601,7 +632,9 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval2.bind(tv1->axis(1)->extent(), 2);
   expr_eval2.bind(tv1->axis(2)->extent(), 2);
 
-  auto info2 = DynamicTransform::getConcretizationInfo(&fusion, &expr_eval2);
+  auto initial_info2 = DynamicTransform::getInitialInfo(&fusion);
+  auto info2 = DynamicTransform::getConcretizationInfo(
+      &fusion, &initial_info2, &expr_eval2);
 
   // Generally different concretizations doesn't always mean different
   // hashes, but in this case they should be different
@@ -778,6 +811,12 @@ void reductionDynamicViewAddFusion(
   };
 
   for (auto& inv : invocations) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
+
     auto input_shape = std::get<0>(inv);
     auto output_shape = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
@@ -879,21 +918,29 @@ void reductionDynamicPadAddFusion(
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
 
-  // Return pair of: number of concretizations & total number of kernel runtimes
-  auto countConcretizations = [&fusion_executor_cache]() {
-    return fusion_executor_cache.getKernelRuntimes().size();
-  };
-  size_t num_concretizations = countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
   // should be
-  auto checkCache = [&countConcretizations,
-                     &num_concretizations](bool expect_miss) {
-    auto current = countConcretizations();
-    ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
-    num_concretizations = current;
-  };
+  size_t num_concretizations = fusion_executor_cache.getKernelRuntimes().size();
+#define CHECK_CACHE(expect_miss, ...)                              \
+  auto current = fusion_executor_cache.getKernelRuntimes().size(); \
+  auto expected = num_concretizations + (size_t)expect_miss;       \
+  TORCH_CHECK(                                                     \
+      current == expected,                                         \
+      "Expected cache size ",                                      \
+      expected,                                                    \
+      " but found ",                                               \
+      current,                                                     \
+      ". ",                                                        \
+      __VA_ARGS__);                                                \
+  num_concretizations = current;
 
   for (auto& inv : invocations) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
+
     auto input_shape = std::get<0>(inv);
     auto pad_widths = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
@@ -911,7 +958,8 @@ void reductionDynamicPadAddFusion(
     }
 
     auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-    checkCache(expect_miss);
+    CHECK_CACHE(
+        expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
@@ -919,6 +967,7 @@ void reductionDynamicPadAddFusion(
     testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
   }
 }
+#undef CHECK_CACHE
 
 // Test dynamic pad for various inputs
 TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {

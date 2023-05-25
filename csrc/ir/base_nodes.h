@@ -586,6 +586,11 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   // Get the label for Graphviz
   virtual std::string getGraphvizLabel() const;
 
+  //! Perform assertions on new_val to ensure that it is valid for this
+  //! particular expression. This ensures that invalid values are not propagated
+  //! through the graph during concretization.
+  virtual void checkConcretization(Val* old_val, Val* new_val) const;
+
  protected:
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
