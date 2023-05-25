@@ -382,6 +382,34 @@ class ContextCudnnTF32Disabled {
   bool flag_;
 };
 
+inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
+  // check used memory and empty allocator cache if above a set threshold
+  auto allocator = c10::cuda::CUDACachingAllocator::get();
+  if (allocator->initialized()) {
+    int device = 0;
+#define TORCH_VERSION_GREATER(major, minor, patch)                    \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+#if TORCH_VERSION_GREATER(2, 0, 1)
+    // GetDevice was introduced in https://github.com/pytorch/pytorch/pull/94864
+    // in order to properly handle new CUDA 112 behavior
+    c10::cuda::GetDevice(&device);
+#else
+    cudaGetDevice(&device);
+#endif
+
+    auto device_stats = allocator->getDeviceStats(0);
+    // allocated_bytes[] holds multiple statistics but the first is sum across
+    // both small and large blocks
+    if (device_stats.reserved_bytes[0].current > max_bytes) {
+      allocator->emptyCache();
+      return true;
+    }
+  }
+  return false;
+}
+
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
@@ -392,6 +420,9 @@ class NVFuserTest : public ::testing::Test {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
     }
     setFillAllocationWithNan(true);
+
+    maybeClearAllocator();
+
     at::manual_seed(0);
   }
 };
