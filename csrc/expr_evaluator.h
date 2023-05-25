@@ -10,6 +10,7 @@
 #include <c10/macros/Export.h>
 #include <dynamic_type.h>
 #include <evaluator_common.h>
+#include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
 
@@ -66,6 +67,8 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   //! value. This is currently just done with ExactRootDomainMap, but
   //! can be similarly done with the Exact CA map as well.
   void propagateBoundValuesThroughExactMaps(Fusion* fusion);
+
+  ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
   c10::optional<EvaluatorValue> getValue(const Val* value);
