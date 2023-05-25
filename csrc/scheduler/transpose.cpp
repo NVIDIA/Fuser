@@ -102,7 +102,7 @@ class DomainMap : public pointwise_utils::DomainMap {
       auto expr = mapped_id->uses()[0];
       if (expr->isA<Split>()) {
         mapped_id = expr->as<Split>()->inner();
-      } else {
+      } else if (expr->isA<Merge>()) {
         auto merge = expr->as<Merge>();
         TORCH_INTERNAL_ASSERT(
             mapped_id == merge->inner(),
@@ -111,6 +111,13 @@ class DomainMap : public pointwise_utils::DomainMap {
             " in tensor ",
             tv);
         mapped_id = merge->out();
+      } else if (expr->isA<Resize>()) {
+        mapped_id = expr->output(0)->as<IterDomain>();
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false,
+            "Unhandled IterDomain expression: ",
+            expr->toString());
       }
     }
     // Find the position of the leaf id
