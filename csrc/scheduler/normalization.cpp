@@ -515,8 +515,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
-  constexpr int64_t scheduler_per_sm = 4;
-  const int64_t min_threads_per_block = scheduler_per_sm * dev_prop->warpSize;
+
+  // Test min_threads_per_block using 3 values:
+  // (1) One warp, so we can use single warp reduction and sync.
+  // (2) Two warps, so we can achieve 100% occupancy since most GPUs allow 32
+  //     blocks per SM.
+  // (3) Four warps, number recommended by the cuda-c-best-practices-guide.
+  const int64_t min_threads_per_block = dev_prop->warpSize;
   if (outer_reduction_numel == 1 && vectorize) {
     bdimx = std::min(min_threads_per_block, threads_after_vectorize);
   }
