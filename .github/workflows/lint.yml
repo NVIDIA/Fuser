@@ -116,8 +116,8 @@ jobs:
       - name: Run clang-format
         working-directory: ${{ env.working_directory }}
         run: |
-          find ./csrc -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./test -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./benchmark -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./runtime -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./csrc -regex '^(?!.*generated).*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./test -regex '^(?!.*generated).*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./benchmark -regex '^(?!.*generated).*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
+          find ./runtime -regex '^(?!.*generated).*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
           git --no-pager diff --exit-code
