@@ -252,10 +252,12 @@ struct OpRecord : RecordFunctor {
     // A succesfull cast indicates a RecordFunctor of the same child class
     if (auto child_ptr = dynamic_cast<const OpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
+      std::cout << "h1" << result << std::endl;
       if (result) {
         // Match the nvFuser arith function types
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
+        std::cout << "h2" << result << std::endl;
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
           std::cout << "\nOpRecord: " << name_ << " Target Type [self: 0x"
                     << fusion_op_.target_type().name() << "] [other: 0x"
@@ -268,6 +270,7 @@ struct OpRecord : RecordFunctor {
             (*fusion_op_.template target<OutType (*)(ArgTypes...)>() ==
              *child_ptr->fusion_op_
                   .template target<OutType (*)(ArgTypes...)>());
+        std::cout << "h3" << result << std::endl;
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
           std::cout
               << "Target  Ptr [self: 0x" << std::hex

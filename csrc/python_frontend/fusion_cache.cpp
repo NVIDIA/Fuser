@@ -234,6 +234,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
   // As a thread-safety compromise for fast queries, the node is re-queried
   // prior to child creation incase another thread slipped in the node.
   auto child_node = queryChildren(node, rec);
+  std::cout << child_node.has_value() << std::endl;
   if (child_node.has_value()) {
     child = child_node.value();
   } else {

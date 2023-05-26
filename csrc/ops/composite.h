@@ -76,10 +76,10 @@ TORCH_CUDA_CU_API TensorView* view_as_real(TensorView* x);
 
 template <typename LHS, typename RHS>
 TORCH_CUDA_CU_API typename std::conditional<
-    std::is_same<LHS, Val>::value && std::is_same<RHS, Val>::value,
-    Val,
-    TensorView>::type
-right_shift_logical(LHS* x, RHS* shift) {
+    std::is_same<LHS, Val*>::value && std::is_same<RHS, Val*>::value,
+    Val*,
+    TensorView*>::type
+logical_right_shift(LHS x, RHS shift) {
   auto right_shift_arithmetic = bitwise_right_shift(x, shift);
   return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
 }
