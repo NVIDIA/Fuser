@@ -57,10 +57,7 @@ enum RecordType : int {
     CatOp,
     ConstantBool,
     ConstantComplexDouble,
-    ConstantComplexFloat,
     ConstantDouble,
-    ConstantFloat,
-    ConstantInt,
     ConstantLong,
     End,
     FullOp,
@@ -121,12 +118,9 @@ union RecordData {
   BroadcastInDim,
   BroadcastInDimSymbolic,
   ComplexDouble,
-  ComplexFloat,
   Dimension,
   Double,
   Dtype,
-  Float,
-  Int,
   Long,
   Norm,
   Output,
@@ -149,24 +143,16 @@ table Bool {
   value: bool;
 }
 
-// Data for Constant Double
+// Data for Constant Double and Float
 table Double {
   value: double;
+  dtype: DataType;
 }
 
-// Data for Constant Float
-table Float {
-  value: float;
-}
-
-// Data for Constant Int32
-table Int {
-  value: int;
-}
-
-// Data for Constant Long
+// Data for Constant Long and Int32
 table Long {
   value: long;
+  dtype: DataType;
 }
 
 // Data for Half
@@ -179,16 +165,11 @@ table BFloat16 {
   value: ushort;
 }
 
-// Data for Constant Complex Double
+// Data for Constant Complex Double and Float
 table ComplexDouble {
   real: double;
   imag: double;
-}
-
-// Data for Constant Complex Float
-table ComplexFloat {
-  real: float;
-  imag: float;
+  dtype: DataType;
 }
 
 // Data representing a tensor shape

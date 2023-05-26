@@ -1356,16 +1356,11 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
     valueRecordData(
         flatbuffers::FlatBufferBuilder& builder,
         std::complex<double> value) const {
-  if (dtype_ == PrimDataType::ComplexFloat) {
-    return {
-        serde::RecordData_ComplexFloat,
-        serde::CreateComplexFloat(
-            builder, (float)value.real(), (float)value.imag())
-            .Union()};
-  }
   return {
       serde::RecordData_ComplexDouble,
-      serde::CreateComplexDouble(builder, value.real(), value.imag()).Union()};
+      serde::CreateComplexDouble(
+          builder, value.real(), value.imag(), serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 template <>
@@ -1374,13 +1369,10 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
     double>::
     valueRecordData(flatbuffers::FlatBufferBuilder& builder, double value)
         const {
-  if (dtype_ == PrimDataType::Float) {
-    return {
-        serde::RecordData_Float,
-        serde::CreateFloat(builder, (float)value).Union()};
-  }
   return {
-      serde::RecordData_Double, serde::CreateDouble(builder, value).Union()};
+      serde::RecordData_Double,
+      serde::CreateDouble(builder, value, serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 template <>
@@ -1389,11 +1381,10 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
     int64_t>::
     valueRecordData(flatbuffers::FlatBufferBuilder& builder, int64_t value)
         const {
-  if (dtype_ == PrimDataType::Int32) {
-    return {
-        serde::RecordData_Int, serde::CreateInt(builder, (int)value).Union()};
-  }
-  return {serde::RecordData_Long, serde::CreateLong(builder, value).Union()};
+  return {
+      serde::RecordData_Long,
+      serde::CreateLong(builder, value, serde::mapToSerdeDtype(dtype_))
+          .Union()};
 }
 
 //! Specialized Record Functor for recording FusionState End.

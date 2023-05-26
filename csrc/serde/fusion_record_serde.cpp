@@ -463,21 +463,10 @@ void RecordFunctorFactory::registerAllParsers() {
             parseStateArgs(buffer->outputs()),
             serde::RecordType_ConstantDouble,
             data->value(),
-            PrimDataType::Double);
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
-
-  auto deserializeConstantFloatRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Float();
-    return new python_frontend::ConstantRecord<nvfuser::Double, double>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantFloat,
-        data->value(),
-        PrimDataType::Float);
-  };
-  registerParser(
-      serde::RecordType_ConstantFloat, deserializeConstantFloatRecord);
 
   auto deserializeConstantComplexDoubleRecord =
       [](const serde::RecordFunctor* buffer) {
@@ -487,35 +476,11 @@ void RecordFunctorFactory::registerAllParsers() {
                 parseStateArgs(buffer->outputs()),
                 serde::RecordType_ConstantComplexDouble,
                 std::complex<double>(data->real(), data->imag()),
-                PrimDataType::ComplexDouble);
+                mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ConstantComplexDouble,
       deserializeConstantComplexDoubleRecord);
-
-  auto deserializeConstantComplexFloatRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_ComplexFloat();
-        return new python_frontend::
-            ConstantRecord<nvfuser::ComplexDouble, std::complex<double>>(
-                parseStateArgs(buffer->outputs()),
-                serde::RecordType_ConstantComplexFloat,
-                std::complex<double>(data->real(), data->imag()),
-                PrimDataType::ComplexFloat);
-      };
-  registerParser(
-      serde::RecordType_ConstantComplexFloat,
-      deserializeConstantComplexFloatRecord);
-
-  auto deserializeConstantIntRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Int();
-    return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantInt,
-        data->value(),
-        PrimDataType::Int32);
-  };
-  registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
 
   auto deserializeConstantLongRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Long();
@@ -523,7 +488,7 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->outputs()),
         serde::RecordType_ConstantLong,
         data->value(),
-        PrimDataType::Int);
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(serde::RecordType_ConstantLong, deserializeConstantLongRecord);
 
