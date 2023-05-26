@@ -1178,62 +1178,6 @@ int64_t getVectorizationSize(
   return vectorize_size;
 }
 
-size_t getExpandedVectorization(
-    const std::vector<ContiguousInnerDimensionsMapper>& reference_maps,
-    SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*> vectorizable_inputs_outputs,
-    TensorView* reference_tv,
-    int break_point,
-    size_t default_word_size) {
-  if (vectorizable_inputs_outputs.empty()) {
-    return 1;
-  }
-
-  size_t max_expand_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
-  size_t common_alignment_size =
-      SchedulerRuntimeInfo::max_alignment_size_in_byte;
-
-  for (auto inp_or_out : vectorizable_inputs_outputs) {
-    auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
-
-    max_expand_size = std::min(
-        max_expand_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
-    max_expand_size = std::min(
-        max_expand_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
-    common_alignment_size = std::min(
-        common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
-  }
-
-  // If there's no possibility to increase vector size of provided tensors,
-  // then don't bother doing a more complex analysis to try and do so, just
-  // return early.
-  if (max_expand_size == default_word_size) {
-    return default_word_size;
-  }
-
-  auto reference_map = reference_maps[break_point];
-  // Initialize to max the tensors could support.
-  size_t max_supported_vector_size = max_expand_size;
-  for (auto inp_or_out : vectorizable_inputs_outputs) {
-    size_t contig_dim_size = getVectorizationSize(
-        getContigVectorSizesOf(inp_or_out, reference_map),
-        runtime_info.expressionEvaluator());
-    size_t local_max_vec_size = 1;
-
-    while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
-           local_max_vec_size < max_expand_size) {
-      contig_dim_size /= 2;
-      local_max_vec_size *= 2;
-    }
-
-    max_supported_vector_size =
-        std::min(local_max_vec_size, max_supported_vector_size);
-  }
-  return max_supported_vector_size;
-}
-
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
@@ -1249,18 +1193,6 @@ size_t getVectorizationFactor(
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
-  size_t vectorize_factor = std::numeric_limits<size_t>::max();
-
-  for (auto tv : vectorizable_inputs_outputs) {
-    const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
-    vectorize_factor = std::min(vectorize_factor, tv_vectorize_factor);
-  }
-
-  if (vectorize_factor == std::numeric_limits<size_t>::max()) {
-    vectorize_factor = 1;
-  }
-
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>(
           data_cache, [&reference_tv]() {
@@ -1269,15 +1201,46 @@ size_t getVectorizationFactor(
                 vectorize_helper::getAllVectorizedMapsOf(reference_tv));
           });
 
-  vectorize_factor = vectorize_helper::getExpandedVectorization(
-      vectorize_maps_entry.get(),
-      runtime_info,
-      vectorizable_inputs_outputs,
-      reference_tv,
-      break_point,
-      vectorize_factor);
+  if (vectorizable_inputs_outputs.empty()) {
+    return 1;
+  }
 
-  return vectorize_factor;
+  size_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  size_t common_alignment_size =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte;
+
+  for (auto inp_or_out : vectorizable_inputs_outputs) {
+    auto dtype_size =
+        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
+
+    max_vec_size = std::min(
+        max_vec_size,
+        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+    max_vec_size = std::min(
+        max_vec_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
+    common_alignment_size = std::min(
+        common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
+  }
+
+  auto reference_map = vectorize_maps_entry.get().at(break_point);
+  // Initialize to max the tensors could support.
+  size_t max_supported_vector_size = max_vec_size;
+  for (auto inp_or_out : vectorizable_inputs_outputs) {
+    size_t contig_dim_size = getVectorizationSize(
+        getContigVectorSizesOf(inp_or_out, reference_map),
+        runtime_info.expressionEvaluator());
+    size_t local_max_vec_size = 1;
+
+    while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
+           local_max_vec_size < max_vec_size) {
+      contig_dim_size /= 2;
+      local_max_vec_size *= 2;
+    }
+
+    max_supported_vector_size =
+        std::min(local_max_vec_size, max_supported_vector_size);
+  }
+  return max_supported_vector_size;
 }
 
 } // namespace vectorize_helper
