@@ -521,7 +521,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // (2) Two warps, so we can achieve 100% occupancy since most GPUs allow 32
   //     blocks per SM.
   // (3) Four warps, number recommended by the cuda-c-best-practices-guide.
-  const int64_t min_threads_per_block = dev_prop->warpSize;
+  const int64_t min_threads_per_block = 4 * dev_prop->warpSize;
+
+  // start bdimx with min_threads_per_block then increase if we have too many
+  // persistent buffer batches per block
   if (outer_reduction_numel == 1 && vectorize) {
     bdimx = std::min(min_threads_per_block, threads_after_vectorize);
   }
