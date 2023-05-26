@@ -700,7 +700,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   for (auto tv : grouped_inputs_outputs[0]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
   }
   // TODO: Since group2 only has global->shared and shared->global set op, we
@@ -709,7 +709,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // group 2
   for (auto tv : grouped_inputs_outputs[1]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
   }
 
