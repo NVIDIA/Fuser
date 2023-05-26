@@ -557,10 +557,25 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
 
+  //   void setConcretizedBroadcastRootDomain() {
+  //   for (auto rd : root_domain_) {
+  //     if (!rd->isBroadcast()) {
+  //       continue;
+  //     }
+  //     auto concrete_id_0 =
+  //       GpuLower::current()->caMap()->getConcreteMappedID(rd, IdMappingMode::EXACT);
+  //     if (concrete_id_0) {
+  //     std::cout << "rd " << rd->toString() << "concrete_id_0 " << concrete_id_0->toString() << std::endl;
+  //       concretized_broadcast_root_domains_[rd] = concrete_id_0;
+  //     }
+  //   }
+
+  // }
+
   // Current implementation only works for broadcast root domain uniquely
   // concretized. Will skip if concretized to differet domains, and usually
   // should be segmented, see
-  // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
+  // // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
       if (!rd->isBroadcast()) {
@@ -592,8 +607,10 @@ class ConcretizedBroadcastRedundantWriteRemover {
         // don't need to reset identical_concretized_domain
         // since we only needs to make sure all the concretized domains are same
         if (all_cids.empty()) {
+          std::cout << "all_cids.empty() rd  " << rd->toString() << " mapped_rd  " << mapped_rd->toString() << std::endl;
           continue;
         }
+          std::cout << "not all_cids.empty() rd  " << rd->toString() << " mapped_rd  " << mapped_rd->toString() << std::endl;
         // Not from same exact group, not a valid case
         if (!fromSameExactGroup()) {
           identical_concretized_domain = nullptr;
@@ -615,6 +632,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
       // store the concretized domain if it is the only one
       if (identical_concretized_domain) {
         concretized_broadcast_root_domains_[rd] = identical_concretized_domain;
+      std::cout << "rd " << rd->toString()  << " concrete_id_0 " << identical_concretized_domain->toString() << std::endl;
       }
     }
   }
