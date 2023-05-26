@@ -847,7 +847,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_or", bitwise_or)
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)
   NVFUSER_BINARY_TV_ALPHA_OP("sub_alpha", sub_alpha)
