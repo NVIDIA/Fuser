@@ -2228,6 +2228,21 @@ class TestNvFuserFrontend(TestCase):
         )
         self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
+    def test_right_shift_arithmetic(self):
+        inputs = [
+            torch.tensor([-2147483648, 1073741824], dtype=torch.int32, device="cuda")
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            c0 = fd.define_constant(3)
+            t1 = fd.ops.bitwise_right_shift(t0, c0)
+            fd.add_output(t1)
+
+        nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.bitwise_right_shift(inputs[0], 3)
+        self.assertEqual(eager_out, nvf_out1[0])
+
 
 if __name__ == "__main__":
     run_tests()
