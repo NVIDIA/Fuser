@@ -11,6 +11,7 @@
 
 #include <ir/interface_nodes.h>
 #include <type.h>
+#include <type_traits>
 
 //
 // The operations defined in this header is intended as user facing functions.
@@ -72,5 +73,15 @@ TORCH_CUDA_CU_API TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
 TORCH_CUDA_CU_API TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 TORCH_CUDA_CU_API TensorView* view_as_real(TensorView* x);
+
+template <typename LHS, typename RHS>
+TORCH_CUDA_CU_API typename std::conditional<
+    std::is_same<LHS, Val>::value && std::is_same<RHS, Val>::value,
+    Val,
+    TensorView>::type
+right_shift_logical(LHS* x, RHS* shift) {
+  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
+  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
 
 } // namespace nvfuser
