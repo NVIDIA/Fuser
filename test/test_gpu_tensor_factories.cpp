@@ -464,12 +464,12 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i6;
   i6 = ceilDiv(i4, i5);
   #pragma unroll 1
-  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
-    T0[i8] = (i0 + (i2 * i8));
+  for(nvfuser_index_t i7 = 0; i7 < i6; ++i7) {
+    T0[i7] = (i0 + (i2 * i7));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i6; ++i9) {
-    T1[i9] = i6;
+  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
+    T1[i8] = i6;
   }
 }
 )";
