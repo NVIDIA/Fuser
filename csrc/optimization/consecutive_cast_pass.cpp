@@ -13,9 +13,9 @@ namespace nvfuser::optimization {
 namespace {
 
 bool isSameDtypeCategory(const DataType& input_t, const DataType& output_t) {
-  if ((isIntegralType(input_t) && isIntegralType(out_dtype)) ||
-      (isFloatingPointType(input_t) && isFloatingPointType(out_dtype)) ||
-      (isComplexType(input_t) && isComplexType(out_dtype))) {
+  if ((isIntegralType(input_t) && isIntegralType(output_t)) ||
+      (isFloatingPointType(input_t) && isFloatingPointType(output_t)) ||
+      (isComplexType(input_t) && isComplexType(output_t))) {
     return true;
   }
   return false;
@@ -75,7 +75,6 @@ void castOptimizationPass(Fusion* fusion) {
   // TODO: Traveral implies topological order on returns exprs, we can leverage that to improve the effieciency of the pass. In the case of a straight line casts, we are doing a lot of meaningless work here on mutating intermediate casts that would have been done again at the end of the chain.
   for (auto expr : fusion->exprs()) {
     if (is_foldable_cast_op(expr)) {
-      bool mutated = false;
       std::vector<Val*> chain_casts;
       auto prev_expr = expr->input(0)->definition();
       while (prev_expr != nullptr && is_foldable_cast_op(prev_expr)) {
@@ -99,10 +98,11 @@ void castOptimizationPass(Fusion* fusion) {
         auto lo_anchor = chain_casts[0]->definition()->input(0);
 	auto starting_anchor = lo_anchor;
 	for (auto val : chain_casts) {
-	  auto info = checkInformationLoss(anchor, val);
-          if (info >= 0) {
+	  auto info = checkInformationLoss(lo_anchor, val);
+	  // if information on new val drops below the anchor, we want to update the anchor
+          if (info <= 0) {
+	    // we run into a complex case where we are casting between two types that can't be folded away. i.e. bf16 & fp16. We need to update the starting_anchor for the final fold to be past this current cast.
             if (info == 0) {
-	      // we run into a lemon case where we are casting between two types that can't be folded away. i.e. bf16 & fp16.
 	      auto tmp_expr = val->definition();
 	      if (lo_anchor != tmp_expr->input(0)) {
                 tmp_expr = nvfuser::ir_utils::replaceValInExpr(tmp_expr, tmp_expr->input(0), lo_anchor);
@@ -136,9 +136,6 @@ void castOptimizationPass(Fusion* fusion) {
         } else {
           TORCH_INTERNAL_ASSERT(false, "checkInformationLoss returns a flag that's not recognized");
 	}
-
-          expr = nvfuser::ir_utils::replaceValInExpr(
-              expr, intermediate_cast, prev_expr->input(0));
       }
     }
   }
