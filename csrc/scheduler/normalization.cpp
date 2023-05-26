@@ -516,18 +516,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
   constexpr int64_t scheduler_per_sm = 4;
-  const int64_t min_threads_per_block = scheduler_per_sm * dev_prop->warpSize;
   if (outer_reduction_numel == 1 && vectorize) {
-    bdimx = std::min(min_threads_per_block, threads_after_vectorize);
+    bdimx = std::min(
+        scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
   }
 
-  // If we don't have enough threads, let's do multiple reductions per block.
-  // Multiple reductions per block shows better performance than unroll
-  // iterations. Still keep vectorization as it is important for performance
-  // since V100.
-  if (bdimx * bdimy * bdimz < min_threads_per_block) {
+  // If we don't have a full warp, let's do multiple reductions per block.
+  // Still keep vectorization as it is important for performance since V100.
+  // Limit block size to 4 warps to avoid occupancy and SM wave tail issues.
+  if (bdimx * bdimy * bdimz < warp_size) {
     bdimy = std::min(
-        scheduler_utils::safeDiv(min_threads_per_block, bdimx * bdimz),
+        scheduler_utils::safeDiv(
+            scheduler_per_sm * dev_prop->warpSize, bdimx * bdimz),
         max_multi_reduction_factor);
   }
 
