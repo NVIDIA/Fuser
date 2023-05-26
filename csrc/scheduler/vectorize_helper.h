@@ -158,16 +158,19 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // is_divisible_. This is important because we might use expr evaluator to
   // evaluate their values multiple times, so we want to simplify them once and
   // cache the result so that later evaluation can save time.
-  void finalize() {
+  void finalize(const std::vector<Bool*>& assumptions) {
     if (quotient_ == nullptr) {
       // TODO: print the simplified expression and see if expr simplifier needs
       // improvement
-      quotient_ = simplifyExpr(quotient());
+      quotient_ = simplifyExpr(quotient(), {}, assumptions);
+      std::cout << "quotient: " << quotient_->toInlineString() << std::endl;
     }
     if (is_divisible_ == nullptr) {
       // TODO: print the simplified expression and see if expr simplifier needs
       // improvement
-      is_divisible_ = simplifyExpr(isDivisible());
+      is_divisible_ = simplifyExpr(isDivisible(), {}, assumptions);
+      std::cout << "is_divisible: " << is_divisible_->toInlineString()
+                << std::endl;
     }
   }
 
@@ -394,6 +397,14 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     projected_extent_[id] = pe;
   }
 
+  void assumePositiveExtent(IterDomain* id) {
+    if (assumed_ids_.insert(id).second) {
+      auto extent = id->extent();
+      assumptions_.emplace_back(
+          SimplifyingIrBuilder::gtExpr(extent, extent->container()->zeroVal()));
+    }
+  }
+
   // MaxInfoSpanningTree functions
   std::shared_ptr<Information> computeInfoC2P(
       TensorView* from,
@@ -449,6 +460,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, ProjectedExtent> projected_extent_;
+
+  std::vector<Bool*> assumptions_;
+  std::unordered_set<IterDomain*> assumed_ids_;
 };
 
 // Returns Mappings of all dims in reference starting from inner most position

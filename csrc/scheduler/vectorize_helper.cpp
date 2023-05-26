@@ -266,7 +266,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
 
   // Finalize all projected extents
   for (auto& entry : projected_extent_) {
-    entry.second.finalize();
+    entry.second.finalize(assumptions_);
   }
 }
 
@@ -282,7 +282,14 @@ ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
 void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
     Split* split,
     bool outer_maps) {
-  auto& inner_mapping = getMappedExtent(split->inner());
+  auto in = split->in();
+  auto inner = split->inner();
+  auto outer = split->outer();
+  assumePositiveExtent(in);
+  assumePositiveExtent(inner);
+  assumePositiveExtent(outer);
+
+  auto& inner_mapping = getMappedExtent(inner);
   if (inner_mapping.isZero()) {
     return;
   }
@@ -299,7 +306,7 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, inner));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
@@ -307,18 +314,25 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
     // Always propagate inner dimension to in backward through split
     auto in_mapping = inner_mapping;
     // If inner is fully mapped propagate the outer mapping as well
-    const auto outer_mapping = getMappedExtent(split->outer());
+    const auto outer_mapping = getMappedExtent(outer);
     in_mapping.maybeMul(inner_is_fully_mapped, outer_mapping);
-    addProjectedExtent(split->in(), in_mapping);
+    addProjectedExtent(in, in_mapping);
   } else {
     // Only inner maps
-    addProjectedExtent(split->in(), getMappedExtent(split->inner()));
+    addProjectedExtent(in, getMappedExtent(inner));
   }
 }
 
 void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
     const Merge* merge) {
-  auto out_mapping = getMappedExtent(merge->out());
+  auto out = merge->out();
+  auto inner = merge->inner();
+  auto outer = merge->outer();
+  assumePositiveExtent(out);
+  assumePositiveExtent(inner);
+  assumePositiveExtent(outer);
+
+  auto out_mapping = getMappedExtent(out);
   if (out_mapping.isZero()) {
     return;
   }
@@ -327,7 +341,7 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
   // found during evaluation. Don't have to worry about it here.
 
   auto out_bigger_than_inner = IrBuilder::gtExpr(
-      out_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
+      out_mapping.quotient(), commonOrConstExtent(ca_map_, inner));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -336,12 +350,12 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
   // If out is larger than the inner extent use the inner extent
   inner_mapping.multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
       out_bigger_than_inner,
-      commonOrConstExtent(ca_map_, merge->inner()),
+      commonOrConstExtent(ca_map_, inner),
       FusionGuard::getCurFusion()->oneVal()));
   // otherwise use the out mapping extent
   inner_mapping.maybeMul(
       SimplifyingIrBuilder::notExpr(out_bigger_than_inner), out_mapping);
-  addProjectedExtent(merge->inner(), inner_mapping);
+  addProjectedExtent(inner, inner_mapping);
 
   ProjectedExtent outer_mapping;
   // If out mapping is bigger than inner, propagate out divided by the inner
@@ -349,15 +363,22 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
   outer_mapping.maybeMul(out_bigger_than_inner, out_mapping);
   outer_mapping.multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
       out_bigger_than_inner,
-      commonOrConstExtent(ca_map_, merge->inner()),
+      commonOrConstExtent(ca_map_, inner),
       FusionGuard::getCurFusion()->oneVal()));
-  addProjectedExtent(merge->outer(), outer_mapping);
+  addProjectedExtent(outer, outer_mapping);
 }
 
 void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     const Merge* merge,
     bool outer_maps) {
-  auto& inner_mapping = getMappedExtent(merge->inner());
+  auto out = merge->out();
+  auto inner = merge->inner();
+  auto outer = merge->outer();
+  assumePositiveExtent(out);
+  assumePositiveExtent(inner);
+  assumePositiveExtent(outer);
+
+  auto& inner_mapping = getMappedExtent(inner);
   if (inner_mapping.isZero()) {
     return;
   }
@@ -381,7 +402,7 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, inner));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
@@ -389,24 +410,31 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     // Always propagate inner dimension to in backward through split
     auto in_projected_extent = inner_mapping;
     // If inner is fully mapped propagate the outer mapping as well
-    const auto outer_mapping = getMappedExtent(merge->outer());
+    const auto outer_mapping = getMappedExtent(outer);
     in_projected_extent.maybeMul(inner_is_fully_mapped, outer_mapping);
-    addProjectedExtent(merge->out(), in_projected_extent);
+    addProjectedExtent(out, in_projected_extent);
   } else {
     // Only inner maps
-    addProjectedExtent(merge->out(), getMappedExtent(merge->inner()));
+    addProjectedExtent(out, getMappedExtent(inner));
   }
 }
 
 void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
     Split* split) {
-  auto in_mapping = getMappedExtent(split->in());
+  auto in = split->in();
+  auto inner = split->inner();
+  auto outer = split->outer();
+  assumePositiveExtent(in);
+  assumePositiveExtent(inner);
+  assumePositiveExtent(outer);
+
+  auto in_mapping = getMappedExtent(in);
   if (in_mapping.isZero()) {
     return;
   }
 
   auto in_bigger_than_inner = IrBuilder::gtExpr(
-      in_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
+      in_mapping.quotient(), commonOrConstExtent(ca_map_, inner));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -415,12 +443,12 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
   // If in is larger than the inner extent use the inner extent
   inner_mapping.multiplyNumeratorValue(IrBuilder::whereExpr(
       in_bigger_than_inner,
-      commonOrConstExtent(ca_map_, split->inner()),
+      commonOrConstExtent(ca_map_, inner),
       FusionGuard::getCurFusion()->oneVal()));
   // otherwise use the in mapping extent
   inner_mapping.maybeMul(
       SimplifyingIrBuilder::notExpr(in_bigger_than_inner), in_mapping);
-  addProjectedExtent(split->inner(), inner_mapping);
+  addProjectedExtent(inner, inner_mapping);
 
   ProjectedExtent outer_mapping;
   // If out mapping is bigger than inner, propagate out divided by the inner
@@ -428,9 +456,9 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
   outer_mapping.maybeMul(in_bigger_than_inner, in_mapping);
   outer_mapping.multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
       in_bigger_than_inner,
-      commonOrConstExtent(ca_map_, split->inner()),
+      commonOrConstExtent(ca_map_, inner),
       FusionGuard::getCurFusion()->oneVal()));
-  addProjectedExtent(split->outer(), outer_mapping);
+  addProjectedExtent(outer, outer_mapping);
 }
 
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
