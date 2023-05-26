@@ -70,7 +70,6 @@ sass::Container getSASSFor(
   params.double_buffer_options.smem_double_buffer_stage = 4;
   scheduleMatmul(&fusion, params);
 
-  at::manual_seed(0);
   auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;

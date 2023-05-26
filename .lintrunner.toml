@@ -35,6 +35,7 @@ include_patterns = [
 ]
 exclude_patterns = [
     'third_party/**',
+    '**/*generated*',
 ]
 command = [
     'python3',

@@ -147,16 +147,17 @@ void FusionDefinition::print(std::ostream& os) const {
 
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
-    bool override_user_schedule) const {
+    bool override_user_schedule,
+    std::optional<int8_t> selected_device) const {
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
-    auto device = getCommonDeviceCUDA(inputs);
+    auto device = getCommonDeviceCUDA(inputs, selected_device);
     TORCH_CHECK(
         inputs.empty() || device > -1,
-        "Inputs are not all on the same device!");
+        "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
@@ -167,7 +168,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  return scheds->auto_gen_schedules->runFusionWithInputs(inputs);
+  return scheds->auto_gen_schedules->runFusionWithInputs(
+      inputs, std::nullopt, selected_device);
 }
 
 std::string FusionDefinition::fusionIr() {

@@ -191,13 +191,16 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
   for (const auto idx : c10::irange(ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
-      TORCH_CHECK(
-          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
-      TORCH_CHECK(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      TORCH_CHECK(
-          id->extent()->isOneInt(),
-          "Can not squeeze dimension(s) with size != 1.");
+      if (!id->isSymbolic()) {
+        TORCH_CHECK(
+            id->isBroadcast(),
+            "Can not squeeze non-broadcasting dimension(s).");
+        TORCH_CHECK(
+            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+        TORCH_CHECK(
+            id->extent()->isOneInt(),
+            "Can not squeeze dimension(s) with size != 1.");
+      }
     } else {
       out_domain.push_back(id->cloneWithoutRFactor());
     }

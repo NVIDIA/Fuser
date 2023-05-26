@@ -2110,6 +2110,32 @@ class TestNvFuserFrontend(TestCase):
             fd = SchedError()
             _ = fd.execute(inputs)
 
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
+    )
+    def test_selected_device(self):
+        """
+        Run the same Fusion as in test_scalar_only_inputs, but on device 1
+        """
+
+        def fusion_func(fd: FusionDefinition):
+            s0 = fd.define_scalar()
+            s1 = fd.define_scalar()
+            s2 = fd.ops.add(s0, s1)
+            c0 = fd.define_constant(1.0, DataType.Float)
+            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t4 = fd.ops.mul(t3, s2)
+            fd.add_output(t4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
+        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * 5.0
+        self.assertEqual(eager_out, nvf_out[0])
+
+        self.assertTrue(nvf_out[0].device.index == 1)
+
     def test_matmuls(self):
         # Matmul Constraints:
         # 1. Inputs shapes need to be a multiple of 8
@@ -2201,6 +2227,21 @@ class TestNvFuserFrontend(TestCase):
             nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
         )
         self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
+
+    def test_right_shift_arithmetic(self):
+        inputs = [
+            torch.tensor([-2147483648, 1073741824], dtype=torch.int32, device="cuda")
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            c0 = fd.define_constant(3)
+            t1 = fd.ops.bitwise_right_shift(t0, c0)
+            fd.add_output(t1)
+
+        nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.bitwise_right_shift(inputs[0], 3)
+        self.assertEqual(eager_out, nvf_out1[0])
 
 
 if __name__ == "__main__":
