@@ -11,7 +11,7 @@
 
 #include <compute_at_map.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 
 namespace nvfuser {
 

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion.h>
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <kernel_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>

@@ -11,8 +11,8 @@
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -222,15 +222,23 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule) {
+             bool override_user_schedule,
+             std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            return self.execute(inputs, override_user_schedule);
+            std::optional<int8_t> int8_device = std::nullopt;
+            if (device.has_value()) {
+              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              int8_device = (int8_t)device.value();
+            }
+            return self.execute(inputs, override_user_schedule, int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
+          py::kw_only(),
+          py::arg("device") = py::none(),
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",

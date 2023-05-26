@@ -20,7 +20,7 @@
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel.h>
 
 #include <string>

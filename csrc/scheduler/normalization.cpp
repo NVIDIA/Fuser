@@ -11,9 +11,9 @@
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
@@ -436,12 +436,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         std::min(max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
   }
   // Compute maximum number of reductions we could do in the same kernel based
-  // on persistent buffer size. Bounded by the iteration count as the
-  // factor is split off from the iteration domains.
+  // on persistent buffer size. Bounded by the wave count for utilization of
+  // SMs.
   const int64_t max_multi_reduction_factor = std::min(
       scheduler_utils::safeDiv(
           scheduler_utils::register_file_size, max_persistent_buffer_size),
-      total_iteration_numel);
+      ceilDiv(total_iteration_numel, device_multiprocessor_count));
 
   // To get to target threads:
   // Prioritize

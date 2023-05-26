@@ -19,11 +19,11 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
@@ -1201,17 +1201,17 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
-  int64_t i86;
-  i86 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i86 < T0.size[0])) {
+  int64_t i87;
+  i87 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  if ((i87 < T0.size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
-       = T1[i86];
+       = T1[i87];
     float T4[1];
     T4[0] = 0;
     T4[0]
-       = T0[i86];
+       = T0[i87];
     float T2[1];
     T2[0]
       = T4[0]
@@ -1220,7 +1220,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> 
     T6[0]
       = T2[0]
       * T4[0];
-    T3[i86]
+    T3[i87]
        = T6[0];
   }
 }
@@ -3403,16 +3403,12 @@ void test_op(
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
   std::vector<at::Tensor> output_vect = {cg_output};
   cudaDeviceSynchronize();
-  if (fusion.isStochastic())
-    at::manual_seed(0);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs_ivalues);
   fe.runFusion(aten_inputs_ivalues, output_vect);
   cudaDeviceSynchronize();
 
-  if (fusion.isStochastic())
-    at::manual_seed(0);
   at::Tensor aten_output = af(aten_inputs);
   cudaDeviceSynchronize(); // This sync shouldn't be necessary;
 
@@ -5458,7 +5454,6 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   int numel_y = 100;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor input = at::randn({numel_x, numel_y}, options);
 
   FusionExecutor fe;
@@ -6660,6 +6655,12 @@ TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
   for (auto dtype : dtypes) {
     at::ScalarType aten_dtype = data_type_to_aten(dtype);
     for (auto& rdim : red_dims) {
+      // Shmoo tests can occupy a lot of memory due to allocating many
+      // different tensor sizes. So in order to avoid an OOM during this
+      // test, we manually clear the allocator after it's reached a certain
+      // threshold.
+      maybeClearAllocator();
+
       Fusion fusion;
       FusionGuard fg(&fusion);
 
@@ -6741,6 +6742,12 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
     for (auto& axis : red_axis) {
       for (auto& odim : output_dims) {
         for (auto& rdim : red_dims) {
+          // Shmoo tests can occupy a lot of memory due to allocating many
+          // different tensor sizes. So in order to avoid an OOM during this
+          // test, we manually clear the allocator after it's reached a certain
+          // threshold.
+          maybeClearAllocator();
+
           Fusion fusion;
           FusionGuard fg(&fusion);
 

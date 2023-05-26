@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
-#include <ir_builder_passkey.h>
+#include <ir/all_nodes.h>
+#include <ir/builder_passkey.h>
 
 namespace nvfuser {
 

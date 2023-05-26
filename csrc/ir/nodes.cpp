@@ -8,10 +8,10 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <dynamic_transform.h>
-#include <ir_cloner.h>
-#include <ir_interface_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/cloner.h>
+#include <ir/interface_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
@@ -860,12 +860,18 @@ SqueezeOp::SqueezeOp(
       num_removed_broadcasts++;
       auto id = in_dom[i];
       TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
+          id->isBroadcast() || id->isSymbolic(),
+          "Squeeze dimension should be either Symbolic or Broadcast. Found ",
+          id->getIterType());
       TORCH_INTERNAL_ASSERT(
           !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "Can not squeeze dimension(s) with size != 1.");
+      if (id->isBroadcast()) {
+        // Check concrete broadcast extent here. For Symbolic inputs, this check
+        // will be deferred to concretization. See dynamic_transform.cpp
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "Can not squeeze dimension(s) with size != 1.");
+      }
     } else {
       auto in_id = in_dom[i];
       auto out_id = out_dom[i - num_removed_broadcasts];
@@ -890,6 +896,48 @@ std::string SqueezeOp::toString(int indent_size) const {
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
+  Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
+  TORCH_CHECK(
+      old_val == in(),
+      "Pre-concretized Val ",
+      old_val->toString(),
+      " does not match input TV ",
+      in()->toString());
+  auto old_tv = old_val->as<TensorView>();
+  auto new_tv = new_val->as<
+      TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
+  auto old_rfactor = old_tv->getMaybeRFactorDomain();
+  auto new_rfactor = new_tv->getMaybeRFactorDomain();
+  TORCH_CHECK(
+      new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
+      "New TV ",
+      new_tv->toString(),
+      " has rfactor of length ",
+      new_rfactor.size(),
+      " but expected ",
+      old_tv->getMaybeRFactorDomain().size());
+  auto flags = getSqueezeDimFlags();
+  for (auto i : c10::irange(flags.size())) {
+    if (!flags.at(i)) {
+      continue;
+    }
+    auto new_id = new_rfactor.at(i);
+    // Check that squeezed dimension concretizes to Broadcast
+    TORCH_CHECK(
+        new_id->getIterType() == IterType::Broadcast,
+        "Squeezed IterDomain ",
+        new_id->toString(),
+        " must concretize to IterType::Broadcast but found ",
+        new_id->toString());
+    TORCH_CHECK(
+        !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+    TORCH_CHECK(
+        new_id->extent()->isOneInt(),
+        "Can not squeeze dimension(s) with size != 1.");
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SqueezeOp)

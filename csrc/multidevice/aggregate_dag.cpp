@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
 #include <iter_visitor.h>
 #include <multidevice/aggregate_dag.h>
 #include <multidevice/multicluster_fusion.h>

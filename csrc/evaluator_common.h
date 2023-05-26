@@ -10,7 +10,7 @@
 #include <dynamic_type.h>
 #include <executor_params.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -37,6 +37,12 @@ class NaiveValueMachine {
   //! Constructor lowers all the expr IR nodes stored in precomputed_values
   //!  and stores them in the private state.
   NaiveValueMachine(PrecomputedValues& precomputed_values);
+
+  //! Copy all values other than `precomputed_values_` from other
+  //! This would be better implemented as a copy constructor, except that would
+  //! also presumably bind precomputed_values_ which we could not then rebind,
+  //! as we need to during cloning.
+  void copyFrom(const NaiveValueMachine& other);
 
   //! Runs all the instructions and write results to the associated
   //!  precomputed_values.
@@ -155,6 +161,8 @@ class PrecomputedValues {
 
   //! Debugging helper, prints all the currently known values
   void print() const;
+
+  PrecomputedValues clone(IrCloner& ir_cloner) const;
 
  protected:
   // Fusion IR associated with the precomputed values. Can be kir::Kernel or

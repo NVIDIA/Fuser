@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <optional>
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable
-//! 2. ir_base_nodes.h - Statement, Expr, and Val
-//! 3. ** ir_internal_base_nodes.h ** -- IterDomain and TensorDomain
-//! 4. ir_interface_nodes.h - TensorView and Scalar
-//! 5. ir_internal_nodes.h - Any internal-only IR nodes
+//! 2. ir/base_nodes.h - Statement, Expr, and Val
+//! 3. ** ir/internal_base_nodes.h ** - IterDomain and TensorDomain
+//! 4. ir/interface_nodes.h - TensorView and Scalar
+//! 5. ir/internal_nodes.h - Any internal-only IR nodes
 
 namespace nvfuser {
 
@@ -186,6 +186,10 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   bool isBroadcast() const {
     return getIterType() == IterType::Broadcast;
+  }
+
+  bool isSymbolic() const {
+    return getIterType() == IterType::Symbolic;
   }
 
   bool isGatherScatter() const {

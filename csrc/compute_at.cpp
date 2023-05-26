@@ -8,9 +8,9 @@
 #include <compute_at.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 

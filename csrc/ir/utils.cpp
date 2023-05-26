@@ -8,9 +8,9 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
-#include <ir_builder.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/builder.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
 

@@ -11,8 +11,8 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -487,7 +487,11 @@ class VectorizeValidator : public OptInDispatch {
     auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
     auto producer_replayed_as_consumer =
         TransformReplay::replayPasC(
-            producer_tv, tv, -1, pairwise_map, false, true)
+            producer_tv,
+            tv,
+            -1,
+            pairwise_map,
+            TransformReplayOptions().replayResize())
             .first;
     ir_utils::TVDomainGuard domain_guard(
         producer_tv, producer_replayed_as_consumer);

@@ -8,10 +8,10 @@
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -434,6 +434,14 @@ std::string Expr::getGraphvizLabel() const {
   }
   ss << "}}";
   return ss.str();
+}
+
+void Expr::checkConcretization(Val* old_val, Val* new_val) const {
+  TORCH_CHECK(old_val, "Pre-concretized value was null");
+  TORCH_CHECK(new_val, "Concretized value is null");
+  TORCH_CHECK(
+      old_val->vtype() == new_val->vtype(),
+      "Concretization must not change ValType");
 }
 
 bool Expr::sameAs(const Statement* other) const {

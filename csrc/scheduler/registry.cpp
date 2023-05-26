@@ -10,8 +10,8 @@
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
@@ -970,14 +970,14 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       // find and push discontiguous stride
       auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getRank();
+      auto dims = tensor_arg_abstract->getAllocRank();
       int64_t expected_stride = 1;
       for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getSize((int)dim);
+        auto size = tensor_arg_abstract->getAllocSize((int)dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getStride((int)dim);
+        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1051,7 +1051,9 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
 // Gets maximum vectorizable width of tv, assumes we can merge across all
 // iteration domains if contiguous. Cannot permute the dimensions to fix
 // contiguity.
-size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
+size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
+    TensorView* tv,
+    bool contig_merge) {
   // Gets the vectorizable width of the tv starting from the inner most
   // dimension, working its way towards the outer most dimension, if they're
   // contiguous. Ignores broadcast and reduction domains.
@@ -1063,36 +1065,36 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   // If we don't have an record, either it is a tv with innermost broadcast,
   // or it is an intermediate tensor allocated by fuser. Logic copied to get
   // root according to scheduler_utils::innerMostRootDim.
-  auto tv_root = tv->hasReduction() && tv->hasRFactor()
+  auto tv_alloc = tv->hasReduction() && tv->hasRFactor()
       ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
+      : tv->getMaybeAllocationDomain();
 
-  auto tv_root_no_reductions = TensorDomain::noReductions(tv_root);
+  auto tv_alloc_no_reductions = TensorDomain::noReductions(tv_alloc);
 
   auto contiguity = tv->domain()->contiguity();
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
-  if (contiguity.size() == tv_root.size() &&
-      contiguity.size() != tv_root_no_reductions.size()) {
+  if (contiguity.size() == tv_alloc.size() &&
+      contiguity.size() != tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(tv_root.size())) {
-      if (!tv_root[i]->isReduction()) {
+    for (auto i : c10::irange(tv_alloc.size())) {
+      if (!tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
     }
     contiguity = new_contiguity;
   }
-  tv_root = tv_root_no_reductions;
+  tv_alloc = tv_alloc_no_reductions;
 
-  auto tv_root_size = tv_root.size();
+  auto tv_alloc_size = tv_alloc.size();
 
   // Filter out 0-dim tensors
-  if (tv_root_size < 1) {
+  if (tv_alloc_size < 1) {
     return 1;
   }
 
   // Filter out mismatched contiguity info
-  if (tv_root_size != contiguity.size()) {
+  if (tv_alloc_size != contiguity.size()) {
     return 1;
   }
 
@@ -1107,9 +1109,9 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
   }
 
   size_t numel = 1;
-  for (auto i : c10::irange(tv_root_size)) {
-    auto root_i = tv_root_size - i - 1;
-    auto root_id = tv_root[root_i];
+  for (auto i : c10::irange(tv_alloc_size)) {
+    auto root_i = tv_alloc_size - i - 1;
+    auto root_id = tv_alloc[root_i];
 
     if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
       continue;
@@ -1130,6 +1132,10 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
 
     // Still contiguous
     numel *= dim_size->as<int64_t>();
+
+    if (!contig_merge) {
+      break;
+    }
   }
 
   // Assuming intermediate tensors have friendly alignment, and
@@ -1145,102 +1151,6 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(TensorView* tv) {
 
   // save output to avoid re-compute
   max_vectorword_map_[tv] = vector_size;
-
-  return vector_size;
-}
-
-// Gets the vectorizable width of the inner most dimension of tv if it's
-// contiguous. Ignores inner most dimensions that are broadcast or reduction.
-size_t SchedulerRuntimeInfo::getInnerDimVectorizableWidth(TensorView* tv) {
-  auto inner_vectorword_map_it_ = inner_vectorword_map_.find(tv);
-  if (inner_vectorword_map_it_ != inner_vectorword_map_.end()) {
-    return inner_vectorword_map_it_->second;
-  }
-
-  // If we don't have an record, either it is a tv with innermost broadcast,
-  // or it is an intermediate tensor allocated by fuser. Logic copied to get
-  // root according to scheduler_utils::innerMostRootDim.
-  auto tv_root = tv->hasReduction() && tv->hasRFactor()
-      ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
-
-  auto tv_root_no_reductions = TensorDomain::noReductions(tv_root);
-
-  auto contiguity = tv->domain()->contiguity();
-  // Appears after reductions the reduction domain often has a contiguity entry.
-  // This only matters if the result of the reduction is an output
-  if (contiguity.size() == tv_root.size() &&
-      contiguity.size() != tv_root_no_reductions.size()) {
-    std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(tv_root.size())) {
-      if (!tv_root[i]->isReduction()) {
-        new_contiguity.push_back(contiguity[i]);
-      }
-    }
-    contiguity = new_contiguity;
-  }
-  tv_root = tv_root_no_reductions;
-
-  auto tv_root_no_reductions_size = tv_root_no_reductions.size();
-
-  // Filter out 0-dim tensors
-  if (tv_root_no_reductions_size < 1) {
-    return 1;
-  }
-
-  // Filter out mismatched contiguity info
-  if (tv_root_no_reductions_size != contiguity.size()) {
-    return 1;
-  }
-
-  auto inner_most_dim = scheduler_utils::innerMostRootDim(tv);
-
-  int id_pos = -1;
-  for (auto root_i : c10::irange((int)tv_root_no_reductions_size)) {
-    if (tv_root_no_reductions[root_i] == inner_most_dim) {
-      id_pos = root_i;
-      break;
-    }
-  }
-
-  // Something went wrong with finding the inner most dimension, just
-  // return 1.
-  if (id_pos == -1) {
-    return 1;
-  }
-
-  // If the inner most dimension is not contiguous return 1
-  auto contiguity_opt = contiguity.at(id_pos);
-  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
-  if (!*contiguity_opt) {
-    return 1;
-  }
-
-  size_t item_size = dataTypeSize(tv->dtype(), getIndexType());
-
-  // Alignment should always at least be the data type size
-  TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
-  size_t max_vector_size = getAlignmentSize(tv) / item_size;
-
-  // Assuming intermediate tensors have friendly alignment, and
-  //  all contiguity true. Determine the largest power of 2 below
-  //  innermost dimension size for the word size of vectorizaiton
-  size_t vector_size = 1;
-  size_t next_vector_size = 2;
-  auto maybe_inner_dimension_size =
-      expression_evaluator_->evaluate(inner_most_dim->extent());
-  TORCH_INTERNAL_ASSERT(maybe_inner_dimension_size.has_value());
-  size_t inner_dimension_size = maybe_inner_dimension_size->as<int64_t>();
-
-  while (next_vector_size <= max_vector_size &&
-         next_vector_size <= inner_dimension_size &&
-         inner_dimension_size % next_vector_size == 0) {
-    vector_size = next_vector_size;
-    next_vector_size *= 2;
-  }
-
-  // save output to avoid re-compute
-  inner_vectorword_map_[tv] = vector_size;
 
   return vector_size;
 }

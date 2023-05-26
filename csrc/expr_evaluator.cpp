@@ -9,8 +9,8 @@
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <root_domain_map.h>
 
 #include <iostream>
@@ -230,6 +230,19 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
       bind(unknown_val, known_size);
     }
   }
+}
+
+ExpressionEvaluator ExpressionEvaluator::clone(IrCloner& ir_cloner) const {
+  ExpressionEvaluator expr_eval;
+  TORCH_INTERNAL_ASSERT(
+      !precomputed_values_,
+      "Cannot clone ExpressionEvaluator with bound PrecomputedValues");
+  for (const auto& kv : known_values_) {
+    expr_eval.known_values_[ir_cloner.clone(kv.first)] = kv.second;
+  }
+  expr_eval.known_named_scalars_.insert(
+      known_named_scalars_.begin(), known_named_scalars_.end());
+  return expr_eval;
 }
 
 } // namespace nvfuser

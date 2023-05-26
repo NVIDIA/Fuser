@@ -10,7 +10,7 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
@@ -44,9 +44,12 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-void encodeBuffer(size_t value, std::string& buffer) {
+// Copy bytes of value to back of buffer. This is templated in order to avoid
+// implicit cast such as int64_t -> size_t that might lose information.
+template <typename T>
+void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : c10::irange(sizeof(size_t))) {
+  for (const auto i : c10::irange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -199,13 +202,14 @@ class ArgumentManager {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    bool hash_scalars) {
+    const std::unordered_set<size_t>& scalar_inputs_to_record) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
-  for (const auto& input : inputs) {
+  for (const auto i : c10::irange(inputs.size())) {
+    auto input = inputs[i];
     if (input.isTensor()) {
       auto& input_tensor = input.toTensor();
 
@@ -229,9 +233,26 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
-      if (hash_scalars && input.isInt()) {
-        // add value of integer scalars here
-        encoding_ += std::to_string(input.toInt());
+      if (scalar_inputs_to_record.find(i) != scalar_inputs_to_record.end()) {
+        // Add value of scalars here only if it is one of the scalars
+        // provided, as these are used in determining concretization.
+        // Note that although most commonly these will be Int or Bool scalars,
+        // any DataType might appear via `cast` and `where`, so we handle all
+        // cases here.
+        if (input.isInt()) {
+          encodeBuffer(input.toInt(), encoding_);
+        } else if (input.isBool()) {
+          encodeBuffer(input.toBool(), encoding_);
+        } else if (input.isDouble()) {
+          encodeBuffer(input.toDouble(), encoding_);
+        } else if (input.isComplexDouble()) {
+          encodeBuffer(input.toComplexDouble(), encoding_);
+        } else {
+          TORCH_INTERNAL_ASSERT(
+              false,
+              "Unhandled input type when creating input ID. Cannot record ",
+              input);
+        }
       }
     }
     encoding_.push_back(';');
@@ -269,11 +290,12 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)) {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
 
   KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs);
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, selected_device);
 
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
@@ -283,8 +305,8 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // fusions. This may not be ideal in all cases, since it will prevent
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
-  auto id_lookup_ret =
-      inputs_id_lookup_.lookupId(inputs, /*hash_scalars*/ isDynamic());
+  auto id_lookup_ret = inputs_id_lookup_.lookupId(
+      inputs, initialInfo().scalarInputsAffectingConcretization());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -337,7 +359,8 @@ bool FusionExecutorCache::isCompiled(const at::ArrayRef<c10::IValue>& inputs) {
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type,
+    std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   // Permute input tensor for kernel execution.
@@ -357,7 +380,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     perm_inputs = inputs_vec;
   }
 
-  KernelArgumentHolder args = prepareInputs(perm_inputs);
+  KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (!isCompiled(perm_inputs)) {
@@ -499,6 +522,13 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
   id_to_kernel_runtime_.erase(it);
 }
 
+DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
+  if (!initial_info_.has_value()) {
+    initial_info_ = DynamicTransform::getInitialInfo(fusion());
+  }
+  return initial_info_.value();
+}
+
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
@@ -518,13 +548,17 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
+  // Compute or get cached initial concretization info
+  auto& initial_info = initialInfo();
+
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   size_t conc_info_index = 0;
-  if (isDynamic()) {
-    conc_info = DynamicTransform::getConcretizationInfo(fusion_.get(), &args);
+  if (initial_info.hasDynamicTransforms()) {
+    conc_info = DynamicTransform::getConcretizationInfo(
+        fusion_.get(), &initial_info, &args);
     TORCH_CHECK(
         conc_info.has_value(),
         "Unable to get concretization info for dynamic Fusion");
@@ -569,12 +603,12 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtime = reuse_it->get();
     kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
   } else {
-    // graph miss, need to re-build an optimized graph for this case
+    // cache miss, need to re-build an optimized graph for this case
 
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (isDynamic()) {
+    if (initial_info.hasDynamicTransforms()) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -583,13 +617,18 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           "Copied Fusion is missing managed concretization info");
       DynamicTransform::concretizeFusion(
           fusion.get(), cloned_conc_info.value());
-      // The information in cloned_conc_info refers to variables in the copied
-      // symbolic fusion which get replaced during concretization. Keeping
-      // these around during a subsequent fusion copy would lead to an attempt
-      // to clone them, ending in a segfault. Instead, we reset the object
-      // here, effectively as if it now describes a non-dynamic Fusion.
-      // cloned_conc_info.clear();
+      // The information in initial_info and cloned_conc_info refers to
+      // variables in the copied symbolic fusion which get replaced during
+      // concretization. Keeping these around during a subsequent fusion copy
+      // would lead to an attempt to clone them, ending in a segfault. Instead,
+      // we reset the object here, effectively as if it now describes a
+      // non-dynamic Fusion.
       fusion->stopManaging(conc_info_index);
+      fusion->stopManaging("initial_info");
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+      std::cout << "Concretized Fusion:" << std::endl;
+      fusion->printMath();
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));
@@ -599,7 +638,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (isDynamic()) {
+  if (initial_info.hasDynamicTransforms()) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.

@@ -11,12 +11,12 @@
 #include <device_lower/pass/double_buffer.h>
 #include <fusion.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_interface_nodes.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/interface_nodes.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 
@@ -1230,36 +1230,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair =
-      TransformReplay::replayCasP(consumer, producer, -1);
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
   consumer->setDomain(replayed_consumer_pair.first);
-
-  // Recover allocation domain from transform replay
-  // TODO: Instead of recovering allocation domain here, should we move the
-  // logic below to TransformReplay::replayCasP to make it capable of replaying
-  // allocation domain with an opt-in flag
-  // TransformReplay::replayCasP(replay_allocation=true)?
-  // I don't see any other use case yet. If we do have one, then we should move.
-  if (producer->hasAllocation()) {
-    auto replay_CasP = BestEffortReplay::replayCasP(
-        consumer, producer, -1, PairwiseRootDomainMap(producer, consumer));
-    const auto& p2c_map = replay_CasP.getReplay();
-    std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(producer->getAllocationDomain().size());
-    for (auto id : producer->getAllocationDomain()) {
-      auto it = p2c_map.find(id);
-      TORCH_CHECK(
-          it != p2c_map.end(),
-          "Unable to cacheBefore: can not map ",
-          id->toString(),
-          " in the allocation domain of tensor ",
-          producer->toString(),
-          " to consumer");
-      new_allocation_domain.emplace_back(it->second);
-    }
-    consumer->setAllocationDomain(std::move(new_allocation_domain), true);
-  }
 
   return producer;
 }
@@ -1307,7 +1281,8 @@ TensorView* TensorView::cacheFork() {
   fusion()->replaceOutput(this, new_output);
 
   // Transform new output according to this TV
-  auto replayed_output_pair = TransformReplay::replayCasP(new_output, this, -1);
+  auto replayed_output_pair = TransformReplay::replayCasP(
+      new_output, this, -1, TransformReplayOptions().replayAllocation());
   new_output->setDomain(replayed_output_pair.first);
 
   return new_output;
@@ -1384,6 +1359,11 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 
   // Expr* consumer_definition =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+
+  consumer->setDomain(replayed_consumer_pair.first);
 
   return consumer;
 }

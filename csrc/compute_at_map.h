@@ -9,7 +9,7 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_ir.h>
 
 #include <deque>
