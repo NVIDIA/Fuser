@@ -543,7 +543,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             Scalar out = self.defineScalar();
             self.defineRecord(new ConstantRecord<Int, int64_t>(
                 {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
+                serde::RecordType_ConstantLong,
                 val,
                 dtype));
             return out;
