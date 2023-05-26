@@ -1399,8 +1399,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto proxy = kir::KernelInternalProxy(kernel);
 
   const auto indent = "  ";
-  const auto ks0_name = "i" + std::to_string(ks0->name());
-  const auto ks1_name = "i" + std::to_string(ks1->name());
+  const auto ks0_name = "i0";
+  const auto ks1_name = "i1";
   const auto tk0_name = "T" + std::to_string(tk0->name());
 
   auto& exprs = proxy.topLevelExprs();
