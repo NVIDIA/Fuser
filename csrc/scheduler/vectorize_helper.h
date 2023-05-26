@@ -8,12 +8,12 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <lower_divisible_split.h>
+#include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <ir_builder.h>
+#include <ir/builder.h>
 
 #include <sstream>
 #include <vector>
@@ -243,7 +243,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     numerator_ = nullptr;
 
-    auto const_numerator_factor = 1;
+    int64_t const_numerator_factor = 1;
     for (auto factor : const_numerator_vals_) {
       const_numerator_factor *= factor;
     }
@@ -267,7 +267,7 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
     denominator_ = nullptr;
 
-    auto const_denominator_factor = 1;
+    int64_t const_denominator_factor = 1;
     for (auto factor : const_denominator_vals_) {
       const_denominator_factor *= factor;
     }
@@ -593,17 +593,6 @@ std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
 std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper);
-
-// TODO: vectorizable_inputs_outputs should actually be known based on the
-// computed mappings. If nothing is mapped for a tensorview it's not
-// vectorizable.
-size_t getExpandedVectorization(
-    const std::vector<ContiguousInnerDimensionsMapper>& reference_maps,
-    SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*> vectorizable_inputs_outputs,
-    TensorView* reference_tv,
-    int break_point,
-    size_t default_word_size);
 
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,

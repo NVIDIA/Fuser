@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_iostream.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <lower_utils.h>
 #include <type.h>
 
 #include <iostream>
@@ -307,7 +307,7 @@ InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string InitMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -325,7 +325,7 @@ UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string UpdateMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -815,7 +815,7 @@ GroupedGridReduction::GroupedGridReduction(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      (int)attributes().size() == numGroupedReductionOpAttr(),
+      attributes().size() == numGroupedReductionOpAttr(),
       "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
       "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
   addAttribute(sync_buffer);
@@ -1017,7 +1017,7 @@ GroupedGridWelford::GroupedGridWelford(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      (int)attributes().size() == numGroupedWelfordOpAttr(),
+      attributes().size() == numGroupedWelfordOpAttr(),
       "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
       "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
   addAttribute(sync_buffer);

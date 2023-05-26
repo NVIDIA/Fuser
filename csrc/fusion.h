@@ -12,8 +12,8 @@
 #include <c10/util/Exception.h>
 
 #include <executor_params.h>
-#include <ir_base_nodes.h>
-#include <ir_container.h>
+#include <ir/base_nodes.h>
+#include <ir/container.h>
 #include <iter_visitor.h>
 
 #include <any>
@@ -100,7 +100,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   Fusion& operator=(const Fusion& other);
   Fusion& operator=(Fusion&& other) noexcept;
 
-  ~Fusion();
+  ~Fusion() override;
 
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
@@ -314,7 +314,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   using CloneFn = std::function<std::any(IrCloner&, std::any)>;
 
   inline size_t manage(std::any data, CloneFn clone) {
-    managed_data_.push_back(std::make_pair(data, clone));
+    managed_data_.emplace_back(data, clone);
     return managed_data_.size() - 1;
   }
 
@@ -414,7 +414,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   using IrContainer::registerVal;
 
   //! Register the Val with this fusion
-  virtual void registerVal(Val* val) override;
+  void registerVal(Val* val) override;
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
@@ -422,7 +422,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! definitions of outputs and register this Expr as the definition. Otherwise
   //! will update definition if not previously set, but will not remove old
   //! definitions.
-  virtual void registerExpr(Expr* expr) override;
+  void registerExpr(Expr* expr) override;
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in

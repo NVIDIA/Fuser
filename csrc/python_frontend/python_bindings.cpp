@@ -11,8 +11,8 @@
 #include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -253,15 +253,23 @@ Args:
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule) {
+             bool override_user_schedule,
+             std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            return self.execute(inputs, override_user_schedule);
+            std::optional<int8_t> int8_device = std::nullopt;
+            if (device.has_value()) {
+              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              int8_device = (int8_t)device.value();
+            }
+            return self.execute(inputs, override_user_schedule, int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
+          py::kw_only(),
+          py::arg("device") = py::none(),
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
@@ -566,7 +574,7 @@ Args:
             Scalar out = self.defineScalar();
             self.defineRecord(new ConstantRecord<Int, int64_t>(
                 {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
+                serde::RecordType_ConstantLong,
                 val,
                 dtype));
             return out;
@@ -672,8 +680,10 @@ Args:
   NVFUSER_PYTHON_BINDING_UNARY_OP("round", round)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rsqrt", rsqrt)
   NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("segment_set", segment_set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("signbit", signbit)
   NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sin", sin)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sinh", sinh)
@@ -838,6 +848,7 @@ Args:
   NVFUSER_PYTHON_BINDING_BINARY_OP("add", add)
   NVFUSER_PYTHON_BINDING_BINARY_OP("atan2", atan2)
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("truediv", truediv)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
   NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)

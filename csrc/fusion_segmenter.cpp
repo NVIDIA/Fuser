@@ -8,11 +8,11 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 
@@ -278,6 +278,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     ScheduleHeuristic heuristic,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
+  TORCH_INTERNAL_ASSERT(
+      !SegmentCandidateFinder::hasSegmentHints(fusion),
+      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with segment hints!");
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
@@ -1467,6 +1470,40 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!hasSegmentHints(fusion.get())) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Try to schedule fusion un-segmented:\n");
+    const auto maybe_complete_fusion_heuristic =
+        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+    if (maybe_complete_fusion_heuristic.has_value()) {
+      return SegmentedFusion::fromCompleteFusion(
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+    }
+  }
+  if (fusion) {
+    return SegmentCandidateFinder::segment(std::move(fusion), inputs);
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "unreachable!");
+  }
+}
+
+bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
+  for (const auto& expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      // SegmenterSet is a segmenter hint that needs explicit segment call
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void SegmentCandidateFinder::resetTraversal() {
   for (auto group : groups()) {
     // Start traversal at input groups
@@ -1785,7 +1822,26 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
   joined_group->setHeuristic(deriveHeuristic(joined_group));
   return joined_group;
 }
+
 namespace {
+
+// SegmenterSet hints a kernel break
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || !out->uses().empty()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Guard to temporarily change the inputs and outputs of a
 // fusion. Cast expressions to fp32 and fp16 are also inserted. On
@@ -1983,6 +2039,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -1995,6 +2054,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return c10::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -2970,6 +3032,108 @@ bool areDirectlyConnected(SegmentedGroup* group1, SegmentedGroup* group2) {
   return false;
 }
 
+//! Allow the segmentation algorithm to prefer certain exprs to merge
+class PreferredMergeCandidatePicker {
+ public:
+  static std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+  get(const std::vector<SegmentedGroup*>& groups) {
+    return PreferredMergeCandidatePicker(groups).candidates_;
+  }
+
+ private:
+  PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
+      : groups_(groups) {
+    for (auto& group : groups_) {
+      // Currently there's only one preference for select-like
+      // ops. Additional preferences can be added similarly.
+      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+      if (!neighbor_to_merge.has_value()) {
+        continue;
+      }
+      candidates_.emplace_back(group, *neighbor_to_merge);
+    }
+  }
+
+  //! Prefer merging groups with select-like exprs with producer
+  //! groups, including index_select, torch_gather and take_along_axis
+  //! where only one element is selected/gathered/taken, producing a
+  //! broadcast domain. Fusing these exprs with producers is
+  //! straightforward, but may not be always possible with consumers as
+  //! consumer reference tensors may not know about the gathered
+  //! domain, much like reduction domains. Moreover, if segmentation is
+  //! necessary, it would be more efficient to segment a kernel after
+  //! these exprs as the segment output tensors would become smaller.
+  //!
+  //! A motivating example is cross-entropy loss, where softmax is
+  //! followed by take_along_axis, and then is followed by a
+  //! reduction. Currently, it's not possible to fuse the softmax and
+  //! the reduction, so it must be segmented to two groups, and we
+  //! want to segment the fusion between the take_along_axis and the
+  //! reduction, not between the softmax and take_along_axis.
+  std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
+      SegmentedGroup* group) const;
+
+ private:
+  const std::vector<SegmentedGroup*>& groups_;
+  std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+      candidates_;
+};
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
+  const auto& exprs = group->exprs();
+
+  // I *think* it's enough to consider the initial merge of
+  // select-like ops.
+  if (exprs.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto expr = exprs.at(0);
+
+  // Select-like exprs have a producer ID that is indirectly
+  // accessed with an index input
+  if (ir_utils::getIndexedProducerID(expr) == nullptr) {
+    return std::nullopt;
+  }
+
+  auto lookup_tv = ir_utils::getTvInput(expr);
+
+  // If the lookup tv is a fusion input, there's nothing to do
+  if (lookup_tv->isFusionInput()) {
+    return std::nullopt;
+  }
+
+  auto consumer_of_indexed_id = ir_utils::getConsumerOfIndexedProducerID(expr);
+
+  // There must be a consumer ID unless it's a Select expr
+  TORCH_INTERNAL_ASSERT(
+      consumer_of_indexed_id != nullptr || expr->isA<SelectOp>(),
+      "Consumer of indexed ID not found: ",
+      expr->toString());
+
+  // In case of non select expr, make sure the consumer ID is a broadcat
+  if (!expr->isA<SelectOp>() && !consumer_of_indexed_id->isBroadcast()) {
+    return std::nullopt;
+  }
+
+  // Find the producer group that corresponds to the lookup tensor
+  // of the expr.
+  auto producer_edge_it = std::find_if(
+      group->producer_edges.begin(),
+      group->producer_edges.end(),
+      [&lookup_tv](SegmentedEdge* edge) { return edge->val == lookup_tv; });
+
+  // Not sure this could happen. Just assert for now.
+  if (producer_edge_it == group->producer_edges.end()) {
+    TORCH_INTERNAL_ASSERT(false, "Unexpected");
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(
+      (*producer_edge_it)->from, *producer_edge_it);
+}
+
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(
@@ -3070,6 +3234,42 @@ void SegmentCandidateFinder::buildInitialSegments() {
   }
 }
 
+void SegmentCandidateFinder::trySetUpMerge(
+    SegmentedGroup* group,
+    std::vector<SegmentedGroup::NeighborGroup> candidates) {
+  if (group->merged_ || group->isFusionInputGroup()) {
+    return;
+  }
+
+  if (candidates.empty()) {
+    candidates = group->getMergeCandidates();
+  }
+
+  if (candidates.empty()) {
+    return;
+  }
+
+  auto candidate_it = candidates.begin();
+  while (candidate_it != candidates.end() &&
+         !codeGenSupportedMerge(group, candidate_it->group)) {
+    candidate_it++;
+  }
+  if (candidate_it == candidates.end()) {
+    return;
+  }
+
+  to_merge_.emplace_back(group);
+  to_merge_.emplace_back(candidate_it->group);
+
+  group->merged_ = true;
+  group->merge_with_ = candidate_it->group;
+  group->merge_through_ = candidate_it->edge;
+
+  candidate_it->group->merged_ = true;
+  candidate_it->group->merge_with_ = group;
+  candidate_it->group->merge_through_ = candidate_it->edge;
+}
+
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
 
@@ -3120,34 +3320,18 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
-      for (auto& group : groups()) {
-        if (group->merged_ || group->isFusionInputGroup()) {
-          continue;
-        }
-        auto candidates = group->getMergeCandidates();
-        if (candidates.empty()) {
-          continue;
-        }
+      // Try preferred merge first
+      for (auto& [group, neighbor] :
+           PreferredMergeCandidatePicker::get(groups())) {
+        trySetUpMerge(group, {neighbor});
+      }
 
-        auto candidate_it = candidates.begin();
-        while (candidate_it != candidates.end() &&
-               !codeGenSupportedMerge(group, candidate_it->group)) {
-          candidate_it++;
+      // If there are preferred groups to merge, merge them first
+      // without considering the rest of groups
+      if (to_merge_.empty()) {
+        for (auto& group : groups()) {
+          trySetUpMerge(group);
         }
-        if (candidate_it == candidates.end()) {
-          continue;
-        }
-
-        to_merge_.emplace_back(group);
-        to_merge_.emplace_back(candidate_it->group);
-
-        group->merged_ = true;
-        group->merge_with_ = candidate_it->group;
-        group->merge_through_ = candidate_it->edge;
-
-        candidate_it->group->merged_ = true;
-        candidate_it->group->merge_with_ = group;
-        candidate_it->group->merge_through_ = candidate_it->edge;
       }
 
       if (to_merge_.empty()) {

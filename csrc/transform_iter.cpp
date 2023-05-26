@@ -8,7 +8,7 @@
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 #include <typeinfo>
 
@@ -386,7 +386,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   if (skip_resize) {
-    skipResizes();
+    skipResizes(target_exprs, replay_exprs);
   }
 
   std::string err_str(
@@ -626,7 +626,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     if (skip_resize) {
-      skipResizes();
+      skipResizes(target_exprs, replay_exprs);
     }
   }
 }
@@ -1089,9 +1089,18 @@ void BestEffortReplay::skipSwizzles(
 }
 
 // Same logic as skipSwizzles
-void BestEffortReplay::skipResizes() {
-  auto isResizeInput = [](IterDomain* id) -> bool {
-    return id->uses().size() == 1 && id->uses().front()->isA<Resize>();
+void BestEffortReplay::skipResizes(
+    const std::vector<Expr*>& target_exprs,
+    const std::vector<Expr*>& replay_exprs) {
+  auto getResizeUse = [](IterDomain* id,
+                         const std::vector<Expr*>& exprs) -> Resize* {
+    for (auto id_use : id->uses()) {
+      if (std::find(exprs.begin(), exprs.end(), id_use) == exprs.end()) {
+        continue;
+      }
+      return dynamic_cast<Resize*>(id_use);
+    }
+    return nullptr;
   };
 
   bool updated = true;
@@ -1103,11 +1112,13 @@ void BestEffortReplay::skipResizes() {
       auto new_target_id = target_id;
       auto replay_id = it.second;
       auto new_replay_id = replay_id;
-      if (isResizeInput(target_id)) {
-        new_target_id = target_id->uses().front()->as<Resize>()->out();
+      if (auto target_resize = getResizeUse(target_id, target_exprs);
+          target_resize != nullptr) {
+        new_target_id = target_resize->out();
       }
-      if (isResizeInput(replay_id)) {
-        new_replay_id = replay_id->uses().front()->as<Resize>()->out();
+      if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
+          replay_resize != nullptr) {
+        new_replay_id = replay_resize->out();
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {

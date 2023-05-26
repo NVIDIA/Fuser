@@ -37,7 +37,7 @@ void assertSimplifiedDiv(
     Val* y,
     Val* z,
     std::vector<Bool*> assumptions = {}) {
-  auto simplified = simplifyExpr(cpp_div(x, y), {}, assumptions);
+  auto simplified = simplifyExpr(div(x, y), {}, assumptions);
   TORCH_CHECK(
       isEquivalent(simplified, z),
       "Expect ",
@@ -222,7 +222,7 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
         case '*':
           return fun2_t(&mul);
         case '/':
-          return fun2_t(&cpp_div);
+          return fun2_t(&div);
         case '%':
           return fun2_t(&mod);
         case '>':
@@ -265,7 +265,7 @@ int getOpPrecedence(token_t op) {
 
   if (std::holds_alternative<fun2_t>(op)) {
     auto bop = std::get<fun2_t>(op);
-    if (bop == fun2_t(&mul) || bop == fun2_t(&cpp_div) || bop == fun2_t(&mod)) {
+    if (bop == fun2_t(&mul) || bop == fun2_t(&div) || bop == fun2_t(&mod)) {
       return 5;
     }
     if (bop == fun2_t(&add) || bop == fun2_t(&sub)) {
@@ -866,6 +866,8 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
   ASSERT_TRUE(*simplify(
       "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_,
       "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_));
+
+  ASSERT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
@@ -1079,6 +1081,17 @@ TEST_F(ExprSimplifierTest, Assume_CUDA) {
       true);
   expr = "ceilDiv( T0.size[0] , T0.size[0] ) * T0.size[0]"_;
   ASSERT_TRUE(assume::tensorsAreNotEmpty(expr)->sameAs("T0.size[0] > 0"_));
+}
+
+TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
+  auto expect = "i1 < ( i2 * T0.size[0] )"_;
+
+  ASSERT_TRUE(simplified->sameAs(expect));
 }
 
 } // namespace nvfuser

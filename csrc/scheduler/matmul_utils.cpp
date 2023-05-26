@@ -12,6 +12,10 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <executor_utils.h>
+#include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
+#include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -20,10 +24,6 @@
 #include <type_traits>
 #include <utility>
 #include "ATen/cuda/CUDAContext.h"
-#include "ir_base_nodes.h"
-#include "ir_interface_nodes.h"
-#include "ir_internal_nodes.h"
-#include "ir_utils.h"
 #include "mma_type.h"
 #include "type.h"
 #include "utils.h"

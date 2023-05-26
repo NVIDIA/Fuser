@@ -6,19 +6,19 @@
  */
 // clang-format on
 #include <codegen.h>
+#include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
 #include <ops/arith.h>
 
 #include <iterator>

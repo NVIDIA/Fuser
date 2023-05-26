@@ -7,12 +7,12 @@
 // clang-format on
 #include <scheduler/transpose.h>
 
+#include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
-#include <lower_utils.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -700,7 +700,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   for (auto tv : grouped_inputs_outputs[0]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
   }
   // TODO: Since group2 only has global->shared and shared->global set op, we
@@ -709,7 +709,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // group 2
   for (auto tv : grouped_inputs_outputs[1]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
   }
 

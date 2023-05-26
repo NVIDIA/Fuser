@@ -13,11 +13,19 @@
 #include <type.h>
 
 #include <deque>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
 #include <vector>
+
+//! IR header hierarchy
+//! 1. ** utils.h ** - PolymorphicBase and NonCopyable
+//! 2. ir/base_nodes.h - Statement, Expr, and Val
+//! 3. ir/internal_base_nodes.h - IterDomain and TensorDomain
+//! 4. ir/interface_nodes.h - TensorView and Scalar
+//! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
 
@@ -29,9 +37,15 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
-// TODO: merge these two
-// check if input is compatible with 32b index mode
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
+//! Find common device among tensor inputs. If no tensor inputs are found and
+//! the selected_device argument is omitted, a default value of 0 is returned.
+//! If no tensor inputs are found and selected_device is provided,
+//! selected_device will be returned. If tensor inputs are found their devices
+//! must match one another, and if selected_device is given they must match it
+//! as well, otherwise -1 is returned.
+int8_t getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device = std::nullopt);
 
 //! Types of debug print-outs
 //!
@@ -41,6 +55,7 @@ enum class DebugDumpOption {
   FusionIr, //!< Dump the Fusion IR before lowering
   FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
   FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FusionIrConcretized, //!< Dump the Fusion IR after concretization
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
@@ -491,109 +506,6 @@ class DebugPrintScope {
 // compiler, please use DebugPrintScope directly without this macro.
 #define DEBUG_PRINT_SCOPE(...) \
   DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
-
-//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
-//! the actual C++ type that corresponds to the given Aten scalar
-//! type. Deduction of the native type is done using
-//! AtenTypeToNativeType, so for example at::ScalarType::ComplexFloat
-//! corresponds to std::complex<float> rathe than
-//! c10::complex<float>. For the latter behavior, please use
-//! atenTypeDispatchWithC10Complex below.
-template <typename Functor, typename... Args>
-auto atenTypeDispatch(at::ScalarType type, Functor func, Args&&... args) {
-  switch (type) {
-    case at::ScalarType::Int:
-      return func
-          .template operator()<AtenTypeToNativeType<at::ScalarType::Int>::type>(
-              std::forward<Args>(args)...);
-    case at::ScalarType::Long:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Long>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Bool:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Bool>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Float:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Float>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Double:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Double>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Half:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Half>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::BFloat16:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::BFloat16>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexFloat:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::ComplexFloat>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexDouble:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::ComplexDouble>::type>(
-          std::forward<Args>(args)...);
-    default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
-  }
-}
-
-//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
-//! the actual C++ type that corresponds to the given Aten scalar
-//! type. Deduction of the native type is done using
-//! AtenTypeToNativeTypeWithC10Complex, so for example
-//! at::ScalarType::ComplexFloat corresponds to c10::complex<float> rathe than
-//! std::complex<float>. For the latter behavior, please use
-//! atenTypeDispatch above.
-template <typename Functor, typename... Args>
-auto atenTypeDispatchWithC10Complex(
-    at::ScalarType type,
-    Functor func,
-    Args&&... args) {
-  switch (type) {
-    case at::ScalarType::Int:
-      return func.template
-      operator()<AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Int>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Long:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Long>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Bool:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Bool>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Float:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Float>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Double:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Double>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Half:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Half>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::BFloat16:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::BFloat16>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexFloat:
-      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
-          at::ScalarType::ComplexFloat>::type>(std::forward<Args>(args)...);
-    case at::ScalarType::ComplexDouble:
-      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
-          at::ScalarType::ComplexDouble>::type>(std::forward<Args>(args)...);
-    default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
-  }
-}
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
