@@ -33,7 +33,9 @@
 
 namespace nvfuser {
 
-int64_t FusionExecutor::fusion_id_counter_ = 0;bool fill_allocation_with_nan_ = false;
+int64_t FusionExecutor::fusion_id_counter_ = 0;
+
+bool fill_allocation_with_nan_ = false;
 
 bool shouldFillAllocationWithNan() {
   return fill_allocation_with_nan_;
