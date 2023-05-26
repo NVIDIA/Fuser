@@ -263,6 +263,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   tv_infos_[reference] = reference_information;
 
   traverse(this);
+
+  // Finalize all projected extents
+  for (auto& entry : projected_extent_) {
+    entry.second.finalize();
+  }
 }
 
 ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(

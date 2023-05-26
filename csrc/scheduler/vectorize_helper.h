@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 
 #include <sstream>
@@ -71,6 +72,9 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // Multiply numerator by provided value, or if currently zero set numerator to
   // provided value.
   void multiplyNumeratorValue(Val* new_numerator_val) {
+    TORCH_INTERNAL_ASSERT(
+        quotient_ == nullptr && is_divisible_ == nullptr,
+        "Can not modify finalized ProjectedExtent.");
     if (numerator_ == nullptr) {
       numerator_ = new_numerator_val;
     } else {
@@ -82,6 +86,9 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
   // Multiply denominator by provided value
   void multiplyDenominatorValue(Val* new_denominator_val) {
+    TORCH_INTERNAL_ASSERT(
+        quotient_ == nullptr && is_divisible_ == nullptr,
+        "Can not modify finalized ProjectedExtent.");
     if (numerator_ == nullptr) {
       denominator_ = new_denominator_val;
     } else {
@@ -92,6 +99,10 @@ class TORCH_CUDA_CU_API ProjectedExtent {
 
   // Multiply by other but wrap each value in other with the provided predicate.
   void maybeMul(Val* pred, const ProjectedExtent& other) {
+    TORCH_INTERNAL_ASSERT(
+        quotient_ == nullptr && is_divisible_ == nullptr,
+        "Can not modify finalized ProjectedExtent.");
+
     TORCH_INTERNAL_ASSERT(
         !other.isZero(),
         "Maybe multiplying by zero ProjectedExtent not supported.");
@@ -117,10 +128,16 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   }
 
   Val* quotient() const {
+    if (quotient_ != nullptr) {
+      return quotient_;
+    }
     return SimplifyingIrBuilder::divExpr(numerator(), denominator());
   }
 
   Val* isDivisible() const {
+    if (is_divisible_ != nullptr) {
+      return is_divisible_;
+    }
     return SimplifyingIrBuilder::eqExpr(
         SimplifyingIrBuilder::modExpr(numerator(), denominator()),
         numerator()->container()->zeroVal());
@@ -137,6 +154,23 @@ class TORCH_CUDA_CU_API ProjectedExtent {
     return ss.str();
   }
 
+  // Run expression simplification and store results in quotient_ and
+  // is_divisible_. This is important because we might use expr evaluator to
+  // evaluate their values multiple times, so we want to simplify them once and
+  // cache the result so that later evaluation can save time.
+  void finalize() {
+    if (quotient_ == nullptr) {
+      // TODO: print the simplified expression and see if expr simplifier needs
+      // improvement
+      quotient_ = simplifyExpr(quotient());
+    }
+    if (is_divisible_ == nullptr) {
+      // TODO: print the simplified expression and see if expr simplifier needs
+      // improvement
+      is_divisible_ = simplifyExpr(isDivisible());
+    }
+  }
+
  private:
   // Fraction starts at zero, but if a value is ever added in the numerator it
   // can never be zero again, it must be at least 1.
@@ -145,6 +179,10 @@ class TORCH_CUDA_CU_API ProjectedExtent {
   // numerator and denominator values (product of the sets below)
   Val* numerator_ = nullptr;
   Val* denominator_ = nullptr;
+
+  // Simplified quotient and isDivisible values
+  Val* quotient_ = nullptr;
+  Val* is_divisible_ = nullptr;
 };
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
