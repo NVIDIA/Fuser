@@ -27,6 +27,16 @@ void castOptimizationPass(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (is_cast_op(expr)) {
       bool mutated = false;
+      std::vector<Val*> chain_casts;
+      auto prev_expr = expr->input(0)->definition();
+      while (prev_expr != nullptr && is_cast_op(prev_expr)) {
+	chain_casts.push_back(prev_expr->output(0));
+        prev_expr = prev_expr->input(0)->definition();
+      }
+
+      if (!chain_casts.empty()) {
+      }
+
       while (true) {
         // in the loop, we just repetitively skip consecutive casts.
         auto intermediate_cast = expr->input(0);
