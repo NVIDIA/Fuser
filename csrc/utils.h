@@ -121,6 +121,7 @@ enum class DisableOption {
   PredicateElimination, //! Disable predicate elimination
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   MagicZero, //! Disable nvfuser_zero
+  VarNameRemapping, //! Disable variable name remapping
   EndOfOption //! Placeholder for counting the number of elements
 };
 

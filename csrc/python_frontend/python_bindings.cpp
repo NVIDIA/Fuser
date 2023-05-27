@@ -543,7 +543,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             Scalar out = self.defineScalar();
             self.defineRecord(new ConstantRecord<Int, int64_t>(
                 {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
+                serde::RecordType_ConstantLong,
                 val,
                 dtype));
             return out;
@@ -835,7 +835,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_or", bitwise_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
@@ -919,7 +919,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__rshift__", "bitwise_right_shift", bitwise_left_shift)
+      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
   // In PyTorch, __div__ (//) and __truediv__ (/) are different.
   // When applied to integer-dtype arguments, they do as expected, returning
   // integer and float outputs, respectively. When applied to two floating-type
