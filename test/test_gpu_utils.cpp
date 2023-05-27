@@ -307,7 +307,7 @@ bool trivialOrOneProjectedExtent(vectorize_helper::ProjectedExtent& pe) {
 } // namespace
 
 // Test simple backward mapping through split
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper1_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -337,8 +337,8 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper1_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 3, 1),
-        mapper.getMappedExtent(tv0->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 3, 1),
+        mapper.getProjectedExtent(tv0->axis(0)).toString());
   }
 
   {
@@ -351,20 +351,20 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper1_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 2, 1),
-        mapper.getMappedExtent(tv1->axis(1)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 2, 1),
+        mapper.getProjectedExtent(tv1->axis(1)).toString());
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 3, 1),
-        mapper.getMappedExtent(tv1->axis(1)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 3, 1),
+        mapper.getProjectedExtent(tv1->axis(1)).toString());
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 2 * 3, 1),
-        mapper.getMappedExtent(tv0->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 2 * 3, 1),
+        mapper.getProjectedExtent(tv0->axis(0)).toString());
   }
 }
 
 // Test backward mapping through multiple splits
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper2_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -379,39 +379,39 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper2_CUDA) {
       tv2, {tv2->axis(1), tv2->axis(2)});
 
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv2->axis(0))),
-      mapper.getMappedExtent(tv2->axis(0)).toString());
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv2->axis(0))),
+      mapper.getProjectedExtent(tv2->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 3, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 3, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(2)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(2)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(2)), 4, 1),
+      mapper.getProjectedExtent(tv2->axis(2)).toString());
   // Inner dim fully maps, outer dim of split partially maps
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(2)));
 
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
   // Inner dim fully maps, outer dim of split partially maps
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
 
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 4 * 3, 1),
-      mapper.getMappedExtent(tv0->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 4 * 3, 1),
+      mapper.getProjectedExtent(tv0->axis(0)).toString());
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
 }
 
 // Test backward mapping through multiple splits
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper3_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -429,24 +429,24 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper3_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 4, 1),
+      mapper.getProjectedExtent(tv0->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(2)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(2)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(2)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(2)), 4, 1),
+      mapper.getProjectedExtent(tv2->axis(2)).toString());
 }
 
 // Test simple backward mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper4_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper4_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -476,20 +476,20 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper4_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
     TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 2, 1),
-        mapper.getMappedExtent(tv0->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 2, 1),
+        mapper.getProjectedExtent(tv0->axis(0)).toString());
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3, 1),
-        mapper.getMappedExtent(tv0->axis(1)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3, 1),
+        mapper.getProjectedExtent(tv0->axis(1)).toString());
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 2 * 3, 1),
-        mapper.getMappedExtent(tv1->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 2 * 3, 1),
+        mapper.getProjectedExtent(tv1->axis(0)).toString());
   }
 }
 
 // Test symbolic partial mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper5_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper5_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -515,30 +515,30 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper5_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv0->axis(0)), expr_eval, 3, 1),
-      mapper.getMappedExtent(tv0->axis(0)).toString());
+          mapper.getProjectedExtent(tv0->axis(0)), expr_eval, 3, 1),
+      mapper.getProjectedExtent(tv0->axis(0)).toString());
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv0->axis(1)), expr_eval, 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+          mapper.getProjectedExtent(tv0->axis(1)), expr_eval, 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv1->axis(0)), expr_eval, 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+          mapper.getProjectedExtent(tv1->axis(0)), expr_eval, 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv2->axis(1)), expr_eval, 3 * 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+          mapper.getProjectedExtent(tv2->axis(1)), expr_eval, 3 * 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 }
 
 // Test concrete partial outer dim mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper6_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper6_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -556,27 +556,27 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper6_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 3, 1),
-      mapper.getMappedExtent(tv0->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 3, 1),
+      mapper.getProjectedExtent(tv0->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 }
 
 // Test concrete exact inner dim mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper7_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper7_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -594,26 +594,26 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper7_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv0->axis(0))));
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv0->axis(0))));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 }
 
 // Test concrete partial inner dim mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper8_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper8_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -631,26 +631,26 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper8_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv0->axis(0))));
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv0->axis(0))));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 }
 
 // Test concrete partial inner dim mapping through merge
-TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper9_CUDA) {
+TEST_F(VectorizeHelperTest, BackwardMapper9_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -669,37 +669,37 @@ TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper9_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[2]->sameAs(tv0->axis(2)));
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv0->axis(0))));
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv0->axis(0))));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 5, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 5, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(2)), 7, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(2)), 7, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 35, 15),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 35, 15),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 15, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 15, 1),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(2)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 5, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 5, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(2)), 7, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(2)), 7, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 }
 
-// Similar to FusionVectorizeBackwardMapper1_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper1_CUDA) {
+// Similar to BackwardMapper1_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -728,8 +728,8 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper1_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3, 1),
-        mapper.getMappedExtent(tv1->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3, 1),
+        mapper.getProjectedExtent(tv1->axis(0)).toString());
   }
 
   {
@@ -742,20 +742,20 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper1_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 2, 1),
-        mapper.getMappedExtent(tv0->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 2, 1),
+        mapper.getProjectedExtent(tv0->axis(0)).toString());
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3, 1),
-        mapper.getMappedExtent(tv0->axis(1)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3, 1),
+        mapper.getProjectedExtent(tv0->axis(1)).toString());
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 2 * 3, 1),
-        mapper.getMappedExtent(tv1->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 2 * 3, 1),
+        mapper.getProjectedExtent(tv1->axis(0)).toString());
   }
 }
 
-// Similar to FusionVectorizeBackwardMapper2_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper2_CUDA) {
+// Similar to BackwardMapper2_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -770,39 +770,39 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper2_CUDA) {
       tv0, {tv0->axis(1), tv0->axis(2)});
 
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv0->axis(0))),
-      mapper.getMappedExtent(tv0->axis(0)).toString());
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv0->axis(0))),
+      mapper.getProjectedExtent(tv0->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(2)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(2)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(2)), 4, 1),
+      mapper.getProjectedExtent(tv0->axis(2)).toString());
   // Inner dim fully maps, outer dim of split partially maps
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(2)));
 
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
   // Inner dim fully maps, outer dim of split partially maps
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
 
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(0)), 4 * 3, 1),
-      mapper.getMappedExtent(tv2->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(0)), 4 * 3, 1),
+      mapper.getProjectedExtent(tv2->axis(0)).toString());
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
 }
 
-// Similar to FusionVectorizeBackwardMapper3_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper3_CUDA) {
+// Similar to BackwardMapper3_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -820,24 +820,24 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper3_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(0)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(0)), 4, 1),
+      mapper.getProjectedExtent(tv2->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv1->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(2)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(2)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(2)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(2)), 4, 1),
+      mapper.getProjectedExtent(tv0->axis(2)).toString());
 }
 
-// Similar to FusionVectorizeBackwardMapper4_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper4_CUDA) {
+// Similar to BackwardMapper4_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper4_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -867,20 +867,20 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper4_CUDA) {
     TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
     TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 2, 1),
-        mapper.getMappedExtent(tv1->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 2, 1),
+        mapper.getProjectedExtent(tv1->axis(0)).toString());
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 3, 1),
-        mapper.getMappedExtent(tv1->axis(1)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(1)), 3, 1),
+        mapper.getProjectedExtent(tv1->axis(1)).toString());
 
     TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(0)), 2 * 3, 1),
-        mapper.getMappedExtent(tv0->axis(0)).toString());
+        checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(0)), 2 * 3, 1),
+        mapper.getProjectedExtent(tv0->axis(0)).toString());
   }
 }
 
-// Similar to FusionVectorizeBackwardMapper5_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper5_CUDA) {
+// Similar to BackwardMapper5_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper5_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -906,30 +906,30 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper5_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv2->axis(0)), expr_eval, 3, 1),
-      mapper.getMappedExtent(tv2->axis(0)).toString());
+          mapper.getProjectedExtent(tv2->axis(0)), expr_eval, 3, 1),
+      mapper.getProjectedExtent(tv2->axis(0)).toString());
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv2->axis(1)), expr_eval, 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+          mapper.getProjectedExtent(tv2->axis(1)), expr_eval, 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv1->axis(0)), expr_eval, 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+          mapper.getProjectedExtent(tv1->axis(0)), expr_eval, 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
       checkProjectedExtent(
-          mapper.getMappedExtent(tv0->axis(1)), expr_eval, 3 * 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+          mapper.getProjectedExtent(tv0->axis(1)), expr_eval, 3 * 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 }
 
-// Similar to FusionVectorizeBackwardMapper6_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper6_CUDA) {
+// Similar to BackwardMapper6_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper6_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -947,27 +947,27 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper6_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(0)), 3, 1),
-      mapper.getMappedExtent(tv2->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(0)), 3, 1),
+      mapper.getProjectedExtent(tv2->axis(0)).toString());
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 }
 
-// Similar to FusionVectorizeBackwardMapper7_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper7_CUDA) {
+// Similar to BackwardMapper7_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper7_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -985,26 +985,28 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper7_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
   TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv2->axis(0))));
+      trivialOrOneProjectedExtent(mapper.getProjectedExtent(tv2->axis(0))));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv2->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv2->axis(1)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 3 * 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv1->axis(0)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv1->axis(0)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
   TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 3 * 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+      checkProjectedExtent(mapper.getProjectedExtent(tv0->axis(1)), 3 * 4, 1),
+      mapper.getProjectedExtent(tv0->axis(1)).toString());
 }
 
-// Similar to FusionVectorizeBackwardMapper8_CUDA but in the reverse direction
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper8_CUDA) {
+#endif
+
+// Similar to BackwardMapper8_CUDA but in the reverse direction
+TEST_F(VectorizeHelperTest, ForwardMapper8_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1018,33 +1020,24 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper8_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1)});
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 2);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
-  TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv2->axis(0))));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluateInt(), 1);
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 4);
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 1);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 4, 1),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluateInt(), 4);
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 4, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 4);
 }
-
-#endif
 
 // Make sure partial mappings are mapped to gcd(combined, inner) for inner
 // dimension
-TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper9_CUDA) {
+TEST_F(VectorizeHelperTest, ForwardMapper9_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1080,7 +1073,7 @@ TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper9_CUDA) {
 }
 
 // Test propogation doesn't proceed across missing dimensions
-TEST_F(VectorizeHelperTest, FusionVectorizeMapperAdvanced_CUDA) {
+TEST_F(VectorizeHelperTest, MapperAdvanced_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
