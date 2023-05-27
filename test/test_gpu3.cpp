@@ -8585,6 +8585,71 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, Repro413_CUDA) {
+  int64_t n = 10240;
+
+  for (int64_t m : {3, 6, 12}) {
+    for (int64_t k : {2, 4, 8}) {
+      std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+      Fusion& fusion = *fusion_ptr.get();
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeContigConcreteTensor({n, m});
+      fusion.addInput(tv0);
+      auto tv1 = broadcast(tv0, {false, true, false});
+      auto tv2 = expand(
+          tv1,
+          {IrBuilder::create<Int>(n),
+           IrBuilder::create<Int>(k),
+           IrBuilder::create<Int>(m)});
+      auto tv3 = reshape(tv2, {n, k, m}, {n, k * m});
+      auto tv4 = reshape(tv3, {n, k * m}, {n, m, k});
+      auto tv5 = transpose(tv4, 0, 1);
+      auto tv6 = reshape(tv5, {m, n, k}, {m * n, k});
+      fusion.addOutput(tv6);
+
+      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+      auto t0 = at::randn({n, m}, options);
+
+      auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
+
+      auto expect_vec_factor = std::gcd(m, k);
+
+      auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
+        for (auto i : tv->getLeafDomain()) {
+          if (i->getParallelType() == ParallelType::Vectorize) {
+            return i->extent()->evaluateInt();
+          }
+        }
+        return 1;
+      };
+
+      for (auto o : fusion.outputs()) {
+        EXPECT_EQ(
+            getVectorizationFactor(o->as<TensorView>()), expect_vec_factor);
+      }
+      for (auto i : fusion.inputs()) {
+        for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+          EXPECT_EQ(getVectorizationFactor(c), expect_vec_factor);
+        }
+      }
+
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, {t0}, lparams);
+      auto cg_outputs = fe.runFusion({t0}, lparams);
+
+      auto ref = t0.unsqueeze(1)
+                     .expand({-1, k, -1})
+                     .reshape({n, m, k})
+                     .transpose(0, 1)
+                     .reshape({m * n, k});
+
+      testValidate(
+          fusion_ptr.get(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    }
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

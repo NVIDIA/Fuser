@@ -1076,7 +1076,7 @@ int64_t getVectorizationSize(
   int64_t vectorize_size = 1;
 
   for (auto dim : dim_info) {
-    if (vectorize_size > 128 && vectorize_size % 128 == 0) {
+    if (vectorize_size >= 128 && vectorize_size % 128 == 0) {
       return vectorize_size;
     }
     auto& pe = dim.first;
