@@ -149,6 +149,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     });
     broadcast_info.get();
 
+    vectorize_helper::getVectorizationFactor(
+        runtime_info, largest_out, data_cache, 0);
+
     // All cache entries that are expected to be generated in the pointwise
     // scheduler by registry.cpp::HeuristicSummary::validate() must be created
     // before hitting this return.
