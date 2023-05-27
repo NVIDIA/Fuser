@@ -456,27 +456,24 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_ScalarBool, deserializeScalarBoolRecord);
 
-  auto deserializeScalarDoubleRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_Double();
-        return new python_frontend::ScalarRecord<double>(
-            parseStateArgs(buffer->outputs()),
-            serde::RecordType_ScalarDouble,
-            data->value(),
-            mapToNvfuserDtype(data->dtype()));
-      };
-  registerParser(
-      serde::RecordType_ScalarDouble, deserializeScalarDoubleRecord);
+  auto deserializeScalarDoubleRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Double();
+    return new python_frontend::ScalarRecord<double>(
+        parseStateArgs(buffer->outputs()),
+        serde::RecordType_ScalarDouble,
+        data->value(),
+        mapToNvfuserDtype(data->dtype()));
+  };
+  registerParser(serde::RecordType_ScalarDouble, deserializeScalarDoubleRecord);
 
   auto deserializeScalarComplexDoubleRecord =
       [](const serde::RecordFunctor* buffer) {
         auto data = buffer->data_as_ComplexDouble();
-        return new python_frontend::
-            ScalarRecord<std::complex<double>>(
-                parseStateArgs(buffer->outputs()),
-                serde::RecordType_ScalarComplexDouble,
-                std::complex<double>(data->real(), data->imag()),
-                mapToNvfuserDtype(data->dtype()));
+        return new python_frontend::ScalarRecord<std::complex<double>>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarComplexDouble,
+            std::complex<double>(data->real(), data->imag()),
+            mapToNvfuserDtype(data->dtype()));
       };
   registerParser(
       serde::RecordType_ScalarComplexDouble,
@@ -491,7 +488,7 @@ void RecordFunctorFactory::registerAllParsers() {
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(serde::RecordType_ScalarLong, deserializeScalarLongRecord);
-  
+
   auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_ScalarInput();
     return new python_frontend::ScalarRecord<double>(
