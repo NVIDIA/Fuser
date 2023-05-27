@@ -21,28 +21,28 @@ bool isSameDtypeCategory(const DataType& input_t, const DataType& output_t) {
   return false;
 }
 
-// check if type1 is a wider type than type0
-// Which indicates a cast from type0 -> type1 -> type0 should be bit-wise identical
-bool isWiderType(const DataType& type0, const DataType& type1) {
-  if (type0 == type1) {
+// check if type is a wider type than ref
+// Which indicates a cast from ref -> type -> ref should be bit-wise identical
+bool isWiderType(const DataType& ref, const DataType& type) {
+  if (ref == type) {
     return true;
-  } else if (type0 == DataType::Double && (type1 == DataType::Float || type1 == DataType::Half || type1 == DataType::BFloat16)) {
+  } else if (type == DataType::Double && (ref == DataType::Float || ref == DataType::Half || ref == DataType::BFloat16)) {
     return true;
-  } else if (type0 == DataType::Float && (type1 == DataType::Half || type1 == DataType::BFloat16)) {
+  } else if (type == DataType::Float && (ref == DataType::Half || ref == DataType::BFloat16)) {
     return true;
-  } else if (type0 == DataType::Int && type1 == DataType::Int32) {
+  } else if (type == DataType::Int && ref == DataType::Int32) {
     return true;
-  } else if (type0 == DataType::ComplexDouble && type1 == DataType::ComplexFloat) {
+  } else if (type == DataType::ComplexDouble && ref == DataType::ComplexFloat) {
     return true;
   }
   return false;
 }
 
 // note: returns
-//  - -1 : v0 contains strictly less information than v1;
+//  - -1 : v0 contains strictly more information than v1;
 //  - 0  : a complex case, where each v0 and v1 isn't a super set of the other;
 //  - 1  : v0 and v1 has the same dtype;
-//  - 2  : v0 contains strictly more information than v1;
+//  - 2  : v0 contains strictly less information than v1;
 int checkInformationLoss(Val* v0, Val* v1) {
   auto dtype0 = v0->getDataType().value();
   auto dtype1 = v1->getDataType().value();
@@ -54,10 +54,10 @@ int checkInformationLoss(Val* v0, Val* v1) {
     return 0;
   } 
   if (isWiderType(dtype0, dtype1)) {
-    return -1;
+    return 2;
   }
   TORCH_INTERNAL_ASSERT(isWiderType(dtype1, dtype0), "unrecognized cast category is encountered");
-  return 2;
+  return -1;
 }
 
 void castOptimizationPass(Fusion* fusion) {
@@ -122,14 +122,14 @@ void castOptimizationPass(Fusion* fusion) {
           if (expr->output(0)->isFusionOutput()) {
             fusion->replaceOutput(expr->output(0), lo_anchor);
           }
-	} else if (info == -1 || info == 0) {
+	} else if (info == 2 || info == 0) {
           // expr output has either:
 	  //   higher precision than lo_anchor; or
 	  //   incompatible precision
           // in either case, we can't fold away lo_anchor, we'll just re-wire the input to expr to lo_anchor
           expr = nvfuser::ir_utils::replaceValInExpr(
               expr, expr->input(0), lo_anchor);
-	} else if (info == 2) {
+	} else if (info == -1) {
           // if expr has lower precision than lo_anchor, we'll just fold away to the starting_anchor instead
           expr = nvfuser::ir_utils::replaceValInExpr(
               expr, expr->input(0), starting_anchor);

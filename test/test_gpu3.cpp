@@ -8406,9 +8406,16 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     auto tv4 = castOp(DataType::Double, tv3);
     // (input)double -> float -> half -> float -> double
     fusion->addOutput(tv4);
+    printf("----start----\n");
+    fusion->printMath();
     optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    printf("---- opt ----\n");
+    fusion->printMath();
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::Double, ref_tv);
+    printf("---- ref ----\n");
+    fusion->addOutput(ref_tv);
+    fusion->printMath();
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
 }
