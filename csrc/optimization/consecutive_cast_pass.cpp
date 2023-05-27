@@ -21,23 +21,6 @@ bool isSameDtypeCategory(const DataType& input_t, const DataType& output_t) {
   return false;
 }
 
-// check if type is a wider type than ref
-// Which indicates a cast from ref -> type -> ref should be bit-wise identical
-bool isWiderType(const DataType& ref, const DataType& type) {
-  if (ref == type) {
-    return true;
-  } else if (type == DataType::Double && (ref == DataType::Float || ref == DataType::Half || ref == DataType::BFloat16)) {
-    return true;
-  } else if (type == DataType::Float && (ref == DataType::Half || ref == DataType::BFloat16)) {
-    return true;
-  } else if (type == DataType::Int && ref == DataType::Int32) {
-    return true;
-  } else if (type == DataType::ComplexDouble && ref == DataType::ComplexFloat) {
-    return true;
-  }
-  return false;
-}
-
 // note: returns
 //  - -1 : v0 contains strictly more information than v1;
 //  - 0  : a complex case, where each v0 and v1 isn't a super set of the other;
