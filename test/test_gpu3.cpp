@@ -8408,7 +8408,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv4);
     optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
     auto ref_tv = castOp(DataType::Half, tv0);
-    auto ref_tv = castOp(DataType::Double, ref_tv);
+    ref_tv = castOp(DataType::Double, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
 }
