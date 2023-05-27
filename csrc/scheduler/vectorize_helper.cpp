@@ -347,28 +347,6 @@ void ContiguousInnerDimensionsMapper::distributePE(
   addProjectedExtent(merge_or_split->outer(), projected_outer_extent);
 }
 
-void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
-    Split* split,
-    bool outer_maps) {
-  combinePE(split, outer_maps);
-}
-
-void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
-    const Merge* merge) {
-  distributePE(merge);
-}
-
-void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
-    const Merge* merge,
-    bool outer_maps) {
-  combinePE(merge, outer_maps);
-}
-
-void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
-    Split* split) {
-  distributePE(split);
-}
-
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
     TensorView* ref,
     std::vector<IterDomain*> ids) {
@@ -493,8 +471,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
         ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
       }
 
-      propagateExtentSplitBackward(split, outer_mapped);
-
+      combinePE(split, outer_mapped);
     } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
       auto find_out_it = std::find(ids.begin(), ids.end(), merge->out());
       if (find_out_it == ids.end()) {
@@ -505,7 +482,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
       ids[out_pos] = merge->outer();
       ids.insert(ids.begin() + out_pos + 1, merge->inner());
 
-      propagateExtentMergeBackward(merge);
+      distributePE(merge);
     } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
       // Cannot vectorize through resize
       auto find_out_it = std::find(ids.begin(), ids.end(), resize->out());
@@ -640,8 +617,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
         ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
       }
 
-      propagateExtentMergeForward(merge, outer_mapped);
-
+      combinePE(merge, outer_mapped);
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       auto find_in_it = std::find(ids.begin(), ids.end(), split->in());
       if (find_in_it == ids.end()) {
@@ -663,7 +639,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
         continue;
       }
 
-      propagateExtentSplitForward(split);
+      distributePE(split);
     } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
       // Cannot vectorize through resize
       auto find_in_it = std::find(ids.begin(), ids.end(), resize->in());

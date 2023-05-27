@@ -312,12 +312,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
-  // Extent propagation through single transformation operations
-  void propagateExtentSplitBackward(Split* split, bool outer_maps);
-  void propagateExtentMergeBackward(const Merge* merge);
-  void propagateExtentMergeForward(const Merge* merge, bool outer_maps);
-  void propagateExtentSplitForward(Split* split);
-
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
   // recording_ starts as false, and stays that way during the first series of
