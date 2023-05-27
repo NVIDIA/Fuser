@@ -142,6 +142,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals(
 } // namespace factorization_helpers
 
 namespace {
+
 // Search through the almost exact map to see if there's a compile time factor
 // that can be used. Otherwise return the concrete ID extent which makes
 // simplification pass easier as the same factor will be used more consistently
@@ -161,7 +162,13 @@ Val* commonOrConstExtent(
   }
   return ca_map->getConcreteMappedID(id, IdMappingMode::ALMOSTEXACT)->extent();
 }
+
 } // namespace
+
+Bool* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
+  return SimplifyingIrBuilder::eqExpr(
+      getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
+}
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
@@ -219,8 +226,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
           reference_ids.end()) {
         reordered_rfactor.push_back(id);
         // Initiailze the extent for the mapped iter domain
-        ProjectedExtent pe(commonOrConstExtent(ca_map_, id));
-        addProjectedExtent(id, pe);
+        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
         // IDs in the reference tensor as this is the contiguous mapper.
@@ -239,8 +245,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
           reference_ids.end()) {
         reordered_root.push_back(id);
         // Initiailze the extent for the mapped iter domain
-        ProjectedExtent pe(commonOrConstExtent(ca_map_, id));
-        addProjectedExtent(id, pe);
+        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
         // IDs in the reference tensor as this is the contiguous mapper.
@@ -261,11 +266,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   tv_infos_[reference] = reference_information;
 
   traverse(this);
-
-  // Finalize all projected extents
-  for (auto& entry : projected_extent_) {
-    entry.second.finalize();
-  }
 }
 
 ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
@@ -277,62 +277,17 @@ ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
       reference, reference_ids, ca_map, divisible_splits);
 }
 
-void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
-    Split* split,
+template <typename MergeOrSplit>
+void ContiguousInnerDimensionsMapper::combinePE(
+    const MergeOrSplit* merge_or_split,
     bool outer_maps) {
-  // See the comment of propagateExtentMergeForward for more information
-  auto& inner_mapping = getMappedExtent(split->inner());
+  auto projected_inner_extent = getProjectedExtent(merge_or_split->inner());
+  Val* projected_combined_extent = projected_inner_extent;
 
   if (outer_maps) {
-    auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
-        inner_mapping.projectedExtent(),
-        commonOrConstExtent(ca_map_, split->inner()));
-    // Always propagate inner dimension to in backward through split
-    auto in_mapping = inner_mapping;
-    // If inner is fully mapped propagate the outer mapping as well
-    const auto outer_mapping = getMappedExtent(split->outer());
-    in_mapping.maybeMul(inner_is_fully_mapped, outer_mapping);
-    addProjectedExtent(split->in(), in_mapping);
-  } else {
-    // Only inner maps
-    addProjectedExtent(split->in(), getMappedExtent(split->inner()));
-  }
-}
-
-void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
-    const Merge* merge) {
-  auto inner_extent = commonOrConstExtent(ca_map_, merge->inner());
-  auto outer_extent = commonOrConstExtent(ca_map_, merge->outer());
-  auto mapped_out_extent = getMappedExtent(merge->out()).projectedExtent();
-
-  // Propagate out mapping to inner as gcd(out, inner)
-  ProjectedExtent inner_mapping{
-      SimplifyingIrBuilder::gcdExpr(mapped_out_extent, inner_extent)};
-  addProjectedExtent(merge->inner(), inner_mapping);
-
-  // Propagate out mapping to outer as gcd(out / inner, outer)
-  auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
-      inner_mapping.projectedExtent(), inner_extent);
-
-  auto quotient =
-      SimplifyingIrBuilder::divExpr(mapped_out_extent, inner_extent);
-
-  ProjectedExtent outer_mapping(SimplifyingIrBuilder::whereExpr(
-      inner_is_fully_mapped,
-      SimplifyingIrBuilder::gcdExpr(quotient, outer_extent),
-      FusionGuard::getCurFusion()->oneVal()));
-  addProjectedExtent(merge->outer(), outer_mapping);
-}
-
-void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
-    const Merge* merge,
-    bool outer_maps) {
-  auto& inner_mapping = getMappedExtent(merge->inner());
-
-  if (outer_maps) {
-    // Both dimensions map, inner dimension maps fully. We don't map the
-    // outer dimension through if the inner dimension maps partially as we'd
-    // have to support mapping a non-continuous dimension. i.e.:
+    // We don't map the outer dimension through if the inner dimension maps
+    // partially as we'd have to support mapping a non-continuous dimension.
+    // For example:
     //
     // merge(I0*I1, I2*I3) -> I0*I1*I2*I3
     //
@@ -346,45 +301,72 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     // However, I2*I3 completely maps, and I1 partially maps, then we can
     // forward a partially mapped domain to the output of size I1*I2*I3
 
-    // Is the inner dimension is fully mapped
-    auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.projectedExtent(),
-        commonOrConstExtent(ca_map_, merge->inner()));
-
-    // Always propagate inner dimension to in backward through split
-    auto in_projected_extent = inner_mapping;
-    // If inner is fully mapped propagate the outer mapping as well
-    const auto outer_mapping = getMappedExtent(merge->outer());
-    in_projected_extent.maybeMul(inner_is_fully_mapped, outer_mapping);
-    addProjectedExtent(merge->out(), in_projected_extent);
-  } else {
-    // Only inner maps
-    addProjectedExtent(merge->out(), getMappedExtent(merge->inner()));
+    auto maybe_projected_outer_extent = SimplifyingIrBuilder::whereExpr(
+        isFullyProjected(merge_or_split->inner()),
+        getProjectedExtent(merge_or_split->outer()),
+        merge_or_split->container()->oneVal());
+    projected_combined_extent = SimplifyingIrBuilder::mulExpr(
+        maybe_projected_outer_extent, projected_inner_extent);
   }
+
+  if constexpr (std::is_same_v<MergeOrSplit, Merge>) {
+    addProjectedExtent(merge_or_split->out(), projected_combined_extent);
+  } else {
+    static_assert(std::is_same_v<MergeOrSplit, Split>);
+    addProjectedExtent(merge_or_split->in(), projected_combined_extent);
+  }
+}
+
+template <typename MergeOrSplit>
+void ContiguousInnerDimensionsMapper::distributePE(
+    const MergeOrSplit* merge_or_split) {
+  auto inner_extent = commonOrConstExtent(ca_map_, merge_or_split->inner());
+  auto outer_extent = commonOrConstExtent(ca_map_, merge_or_split->outer());
+  Val* projected_combined_extent = nullptr;
+
+  if constexpr (std::is_same_v<MergeOrSplit, Merge>) {
+    projected_combined_extent = getProjectedExtent(merge_or_split->out());
+  } else {
+    static_assert(std::is_same_v<MergeOrSplit, Split>);
+    projected_combined_extent = getProjectedExtent(merge_or_split->in());
+  }
+
+  // Propagate out mapping to inner as gcd(combined, inner)
+  auto projected_inner_extent =
+      SimplifyingIrBuilder::gcdExpr(projected_combined_extent, inner_extent);
+  addProjectedExtent(merge_or_split->inner(), projected_inner_extent);
+
+  // Propagate out mapping to outer as gcd(combined / inner, outer) if inner is
+  // fuly projected
+  auto quotient =
+      SimplifyingIrBuilder::divExpr(projected_combined_extent, inner_extent);
+  auto projected_outer_extent = SimplifyingIrBuilder::whereExpr(
+      isFullyProjected(merge_or_split->inner()),
+      SimplifyingIrBuilder::gcdExpr(quotient, outer_extent),
+      FusionGuard::getCurFusion()->oneVal());
+  addProjectedExtent(merge_or_split->outer(), projected_outer_extent);
+}
+
+void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
+    Split* split,
+    bool outer_maps) {
+  combinePE(split, outer_maps);
+}
+
+void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
+    const Merge* merge) {
+  distributePE(merge);
+}
+
+void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
+    const Merge* merge,
+    bool outer_maps) {
+  combinePE(merge, outer_maps);
 }
 
 void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
     Split* split) {
-  auto inner_extent = commonOrConstExtent(ca_map_, split->inner());
-  auto outer_extent = commonOrConstExtent(ca_map_, split->outer());
-  auto mapped_in_extent = getMappedExtent(split->in()).projectedExtent();
-
-  // Propagate in mapping to inner as gcd(in, inner)
-  ProjectedExtent inner_mapping{
-      SimplifyingIrBuilder::gcdExpr(mapped_in_extent, inner_extent)};
-  addProjectedExtent(split->inner(), inner_mapping);
-
-  // Propagate in mapping to outer as gcd(in / inner, outer)
-  auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
-      inner_mapping.projectedExtent(), inner_extent);
-
-  auto quotient = SimplifyingIrBuilder::divExpr(mapped_in_extent, inner_extent);
-
-  ProjectedExtent outer_mapping(SimplifyingIrBuilder::whereExpr(
-      inner_is_fully_mapped,
-      SimplifyingIrBuilder::gcdExpr(quotient, outer_extent),
-      FusionGuard::getCurFusion()->oneVal()));
-  addProjectedExtent(split->outer(), outer_mapping);
+  distributePE(split);
 }
 
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
@@ -765,7 +747,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
             consumer_ids_to_clear.end()) {
       producer_rfactor_ids.push_back(c2p_it->second);
       if (recording_) {
-        addProjectedExtent(c2p_it->second, getMappedExtent(c2p_it->first));
+        addProjectedExtent(c2p_it->second, getProjectedExtent(c2p_it->first));
       }
     }
   }
@@ -827,7 +809,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
             producer_ids_to_clear.end()) {
       consumer_root_ids.push_back(p2c_it->second);
       if (recording_) {
-        addProjectedExtent(p2c_it->second, getMappedExtent(p2c_it->first));
+        addProjectedExtent(p2c_it->second, getProjectedExtent(p2c_it->first));
       }
     }
   }
@@ -871,7 +853,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     if (recording_) {
       addProjectedExtent(
           to->getRootDomain()[pos],
-          getMappedExtent(from->getRootDomain()[pos]));
+          getProjectedExtent(from->getRootDomain()[pos]));
     }
   }
 
@@ -914,7 +896,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     if (recording_) {
       addProjectedExtent(
           to->getRFactorDomain()[pos],
-          getMappedExtent(from->getRFactorDomain()[pos]));
+          getProjectedExtent(from->getRFactorDomain()[pos]));
     }
   }
 
@@ -966,18 +948,11 @@ std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
   return mappers;
 }
 
-// Returns ProjectedExtent entires that should be evaluated and multiplied based
-// on contiguity of reference, dimensions mapped to ref in mapper, and
-// divisibiltiy/partial mapping of the vector.
-//
-// TODO: Rename, recomment (ProjectedExtent references based on mapper. Lifetime
-// has to be managed the same as mapper, or references returned will be
-// invalid).
-std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
+std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper) {
-  // Logic copied to get root according to scheduler_utils::innerMostRootDim
-  // also copied from SchedulerRuntimeInfo::getMaxVectorizableWidth
+  // Logic copied to get root according to
+  // SchedulerRuntimeInfo::getMaxVectorizableWidth
   bool use_root_dom = of_tv->hasReduction() && of_tv->hasRFactor();
   auto of_tv_root =
       use_root_dom ? of_tv->getRootDomain() : of_tv->getMaybeRFactorDomain();
@@ -1016,7 +991,7 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       of_tv_root_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
 
-  std::vector<std::pair<ProjectedExtent&, IterDomain*>> vectorizable_dim_sizes;
+  std::vector<std::pair<IterDomain*, Val*>> vectorizable_dim_sizes;
 
   // Order is important, need to make sure dimensions match up correctly with
   // what was propogated through the mapper. The mapper's dimensions is
@@ -1054,9 +1029,8 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
       break;
     }
 
-    auto& mapped_extent_PE = mapper.getMappedExtent(root_id);
-
-    vectorizable_dim_sizes.emplace_back(mapped_extent_PE, root_id);
+    vectorizable_dim_sizes.emplace_back(
+        root_id, mapper.getProjectedExtent(root_id));
   }
   return vectorizable_dim_sizes;
 }
@@ -1065,7 +1039,7 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
 // evaluated values. However, nothing will be modified in this function for
 // either object. Max vectorize size returned will be 128.
 int64_t getVectorizationSize(
-    std::vector<std::pair<ProjectedExtent&, IterDomain*>> dim_info,
+    std::vector<std::pair<IterDomain*,Val*>> dim_info,
     ExpressionEvaluator& expr_eval) {
   if (dim_info.empty()) {
     return 1;
@@ -1079,8 +1053,8 @@ int64_t getVectorizationSize(
     if (vectorize_size >= 128 && vectorize_size % 128 == 0) {
       return vectorize_size;
     }
-    auto& pe = dim.first;
-    auto projected_extent_optional = expr_eval.evaluate(pe.projectedExtent());
+    auto& pe = dim.second;
+    auto projected_extent_optional = expr_eval.evaluate(pe);
     TORCH_INTERNAL_ASSERT(
         projected_extent_optional.has_value(),
         "Vectorization heuristic could not evaluate required extents.");

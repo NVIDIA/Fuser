@@ -17,6 +17,7 @@
 #include <ir/builder.h>
 
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace nvfuser {
@@ -61,61 +62,6 @@ TORCH_CUDA_CU_API std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals
     const std::vector<Val*>& vec1,
     const std::vector<Val*>& vec2);
 } // namespace factorization_helpers
-
-// Helper class that to track partial mappings of extents. The stored extent in
-// this class is product(numerator values)/product(denominator values) and has
-// basic functionality like adding a multiplied factor to either the numerator
-// or denominator. This class starts with a value of 0/1, but once a value is
-// added it can never be zero again.
-class TORCH_CUDA_CU_API ProjectedExtent {
- public:
-  std::string toString() const {
-    return projected_extent_->toInlineString();
-  }
-
-  ProjectedExtent() = default;
-
-  ProjectedExtent(Val* projected_extent)
-      : projected_extent_(projected_extent) {}
-
-  Val* projectedExtent() const {
-    if (simplified_projected_extent_ != nullptr) {
-      return simplified_projected_extent_;
-    }
-    if (projected_extent_ != nullptr) {
-      return projected_extent_;
-    }
-    return FusionGuard::getCurFusion()->oneVal();
-  }
-
-  // Multiply by other but wrap each value in other with the provided predicate.
-  void maybeMul(Val* pred, const ProjectedExtent& other) {
-    TORCH_INTERNAL_ASSERT(
-        simplified_projected_extent_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-    TORCH_INTERNAL_ASSERT(
-        pred != nullptr && pred->isA<Bool>(),
-        "Predicate must be a bool value for this function.");
-
-    if (other.projected_extent_ == nullptr) {
-      return;
-    }
-    if (projected_extent_ == nullptr) {
-      projected_extent_ = other.projected_extent_;
-    } else {
-      projected_extent_ = SimplifyingIrBuilder::mulExpr(
-          projected_extent_, other.projected_extent_);
-    }
-  }
-
-  void finalize() {
-    simplified_projected_extent_ = simplifyExpr(projected_extent_);
-  }
-
- private:
-  Val* projected_extent_ = nullptr;
-  Val* simplified_projected_extent_ = nullptr;
-};
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
@@ -267,11 +213,10 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  ProjectedExtent& getMappedExtent(IterDomain* id) {
-    if (projected_extent_.find(id) != projected_extent_.end()) {
-      return projected_extent_.at(id);
+  Val* getProjectedExtent(IterDomain* id) {
+    if (projected_extent_.find(id) == projected_extent_.end()) {
+      projected_extent_[id] = id->container()->oneVal();
     }
-    projected_extent_[id] = ProjectedExtent();
     return projected_extent_.at(id);
   }
 
@@ -319,12 +264,23 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     bool is_c2p_ = true;
   };
 
-  void addProjectedExtent(IterDomain* id, ProjectedExtent pe) {
+  // TODO: make pe a lanmda function so it is not evaluated if not needed
+  void addProjectedExtent(IterDomain* id, Val* pe) {
     if (!recording_) {
       return;
     }
-    projected_extent_[id] = pe;
+    projected_extent_[id] = simplifyExpr(pe);
   }
+
+  // Return a boolean predicate indicating if the given ID is fully projected.
+  Bool* isFullyProjected(IterDomain* id);
+
+  // From the projected extent (PE) of I1 and I2, update the PE of I1*I2.
+  template <typename MergeOrSplit>
+  void combinePE(const MergeOrSplit* merge_or_split, bool outer_maps);
+  // From the projected extent (PE) of I1*I2, update the PE of I1 and I2.
+  template <typename MergeOrSplit>
+  void distributePE(const MergeOrSplit* merge_or_split);
 
   // MaxInfoSpanningTree functions
   std::shared_ptr<Information> computeInfoC2P(
@@ -380,7 +336,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<MaxInfoSpanningTree::Information>>
       tv_infos_;
 
-  std::unordered_map<IterDomain*, ProjectedExtent> projected_extent_;
+  std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
 // Returns Mappings of all dims in reference starting from inner most position
@@ -392,10 +348,11 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
     TensorView* ref);
 
-// Returns PartialExtent entires associated with each dimension that should be
+// TODO: return Val*
+// Returns projected extents associated with each dimension that should be
 // evaluated based on contiguity of reference and dimensions mapped to ref in
 // mapper.
-std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
+std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper);
 
