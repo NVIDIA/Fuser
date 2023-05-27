@@ -1104,7 +1104,7 @@ class CuModuleLoadDataDriver {
   //! Enable logging of cuModuleLoadData
   void enableLogging() {
     logging_enabled_ = true;
-    log_.reserve(kLogSize);
+    log_.resize(kLogSize);
   }
 
   const std::string& log() const {
