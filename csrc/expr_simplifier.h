@@ -534,6 +534,9 @@
 
 // Note: [Simplification of boolean predicates]
 //
+// 1. Introduction
+// ===============
+//
 // This note lists some rules we use to simplify boolean predicates, and provide
 // the proofs of these rules.
 //
@@ -577,7 +580,10 @@
 //    conflict with f(x) < f(y)
 //
 // With these lemmas, we can study possible simplification rules for boolean
-// predicates. One interesting application is on division.
+// predicates.
+//
+// 2. Division
+// ===========
 //
 // Different type of divisions are studied in the following paper:
 //   Boute, Raymond T. "The Euclidean definition of the functions div and mod."
@@ -600,6 +606,43 @@
 //    have i % d >= 0. So i / d * d <= i / d * d + i % d < D * d. That is,
 //    i / d * d < D * d. Consider the function g(x) = x * d, which is strictly
 //    increasing. According to Lemma 1 (1), g(i / d) < g(D) indicates i/d < D.
+//
+// 3. Multiplication
+// =================
+//
+// Consider the function f(x) = x * d, this function is
+// - strictly increasing if d > 0
+// - strictly decreasing if d < 0
+// - weakly increasing if d >= 0
+// - weakly decreasing if d <= 0
+//
+// So, according to lemma 1 we have:
+// Theorem 3.1:
+// 1. if d > 0, then x * d < y * d <=> x < y, x * d <= y * d <=> x <= y
+// 2. if d < 0, then x * d < y * d <=> x > y, x * d <= y * d <=> x >= y
+//
+// According to lemma 2 we have:
+// Theorem 3.2:
+// 1. if d >= 0, x <= y => x * d <= y * d
+// 2. if d >= 0, x * d < y * d => x < y
+// 3. if d <= 0, y <= x => x * d <= y * d
+// 4. if d <= 0, y * d < x * d => x < y
+//
+// For the case where x = 1, Theorem 3.1 and 3.2 can be simplified to:
+// Corollary 3.1:
+// 1. if d > 0, then d < y * d <=> 1 < y, d <= y * d <=> 1 <= y
+// 2. if d < 0, then d < y * d <=> 1 > y, d <= y * d <=> 1 >= y
+// Corollary 3.2:
+// 1. if d >= 0, 1 <= y => d <= y * d
+// 2. if d >= 0, d < y * d => 1 < y
+// 3. if d <= 0, y <= 1 => d <= y * d
+// 4. if d <= 0, y * d < d => 1 < y
+//
+// So, if we want to prove d < y * d or d <= y * d, we can use the following
+// theorem:
+// Theorem 3.3:
+// 1. If 1 < y & 0 < d, or y < 1 & d < 0, then d < y * d
+// 2. If 0 <= d & 1 <= y, or d <= 0 & y <= 1 then d <= y * d
 
 namespace nvfuser {
 

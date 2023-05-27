@@ -1375,6 +1375,7 @@ bool lessThan(Val* x, Val* y, const Context& context) {
       return true;
     }
   }
+  // See [Simplification of boolean predicates] rule 2
   return false;
 }
 
