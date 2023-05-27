@@ -12,8 +12,8 @@
 #include <c10/util/variant.h>
 #include <cmath>
 #include <iostream>
-#include <variant>
 #include <numeric>
+#include <variant>
 
 namespace nvfuser {
 
