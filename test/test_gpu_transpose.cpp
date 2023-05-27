@@ -672,9 +672,9 @@ TEST_F(NVFuserTest, TMP) {
       {IrBuilder::create<Int>(n),
        IrBuilder::create<Int>(3),
        IrBuilder::create<Int>(2)});
-  auto tv3 = view(tv2, {n, 3, 2}, {n, 2, 3});
-  auto tv4 = transpose(tv3, {0, 1});
-  auto tv5 = view(tv4, {2, n, 3}, {2 * n, 3});
+  auto tv3 = reshape(tv2, {n, 3, 2}, {n, 2, 3});
+  auto tv4 = transpose(tv3, 0, 1);
+  auto tv5 = reshape(tv4, {2, n, 3}, {2 * n, 3});
   fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -684,7 +684,7 @@ TEST_F(NVFuserTest, TMP) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto ref = t0.unsqueeze(1)
-                 .expand(-1, 3, -1)
+                 .expand({-1, 3, -1})
                  .reshape({n, 2, 3})
                  .transpose(0, 1)
                  .reshape({2 * n, 3});
