@@ -368,6 +368,14 @@ bool Val::isOneInt() const {
   return int_val.has_value() && int_val.value() == 1;
 }
 
+bool Val::isTrue() const {
+  return getBool() == true;
+}
+
+bool Val::isFalse() const {
+  return getBool() == false;
+}
+
 c10::optional<DataType> Val::getDataType() const {
   TORCH_INTERNAL_ASSERT(
       dtype_ != DataType::Null, "Value does not have a data type.");
