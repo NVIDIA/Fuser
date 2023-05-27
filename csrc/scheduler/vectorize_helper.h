@@ -342,11 +342,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
     TensorView* ref);
 
-// TODO: return Val*
-// Returns projected extents associated with each dimension that should be
-// evaluated based on contiguity of reference and dimensions mapped to ref in
-// mapper.
-std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
+// Returns the projected inner size. Contiguous inner dimensions are merged.
+Val* getContigMergeOfInnerSize(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper);
 

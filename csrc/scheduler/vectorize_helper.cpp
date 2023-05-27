@@ -924,9 +924,10 @@ std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
   return mappers;
 }
 
-std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
+Val* getContigMergeOfInnerSize(
     TensorView* of_tv,
     ContiguousInnerDimensionsMapper& mapper) {
+  Val* product_of_inner_extents = of_tv->container()->oneVal();
   // Logic copied to get root according to
   // SchedulerRuntimeInfo::getMaxVectorizableWidth
   bool use_root_dom = of_tv->hasReduction() && of_tv->hasRFactor();
@@ -934,7 +935,7 @@ std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
       use_root_dom ? of_tv->getRootDomain() : of_tv->getMaybeRFactorDomain();
 
   if (!mapper.hasMappedDims(of_tv)) {
-    return {};
+    return product_of_inner_extents;
   }
 
   const std::vector<IterDomain*>& projected_dims = use_root_dom
@@ -960,14 +961,12 @@ std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
 
   // Filter out 0-dim tensors
   if (of_tv_root_no_reductions_size < 1) {
-    return {};
+    return product_of_inner_extents;
   }
 
   TORCH_INTERNAL_ASSERT(
       of_tv_root_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
-
-  std::vector<std::pair<IterDomain*, Val*>> vectorizable_dim_sizes;
 
   // Order is important, need to make sure dimensions match up correctly with
   // what was propogated through the mapper. The mapper's dimensions is
@@ -1005,40 +1004,23 @@ std::vector<std::pair<IterDomain*, Val*>> getContigVectorSizesOf(
       break;
     }
 
-    vectorizable_dim_sizes.emplace_back(
-        root_id, mapper.getProjectedExtent(root_id));
+    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
+        product_of_inner_extents, mapper.getProjectedExtent(root_id));
   }
-  return vectorizable_dim_sizes;
+  return product_of_inner_extents;
 }
 
 // ProjectedExtent and ExpressionEvaluation cannot be const since they have lazy
 // evaluated values. However, nothing will be modified in this function for
 // either object. Max vectorize size returned will be 128.
 int64_t getVectorizationSize(
-    std::vector<std::pair<IterDomain*,Val*>> dim_info,
+    Val* innermost_size,
     ExpressionEvaluator& expr_eval) {
-  if (dim_info.empty()) {
-    return 1;
-  }
-
-  // Reverse the size vector to traverse from the innermost dimensions
-  std::reverse(dim_info.begin(), dim_info.end());
-  int64_t vectorize_size = 1;
-
-  for (auto dim : dim_info) {
-    if (vectorize_size >= 128 && vectorize_size % 128 == 0) {
-      return vectorize_size;
-    }
-    auto& pe = dim.second;
-    auto projected_extent_optional = expr_eval.evaluate(pe);
-    TORCH_INTERNAL_ASSERT(
-        projected_extent_optional.has_value(),
-        "Vectorization heuristic could not evaluate required extents.");
-    auto projected_extent = projected_extent_optional->as<int64_t>();
-
-    vectorize_size = vectorize_size * projected_extent;
-  }
-  return vectorize_size;
+  auto innermost_size_optional = expr_eval.evaluate(innermost_size);
+  TORCH_INTERNAL_ASSERT(
+      innermost_size_optional.has_value(),
+      "Vectorization heuristic could not evaluate required extents.");
+  return innermost_size_optional->as<int64_t>();
 }
 
 size_t getVectorizationFactor(
@@ -1090,7 +1072,7 @@ size_t getVectorizationFactor(
   size_t max_supported_vector_size = max_vec_size;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     size_t contig_dim_size = getVectorizationSize(
-        getContigVectorSizesOf(inp_or_out, reference_map),
+        getContigMergeOfInnerSize(inp_or_out, reference_map),
         runtime_info.expressionEvaluator());
     size_t local_max_vec_size = 1;
 
