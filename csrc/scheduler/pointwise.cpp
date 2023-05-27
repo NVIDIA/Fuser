@@ -149,14 +149,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     });
     broadcast_info.get();
 
-    auto vectorize_maps_entry =
-        HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>(
-            data_cache, [&largest_out]() {
-              return std::make_unique<std::vector<
-                  vectorize_helper::ContiguousInnerDimensionsMapper>>(
-                  vectorize_helper::getAllVectorizedMapsOf(largest_out));
-            });
-
     // All cache entries that are expected to be generated in the pointwise
     // scheduler by registry.cpp::HeuristicSummary::validate() must be created
     // before hitting this return.

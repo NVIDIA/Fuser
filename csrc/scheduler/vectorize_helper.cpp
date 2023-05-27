@@ -11,6 +11,7 @@
 #include <contiguity.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
@@ -907,26 +908,8 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
   tv_infos_[to] = to_info;
 }
 
-// Returns Mappings of all dims in reference starting from inner most position
-// to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
-// associated with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
-    TensorView* ref) {
-  std::vector<ContiguousInnerDimensionsMapper> mappers;
-  auto root_dom = ref->hasReduction() && ref->hasRFactor()
-      ? ref->getRootDomain()
-      : ref->getMaybeRFactorDomain();
-  while (!root_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom));
-    root_dom.erase(root_dom.begin());
-  }
-  return mappers;
-}
-
-Val* getContigMergeOfInnerSize(
-    TensorView* of_tv,
-    ContiguousInnerDimensionsMapper& mapper) {
+Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
+    TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   // Logic copied to get root according to
   // SchedulerRuntimeInfo::getMaxVectorizableWidth
@@ -934,13 +917,10 @@ Val* getContigMergeOfInnerSize(
   auto of_tv_root =
       use_root_dom ? of_tv->getRootDomain() : of_tv->getMaybeRFactorDomain();
 
-  if (!mapper.hasMappedDims(of_tv)) {
-    return product_of_inner_extents;
-  }
+  TORCH_INTERNAL_ASSERT(hasMappedDims(of_tv));
 
-  const std::vector<IterDomain*>& projected_dims = use_root_dom
-      ? mapper.mappedRootIds(of_tv)
-      : mapper.mappedRFactorIds(of_tv);
+  const std::vector<IterDomain*>& projected_dims =
+      use_root_dom ? mappedRootIds(of_tv) : mappedRFactorIds(of_tv);
   auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
 
   auto contiguity = of_tv->domain()->contiguity();
@@ -1005,23 +985,41 @@ Val* getContigMergeOfInnerSize(
     }
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, mapper.getProjectedExtent(root_id));
+        product_of_inner_extents, getProjectedExtent(root_id));
   }
-  return product_of_inner_extents;
+  return simplifyExpr(product_of_inner_extents);
 }
 
-// ProjectedExtent and ExpressionEvaluation cannot be const since they have lazy
-// evaluated values. However, nothing will be modified in this function for
-// either object. Max vectorize size returned will be 128.
-int64_t getVectorizationSize(
-    Val* innermost_size,
-    ExpressionEvaluator& expr_eval) {
-  auto innermost_size_optional = expr_eval.evaluate(innermost_size);
-  TORCH_INTERNAL_ASSERT(
-      innermost_size_optional.has_value(),
-      "Vectorization heuristic could not evaluate required extents.");
-  return innermost_size_optional->as<int64_t>();
+std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::
+    getTvToContigMergeOfInnerSizeMap() {
+  std::unordered_map<TensorView*, Val*> result;
+  for (auto& [tv, _] : tv_infos_) {
+    result[tv] = getContigMergeOfInnerSize(tv);
+  }
+  return result;
 }
+
+namespace {
+
+// Returns Mappings of all dims in reference starting from inner most position
+// to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
+// associated with:
+// {{i0, r1, b1}, {r1, b1}, {b1}}
+std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
+    TensorView* ref) {
+  std::vector<std::unordered_map<TensorView*, Val*>> mappers;
+  auto root_dom = ref->hasReduction() && ref->hasRFactor()
+      ? ref->getRootDomain()
+      : ref->getMaybeRFactorDomain();
+  while (!root_dom.empty()) {
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
+                          .getTvToContigMergeOfInnerSizeMap());
+    root_dom.erase(root_dom.begin());
+  }
+  return mappers;
+}
+
+} // namespace
 
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
@@ -1039,11 +1037,11 @@ size_t getVectorizationFactor(
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
   auto vectorize_maps_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>(
+      HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
           data_cache, [&reference_tv]() {
             return std::make_unique<
-                std::vector<vectorize_helper::ContiguousInnerDimensionsMapper>>(
-                vectorize_helper::getAllVectorizedMapsOf(reference_tv));
+                std::vector<std::unordered_map<TensorView*, Val*>>>(
+                getTvToContigInnerSizeMapsOf(reference_tv));
           });
 
   if (vectorizable_inputs_outputs.empty()) {
@@ -1067,18 +1065,25 @@ size_t getVectorizationFactor(
         common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
   }
 
-  auto reference_map = vectorize_maps_entry.get().at(break_point);
+  auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
   // Initialize to max the tensors could support.
   size_t max_supported_vector_size = max_vec_size;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    size_t contig_dim_size = getVectorizationSize(
-        getContigMergeOfInnerSize(inp_or_out, reference_map),
-        runtime_info.expressionEvaluator());
+    auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
+    auto inner_size_val = inner_size_it != tv_to_inner_size_map.end()
+        ? inner_size_it->second
+        : inp_or_out->container()->oneVal();
+    auto inner_size_opt =
+        runtime_info.expressionEvaluator().evaluate(inner_size_val);
+    TORCH_INTERNAL_ASSERT(
+        inner_size_opt.has_value(),
+        "Vectorization heuristic could not evaluate inner most size.");
+    int64_t inner_size = inner_size_opt->as<int64_t>();
     size_t local_max_vec_size = 1;
 
-    while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
+    while (inner_size > 1 && inner_size % 2 == 0 &&
            local_max_vec_size < max_vec_size) {
-      contig_dim_size /= 2;
+      inner_size /= 2;
       local_max_vec_size *= 2;
     }
 

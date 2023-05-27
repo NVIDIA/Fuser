@@ -13,10 +13,10 @@
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <expr_simplifier.h>
 #include <ir/builder.h>
 
 #include <sstream>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -220,6 +220,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     return projected_extent_.at(id);
   }
 
+  std::unordered_map<TensorView*, Val*> getTvToContigMergeOfInnerSizeMap();
+
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
@@ -269,7 +271,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
-    projected_extent_[id] = simplifyExpr(pe);
+    projected_extent_[id] = pe;
   }
 
   // Return a boolean predicate indicating if the given ID is fully projected.
@@ -281,6 +283,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   // From the projected extent (PE) of I1*I2, update the PE of I1 and I2.
   template <typename MergeOrSplit>
   void distributePE(const MergeOrSplit* merge_or_split);
+
+  // Returns the projected inner size. Contiguous inner dimensions are merged.
+  Val* getContigMergeOfInnerSize(TensorView* of_tv);
 
   // MaxInfoSpanningTree functions
   std::shared_ptr<Information> computeInfoC2P(
@@ -332,20 +337,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
-
-// Returns Mappings of all dims in reference starting from inner most position
-// to outer most position.
-//
-// A tensor like T0[i0, r1, b2] will return 3 Mapper instances associated
-// with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
-    TensorView* ref);
-
-// Returns the projected inner size. Contiguous inner dimensions are merged.
-Val* getContigMergeOfInnerSize(
-    TensorView* of_tv,
-    ContiguousInnerDimensionsMapper& mapper);
 
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
