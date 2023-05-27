@@ -8406,7 +8406,8 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Double, tv);
     // (input)double -> float -> half -> float -> double
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+        fusion.get());
     // simplified as (input)double -> half -> double
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::Double, ref_tv);
@@ -8427,7 +8428,8 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     printf("----start----\n");
     fusion->printMath();
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+        fusion.get());
     printf("---- opt ----\n");
     fusion->printMath();
     // TODO: should I have copied the tensor to avoid an alised output?!
@@ -8454,11 +8456,13 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     tv = castOp(DataType::Double, tv);
     tv = castOp(DataType::Float, tv);
-    // (input)float -> double -> half -> float -> double -> float -> double -> float -> double -> float
+    // (input)float -> double -> half -> float -> double -> float -> double ->
+    // float -> double -> float
     fusion->addOutput(tv);
     printf("----start----\n");
     fusion->printMath();
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+        fusion.get());
     printf("---- opt ----\n");
     fusion->printMath();
     // TODO: should I have copied the tensor to avoid an alised output?!
@@ -8488,7 +8492,8 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     printf("----start----\n");
     fusion->printMath();
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+        fusion.get());
     printf("---- opt ----\n");
     fusion->printMath();
     // TODO: should I have copied the tensor to avoid an alised output?!
