@@ -3615,6 +3615,16 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
       OpTuple{at::mul, BinaryOpType::Mul, "mul"},
       OpTuple{at::pow, BinaryOpType::Pow, "pow"}};
 
+  std::vector<OpTuple> int_only_ops{
+      OpTuple{at::gcd, BinaryOpType::Gcd, "gcd"},
+      OpTuple{at::bitwise_left_shift, BinaryOpType::Lshift, "bitwise_left_shift"},
+      OpTuple{at::bitwise_right_shift, BinaryOpType::Rshift, "bitwise_right_shift"}};
+
+  std::vector<OpTuple> int_and_bool_ops{
+      OpTuple{at::bitwise_and, BinaryOpType::And, "bitwise_and"},
+      OpTuple{at::bitwise_or, BinaryOpType::Or, "bitwise_or"},
+      OpTuple{at::bitwise_xor, BinaryOpType::Xor, "bitwise_xor"}};
+
   // The following ops has no complex support in eager mode
   std::vector<OpTuple> math_ops_without_complex{
       OpTuple{at::atan2, BinaryOpType::Atan2, "atan2"},
@@ -3656,6 +3666,22 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
           enabled_math_ops.end(),
           math_ops_without_complex.begin(),
           math_ops_without_complex.end());
+    }
+    if (isIntegralType(dtype)) {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          int_only_ops.begin(),
+          int_only_ops.end());
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          int_and_bool_ops.begin(),
+          int_and_bool_ops.end());
+    }
+    if (dtype == DataType::Bool) {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          int_and_bool_ops.begin(),
+          int_and_bool_ops.end());
     }
     std::for_each(
         enabled_math_ops.begin(), enabled_math_ops.end(), [&](OpTuple& op) {

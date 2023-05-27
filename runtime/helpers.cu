@@ -369,6 +369,16 @@ __device__ int64_t signbit(int64_t a) {
   return a < 0;
 }
 
+// Reference:
+// https://github.com/llvm/llvm-project/blob/273303ad66a32e5e599bef5ee18c3a9f589e530d/compiler-rt/lib/xray/xray_utils.h#L57-L59
+__device__ int64_t gcd(int64_t a, int64_t b) {
+  return (b == 0) ? a : gcd(b, a % b);
+}
+
+__device__ int gcd(int a, int b) {
+  return (b == 0) ? a : gcd(b, a % b);
+}
+
 template <int size, int align = size>
 struct alignas(align) TypelessData {
   int8_t data[size];
