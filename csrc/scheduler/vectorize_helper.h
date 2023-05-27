@@ -69,120 +69,52 @@ TORCH_CUDA_CU_API std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals
 // added it can never be zero again.
 class TORCH_CUDA_CU_API ProjectedExtent {
  public:
-  // Multiply numerator by provided value, or if currently zero set numerator to
-  // provided value.
-  void multiplyNumeratorValue(Val* new_numerator_val) {
-    TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-    if (numerator_ == nullptr) {
-      numerator_ = new_numerator_val;
-    } else {
-      numerator_ = SimplifyingIrBuilder::mulExpr(numerator_, new_numerator_val);
-    }
-
-    zero_ = false;
+  std::string toString() const {
+    return projected_extent_->toInlineString();
   }
 
-  // Multiply denominator by provided value
-  void multiplyDenominatorValue(Val* new_denominator_val) {
-    TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-    if (numerator_ == nullptr) {
-      denominator_ = new_denominator_val;
-    } else {
-      denominator_ =
-          SimplifyingIrBuilder::mulExpr(denominator_, new_denominator_val);
+  ProjectedExtent() = default;
+
+  ProjectedExtent(Val* projected_extent)
+      : projected_extent_(projected_extent) {}
+
+  Val* projectedExtent() const {
+    if (simplified_projected_extent_ != nullptr) {
+      return simplified_projected_extent_;
     }
+    if (projected_extent_ != nullptr) {
+      return projected_extent_;
+    }
+    return FusionGuard::getCurFusion()->oneVal();
   }
 
   // Multiply by other but wrap each value in other with the provided predicate.
   void maybeMul(Val* pred, const ProjectedExtent& other) {
     TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
+        simplified_projected_extent_ == nullptr,
         "Can not modify finalized ProjectedExtent.");
-
-    TORCH_INTERNAL_ASSERT(
-        !other.isZero(),
-        "Maybe multiplying by zero ProjectedExtent not supported.");
-
     TORCH_INTERNAL_ASSERT(
         pred != nullptr && pred->isA<Bool>(),
         "Predicate must be a bool value for this function.");
 
-    multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-        pred, other.numerator(), FusionGuard::getCurFusion()->oneVal()));
-    multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-        pred, other.denominator(), FusionGuard::getCurFusion()->oneVal()));
-  }
-
-  Val* numerator() const {
-    return numerator_ != nullptr ? numerator_
-                                 : FusionGuard::getCurFusion()->oneVal();
-  }
-
-  Val* denominator() const {
-    return denominator_ != nullptr ? denominator_
-                                   : FusionGuard::getCurFusion()->oneVal();
-  }
-
-  Val* quotient() const {
-    if (quotient_ != nullptr) {
-      return quotient_;
+    if (other.projected_extent_ == nullptr) {
+      return;
     }
-    return SimplifyingIrBuilder::divExpr(numerator(), denominator());
-  }
-
-  Val* isDivisible() const {
-    if (is_divisible_ != nullptr) {
-      return is_divisible_;
+    if (projected_extent_ == nullptr) {
+      projected_extent_ = other.projected_extent_;
+    } else {
+      projected_extent_ = SimplifyingIrBuilder::mulExpr(
+          projected_extent_, other.projected_extent_);
     }
-    return SimplifyingIrBuilder::eqExpr(
-        SimplifyingIrBuilder::modExpr(numerator(), denominator()),
-        numerator()->container()->zeroVal());
   }
 
-  bool isZero() const {
-    return zero_;
-  }
-
-  std::string toString() const {
-    std::stringstream ss;
-    ss << numerator()->toInlineString() << " , "
-       << denominator()->toInlineString();
-    return ss.str();
-  }
-
-  // Run expression simplification and store results in quotient_ and
-  // is_divisible_. This is important because we might use expr evaluator to
-  // evaluate their values multiple times, so we want to simplify them once and
-  // cache the result so that later evaluation can save time.
   void finalize() {
-    if (quotient_ == nullptr) {
-      // TODO: print the simplified expression and see if expr simplifier needs
-      // improvement
-      quotient_ = simplifyExpr(quotient());
-    }
-    if (is_divisible_ == nullptr) {
-      // TODO: print the simplified expression and see if expr simplifier needs
-      // improvement
-      is_divisible_ = simplifyExpr(isDivisible());
-    }
+    simplified_projected_extent_ = simplifyExpr(projected_extent_);
   }
 
  private:
-  // Fraction starts at zero, but if a value is ever added in the numerator it
-  // can never be zero again, it must be at least 1.
-  bool zero_ = true;
-
-  // numerator and denominator values (product of the sets below)
-  Val* numerator_ = nullptr;
-  Val* denominator_ = nullptr;
-
-  // Simplified quotient and isDivisible values
-  Val* quotient_ = nullptr;
-  Val* is_divisible_ = nullptr;
+  Val* projected_extent_ = nullptr;
+  Val* simplified_projected_extent_ = nullptr;
 };
 
 // Projects IterDomains through the fusion starting at provided reference. IDs

@@ -219,8 +219,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
           reference_ids.end()) {
         reordered_rfactor.push_back(id);
         // Initiailze the extent for the mapped iter domain
-        ProjectedExtent pe;
-        pe.multiplyNumeratorValue(commonOrConstExtent(ca_map_, id));
+        ProjectedExtent pe(commonOrConstExtent(ca_map_, id));
         addProjectedExtent(id, pe);
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
@@ -240,8 +239,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
           reference_ids.end()) {
         reordered_root.push_back(id);
         // Initiailze the extent for the mapped iter domain
-        ProjectedExtent pe;
-        pe.multiplyNumeratorValue(commonOrConstExtent(ca_map_, id));
+        ProjectedExtent pe(commonOrConstExtent(ca_map_, id));
         addProjectedExtent(id, pe);
       } else if (!id->isBroadcast()) {
         // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
@@ -282,28 +280,13 @@ ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
 void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
     Split* split,
     bool outer_maps) {
+  // See the comment of propagateExtentMergeForward for more information
   auto& inner_mapping = getMappedExtent(split->inner());
-  if (inner_mapping.isZero()) {
-    return;
-  }
 
   if (outer_maps) {
-    // TODO: Fix comment
-
-    // Both dimensions map, inner dimension maps fully. For more context see
-    // the comment:
-    //  projectIdToRFactor
-    //    if (find_outer_it != ids.end() && find_inner_it != ids.end() &&
-    //      !hasPartialExtent(merge->inner())) {
-    //      Comment here.
-
-    // Is the inner dimension is fully mapped
-    auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
-
-    // Divisibility checks are done later, simply propagate fractional
-    // values through the graph.
-
+    auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
+        inner_mapping.projectedExtent(),
+        commonOrConstExtent(ca_map_, split->inner()));
     // Always propagate inner dimension to in backward through split
     auto in_mapping = inner_mapping;
     // If inner is fully mapped propagate the outer mapping as well
@@ -318,38 +301,25 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
 
 void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
     const Merge* merge) {
-  auto out_mapping = getMappedExtent(merge->out());
-  if (out_mapping.isZero()) {
-    return;
-  }
+  auto inner_extent = commonOrConstExtent(ca_map_, merge->inner());
+  auto outer_extent = commonOrConstExtent(ca_map_, merge->outer());
+  auto mapped_out_extent = getMappedExtent(merge->out()).projectedExtent();
 
-  // Map inner and outer dimensions. If outer doesn't map fully this will be
-  // found during evaluation. Don't have to worry about it here.
-
-  auto out_bigger_than_inner = IrBuilder::gtExpr(
-      out_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
-
-  // Divisibility checks are done later, simply propagate fractional
-  // values through the graph.
-
-  ProjectedExtent inner_mapping;
-  // If out is larger than the inner extent use the inner extent
-  inner_mapping.multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-      out_bigger_than_inner,
-      commonOrConstExtent(ca_map_, merge->inner()),
-      FusionGuard::getCurFusion()->oneVal()));
-  // otherwise use the out mapping extent
-  inner_mapping.maybeMul(
-      SimplifyingIrBuilder::notExpr(out_bigger_than_inner), out_mapping);
+  // Propagate out mapping to inner as gcd(out, inner)
+  ProjectedExtent inner_mapping{
+      SimplifyingIrBuilder::gcdExpr(mapped_out_extent, inner_extent)};
   addProjectedExtent(merge->inner(), inner_mapping);
 
-  ProjectedExtent outer_mapping;
-  // If out mapping is bigger than inner, propagate out divided by the inner
-  // mapping.
-  outer_mapping.maybeMul(out_bigger_than_inner, out_mapping);
-  outer_mapping.multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-      out_bigger_than_inner,
-      commonOrConstExtent(ca_map_, merge->inner()),
+  // Propagate out mapping to outer as gcd(out / inner, outer)
+  auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
+      inner_mapping.projectedExtent(), inner_extent);
+
+  auto quotient =
+      SimplifyingIrBuilder::divExpr(mapped_out_extent, inner_extent);
+
+  ProjectedExtent outer_mapping(SimplifyingIrBuilder::whereExpr(
+      inner_is_fully_mapped,
+      SimplifyingIrBuilder::gcdExpr(quotient, outer_extent),
       FusionGuard::getCurFusion()->oneVal()));
   addProjectedExtent(merge->outer(), outer_mapping);
 }
@@ -358,9 +328,6 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     const Merge* merge,
     bool outer_maps) {
   auto& inner_mapping = getMappedExtent(merge->inner());
-  if (inner_mapping.isZero()) {
-    return;
-  }
 
   if (outer_maps) {
     // Both dimensions map, inner dimension maps fully. We don't map the
@@ -381,10 +348,8 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        inner_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
-
-    // Divisibility checks are done later, simply propagate fractional
-    // values through the graph.
+        inner_mapping.projectedExtent(),
+        commonOrConstExtent(ca_map_, merge->inner()));
 
     // Always propagate inner dimension to in backward through split
     auto in_projected_extent = inner_mapping;
@@ -400,35 +365,24 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
 
 void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
     Split* split) {
-  auto in_mapping = getMappedExtent(split->in());
-  if (in_mapping.isZero()) {
-    return;
-  }
+  auto inner_extent = commonOrConstExtent(ca_map_, split->inner());
+  auto outer_extent = commonOrConstExtent(ca_map_, split->outer());
+  auto mapped_in_extent = getMappedExtent(split->in()).projectedExtent();
 
-  auto in_bigger_than_inner = IrBuilder::gtExpr(
-      in_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
-
-  // Divisibility checks are done later, simply propagate fractional
-  // values through the graph.
-
-  ProjectedExtent inner_mapping;
-  // If in is larger than the inner extent use the inner extent
-  inner_mapping.multiplyNumeratorValue(IrBuilder::whereExpr(
-      in_bigger_than_inner,
-      commonOrConstExtent(ca_map_, split->inner()),
-      FusionGuard::getCurFusion()->oneVal()));
-  // otherwise use the in mapping extent
-  inner_mapping.maybeMul(
-      SimplifyingIrBuilder::notExpr(in_bigger_than_inner), in_mapping);
+  // Propagate in mapping to inner as gcd(in, inner)
+  ProjectedExtent inner_mapping{
+      SimplifyingIrBuilder::gcdExpr(mapped_in_extent, inner_extent)};
   addProjectedExtent(split->inner(), inner_mapping);
 
-  ProjectedExtent outer_mapping;
-  // If out mapping is bigger than inner, propagate out divided by the inner
-  // mapping.
-  outer_mapping.maybeMul(in_bigger_than_inner, in_mapping);
-  outer_mapping.multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-      in_bigger_than_inner,
-      commonOrConstExtent(ca_map_, split->inner()),
+  // Propagate in mapping to outer as gcd(in / inner, outer)
+  auto inner_is_fully_mapped = SimplifyingIrBuilder::eqExpr(
+      inner_mapping.projectedExtent(), inner_extent);
+
+  auto quotient = SimplifyingIrBuilder::divExpr(mapped_in_extent, inner_extent);
+
+  ProjectedExtent outer_mapping(SimplifyingIrBuilder::whereExpr(
+      inner_is_fully_mapped,
+      SimplifyingIrBuilder::gcdExpr(quotient, outer_extent),
       FusionGuard::getCurFusion()->oneVal()));
   addProjectedExtent(split->outer(), outer_mapping);
 }
@@ -1101,9 +1055,6 @@ std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
     }
 
     auto& mapped_extent_PE = mapper.getMappedExtent(root_id);
-    if (mapped_extent_PE.isZero()) {
-      break;
-    }
 
     vectorizable_dim_sizes.emplace_back(mapped_extent_PE, root_id);
   }
@@ -1129,51 +1080,13 @@ int64_t getVectorizationSize(
       return vectorize_size;
     }
     auto& pe = dim.first;
-    if (pe.isZero()) {
-      continue;
-    }
-    auto orig_extent_val = dim.second->extent();
-    auto is_divisible_optional = expr_eval.evaluate(pe.isDivisible());
-    auto quotient_optional = expr_eval.evaluate(pe.quotient());
-    auto extent_optional = expr_eval.evaluate(orig_extent_val);
+    auto projected_extent_optional = expr_eval.evaluate(pe.projectedExtent());
     TORCH_INTERNAL_ASSERT(
-        quotient_optional.has_value() && extent_optional.has_value(),
+        projected_extent_optional.has_value(),
         "Vectorization heuristic could not evaluate required extents.");
-    TORCH_INTERNAL_ASSERT(
-        is_divisible_optional->isBool() && quotient_optional->isInt() &&
-            extent_optional->isInt(),
-        "Vectorization heuristic expects integer values only.");
-    auto is_divisible = is_divisible_optional->as<bool>();
-    auto quotient = quotient_optional->as<int64_t>();
-    auto extent = extent_optional->as<int64_t>();
+    auto projected_extent = projected_extent_optional->as<int64_t>();
 
-    if (!is_divisible) {
-      break;
-    }
-
-    // Full mapping of numerator
-    if (quotient == extent) {
-      // Full mappings can continue to the next dimension
-      vectorize_size = vectorize_size * extent;
-      continue;
-    }
-
-    TORCH_INTERNAL_ASSERT(
-        quotient < extent,
-        "Mapped extent in vectorization analysis should never be greater than the extent but ",
-        quotient,
-        " > ",
-        extent);
-
-    if (extent % quotient) {
-      vectorize_size = vectorize_size * quotient;
-      // partial mappings cannot continue to the next dimension
-      break;
-    }
-
-    vectorize_size = vectorize_size * std::gcd(extent, quotient);
-    // partial mappings cannot continue to the next dimension
-    break;
+    vectorize_size = vectorize_size * projected_extent;
   }
   return vectorize_size;
 }
