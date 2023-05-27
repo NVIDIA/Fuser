@@ -75,7 +75,7 @@ void castOptimizationPass(Fusion* fusion) {
   // TODO: Traveral implies topological order on returns exprs, we can leverage that to improve the effieciency of the pass. In the case of a straight line casts, we are doing a lot of meaningless work here on mutating intermediate casts that would have been done again at the end of the chain.
   for (auto expr : fusion->exprs()) {
     if (is_foldable_cast_op(expr)) {
-      std::vector<Val*> chain_casts;
+      std::list<Val*> chain_casts;
       auto prev_expr = expr->input(0)->definition();
       while (prev_expr != nullptr && is_foldable_cast_op(prev_expr)) {
 	auto intermediate_cast = prev_expr->output(0);
