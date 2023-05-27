@@ -98,7 +98,7 @@ void castOptimizationPass(Fusion* fusion) {
             if (info == 0) {
               auto tmp_expr = val->definition();
               if (lo_anchor != tmp_expr->input(0)) {
-                tmp_expr = nvfuser::ir_utils::replaceValInExpr(
+                nvfuser::ir_utils::replaceValInExpr(
                     tmp_expr, tmp_expr->input(0), lo_anchor);
               }
               // move starting_anchor past the ambiguous case
@@ -122,12 +122,12 @@ void castOptimizationPass(Fusion* fusion) {
           //   incompatible precision
           // in either case, we can't fold away lo_anchor, we'll just re-wire
           // the input to expr to lo_anchor
-          expr = nvfuser::ir_utils::replaceValInExpr(
+          nvfuser::ir_utils::replaceValInExpr(
               expr, expr->input(0), lo_anchor);
         } else if (info == -1) {
           // if expr has lower precision than lo_anchor, we'll just fold away to
           // the starting_anchor instead
-          expr = nvfuser::ir_utils::replaceValInExpr(
+          nvfuser::ir_utils::replaceValInExpr(
               expr, expr->input(0), starting_anchor);
         } else {
           TORCH_INTERNAL_ASSERT(

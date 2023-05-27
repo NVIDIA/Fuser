@@ -35,23 +35,25 @@ KernelIndexMode indexTypeToMode(DataType index_type) {
 bool isWiderType(const DataType& ref, const DataType& type) {
   if (ref == type) {
     return true;
-  } else if (ref == DataType::Bool) {
+  }
+  if (ref == DataType::Bool) {
     return true;
-  } else if (
-      (type == DataType::Double || type == DataType::ComplexDouble) &&
+  }
+  if ((type == DataType::Double || type == DataType::ComplexDouble) &&
       (ref == DataType::Float || ref == DataType::Half ||
        ref == DataType::BFloat16)) {
     return true;
-  } else if (
-      (type == DataType::Float || type == DataType::ComplexFloat) &&
+  }
+  if ((type == DataType::Float || type == DataType::ComplexFloat) &&
       (ref == DataType::Half || ref == DataType::BFloat16)) {
     return true;
-  } else if (
-      (type == DataType::Int || type == DataType::Double ||
+  }
+  if ((type == DataType::Int || type == DataType::Double ||
        type == DataType::ComplexDouble) &&
       ref == DataType::Int32) {
     return true;
-  } else if (type == DataType::ComplexDouble && ref == DataType::ComplexFloat) {
+  }
+  if (type == DataType::ComplexDouble && ref == DataType::ComplexFloat) {
     return true;
   }
   return false;
