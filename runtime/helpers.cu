@@ -370,13 +370,18 @@ __device__ int64_t signbit(int64_t a) {
 }
 
 // Reference:
-// https://github.com/llvm/llvm-project/blob/273303ad66a32e5e599bef5ee18c3a9f589e530d/compiler-rt/lib/xray/xray_utils.h#L57-L59
-__device__ int64_t gcd(int64_t a, int64_t b) {
-  return (b == 0) ? a : gcd(b, a % b);
-}
-
-__device__ int gcd(int a, int b) {
-  return (b == 0) ? a : gcd(b, a % b);
+// https://en.wikipedia.org/wiki/Euclidean_algorithm#Implementations
+// https://github.com/pytorch/pytorch/blob/c9f4f01981fd73fcc7c27676cc50230cd1b5bc22/aten/src/ATen/native/Math.h#L1232
+template <typename T>
+__device__ T gcd(T a, T b) {
+  a = abs(a);
+  b = abs(b);
+  while (b != 0) {
+    auto t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
 }
 
 template <int size, int align = size>

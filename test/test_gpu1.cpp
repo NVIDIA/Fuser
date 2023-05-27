@@ -3278,6 +3278,8 @@ Val* gen_jit_operand(std::pair<ValType, DataType> desc) {
       return IrBuilder::create<ComplexDouble>();
     } else if (desc.second == DataType::Int) {
       return IrBuilder::create<Int>();
+    } else if (desc.second == DataType::Int32) {
+      return IrBuilder::create<Int>();
     } else {
       TORCH_CHECK(false, "Not currently supported type: ", desc.first);
     }
@@ -3343,7 +3345,7 @@ at::IValue gen_aten_operand(
         desc.second == DataType::Double || desc.second == DataType::Float ||
         desc.second == DataType::Half || desc.second == DataType::BFloat16) {
       return at::IValue(at::Scalar(1.0));
-    } else if (desc.second == DataType::Int) {
+    } else if (desc.second == DataType::Int || desc.second == DataType::Int32) {
       return at::IValue(at::Scalar(1));
     } else {
       TORCH_CHECK(false, "Not currently supported type: ", desc.first);
@@ -3592,6 +3594,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
   std::vector<DataType> dtypes = {
+      DataType::Int,
+      DataType::Int32,
       DataType::Double,
       DataType::Float,
       DataType::ComplexFloat,
@@ -3611,14 +3615,21 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
 
   // see [Note: explicit tuple type for uniform initialization list]
   std::vector<OpTuple> math_ops{
-      OpTuple{at::div, BinaryOpType::Div, "div"},
       OpTuple{at::mul, BinaryOpType::Mul, "mul"},
       OpTuple{at::pow, BinaryOpType::Pow, "pow"}};
 
+  std::vector<OpTuple> math_ops_without_int{
+      OpTuple{at::div, BinaryOpType::Div, "div"},
+  };
+
   std::vector<OpTuple> int_only_ops{
       OpTuple{at::gcd, BinaryOpType::Gcd, "gcd"},
-      OpTuple{at::bitwise_left_shift, BinaryOpType::Lshift, "bitwise_left_shift"},
-      OpTuple{at::bitwise_right_shift, BinaryOpType::Rshift, "bitwise_right_shift"}};
+      OpTuple{
+          at::bitwise_left_shift, BinaryOpType::Lshift, "bitwise_left_shift"},
+      OpTuple{
+          at::bitwise_right_shift,
+          BinaryOpType::Rshift,
+          "bitwise_right_shift"}};
 
   std::vector<OpTuple> int_and_bool_ops{
       OpTuple{at::bitwise_and, BinaryOpType::And, "bitwise_and"},
@@ -3669,13 +3680,16 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     if (isIntegralType(dtype)) {
       enabled_math_ops.insert(
-          enabled_math_ops.end(),
-          int_only_ops.begin(),
-          int_only_ops.end());
+          enabled_math_ops.end(), int_only_ops.begin(), int_only_ops.end());
       enabled_math_ops.insert(
           enabled_math_ops.end(),
           int_and_bool_ops.begin(),
           int_and_bool_ops.end());
+    } else {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          math_ops_without_int.begin(),
+          math_ops_without_int.end());
     }
     if (dtype == DataType::Bool) {
       enabled_math_ops.insert(
@@ -3685,6 +3699,10 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     std::for_each(
         enabled_math_ops.begin(), enabled_math_ops.end(), [&](OpTuple& op) {
+          if (std::get<1>(op) == BinaryOpType::Atan2 && isIntegralType(dtype)) {
+            // atan2 for integer not supported yet...
+            return;
+          }
           test_op(
               /*blocks*/ 640,
               /*threads*/ 64,
