@@ -657,6 +657,42 @@ TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
       executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, TMP) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t n = 10240;
+
+  auto tv0 = makeContigConcreteTensor({n, 2});
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {false, true, false});
+  auto tv2 = expand(
+      tv1,
+      {IrBuilder::create<Int>(n),
+       IrBuilder::create<Int>(3),
+       IrBuilder::create<Int>(2)});
+  auto tv3 = view(tv2, {n, 3, 2}, {n, 2, 3});
+  auto tv4 = transpose(tv3, {0, 1});
+  auto tv5 = view(tv4, {2, n, 3}, {2 * n, 3});
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({n, 2}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto ref = t0.unsqueeze(1)
+                 .expand(-1, 3, -1)
+                 .reshape({n, 2, 3})
+                 .transpose(0, 1)
+                 .reshape({2 * n, 3});
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
 #if 0
 // silent wrong result
 TEST_F(NVFuserTest, FusionTransposeViewSelfMapping_CUDA) {
