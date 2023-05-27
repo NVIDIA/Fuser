@@ -98,7 +98,7 @@ void FusionState::addFusionState(Val* val) {
   fusion_state_.push_back({val});
 }
 
-void FusionState::addFusionState(std::vector<Val*> val) {
+void FusionState::addFusionStateVector(std::vector<Val*> val) {
   fusion_state_.push_back(val);
 }
 
@@ -120,7 +120,7 @@ void FusionState::setFusionState(size_t index, Val* val) {
   fusion_state_.at(index) = {val};
 }
 
-void FusionState::setFusionState(size_t index, std::vector<Val*> val) {
+void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
   fusion_state_.at(index) = {val};
 }
 
