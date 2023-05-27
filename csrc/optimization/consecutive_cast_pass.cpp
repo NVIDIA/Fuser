@@ -89,13 +89,13 @@ void castOptimizationPass(Fusion* fusion) {
         }
 
         // in the loop, we just repetitively chaining consecutive casts.
-	chain_casts.push_back(intermediate_cast);
+	chain_casts.push_front(intermediate_cast);
         prev_expr = prev_expr->input(0)->definition();
       }
 
       // Note, chain_casts has a straight-line use without branches
       if (!chain_casts.empty()) {
-        auto lo_anchor = chain_casts[0]->definition()->input(0);
+        auto lo_anchor = chain_casts.front()->definition()->input(0);
 	auto starting_anchor = lo_anchor;
 	for (auto val : chain_casts) {
 	  auto info = checkInformationLoss(lo_anchor, val);
