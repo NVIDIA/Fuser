@@ -8400,21 +8400,104 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
                    .dtype(DataType::Double)
                    .build();
     fusion->addInput(tv0);
-    auto tv1 = castOp(DataType::Float, tv0);
-    auto tv2 = castOp(DataType::Half, tv1);
-    auto tv3 = castOp(DataType::Float, tv2);
-    auto tv4 = castOp(DataType::Double, tv3);
+    auto tv = castOp(DataType::Float, tv0);
+    tv = castOp(DataType::Half, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
     // (input)double -> float -> half -> float -> double
-    fusion->addOutput(tv4);
+    fusion->addOutput(tv);
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    // simplified as (input)double -> half -> double
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ref_tv = castOp(DataType::Double, ref_tv);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+  }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Double, tv0);
+    tv = castOp(DataType::Float, tv);
+    // (input)float -> double -> float
+    fusion->addOutput(tv);
     printf("----start----\n");
     fusion->printMath();
     optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
     printf("---- opt ----\n");
     fusion->printMath();
-    auto ref_tv = castOp(DataType::Half, tv0);
-    ref_tv = castOp(DataType::Double, ref_tv);
+    // TODO: should I have copied the tensor to avoid an alised output?!
+    // simplified as (input)
     printf("---- ref ----\n");
+    fusion->printMath();
+    ASSERT_TRUE(tv0->sameAs(fusion->outputs()[0]));
+  }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Double, tv0);
+    tv = castOp(DataType::Half, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Float, tv);
+    // (input)float -> double -> half -> float -> double -> float -> double -> float -> double -> float
+    fusion->addOutput(tv);
+    printf("----start----\n");
+    fusion->printMath();
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    printf("---- opt ----\n");
+    fusion->printMath();
+    // TODO: should I have copied the tensor to avoid an alised output?!
+    // simplified as (input)float -> half -> float
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ref_tv = castOp(DataType::Float, ref_tv);
     fusion->addOutput(ref_tv);
+    printf("---- ref ----\n");
+    fusion->printMath();
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+  }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Double, tv0);
+    tv = castOp(DataType::Half, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::BFloat16, tv);
+    tv = castOp(DataType::Float, tv);
+    // (input)float -> double -> half -> float -> bfloat16 -> float
+    fusion->addOutput(tv);
+    printf("----start----\n");
+    fusion->printMath();
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(fusion.get());
+    printf("---- opt ----\n");
+    fusion->printMath();
+    // TODO: should I have copied the tensor to avoid an alised output?!
+    // simplified as (input)float -> half -> bfloat16 -> float
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ref_tv = castOp(DataType::BFloat16, ref_tv);
+    ref_tv = castOp(DataType::Float, ref_tv);
+    fusion->addOutput(ref_tv);
+    printf("---- ref ----\n");
     fusion->printMath();
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
