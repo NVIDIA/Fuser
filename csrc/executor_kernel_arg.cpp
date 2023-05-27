@@ -441,14 +441,16 @@ std::unique_ptr<TensorArgAbstract> getTensorArg(
 } // namespace
 
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
-    const c10::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
   if (inputs.empty()) {
     // default to device 0
     KernelArgumentHolder args;
-    args.setDeviceIndex(0);
+    args.setDeviceIndex(
+        selected_device.has_value() ? selected_device.value() : (int8_t)0);
     return args;
   }
-  auto device_index = getCommonDeviceCUDA(inputs);
+  auto device_index = getCommonDeviceCUDA(inputs, selected_device);
 
   KernelArgumentHolder args;
   args.setDeviceIndex(device_index);

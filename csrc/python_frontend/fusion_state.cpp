@@ -16,21 +16,15 @@ using namespace nvfuser::inst;
 namespace nvfuser::python_frontend {
 
 bool State::operator==(const State& other) const {
-  return (index == other.index) && (stype == other.stype) &&
-      (name == other.name);
-  ;
+  return (index == other.index) && (stype == other.stype);
 }
 
 bool State::operator!=(const State& other) const {
-  return (index != other.index) || (stype != other.stype) ||
-      (name != other.name);
+  return (index != other.index) || (stype != other.stype);
 }
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.name.has_value()) {
-    os << state.name.value() << "=";
-  }
   if (state.stype == serde::StateType_Scalar) {
     os << "S";
   } else if (state.stype == serde::StateType_Tensor) {

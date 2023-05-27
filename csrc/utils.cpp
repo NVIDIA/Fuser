@@ -12,6 +12,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <unordered_map>
 
 namespace nvfuser {
@@ -108,6 +109,7 @@ auto parseDebugDumpOptions() {
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
+      {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"ca_map", DebugDumpOption::ComputeAtMap},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
@@ -281,12 +283,16 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type) {
       opt_numel.value() == 1;
 }
 
-// Check device of TensorType in all inputs ensure all tensors are on cuda
-// devices.
-// return common device index (or -1 if device differs).
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
-  int8_t index = -1;
-  size_t num_tensors = 0;
+int8_t getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device) {
+  int8_t index = 0;
+  // have we found or selected at least one device yet?
+  bool found_device = false;
+  if (selected_device.has_value()) {
+    index = selected_device.value();
+    found_device = true;
+  }
   for (const auto& input : inputs) {
     if (!input.isTensor()) {
       continue;
@@ -298,18 +304,14 @@ int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs) {
     }
     TORCH_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
     auto cur_index = device.index();
-    if (index != -1 && index != cur_index) {
+    if (found_device && index != cur_index) {
       return -1;
     }
     index = cur_index;
-    ++num_tensors;
+    found_device = true;
   }
-  // A case where there is only a scalar input should not indicate a failure
-  if (num_tensors == 0) {
-    return 0;
-  } else {
-    return index;
-  }
+  // When there are only scalar inputs, use selected_device or fall back to 0
+  return found_device ? index : (int8_t)0;
 }
 
 bool isDebugDumpEnabled(DebugDumpOption option) {
