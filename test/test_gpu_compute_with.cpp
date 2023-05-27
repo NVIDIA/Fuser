@@ -454,7 +454,6 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   checkComputeWith(gpulw.kernel(), tv1, tv1->nDims() - 1, {tv2});
 
   auto options_half = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, H, W, C};
   auto t0 = at::randn(input_shape, options_half);

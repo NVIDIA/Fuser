@@ -14,15 +14,6 @@ namespace nvfuser::serde {
 // Forward definition for RecordFunctor
 struct RecordFunctor;
 
-//! A function to map the nvfuser dtype to the corresponding serde dtype
-serde::DataType mapToSerdeDtype(PrimDataType t);
-
-//! A function to map the serde dtype to its corresponding nvfuser dtype
-PrimDataType mapToNvfuserDtype(serde::DataType t);
-
-//! A function to map the nvFuser dtype to a serde ScalarRecord Type
-serde::RecordType mapToSerdeScalarRecordType(PrimDataType t);
-
 // OpRecord Function Signatures
 // ========================================================================
 // Unary Functions
@@ -78,7 +69,7 @@ typedef std::function<TensorView*(Val*, TensorView*, Val*, Val*)>
 //! RecordFunctor table. We create an enum type for each RecordFunctor class.
 //! Each template specialization has a unique RecordType and parser function.
 class RecordFunctorFactory
-    : public Factory<serde::RecordFunctor, python_frontend::RecordFunctor> {
+    : public Factory<serde::RecordFunctor, python_frontend::RecordFunctor*> {
  public:
   RecordFunctorFactory() : Factory((serde::RecordType_MAX + 1)) {
     setupFunctionMaps();
