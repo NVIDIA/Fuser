@@ -50,24 +50,24 @@ Vector define_vector_fn(
   return out;
 }
 
-Vector define_vector_from_scalars_fn(FusionDefinition& fd, std::vector<Scalar>& args, PrimDataType dtype = DataType::Int) {
+Vector define_vector_from_scalars_fn(
+    FusionDefinition& fd,
+    std::vector<Scalar>& args,
+    PrimDataType dtype = DataType::Int) {
   FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalar State)");
-  TORCH_CHECK(
-      !fd.completed(), "Attempting to add to a completed definition!");
+  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
   inputs.reserve(args.size());
-  for(const auto& arg : args) {
+  for (const auto& arg : args) {
     inputs.push_back(fd.recordingState(arg()));
   }
   Vector out = fd.defineVector(inputs.size());
-  fd.defineRecord(new VectorFromStateRecord(
-      inputs,
-      {fd.recordingState(out())},
-      dtype));
+  fd.defineRecord(
+      new VectorFromStateRecord(inputs, {fd.recordingState(out())}, dtype));
   return out;
 }
 
-} // namespace anonymous
+} // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
