@@ -122,8 +122,7 @@ void castOptimizationPass(Fusion* fusion) {
           //   incompatible precision
           // in either case, we can't fold away lo_anchor, we'll just re-wire
           // the input to expr to lo_anchor
-          nvfuser::ir_utils::replaceValInExpr(
-              expr, expr->input(0), lo_anchor);
+          nvfuser::ir_utils::replaceValInExpr(expr, expr->input(0), lo_anchor);
         } else if (info == -1) {
           // if expr has lower precision than lo_anchor, we'll just fold away to
           // the starting_anchor instead
