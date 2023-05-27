@@ -62,16 +62,20 @@ enum class PredicateType {
 // int64_t which is relatively heavy to carry around. Index will be resolved
 // at compile time with KernelIndexMode.
 enum class PrimDataType {
+  // Floating point types
   Double,
   Float,
   Half,
-  Int,
-  Index,
-  Int32,
-  Bool,
   BFloat16,
-  ComplexFloat,
+  // Integral types
+  Int,
+  Int32,
+  Index,
+  // Boolean types
+  Bool,
+  // Complex types
   ComplexDouble,
+  ComplexFloat,
   // Pointers
   SMemAddress,
   // Null
