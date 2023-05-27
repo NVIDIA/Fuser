@@ -378,7 +378,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! the ownership of the memory from the original inputs, but just recording
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs);
+      const c10::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device = std::nullopt);
 
   KernelArgumentHolder() = default;
 

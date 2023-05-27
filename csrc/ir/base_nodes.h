@@ -322,6 +322,8 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool isZeroInt() const;
   bool isOne() const;
   bool isOneInt() const;
+  bool isTrue() const;
+  bool isFalse() const;
 
   // Returns the Expr that this value is an output of, returns nullptr if none
   // was found

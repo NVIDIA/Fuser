@@ -1400,8 +1400,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto proxy = kir::KernelInternalProxy(kernel);
 
   const auto indent = "  ";
-  const auto ks0_name = "i" + std::to_string(ks0->name());
-  const auto ks1_name = "i" + std::to_string(ks1->name());
+  const auto ks0_name = "i0";
+  const auto ks1_name = "i1";
   const auto tk0_name = "T" + std::to_string(tk0->name());
 
   auto& exprs = proxy.topLevelExprs();
@@ -1729,23 +1729,23 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  int64_t i75;
-  i75 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i7;
-  i7 = T0.size[0] * T0.size[1];
-  bool b149;
-  b149 = i75 < i7;
-  float f8;
-  f8 = (float)(i7);
+  int64_t i0;
+  i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1;
+  i1 = T0.size[0] * T0.size[1];
+  bool b2;
+  b2 = i0 < i1;
+  float f3;
+  f3 = (float)(i1);
   float T1[1];
-  if (b149) {
+  if (b2) {
     T1[0]
-       = sinf(T0[i75]);
+       = sinf(T0[i0]);
   }
-  if (b149) {
-    T2[i75]
+  if (b2) {
+    T2[i0]
       = T1[0]
-      + f8;
+      + f3;
   }
 }
 )";

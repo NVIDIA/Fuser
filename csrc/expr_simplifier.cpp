@@ -1688,6 +1688,17 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
         }
       }
     }
+  } else if (auto top = dynamic_cast<TernaryOp*>(value->definition())) {
+    // where(true, x, y) -> x, where(false, x, y) -> y
+    auto optype = top->getTernaryOpType();
+    if (optype == TernaryOpType::Where) {
+      auto cond = foldConstants(top->in1());
+      if (cond->isTrue()) {
+        return top->in2();
+      } else if (cond->isFalse()) {
+        return top->in3();
+      }
+    }
   }
   return value;
 }
