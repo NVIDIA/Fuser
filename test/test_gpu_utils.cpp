@@ -247,6 +247,8 @@ TEST_F(NVFuserTest, FusionTVDomainGuard_CUDA) {
   TORCH_CHECK(tv->domain()->contiguity() == false_true);
 }
 
+class VectorizeHelperTest : public NVFuserTest {};
+
 #if 0
 
 namespace {
@@ -305,7 +307,7 @@ bool trivialOrOneProjectedExtent(vectorize_helper::ProjectedExtent& pe) {
 } // namespace
 
 // Test simple backward mapping through split
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper1_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -362,7 +364,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper1_CUDA) {
 }
 
 // Test backward mapping through multiple splits
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper2_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -409,7 +411,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper2_CUDA) {
 }
 
 // Test backward mapping through multiple splits
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper3_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -444,7 +446,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper3_CUDA) {
 }
 
 // Test simple backward mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper4_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper4_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -487,7 +489,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper4_CUDA) {
 }
 
 // Test symbolic partial mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper5_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper5_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -536,7 +538,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper5_CUDA) {
 }
 
 // Test concrete partial outer dim mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper6_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper6_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -574,7 +576,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper6_CUDA) {
 }
 
 // Test concrete exact inner dim mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper7_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper7_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -611,7 +613,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper7_CUDA) {
 }
 
 // Test concrete partial inner dim mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper8_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper8_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -648,7 +650,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper8_CUDA) {
 }
 
 // Test concrete partial inner dim mapping through merge
-TEST_F(NVFuserTest, FusionVectorizeBackwardMapper9_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeBackwardMapper9_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -697,7 +699,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper9_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper1_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper1_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -753,7 +755,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper1_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper2_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper2_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -800,7 +802,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper2_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper3_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper3_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -835,7 +837,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper3_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper4_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper4_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper4_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -878,7 +880,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper4_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper5_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper5_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper5_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -927,7 +929,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper5_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper6_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper6_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper6_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -965,7 +967,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper6_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper7_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper7_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper7_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1002,7 +1004,7 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper7_CUDA) {
 }
 
 // Similar to FusionVectorizeBackwardMapper8_CUDA but in the reverse direction
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper8_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper8_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1038,8 +1040,11 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper8_CUDA) {
       mapper.getMappedExtent(tv0->axis(1)).toString());
 }
 
-// Make sure partial mappings maintain their total values.
-TEST_F(NVFuserTest, FusionVectorizeForwardMapper9_CUDA) {
+#endif
+
+// Make sure partial mappings are mapped to gcd(combined, inner) for inner
+// dimension
+TEST_F(VectorizeHelperTest, FusionVectorizeForwardMapper9_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1053,42 +1058,29 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper9_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1), tv0->axis(2)});
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2).size() == 3);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
-  TORCH_CHECK(mapper.mappedRFactorIds(tv2)[2]->sameAs(tv2->axis(2)));
-  TORCH_CHECK(
-      trivialOrOneProjectedExtent(mapper.getMappedExtent(tv2->axis(0))));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(1)), 5, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv2->axis(2)), 7, 1),
-      mapper.getMappedExtent(tv2->axis(2)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 3);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[2]->sameAs(tv2->axis(2)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluateInt(), 1);
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 1);
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluateInt(), 1);
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 2);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 35, 15),
-      mapper.getMappedExtent(tv1->axis(0)).toString());
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 15, 1),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluateInt(), 1);
+  EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluateInt(), 5);
 
-  TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 2);
-  TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
-  TORCH_CHECK(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(2)));
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 5, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
-  TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv0->axis(2)), 7, 1),
-      mapper.getMappedExtent(tv0->axis(1)).toString());
+  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(2)));
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 5);
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 7);
 }
 
 // Test propogation doesn't proceed across missing dimensions
-TEST_F(NVFuserTest, FusionVectorizeMapperAdvanced_CUDA) {
+TEST_F(VectorizeHelperTest, FusionVectorizeMapperAdvanced_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1122,11 +1114,9 @@ TEST_F(NVFuserTest, FusionVectorizeMapperAdvanced_CUDA) {
     // tv0[3, 4*6]
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv5, {tv5->axis(0), tv5->axis(1)});
-    TORCH_CHECK(mapper.mappedRFactorIds(tv0).size() == 1);
-    TORCH_CHECK(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
-    TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv0->axis(1)), 6, 1),
-        mapper.getMappedExtent(tv0->axis(1)).toString());
+    EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
+    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+    EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 6);
   }
 
   {
@@ -1134,17 +1124,14 @@ TEST_F(NVFuserTest, FusionVectorizeMapperAdvanced_CUDA) {
     // tv7[3, 4*6]
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv3, {tv3->axis(0), tv3->axis(1), tv3->axis(2), tv3->axis(3)});
-    TORCH_CHECK(mapper.mappedRFactorIds(tv7).size() == 1);
-    TORCH_CHECK(mapper.mappedRFactorIds(tv7)[0]->sameAs(tv7->axis(1)));
-
-    TORCH_CHECK(
-        checkProjectedExtent(mapper.getMappedExtent(tv7->axis(1)), 6, 1),
-        mapper.getMappedExtent(tv7->axis(1)).toString());
+    EXPECT_EQ(mapper.mappedRFactorIds(tv7).size(), 1);
+    EXPECT_TRUE(mapper.mappedRFactorIds(tv7)[0]->sameAs(tv7->axis(1)));
+    EXPECT_EQ(mapper.getProjectedExtent(tv7->axis(1))->evaluateInt(), 6);
   }
 }
 
 // Test propogation doesn't proceed across missing dimensions
-TEST_F(NVFuserTest, FusionVectorizeSpanningTree_CUDA) {
+TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1210,18 +1197,13 @@ TEST_F(NVFuserTest, FusionVectorizeSpanningTree_CUDA) {
             continue;
           }
           for (auto axis : tv->getRootDomain()) {
-            TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).numerator()->evaluateInt() == 2);
-            TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).denominator()->evaluateInt() == 1);
+            EXPECT_EQ(mapper.getProjectedExtent(axis)->evaluateInt(), 2);
           }
         }
       }
     }
   }
 }
-
-#endif
 
 TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
   // create a fake nvdisasm that prints "I am fake" to stderr
@@ -1251,7 +1233,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
     path = original_path;
   }
   path = fake_nvdisasm_raii.tmpdir + ":" + path;
-  TORCH_CHECK(setenv("PATH", path.c_str(), true) == 0);
+  EXPECT_EQ(setenv("PATH", path.c_str(), true), 0);
 
   // Use fake nvdisasm to do disassembly
   Fusion fusion;
