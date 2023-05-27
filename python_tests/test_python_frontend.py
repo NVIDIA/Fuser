@@ -2122,7 +2122,7 @@ class TestNvFuserFrontend(TestCase):
             s0 = fd.define_scalar()
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
-            c0 = fd.define_constant(1.0, DataType.Float)
+            c0 = fd.define_scalar(1.0, DataType.Float)
             t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
@@ -2235,7 +2235,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(3)
+            c0 = fd.define_scalar(3)
             t1 = fd.ops.bitwise_right_shift(t0, c0)
             fd.add_output(t1)
 

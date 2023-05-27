@@ -490,30 +490,35 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference);
 
 // This is the canonical version of define_scalar
-#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(Nvfuser_DType, CType) \
-  fusion_def.def(                                                     \
-      "define_scalar",                                                \
-      [](FusionDefinition& self,                                      \
-         std::optional<CType> value,                                  \
-         PrimDataType dtype) -> Scalar {                              \
-        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");           \
-        Scalar out = self.defineScalar();                             \
-        auto rtype = value.has_value()                                \
-            ? serde::mapToSerdeScalarRecordType(Nvfuser_DType)        \
-            : serde::RecordType_ScalarInput;                          \
-        self.defineRecord(new ScalarRecord<CType>(                    \
-            {self.recordingState(out())}, rtype, value, dtype));      \
-        return out;                                                   \
-      },                                                              \
-      py::arg("value"),                                               \
-      py::arg("dtype") = Nvfuser_DType,                               \
+#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                             \
+    Nvfuser_DType, Serde_RType, CType)                                       \
+  fusion_def.def(                                                            \
+      "define_scalar",                                                       \
+      [](FusionDefinition& self,                                             \
+         std::optional<CType> value,                                         \
+         PrimDataType dtype) -> Scalar {                                     \
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                  \
+        Scalar out = self.defineScalar();                                    \
+        auto rtype =                                                         \
+            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput; \
+        self.defineRecord(new ScalarRecord<CType>(                           \
+            {self.recordingState(out())}, rtype, value, dtype));             \
+        return out;                                                          \
+      },                                                                     \
+      py::arg("value"),                                                      \
+      py::arg("dtype") = Nvfuser_DType,                                      \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Bool, bool);
   NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::ComplexDouble, std::complex<double>);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Double, double);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Int, int64_t);
+      DataType::Bool, serde::RecordType_ScalarBool, bool);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::ComplexDouble,
+      serde::RecordType_ScalarComplexDouble,
+      std::complex<double>);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::Double, serde::RecordType_ScalarDouble, double);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::Int, serde::RecordType_ScalarLong, int64_t);
 #undef NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR
 
   //! The Operators class is a nested class of FusionDefinition to allow the

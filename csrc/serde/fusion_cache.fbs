@@ -98,7 +98,7 @@ enum RecordType : int {
     ScalarComplexDouble,
     ScalarDouble,
     ScalarInput,
-    ScalarInt,
+    ScalarLong,
     SliceOp,
     SqueezeOp,
     Start,

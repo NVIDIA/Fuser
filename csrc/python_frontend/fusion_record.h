@@ -1958,8 +1958,8 @@ struct ScalarRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     Val* output = nullptr;
     if (value_.has_value()) {
-      output = IrBuilder::create<typename DtypeToScalarType<ValueType>::type>(
-          value_.value(), dtype_);
+      output =
+          IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
     } else {
       if (dtype_ == DataType::Double) {
         output = IrBuilder::create<Double>();
@@ -2046,9 +2046,7 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
   if (value.has_value()) {
     return {
         serde::RecordData_Bool,
-        serde::CreateBool(
-            builder, value.value(), serde::mapToSerdeDtype(dtype_))
-            .Union()};
+        serde::CreateBool(builder, value.value()).Union()};
   } else {
     return {
         serde::RecordData_ScalarInput,
@@ -2108,8 +2106,9 @@ inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
         std::optional<int64_t> value) const {
   if (value.has_value()) {
     return {
-        serde::RecordData_Int,
-        serde::CreateInt(builder, value.value(), serde::mapToSerdeDtype(dtype_))
+        serde::RecordData_Long,
+        serde::CreateLong(
+            builder, value.value(), serde::mapToSerdeDtype(dtype_))
             .Union()};
   } else {
     return {

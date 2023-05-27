@@ -600,16 +600,6 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 
-  auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_ScalarInput();
-    return new python_frontend::ScalarRecord<double>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarInput,
-        std::nullopt,
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
-
   auto deserializeSliceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Slice();
     return new python_frontend::SliceOpRecord(
