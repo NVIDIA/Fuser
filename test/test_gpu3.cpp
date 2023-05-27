@@ -8588,13 +8588,13 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
 TEST_F(NVFuserTest, Repro413_CUDA) {
   int64_t n = 10240;
 
-  for (int64_t m : {3, 6, 12}) {
-    for (int64_t k : {2, 4, 8}) {
+  for (int64_t m : {3, 6, 12, 24}) {
+    for (int64_t k : {10, 20, 40}) {
       std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
       Fusion& fusion = *fusion_ptr.get();
       FusionGuard fg(&fusion);
 
-      auto tv0 = makeContigConcreteTensor({n, m});
+      auto tv0 = makeContigConcreteTensor({n, m}, DataType::Half);
       fusion.addInput(tv0);
       auto tv1 = broadcast(tv0, {false, true, false});
       auto tv2 = expand(
@@ -8608,7 +8608,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto tv6 = reshape(tv5, {m, n, k}, {m * n, k});
       fusion.addOutput(tv6);
 
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+      auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
       auto t0 = at::randn({n, m}, options);
 
       auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
