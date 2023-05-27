@@ -16,10 +16,16 @@ using namespace nvfuser::inst;
 namespace nvfuser::python_frontend {
 
 bool State::operator==(const State& other) const {
+  TORCH_INTERNAL_ASSERT(
+      (index == other.index ? (stype == other.stype) : true),
+      "State indices should not match with different State Types!");
   return (index == other.index) && (stype == other.stype);
 }
 
 bool State::operator!=(const State& other) const {
+  TORCH_INTERNAL_ASSERT(
+      (index == other.index ? (stype == other.stype) : true),
+      "State indices should not match with different State Types!");
   return (index != other.index) || (stype != other.stype);
 }
 
@@ -99,6 +105,11 @@ void FusionState::addFusionState(Val* val) {
 }
 
 void FusionState::addFusionStateVector(std::vector<Val*> val) {
+  for (auto v : val) {
+    TORCH_CHECK(
+        !v->isA<TensorView>(),
+        "TensorViews should not be added to State Vectors!");
+  }
   fusion_state_.push_back(val);
 }
 
@@ -121,6 +132,11 @@ void FusionState::setFusionState(size_t index, Val* val) {
 }
 
 void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
+  for (auto v : val) {
+    TORCH_CHECK(
+        !v->isA<TensorView>(),
+        "TensorViews should not be added to State Vectors!");
+  }
   fusion_state_.at(index) = {val};
 }
 
