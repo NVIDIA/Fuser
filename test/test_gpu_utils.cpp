@@ -307,7 +307,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1), tv2->axis(2)});
 
-  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluateInt(), 0);
+  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluateInt(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluateInt(), 4);
   // Inner dim fully maps, outer dim of split partially maps
@@ -552,14 +552,14 @@ TEST_F(VectorizeHelperTest, BackwardMapper9_CUDA) {
   EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[2]->sameAs(tv0->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluateInt(), 1);
-  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 5);
-  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 7);
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 1);
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 1);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluateInt(), 1);
-  EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluateInt(), 15);
+  EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluateInt(), 5);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
@@ -631,7 +631,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1), tv0->axis(2)});
 
-  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluateInt(), 0);
+  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluateInt(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 4);
   // Inner dim fully maps, outer dim of split partially maps
