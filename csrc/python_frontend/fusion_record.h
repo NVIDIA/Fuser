@@ -1961,16 +1961,18 @@ struct ScalarRecord : RecordFunctor {
       output =
           IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
     } else {
-      if (dtype_ == DataType::Double) {
-        output = IrBuilder::create<Double>();
-      } else if (dtype_ == DataType::ComplexDouble) {
-        output = IrBuilder::create<ComplexDouble>();
+      if ((dtype_ == DataType::Double) || (dtype_ == DataType::Float)) {
+        output = IrBuilder::create<Double>(dtype_);
+      } else if (
+          (dtype_ == DataType::ComplexDouble) ||
+          (dtype_ == DataType::ComplexFloat)) {
+        output = IrBuilder::create<ComplexDouble>(dtype_);
       } else if (dtype_ == DataType::Bool) {
         output = IrBuilder::create<Bool>();
       } else if (dtype_ == DataType::Int) {
         output = IrBuilder::create<Int>();
       } else {
-        TORCH_CHECK(false, "Dtype is not supported:", dtype_);
+        TORCH_CHECK(false, "Dtype is not supported as a Scalar input:", dtype_);
       }
       fd.addInput(output);
     }
