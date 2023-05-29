@@ -2256,23 +2256,19 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_ops.def(
       "reshape",
       [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& original_shape,
-         std::vector<int64_t>& new_shape) -> Tensor {
+         Tensor arg, Vector shape) -> Tensor {
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
+        Tensor output = fd->defineTensor(shape.size);
         self.fusion_definition->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(original_shape),
-            std::move(new_shape)));
+            {fd->recordingState(arg()),
+             State(shape(), serde::StateType_Vector, "shape")},
+            {fd->recordingState(output())}));
         return output;
       },
       py::arg("arg"),
-      py::arg("original_shape"),
-      py::arg("new_shape"),
+      py::arg("shape"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "full",

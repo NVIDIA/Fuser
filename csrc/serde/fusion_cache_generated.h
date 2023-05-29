@@ -67,9 +67,6 @@ struct PermuteBuilder;
 struct Reduction;
 struct ReductionBuilder;
 
-struct Reshape;
-struct ReshapeBuilder;
-
 struct Slice;
 struct SliceBuilder;
 
@@ -463,20 +460,19 @@ enum RecordData : uint8_t {
   RecordData_Slice = 15,
   RecordData_Squeeze = 16,
   RecordData_Reduction = 17,
-  RecordData_Reshape = 18,
-  RecordData_ScalarInput = 19,
-  RecordData_Size = 20,
-  RecordData_Tensor = 21,
-  RecordData_TensorCreation = 22,
-  RecordData_TensorCreationSymbolic = 23,
-  RecordData_VectorInt = 24,
-  RecordData_VectorFromState = 25,
-  RecordData_VectorInput = 26,
+  RecordData_ScalarInput = 18,
+  RecordData_Size = 19,
+  RecordData_Tensor = 20,
+  RecordData_TensorCreation = 21,
+  RecordData_TensorCreationSymbolic = 22,
+  RecordData_VectorInt = 23,
+  RecordData_VectorFromState = 24,
+  RecordData_VectorInput = 25,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_VectorInput
 };
 
-inline const RecordData (&EnumValuesRecordData())[27] {
+inline const RecordData (&EnumValuesRecordData())[26] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_At,
@@ -496,7 +492,6 @@ inline const RecordData (&EnumValuesRecordData())[27] {
     RecordData_Slice,
     RecordData_Squeeze,
     RecordData_Reduction,
-    RecordData_Reshape,
     RecordData_ScalarInput,
     RecordData_Size,
     RecordData_Tensor,
@@ -510,7 +505,7 @@ inline const RecordData (&EnumValuesRecordData())[27] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[28] = {
+  static const char * const names[27] = {
     "NONE",
     "At",
     "BatchNorm",
@@ -529,7 +524,6 @@ inline const char * const *EnumNamesRecordData() {
     "Slice",
     "Squeeze",
     "Reduction",
-    "Reshape",
     "ScalarInput",
     "Size",
     "Tensor",
@@ -619,10 +613,6 @@ template<> struct RecordDataTraits<nvfuser::serde::Squeeze> {
 
 template<> struct RecordDataTraits<nvfuser::serde::Reduction> {
   static const RecordData enum_value = RecordData_Reduction;
-};
-
-template<> struct RecordDataTraits<nvfuser::serde::Reshape> {
-  static const RecordData enum_value = RecordData_Reshape;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::ScalarInput> {
@@ -1570,71 +1560,6 @@ inline ::flatbuffers::Offset<Reduction> CreateReductionDirect(
       dtype);
 }
 
-struct Reshape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ReshapeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ORIGINAL_SHAPE = 4,
-    VT_NEW_SHAPE = 6
-  };
-  const ::flatbuffers::Vector<int64_t> *original_shape() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_ORIGINAL_SHAPE);
-  }
-  const ::flatbuffers::Vector<int64_t> *new_shape() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_NEW_SHAPE);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_ORIGINAL_SHAPE) &&
-           verifier.VerifyVector(original_shape()) &&
-           VerifyOffset(verifier, VT_NEW_SHAPE) &&
-           verifier.VerifyVector(new_shape()) &&
-           verifier.EndTable();
-  }
-};
-
-struct ReshapeBuilder {
-  typedef Reshape Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_original_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> original_shape) {
-    fbb_.AddOffset(Reshape::VT_ORIGINAL_SHAPE, original_shape);
-  }
-  void add_new_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> new_shape) {
-    fbb_.AddOffset(Reshape::VT_NEW_SHAPE, new_shape);
-  }
-  explicit ReshapeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Reshape> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Reshape>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Reshape> CreateReshape(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> original_shape = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> new_shape = 0) {
-  ReshapeBuilder builder_(_fbb);
-  builder_.add_new_shape(new_shape);
-  builder_.add_original_shape(original_shape);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<Reshape> CreateReshapeDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int64_t> *original_shape = nullptr,
-    const std::vector<int64_t> *new_shape = nullptr) {
-  auto original_shape__ = original_shape ? _fbb.CreateVector<int64_t>(*original_shape) : 0;
-  auto new_shape__ = new_shape ? _fbb.CreateVector<int64_t>(*new_shape) : 0;
-  return nvfuser::serde::CreateReshape(
-      _fbb,
-      original_shape__,
-      new_shape__);
-}
-
 struct Slice FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef SliceBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -2241,9 +2166,6 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Reduction *data_as_Reduction() const {
     return data_type() == nvfuser::serde::RecordData_Reduction ? static_cast<const nvfuser::serde::Reduction *>(data()) : nullptr;
   }
-  const nvfuser::serde::Reshape *data_as_Reshape() const {
-    return data_type() == nvfuser::serde::RecordData_Reshape ? static_cast<const nvfuser::serde::Reshape *>(data()) : nullptr;
-  }
   const nvfuser::serde::ScalarInput *data_as_ScalarInput() const {
     return data_type() == nvfuser::serde::RecordData_ScalarInput ? static_cast<const nvfuser::serde::ScalarInput *>(data()) : nullptr;
   }
@@ -2350,10 +2272,6 @@ template<> inline const nvfuser::serde::Squeeze *RecordFunctor::data_as<nvfuser:
 
 template<> inline const nvfuser::serde::Reduction *RecordFunctor::data_as<nvfuser::serde::Reduction>() const {
   return data_as_Reduction();
-}
-
-template<> inline const nvfuser::serde::Reshape *RecordFunctor::data_as<nvfuser::serde::Reshape>() const {
-  return data_as_Reshape();
 }
 
 template<> inline const nvfuser::serde::ScalarInput *RecordFunctor::data_as<nvfuser::serde::ScalarInput>() const {
@@ -2709,10 +2627,6 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
     }
     case RecordData_Reduction: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Reduction *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
-    case RecordData_Reshape: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Reshape *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_ScalarInput: {
