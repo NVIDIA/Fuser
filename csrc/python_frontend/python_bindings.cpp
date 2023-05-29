@@ -145,6 +145,36 @@ Tensor normal_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, S
   return random_op_fn<ShapeType>(op, arg1, arg2, shape, dtype, "ops.normal", serde::RecordType_RandomNormalOp);
 }
 
+template<class ShapeType>
+Tensor reshape_fn(FusionDefinition::Operators& op, Tensor arg, ShapeType shape) {
+  FUSER_PERF_SCOPE("Operators.reshape");
+  FusionDefinition* fd = op.fusion_definition;
+  size_t output_size = 0;
+  if constexpr(std::is_same_v<ShapeType, Vector>) {
+    output_size = shape.size;
+  } else {
+    output_size = shape.size(); 
+  }
+  TORCH_CHECK(
+      op.validUse(), "Attempting to add to a completed definition!");
+  Vector output_shape;
+  if constexpr (std::is_same_v<ShapeType, std::vector<Scalar>>) {
+    output_shape = define_vector_from_scalars_fn(*fd, shape); 
+  } else if constexpr (std::is_same_v<ShapeType, std::vector<int64_t>>) {
+    output_shape = define_vector_fn(*fd, shape, output_size); 
+  } else {
+    output_shape = std::move(shape);
+  }
+  Tensor output = fd->defineTensor(output_size);
+  fd->defineRecord(new ReshapeOpRecord(
+      {fd->recordingState(arg()),
+       // A state object is created in order to specify a name for printing
+       State(output_shape(), serde::StateType_Vector, "shape")},
+      {fd->recordingState(output())}));
+  return output;
+}
+
+
 } // namespace anonymous
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -2255,18 +2285,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "reshape",
-      [](FusionDefinition::Operators& self,
-         Tensor arg, Vector shape) -> Tensor {
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size);
-        self.fusion_definition->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg()),
-             State(shape(), serde::StateType_Vector, "shape")},
-            {fd->recordingState(output())}));
-        return output;
-      },
+      reshape_fn<python_frontend::Vector>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<std::vector<Scalar>>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<std::vector<int64_t>>,
       py::arg("arg"),
       py::arg("shape"),
       py::return_value_policy::reference);
