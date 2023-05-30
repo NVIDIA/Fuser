@@ -170,7 +170,11 @@ Val* parseNumber(std::string_view token_str) {
 }
 
 Val* functionCall(std::string_view name, std::deque<Val*> args) {
-  if (name == "max") {
+  if (name == "gcd") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::gcdExpr(args.at(0), args.at(1));
+  } else if (name == "max") {
     TORCH_CHECK(
         args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::maxExpr(args.at(0), args.at(1));
@@ -186,6 +190,10 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
     TORCH_CHECK(
         args.size() == 3, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::whereExpr(args.at(0), args.at(1), args.at(2));
+  } else if (name == "abs") {
+    TORCH_CHECK(
+        args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::absExpr(args.at(0));
   }
   TORCH_CHECK(false, "Unknown function: ", name);
 }
@@ -506,11 +514,13 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   ASSERT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
   ASSERT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
   ASSERT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
+  ASSERT_TRUE(simplifyExpr("gcd( i , 0 )"_)->sameAs("abs( i )"_));
 
   ASSERT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
   ASSERT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
   ASSERT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
   ASSERT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
+  ASSERT_EQ(simplifyExpr("gcd( i , 1 )"_)->getInt(), 1);
 
   ASSERT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
   ASSERT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
