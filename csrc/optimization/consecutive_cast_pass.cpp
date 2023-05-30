@@ -12,15 +12,17 @@ namespace nvfuser::optimization {
 
 namespace {
 
-// same dtype category for folding is only considered on for integral/floating point and complex dtypes
+// same dtype category for folding is only considered on for integral/floating
+// point and complex dtypes
 bool isSameDtypeCategory(const DataType& input_t, const DataType& output_t) {
   return (isIntegralType(input_t) && isIntegralType(output_t)) ||
       (isFloatingPointType(input_t) && isFloatingPointType(output_t)) ||
       (isComplexType(input_t) && isComplexType(output_t));
 }
 
-// We consider cast operations are foldable when it's casting within selected dtype categories.
-// NOTE: this might not be necessary, but it keeps the logic simpler when we try to optimize a chain of cast ops.
+// We consider cast operations are foldable when it's casting within selected
+// dtype categories. NOTE: this might not be necessary, but it keeps the logic
+// simpler when we try to optimize a chain of cast ops.
 bool isFoldableCast(Expr* expr) {
   if (expr != nullptr && expr->isA<UnaryOp>()) {
     auto op = expr->as<UnaryOp>();
@@ -137,8 +139,7 @@ void castOptimizationPass(Fusion* fusion) {
           expr, expr->input(0), starting_anchor);
     } else {
       TORCH_INTERNAL_ASSERT(
-          false,
-          "checkInformationLoss returns a flag that's not recognized");
+          false, "checkInformationLoss returns a flag that's not recognized");
     }
   }
 }

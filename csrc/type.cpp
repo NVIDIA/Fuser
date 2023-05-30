@@ -39,7 +39,8 @@ bool isWiderType(const DataType& base_type, const DataType& wider_type) {
   if (base_type == DataType::Bool) {
     return true;
   }
-  if ((wider_type == DataType::Double || wider_type == DataType::ComplexDouble) &&
+  if ((wider_type == DataType::Double ||
+       wider_type == DataType::ComplexDouble) &&
       (base_type == DataType::Double || base_type == DataType::Float ||
        base_type == DataType::Half || base_type == DataType::BFloat16)) {
     return true;
@@ -54,7 +55,8 @@ bool isWiderType(const DataType& base_type, const DataType& wider_type) {
       base_type == DataType::Int32) {
     return true;
   }
-  if (wider_type == DataType::ComplexDouble && base_type == DataType::ComplexFloat) {
+  if (wider_type == DataType::ComplexDouble &&
+      base_type == DataType::ComplexFloat) {
     return true;
   }
   return false;
