@@ -8488,6 +8488,65 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
+  const int hidden_size = 1024 * 10;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  std::vector<int64_t> input_shape{2048, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeSymbolicTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+
+  // capture stdout and check stdout contains register spill warning
+  testing::internal::CaptureStdout();
+  {
+    // generate persistent kernel
+    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    schedulePersistentKernel(&fusion, *persistent_params);
+
+    // compile and run persistent kernel
+    // intentionally set maxrregcount to 32 to trigger register spill
+    CompileParams compile_opts = {
+        .maxrregcount = 32, .enable_ptxas_verbose = true};
+    auto lparams = persistent_params->lparams;
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
+    auto cg_outputs = fe.runFusion({aten_input});
+
+    // validate results
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+  }
+  std::string output = testing::internal::GetCapturedStdout();
+  TORCH_CHECK(
+      output.find("Register spill detected") != std::string::npos,
+      "Register spill is not captured!");
+}
+
 // https://github.com/NVIDIA/Fuser/issues/335
 // This test is to make sure the benchmark in layer_norm_fused.cpp is correctly
 // implemented.
