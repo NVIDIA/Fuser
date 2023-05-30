@@ -82,6 +82,7 @@ namespace stupid_simple_compiler {
 
 using fun1_t = Val* (*)(Val*);
 using fun2_t = Val* (*)(Val*, Val*);
+using fun3_t = Val* (*)(Val*, Val*, Val*);
 struct LeftParenthesis {
   int64_t prev_lparen_pos;
 };
@@ -96,6 +97,7 @@ using token_t = std::variant<
     Val*, // variable or constant
     fun1_t, // unary op
     fun2_t, // binary op
+    fun3_t, // ternary op
     LeftParenthesis,
     FunctionCall,
     Comma,
@@ -180,6 +182,10 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
     TORCH_CHECK(
         args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::ceilDivExpr(args.at(0), args.at(1));
+  } else if (name == "where") {
+    TORCH_CHECK(
+        args.size() == 3, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::whereExpr(args.at(0), args.at(1), args.at(2));
   }
   TORCH_CHECK(false, "Unknown function: ", name);
 }
@@ -542,6 +548,10 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
   ASSERT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+
+  // where(true, x, y) -> x, where(false, x, y) -> y
+  ASSERT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
+  ASSERT_TRUE(simplifyExpr("where( false , i1 , i2 )"_)->sameAs("i2"_));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {

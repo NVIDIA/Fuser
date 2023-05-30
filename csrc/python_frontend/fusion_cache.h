@@ -113,11 +113,12 @@ class TORCH_CUDA_CU_API FusionCache {
   //! as a singleton.
   FusionCache(size_t max_fusions);
 
+ public:
   //! Copy and Assignment of the FusionCache is not supported
+  //! clang-tidy: deleted member function should be public
   FusionCache(const FusionCache&) = delete;
   FusionCache& operator=(const FusionCache&) = delete;
 
- public:
   //! The next 4 public methods are the python interface methods
 
   //! Gets a pointer to the singleton and creates a new one if necessary

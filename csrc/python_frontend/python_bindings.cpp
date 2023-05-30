@@ -222,15 +222,23 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule) {
+             bool override_user_schedule,
+             std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            return self.execute(inputs, override_user_schedule);
+            std::optional<int8_t> int8_device = std::nullopt;
+            if (device.has_value()) {
+              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              int8_device = (int8_t)device.value();
+            }
+            return self.execute(inputs, override_user_schedule, int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
+          py::kw_only(),
+          py::arg("device") = py::none(),
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
@@ -535,7 +543,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             Scalar out = self.defineScalar();
             self.defineRecord(new ConstantRecord<Int, int64_t>(
                 {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
+                serde::RecordType_ConstantLong,
                 val,
                 dtype));
             return out;
@@ -827,7 +835,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_or", bitwise_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
@@ -911,7 +919,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__rshift__", "bitwise_right_shift", bitwise_left_shift)
+      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
   // In PyTorch, __div__ (//) and __truediv__ (/) are different.
   // When applied to integer-dtype arguments, they do as expected, returning
   // integer and float outputs, respectively. When applied to two floating-type
