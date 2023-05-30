@@ -1677,15 +1677,21 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
-    // -(-x) -> x, !(!x) -> x
     auto optype = uop->getUnaryOpType();
     if (optype == UnaryOpType::Neg || optype == UnaryOpType::Not) {
+      // -(-x) -> x, !(!x) -> x
       auto uop_in = dynamic_cast<UnaryOp*>(uop->in()->definition());
       if (uop_in != nullptr) {
         auto optype_in = uop_in->getUnaryOpType();
         if (optype == optype_in) {
           return uop_in->in();
         }
+      }
+    } else if (optype == UnaryOpType::Abs) {
+      // abs(x) -> x if x >= 0
+      auto abs_in = uop->in();
+      if (prove::isNonNegative(abs_in, context)) {
+        return abs_in;
       }
     }
   } else if (auto top = dynamic_cast<TernaryOp*>(value->definition())) {
