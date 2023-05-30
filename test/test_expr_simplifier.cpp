@@ -186,6 +186,10 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
     TORCH_CHECK(
         args.size() == 3, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::whereExpr(args.at(0), args.at(1), args.at(2));
+  } else if (name == "abs") {
+    TORCH_CHECK(
+        args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::absExpr(args.at(0));
   }
   TORCH_CHECK(false, "Unknown function: ", name);
 }
@@ -552,6 +556,9 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   // where(true, x, y) -> x, where(false, x, y) -> y
   ASSERT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
   ASSERT_TRUE(simplifyExpr("where( false , i1 , i2 )"_)->sameAs("i2"_));
+
+  // abs(x) -> x, if x >= 0
+  ASSERT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_b})->sameAs("i"_));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
