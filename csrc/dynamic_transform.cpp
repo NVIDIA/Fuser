@@ -404,8 +404,15 @@ void DynamicTransformConcretizer::concretize() {
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
   for (auto stmt : all_stmts) {
-    if (stmt->isA<Val>()) {
+    if (stmt->isA<Val>() && !stmt->asVal()->definition()) {
+      // vals with definitions will be processed as exprs along with _all_
+      // outputs
       mutate(stmt);
+    } else if (stmt->isA<Expr>()) {
+      // concretize all outputs of each expression that will be evaluated
+      for (auto o : stmt->as<Expr>()->outputs()) {
+        mutate(o);
+      }
     }
   }
 }
