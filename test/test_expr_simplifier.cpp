@@ -32,41 +32,29 @@ bool isEquivalent(Val* x, Val* y) {
 }
 
 // assert that x/y -> z
-void assertSimplifiedDiv(
+void expectSimplifiedDiv(
     Val* x,
     Val* y,
     Val* z,
     std::vector<Bool*> assumptions = {}) {
   auto simplified = simplifyExpr(div(x, y), {}, assumptions);
-  TORCH_CHECK(
-      isEquivalent(simplified, z),
-      "Expect ",
-      x->toInlineString(),
-      " / ",
-      y->toInlineString(),
-      " to be simplified to ",
-      z->toInlineString(),
-      ", but get ",
-      simplified->toInlineString());
+  EXPECT_TRUE(isEquivalent(simplified, z))
+      << "Expect " << x->toInlineString() << " / " << y->toInlineString()
+      << " to be simplified to " << z->toInlineString() << ", but get "
+      << simplified->toInlineString();
 }
 
 // assert that x % y -> z
-void assertSimplifiedMod(
+void expectSimplifiedMod(
     Val* x,
     Val* y,
     Val* z,
     std::vector<Bool*> assumptions = {}) {
   auto simplified = simplifyExpr(mod(x, y), {}, assumptions);
-  TORCH_CHECK(
-      isEquivalent(simplified, z),
-      "Expect ",
-      x->toInlineString(),
-      " % ",
-      y->toInlineString(),
-      " to be simplified to ",
-      z->toInlineString(),
-      ", but get ",
-      simplified->toInlineString());
+  EXPECT_TRUE(isEquivalent(simplified, z))
+      << "Expect " << x->toInlineString() << " % " << y->toInlineString()
+      << " to be simplified to " << z->toInlineString() << ", but get "
+      << simplified->toInlineString();
 }
 
 } // namespace
@@ -568,56 +556,56 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
   // x / y -> z
   // and if x_div_z is true, also test
   // x / z -> y
-  auto assertSimplifiedDivMod = [&fusion](Val* x, Val* y, Val* z) {
-    assertSimplifiedMod(x, y, fusion.zeroVal());
-    assertSimplifiedMod(x, z, fusion.zeroVal());
-    assertSimplifiedDiv(x, y, z);
-    assertSimplifiedDiv(x, z, y);
+  auto expectSimplifiedDivMod = [&fusion](Val* x, Val* y, Val* z) {
+    expectSimplifiedMod(x, y, fusion.zeroVal());
+    expectSimplifiedMod(x, z, fusion.zeroVal());
+    expectSimplifiedDiv(x, y, z);
+    expectSimplifiedDiv(x, z, y);
   };
 
-  assertSimplifiedDivMod("6"_, "3"_, "2"_);
-  assertSimplifiedDivMod("i1 * i2"_, "i1"_, "i2"_);
-  assertSimplifiedDivMod("i1 * i2"_, "i1 * i2"_, "1"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i1"_, "i2 * i3"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i2"_, "i1 * i3"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i3"_, "i1 * i2"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i1 * ( i2 * i3 )"_, "1"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod("6"_, "3"_, "2"_);
+  expectSimplifiedDivMod("i1 * i2"_, "i1"_, "i2"_);
+  expectSimplifiedDivMod("i1 * i2"_, "i1 * i2"_, "1"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i1"_, "i2 * i3"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i2"_, "i1 * i3"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i3"_, "i1 * i2"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i1 * ( i2 * i3 )"_, "1"_);
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i1"_, "i2 * i3 + i2 * i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i2"_, "i1 * i3 + i1 * i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i1 * i2"_, "i3 + i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 + i2 ) * i3 + ( i1 + i2 ) * i4"_, "i1 + i2"_, "i3 + i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "( i1 * i2 ) * ( i3 * 6 )"_, "1"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "i1 * ( i2 * i3 )"_, "6"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "3"_, "( i1 * i2 ) * ( i3 * 2 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "( i1 * i2 ) * ( i3 * 3 )"_, "2"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "i1 * ( i3 * 3 )"_, "i2 * 2"_);
-  assertSimplifiedDivMod("( i1 + ( i1 * i3 ) ) * i2"_, "i1 * i2"_, "1 + i3"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod("( i1 + ( i1 * i3 ) ) * i2"_, "i1 * i2"_, "1 + i3"_);
+  expectSimplifiedDivMod(
       "( ( i1 * i2 ) + ( i1 * i3 ) ) * ( ( i2 * i1 ) + ( i2 * i4 ) )"_,
       "i1 * i2"_,
       "( i2 + i3 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 3 * i2 + 6 * i3 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( i2 + 2 * i3 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 3 * i2 + 6 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( i2 + 2 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 6 * i2 + 3 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( 2 * i2 + 1 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
+  expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
 TEST_F(ExprSimplifierTest, SignProve_CUDA) {
@@ -767,14 +755,14 @@ TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  assertSimplifiedDiv(
+  expectSimplifiedDiv(
       "6 * ( i1 * i3 )"_, "15 * ( i1 * i2 )"_, "( 2 * i3 ) / ( 5 * i2 )"_);
-  assertSimplifiedMod(
+  expectSimplifiedMod(
       "6 * ( i1 * i3 )"_,
       "15 * ( i1 * i2 )"_,
       "( ( 2 * i3 ) % ( 5 * i2 ) ) * ( 3 * i1 )"_);
-  assertSimplifiedDiv("( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "1 / ( 5 * i2 )"_);
-  assertSimplifiedMod(
+  expectSimplifiedDiv("( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "1 / ( 5 * i2 )"_);
+  expectSimplifiedMod(
       "( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "( 1 % ( 5 * i2 ) ) * ( 3 * i1 )"_);
 }
 
@@ -785,8 +773,8 @@ TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
 
   std::vector<Bool*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
 
-  assertSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
-  assertSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
+  expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
+  expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
 TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
@@ -794,20 +782,20 @@ TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  assertSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
-  assertSimplifiedMod(
+  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
+  expectSimplifiedMod(
       "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
-  assertSimplifiedDiv(
+  expectSimplifiedDiv(
       "i1 * 4 + 3"_,
       "32 * T0.size[0]"_,
       "i1 / ( 8 * T0.size[0] )"_,
       {"i1 >= 0"_b});
-  assertSimplifiedMod(
+  expectSimplifiedMod(
       "i1 * 4 + 3"_,
       "32 * T0.size[0]"_,
       "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
       {"i1 >= 0"_b});
-  assertSimplifiedDiv(
+  expectSimplifiedDiv(
       "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
       "32 * T0.size[3]"_,
       "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
