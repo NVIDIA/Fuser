@@ -280,4 +280,24 @@ TensorView* view_as_real(TensorView* x) {
   return viewAsScalar(tv_vector);
 }
 
+TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
+  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
+  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
+
+TensorView* logical_right_shift(TensorView* x, Val* shift) {
+  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
+  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
+
+TensorView* logical_right_shift(Val* x, TensorView* shift) {
+  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
+  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
+
+Val* logical_right_shift(Val* x, Val* shift) {
+  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
+  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
+
 } // namespace nvfuser
