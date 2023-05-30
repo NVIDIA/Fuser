@@ -40,12 +40,13 @@ bool isWiderType(const DataType& ref, const DataType& type) {
     return true;
   }
   if ((type == DataType::Double || type == DataType::ComplexDouble) &&
-      (ref == DataType::Float || ref == DataType::Half ||
-       ref == DataType::BFloat16)) {
+      (ref == DataType::Double || ref == DataType::Float ||
+       ref == DataType::Half || ref == DataType::BFloat16)) {
     return true;
   }
   if ((type == DataType::Float || type == DataType::ComplexFloat) &&
-      (ref == DataType::Half || ref == DataType::BFloat16)) {
+      (ref == DataType::Float || ref == DataType::Half ||
+       ref == DataType::BFloat16)) {
     return true;
   }
   if ((type == DataType::Int || type == DataType::Double ||
