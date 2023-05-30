@@ -1336,36 +1336,21 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
 IterDomain* ComputeAtMap::getConcreteMappedID(
     IterDomain* id,
     IdMappingMode mode) const {
-  
-  if(!idExistsInMap(id, mode)){
-    std::cout << "disjoint_set_shared_ptr not found in map for " << id->toString() << std::endl;
-    return nullptr;
-  }
-
   auto disjoint_set_shared_ptr = disjointSetOf(id, mode);
 
-  // TORCH_INTERNAL_ASSERT(
-  //     !disjoint_set_shared_ptr->vector().empty(),
-  //     "Empty disjoint set found for ",
-  //     id->toString());
+  TORCH_INTERNAL_ASSERT(
+      !disjoint_set_shared_ptr->vector().empty(),
+      "Empty disjoint set found for ",
+      id->toString());
 
-
-  if(disjoint_set_shared_ptr->vector().empty()){
-    std::cout << "Empty disjoint set found for " << id->toString() << std::endl;
-    return nullptr;
-  }
   auto cache_it = concrete_id_cache_.find(disjoint_set_shared_ptr);
 
-  if(cache_it == concrete_id_cache_.end()){
-    std::cout << "Could not find concrete id for: " << id->toString() << std::endl;
-    return nullptr;
-  }
-  // TORCH_INTERNAL_ASSERT(
-  //     cache_it != concrete_id_cache_.end(),
-  //     "Could not find concrete id for: ",
-  //     id->toString(),
-  //     " with mode ",
-  //     mode);
+  TORCH_INTERNAL_ASSERT(
+      cache_it != concrete_id_cache_.end(),
+      "Could not find concrete id for: ",
+      id->toString(),
+      " with mode ",
+      mode);
 
   return cache_it->second;
 }
@@ -1470,12 +1455,9 @@ std::vector<IterDomain*> ComputeAtMap::getRfactorDomainsOfIdGroup(
 const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
     disjointSetOf(IterDomain* id, IdMappingMode mode) const {
   TORCH_INTERNAL_ASSERT(
-      idExistsInMap(id, mode),
+      idExistsInMap(id),
       id->toString(),
       " has not been processed in this Compute At Map, yet the disjoint set for it was requested.");
-  // if(!idExistsInMap(id, mode)){
-  //   return VectorOfUniqueEntries<IterDomain*>();
-  // }
   return getIdSets(mode).disjointSetMap().at(id);
 }
 
@@ -1496,9 +1478,9 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
   TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");
 }
 
-bool ComputeAtMap::idExistsInMap(IterDomain* id, IdMappingMode mode) const {
-  return getIdSets(mode).disjointSetMap().find(id) !=
-      getIdSets(mode).disjointSetMap().end();
+bool ComputeAtMap::idExistsInMap(IterDomain* id) const {
+  return getIdSets(IdMappingMode::EXACT).disjointSetMap().find(id) !=
+      getIdSets(IdMappingMode::EXACT).disjointSetMap().end();
 }
 
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>

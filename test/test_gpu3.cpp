@@ -8162,26 +8162,26 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
         fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
   };
 
-  // // Test case where [B1,I2,I3] is merged to [B1I2I3]
-  // runTest({true, false, false, false});
+  // Test case where [B1,I2,I3] is merged to [B1I2I3]
+  runTest({true, false, false, false});
 
-  // // Test case where [I1,B2,I3] is merged to [I1B2I3]
-  // runTest({false, true, false, false});
+  // Test case where [I1,B2,I3] is merged to [I1B2I3]
+  runTest({false, true, false, false});
 
-  // // Test case where [I1,I2,B3] is merged to [I1I2B3]
-  // runTest({false, false, true, false});
+  // Test case where [I1,I2,B3] is merged to [I1I2B3]
+  runTest({false, false, true, false});
 
-  // // Test case where [I1,B2,B3] is merged to [I1B2B3]
-  // runTest({false, true, true, false});
+  // Test case where [I1,B2,B3] is merged to [I1B2B3]
+  runTest({false, true, true, false});
 
   // Test case where [B1,I2,B3] is merged to [B1I2B3]
   runTest({true, false, true, false});
 
-  // // Test case where [B1,B2,I3] is merged to [B1B2I3]
-  // runTest({true, true, false, false});
+  // Test case where [B1,B2,I3] is merged to [B1B2I3]
+  runTest({true, true, false, false});
 
-  // // Test case where [B1,B2,B3] is merged to [B1B2B3]
-  // runTest({true, true, true, false});
+  // Test case where [B1,B2,B3] is merged to [B1B2B3]
+  runTest({true, true, true, false});
 }
 
 TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {

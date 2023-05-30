@@ -557,85 +557,19 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
 
-  //   void setConcretizedBroadcastRootDomain() {
-  //   for (auto rd : root_domain_) {
-  //     if (!rd->isBroadcast()) {
-  //       continue;
-  //     }
-  //     auto concrete_id_0 =
-  //       GpuLower::current()->caMap()->getConcreteMappedID(rd, IdMappingMode::EXACT);
-  //     if (concrete_id_0) {
-  //     std::cout << "rd " << rd->toString() << "concrete_id_0 " << concrete_id_0->toString() << std::endl;
-  //       concretized_broadcast_root_domains_[rd] = concrete_id_0;
-  //     }
-  //   }
-
-  // }
-
-  // Current implementation only works for broadcast root domain uniquely
-  // concretized. Will skip if concretized to differet domains, and usually
-  // should be segmented, see
-  // // FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA
   void setConcretizedBroadcastRootDomain() {
     for (auto rd : root_domain_) {
       if (!rd->isBroadcast()) {
         continue;
       }
-      IterDomain* identical_concretized_domain = nullptr;
-      // find this broadcast root domain's identical concretized domain
-      // from its exact map (includes itself).
-      const auto& mapped_rd_exact_set = GpuLower::current()
-                                            ->caMap()
-                                            ->getIdSets(IdMappingMode::EXACT)
-                                            .getDisjointSetOf(rd);
-      for (auto mapped_rd : mapped_rd_exact_set) {
-        std::unordered_set<IterDomain*> all_cids =
-            GpuLower::current()
-                ->concretizedBroadcastDomains()
-                ->allConcretizedDomains(mapped_rd);
-        auto fromSameExactGroup = [&all_cids]() {
-          const auto& exact_set = GpuLower::current()
-                                      ->caMap()
-                                      ->getIdSets(IdMappingMode::EXACT)
-                                      .getDisjointSetOf(*all_cids.begin());
-          return std::all_of(
-              all_cids.begin(), all_cids.end(), [&](IterDomain* id) {
-                return exact_set.has(id);
-              });
-        };
-        // skip if this mapped domain is not concretized
-        // don't need to reset identical_concretized_domain
-        // since we only needs to make sure all the concretized domains are same
-        if (all_cids.empty()) {
-          std::cout << "all_cids.empty() rd  " << rd->toString() << " mapped_rd  " << mapped_rd->toString() << std::endl;
-          continue;
-        }
-          std::cout << "not all_cids.empty() rd  " << rd->toString() << " mapped_rd  " << mapped_rd->toString() << std::endl;
-        // Not from same exact group, not a valid case
-        if (!fromSameExactGroup()) {
-          identical_concretized_domain = nullptr;
-          break;
-        }
-        // if we have one
-        if (identical_concretized_domain) {
-          // make sure the new one is the same as the previous one
-          if (identical_concretized_domain != *all_cids.begin()) {
-            // if not the same, we can't handle this case
-            // move to the next broadcast root domain
-            identical_concretized_domain = nullptr;
-            break;
-          }
-        } else {
-          identical_concretized_domain = *all_cids.begin();
-        }
-      }
-      // store the concretized domain if it is the only one
-      if (identical_concretized_domain) {
-        concretized_broadcast_root_domains_[rd] = identical_concretized_domain;
-      std::cout << "rd " << rd->toString()  << " concrete_id_0 " << identical_concretized_domain->toString() << std::endl;
+      auto concrete_id_0 = GpuLower::current()->caMap()->getConcreteMappedID(
+          rd, IdMappingMode::PERMISSIVE);
+      if (concrete_id_0) {
+        concretized_broadcast_root_domains_[rd] = concrete_id_0;
       }
     }
   }
+
   // Find all the root domains that are merged to the leaf domain.
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
   std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
