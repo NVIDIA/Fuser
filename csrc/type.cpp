@@ -405,6 +405,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "lshift";
     case BinaryOpType::Rshift:
       return "rshift";
+    case BinaryOpType::Gcd:
+      return "gcd";
 
     // Logical Ops
     case BinaryOpType::And:

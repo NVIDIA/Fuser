@@ -363,8 +363,8 @@ void FusionExecutor::compileFusion(
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
+          compile_params,
           block_size,
-          maxrregcount_high_water_mark_,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
@@ -1498,8 +1498,8 @@ void FusionExecutor::recompileKernel(
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
+          new_compile_params,
           block_size_high_water_mark_,
-          maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
   resetCompiledKernelProperties();

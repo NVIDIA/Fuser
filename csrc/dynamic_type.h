@@ -12,6 +12,7 @@
 #include <c10/util/variant.h>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 #include <variant>
 
 namespace nvfuser {
@@ -290,6 +291,10 @@ inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
 
 inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
   return EvaluatorValue((a < b).as<bool>() ? a : b);
+}
+
+inline EvaluatorValue gcd(const EvaluatorValue& a, const EvaluatorValue& b) {
+  return EvaluatorValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
 inline EvaluatorValue notExpr(const EvaluatorValue& a) {
