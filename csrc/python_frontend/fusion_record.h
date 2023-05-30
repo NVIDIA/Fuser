@@ -43,6 +43,7 @@ struct RecordFunctor {
       std::string _name,
       serde::RecordType _record_type)
       : args_(std::move(_args)),
+        arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
         record_type_(_record_type) {}
@@ -72,6 +73,7 @@ struct RecordFunctor {
     auto result = (record_type_ == other.record_type_);
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
+    result = result && (arg_names_ == other.arg_names_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -166,12 +168,17 @@ struct RecordFunctor {
       os << "fd." << name_ << "(";
     }
     bool first_arg = true;
+    size_t idx = 0;
     for (auto& arg : args_) {
       if (first_arg) {
         first_arg = false;
       } else {
         os << ", ";
       }
+      if (!arg_names_[idx].empty()) {
+        os << arg_names_[idx] << "=";
+      }
+      ++idx;
       os << arg;
     }
     if (close_function) {
@@ -190,6 +197,8 @@ struct RecordFunctor {
  protected:
   //! Inputs that are indices into the FusionState's Recorded State.
   std::vector<State> args_;
+  //! String name to print for arg in Python, if any. Defaults to empty.
+  std::vector<std::string> arg_names_;
   //! Outputs that are indices into the FusionState's Recorded State.
   std::vector<State> outputs_;
   //! Record Name
