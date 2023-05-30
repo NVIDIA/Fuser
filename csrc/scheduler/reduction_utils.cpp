@@ -729,7 +729,7 @@ class PersistentBufferProjector {
           continue;
         }
         projectToInputOrImmediatePersistentProducer(
-            buffer_i, fusion_->inputs());
+            (int)buffer_i, fusion_->inputs());
       }
     } else {
       std::unordered_set<TensorView*> persistent_buffer_set(
@@ -737,12 +737,13 @@ class PersistentBufferProjector {
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         const auto& producers = ir_utils::producerTvsOf(buffer);
-        if (producers.size() &&
+        if (!producers.empty() &&
             std::all_of(producers.begin(), producers.end(), [&](auto producer) {
               return persistent_buffer_set.count(producer) > 0;
             })) {
           projectToInputOrImmediatePersistentProducer(
-              buffer_i, std::vector<Val*>(producers.begin(), producers.end()));
+              (int)buffer_i,
+              std::vector<Val*>(producers.begin(), producers.end()));
           // "buffer" is no longer a persistent buffer
           persistent_buffer_set.erase(buffer);
         }
