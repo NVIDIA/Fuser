@@ -32,29 +32,29 @@ KernelIndexMode indexTypeToMode(DataType index_type) {
       : KernelIndexMode::INT64;
 }
 
-bool isWiderType(const DataType& ref, const DataType& type) {
-  if (ref == type) {
+bool isWiderType(const DataType& base_type, const DataType& wider_type) {
+  if (base_type == wider_type) {
     return true;
   }
-  if (ref == DataType::Bool) {
+  if (base_type == DataType::Bool) {
     return true;
   }
-  if ((type == DataType::Double || type == DataType::ComplexDouble) &&
-      (ref == DataType::Double || ref == DataType::Float ||
-       ref == DataType::Half || ref == DataType::BFloat16)) {
+  if ((wider_type == DataType::Double || wider_type == DataType::ComplexDouble) &&
+      (base_type == DataType::Double || base_type == DataType::Float ||
+       base_type == DataType::Half || base_type == DataType::BFloat16)) {
     return true;
   }
-  if ((type == DataType::Float || type == DataType::ComplexFloat) &&
-      (ref == DataType::Float || ref == DataType::Half ||
-       ref == DataType::BFloat16)) {
+  if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
+      (base_type == DataType::Float || base_type == DataType::Half ||
+       base_type == DataType::BFloat16)) {
     return true;
   }
-  if ((type == DataType::Int || type == DataType::Double ||
-       type == DataType::ComplexDouble) &&
-      ref == DataType::Int32) {
+  if ((wider_type == DataType::Int || wider_type == DataType::Double ||
+       wider_type == DataType::ComplexDouble) &&
+      base_type == DataType::Int32) {
     return true;
   }
-  if (type == DataType::ComplexDouble && ref == DataType::ComplexFloat) {
+  if (wider_type == DataType::ComplexDouble && base_type == DataType::ComplexFloat) {
     return true;
   }
   return false;

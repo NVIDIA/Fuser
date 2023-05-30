@@ -143,7 +143,7 @@ KernelIndexMode indexTypeToMode(DataType index_type);
 
 // check if type is a wider type than ref
 // Which indicates a cast from ref -> type -> ref should be bit-wise identical
-bool isWiderType(const DataType& ref, const DataType& type);
+bool isWiderType(const DataType& base_type, const DataType& wider_type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {

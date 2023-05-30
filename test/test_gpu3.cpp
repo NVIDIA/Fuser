@@ -6036,9 +6036,6 @@ TEST_F(NVFuserTest, FusionBroadcastPersistentReduction_CUDA) {
 // Repro for
 // https://github.com/csarofeen/pytorch/issues/2094
 TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
-  // disable cast optimization in pre segmenter, which causes numerical issue on
-  // tests
-  optimization::OptimizationGroupGuard<optimization::PreSegmenter> guard(false);
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -8580,8 +8577,6 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto tv11 = castOp(DataType::Float, tv9);
     auto tv12 = castOp(DataType::Float, tv10);
     auto tv13 = add(tv11, tv12);
-    // The this pair of cast just cancels each other out, we'll simply rewire it
-    // to be use tv13 in places of tv15 in the follow up
     auto tv14 = castOp(DataType::Half, tv13);
     auto tv15 = castOp(DataType::Float, tv14);
     auto tv16 = variance(tv15, {1}, false, false);
