@@ -2243,6 +2243,21 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.bitwise_right_shift(inputs[0], 3)
         self.assertEqual(eager_out, nvf_out1[0])
 
+    def test_gcd(self):
+        inputs = [
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.gcd(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
+
 
 if __name__ == "__main__":
     run_tests()
