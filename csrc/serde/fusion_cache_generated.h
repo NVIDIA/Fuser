@@ -156,24 +156,27 @@ inline const char *EnumNameDataType(DataType e) {
 enum StateType : int32_t {
   StateType_Tensor = 0,
   StateType_Scalar = 1,
-  StateType_None = 2,
+  StateType_Vector = 2,
+  StateType_None = 3,
   StateType_MIN = StateType_Tensor,
   StateType_MAX = StateType_None
 };
 
-inline const StateType (&EnumValuesStateType())[3] {
+inline const StateType (&EnumValuesStateType())[4] {
   static const StateType values[] = {
     StateType_Tensor,
     StateType_Scalar,
+    StateType_Vector,
     StateType_None
   };
   return values;
 }
 
 inline const char * const *EnumNamesStateType() {
-  static const char * const names[4] = {
+  static const char * const names[5] = {
     "Tensor",
     "Scalar",
+    "Vector",
     "None",
     nullptr
   };

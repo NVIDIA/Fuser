@@ -404,6 +404,7 @@ enum class BinaryOpType {
   CeilDiv,
   Lshift,
   Rshift,
+  Gcd,
 
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
