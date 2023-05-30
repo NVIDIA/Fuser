@@ -27,23 +27,6 @@ struct TrieNode;
 
 TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 
-struct TORCH_CUDA_CU_API State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
-
-  bool operator==(const State& other) const;
-  bool operator!=(const State& other) const;
-
-  //! A unique index to identifiy each recorded state item.
-  size_t index;
-  //! StateType is either: Tensor or Scalar
-  serde::StateType stype;
-};
-
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    const State& state);
-
 //! The Tensor and Scalar classes are used to define separate function signtures
 //! in the FusionDefinition to identify the appropriate Operator function.
 //!
@@ -65,11 +48,30 @@ struct TORCH_CUDA_CU_API Tensor {
   size_t dims;
 
   //! Pointer to the FusionDefinition used to create this tensor
+  //! The FusionDefinition pointer is necessary to enable special
+  //! dunder operations (ie __add__()) from the python API.
   FusionDefinition* fusion_definition;
 };
 
 struct TORCH_CUDA_CU_API Scalar {
   Scalar(size_t _index, FusionDefinition* _fd)
+      : index(_index), fusion_definition(_fd) {}
+
+  size_t operator()() const {
+    return index;
+  }
+
+  //! A unique index to identifiy each recorded state item.
+  size_t index;
+
+  //! Pointer to the FusionDefinition used to create this scalar
+  //! The FusionDefinition pointer is necessary to enable special
+  //! dunder operations (ie __add__()) from the python API.
+  FusionDefinition* fusion_definition;
+};
+
+struct TORCH_CUDA_CU_API Vector {
+  Vector(size_t _index, FusionDefinition* _fd)
       : index(_index), fusion_definition(_fd) {}
 
   size_t operator()() const {
@@ -180,9 +182,6 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.
   TrieNode* trie_node_;
-
-  //! A vector of state recorded in the FusionDefinition
-  std::vector<State> recording_state_;
 
   // Book keeping data members for user created schedules
 

@@ -33,6 +33,7 @@ enum DataType : int {
 enum StateType : int {
     Tensor = 0,
     Scalar,
+    Vector,
     None,
 }
 
