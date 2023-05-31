@@ -1374,14 +1374,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  at::cuda::jit::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
