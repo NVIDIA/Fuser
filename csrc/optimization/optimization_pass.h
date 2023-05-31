@@ -44,6 +44,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
   }
 
   virtual ~OptimizationPass() = default;
+
  protected:
   static inline std::atomic<bool> flag_{true};
 };
