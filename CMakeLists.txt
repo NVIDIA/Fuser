@@ -374,6 +374,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
+    ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   )
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
