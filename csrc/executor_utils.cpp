@@ -1374,7 +1374,11 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
-  at::cuda::jit::initializeCudaContext();
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    cudaFree(0);
+  }
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
