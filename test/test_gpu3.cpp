@@ -8483,6 +8483,31 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     ref_tv = castOp(DataType::Float, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Int32)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Double, tv0);
+    tv = castOp(DataType::ComplexDouble, tv);
+    tv = castOp(DataType::Int, tv);
+    tv = castOp(DataType::BFloat16, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
+    // (input)float -> double -> half -> float -> bfloat16 -> float
+    fusion->addOutput(tv);
+    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+        fusion.get());
+    // TODO: should I have copied the tensor to avoid an alised output?!
+    // simplified as (input)float -> half -> bfloat16 -> float
+    auto ref_tv = castOp(DataType::BFloat16, tv0);
+    ref_tv = castOp(DataType::Double, ref_tv);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+  }
 }
 
 TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
