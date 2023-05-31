@@ -895,6 +895,14 @@ NVFUSER_DEFINE_INT_ONLY_OP(bitwise_right_shift, Rshift)
 NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 #undef NVFUSER_DEFINE_INT_ONLY_OP
 
+// The logical_right_shift operation shifts the value's bits to the right.
+// If the value is negative, it appends zeros to the front of the value.
+// The sign is preserved with arithmetic_right_shift, so ones are pushed to the
+// most significant bit.
+//
+// An alternate approach is to cast the value to an unsigned integer, perform
+// the right shift, and then cast back to the original value. In C++, unsigned
+// integers are shifted with logical right shift.
 template <typename LHS, typename RHS>
 TORCH_CUDA_CU_API typename std::conditional<
     std::is_same<LHS, TensorView*>::value ||
@@ -914,6 +922,7 @@ logical_right_shift_helper(LHS x, RHS shift) {
       bitwise_xor(shifted_mask, right_shift_value),
       right_shift_value);
 }
+
 TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
   return logical_right_shift_helper(x, shift);
 }

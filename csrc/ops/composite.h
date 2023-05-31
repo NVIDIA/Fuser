@@ -11,7 +11,6 @@
 
 #include <ir/interface_nodes.h>
 #include <type.h>
-#include <type_traits>
 
 //
 // The operations defined in this header is intended as user facing functions.

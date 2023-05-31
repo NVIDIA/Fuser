@@ -114,8 +114,6 @@ class TestNvFuserFrontend(TestCase):
         for idx in range(len(out)):
             self.assertEqual(out[idx], out_cap[idx])
 
-        fc = FusionCache.get()
-        fc.serialize("foo.bin")
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
         return out, fd
 
@@ -2245,91 +2243,65 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.bitwise_right_shift(inputs[0], 3)
         self.assertEqual(eager_out, nvf_out1[0])
 
-    def test_right_shift_logical_int32(self):
-        inputs = [
+    def test_right_shift_logical(self):
+        dtypes = [torch.int32, torch.int64]
+        input = torch.tensor(
+            [
+                -1,
+                -2147483648,
+                1073741824,
+                -64463884,
+                -65968277,
+                4042311,
+                -98914167,
+                5526216,
+            ],
+            device="cuda",
+        )
+
+        # expected_outputs given by jax.lax.shift_right_logical(inputs, 3)
+        expected_outputs = [
             torch.tensor(
                 [
-                    -1,
-                    -2147483648,
-                    1073741824,
-                    -64463884,
-                    -65968277,
-                    4042311,
-                    -98914167,
-                    5526216,
+                    536870911,
+                    268435456,
+                    134217728,
+                    528812926,
+                    528624877,
+                    505288,
+                    524506641,
+                    690777,
                 ],
                 dtype=torch.int32,
                 device="cuda",
-            )
-        ]
-
-        # expected_outputs given by jax.lax.shift_right_logical(inputs, 3)
-        expected_outputs = torch.tensor(
-            [
-                536870911,
-                268435456,
-                134217728,
-                528812926,
-                528624877,
-                505288,
-                524506641,
-                690777,
-            ],
-            dtype=torch.int32,
-            device="cuda",
-        )
-
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(3)
-            t1 = fd.ops.logical_right_shift(t0, c0)
-            fd.add_output(t1)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        self.assertEqual(nvf_out[0], expected_outputs)
-
-    def test_right_shift_logical_int64(self):
-        inputs = [
+            ),
             torch.tensor(
                 [
-                    -1,
-                    -2147483648,
-                    1073741824,
-                    -64463884,
-                    -65968277,
-                    4042311,
-                    -98914167,
-                    5526216,
+                    2305843009213693951,
+                    2305843008945258496,
+                    134217728,
+                    2305843009205635966,
+                    2305843009205447917,
+                    505288,
+                    2305843009201329681,
+                    690777,
                 ],
                 dtype=torch.int64,
                 device="cuda",
-            )
+            ),
         ]
 
-        # expected_outputs given by jax.lax.shift_right_logical(inputs, 3)
-        expected_outputs = torch.tensor(
-            [
-                2305843009213693951,
-                2305843008945258496,
-                134217728,
-                2305843009205635966,
-                2305843009205447917,
-                505288,
-                2305843009201329681,
-                690777,
-            ],
-            dtype=torch.int64,
-            device="cuda",
-        )
+        for idx, dtype in enumerate(dtypes):
+            current_input = input.to(dtype)
 
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(3)
-            t1 = fd.ops.logical_right_shift(t0, c0)
-            fd.add_output(t1)
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(current_input)
+                c0 = fd.define_constant(3)
+                t1 = fd.ops.logical_right_shift(t0, c0)
+                fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        self.assertEqual(nvf_out[0], expected_outputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, [current_input])
+            self.assertEqual(nvf_out[0], expected_outputs[idx])
 
     def test_gcd(self):
         inputs = [
