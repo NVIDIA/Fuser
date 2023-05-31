@@ -50,7 +50,7 @@ def serde_check(fucion_func: Callable, *args):
 ```python
 def fusion(fd: FusionDefinition):
     t0 = fd.define_tensor(symbolic_sizes=[-1, -1], contiguity=[True, True])
-    c0 = fd.define_constant(1.0, DataType.Float)
+    c0 = fd.define_scalar(1.0, DataType.Float)
     t1 = fd.ops.full(size=[-1, -1], arg=c0, dtype=DataType.Float)
     t2 = fd.ops.add(t0, t1)
     fd.add_output(t2)

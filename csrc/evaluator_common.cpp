@@ -565,6 +565,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::Min:
       dest = lhs < rhs ? lhs : rhs;
       break;
+    case BinaryOpType::Gcd:
+      dest = gcd(lhs, rhs);
+      break;
     default:
       TORCH_CHECK(!"Unexpected operator type");
   }

@@ -37,6 +37,9 @@ struct ComplexDoubleBuilder;
 struct TensorShape;
 struct TensorShapeBuilder;
 
+struct ScalarInput;
+struct ScalarInputBuilder;
+
 struct BatchNorm;
 struct BatchNormBuilder;
 
@@ -231,49 +234,49 @@ enum RecordType : int32_t {
   RecordType_CastTv = 5,
   RecordType_CastVal = 6,
   RecordType_CatOp = 7,
-  RecordType_ConstantBool = 8,
-  RecordType_ConstantComplexDouble = 9,
-  RecordType_ConstantDouble = 10,
-  RecordType_ConstantLong = 11,
-  RecordType_End = 12,
-  RecordType_FullOp = 13,
-  RecordType_IotaOp = 14,
-  RecordType_IndexSelectOp = 15,
-  RecordType_TorchGatherOp = 16,
-  RecordType_TakeAlongAxisOp = 17,
-  RecordType_Unary_TV = 18,
-  RecordType_Unary_VAL = 19,
-  RecordType_Binary_TV = 20,
-  RecordType_Binary_VAL = 21,
-  RecordType_Binary_TV_VAL = 22,
-  RecordType_Binary_VAL_TV = 23,
-  RecordType_Ternary_TV = 24,
-  RecordType_Ternary_VAL = 25,
-  RecordType_Ternary_TV_TV_VAL = 26,
-  RecordType_Ternary_TV_VAL_TV = 27,
-  RecordType_Ternary_VAL_TV_TV = 28,
-  RecordType_Ternary_VAL_VAL_TV = 29,
-  RecordType_Ternary_TV_VAL_VAL = 30,
-  RecordType_Ternary_VAL_TV_VAL = 31,
-  RecordType_Ternary_Alpha_TV = 32,
-  RecordType_Ternary_Alpha_VAL = 33,
-  RecordType_Ternary_Alpha_TV_TV_VAL = 34,
-  RecordType_Ternary_Alpha_TV_VAL_TV = 35,
-  RecordType_Ternary_Alpha_VAL_TV_TV = 36,
-  RecordType_Ternary_Alpha_VAL_VAL_TV = 37,
-  RecordType_Ternary_Alpha_TV_VAL_VAL = 38,
-  RecordType_Ternary_Alpha_VAL_TV_VAL = 39,
-  RecordType_OutputTv = 40,
-  RecordType_OutputVal = 41,
-  RecordType_PadOp = 42,
-  RecordType_PermuteOp = 43,
-  RecordType_RandomOp = 44,
-  RecordType_ReductionMax = 45,
-  RecordType_ReductionMin = 46,
-  RecordType_ReductionProd = 47,
-  RecordType_ReductionSum = 48,
-  RecordType_ReshapeOp = 49,
-  RecordType_Scalar = 50,
+  RecordType_End = 8,
+  RecordType_FullOp = 9,
+  RecordType_IotaOp = 10,
+  RecordType_IndexSelectOp = 11,
+  RecordType_TorchGatherOp = 12,
+  RecordType_TakeAlongAxisOp = 13,
+  RecordType_Unary_TV = 14,
+  RecordType_Unary_VAL = 15,
+  RecordType_Binary_TV = 16,
+  RecordType_Binary_VAL = 17,
+  RecordType_Binary_TV_VAL = 18,
+  RecordType_Binary_VAL_TV = 19,
+  RecordType_Ternary_TV = 20,
+  RecordType_Ternary_VAL = 21,
+  RecordType_Ternary_TV_TV_VAL = 22,
+  RecordType_Ternary_TV_VAL_TV = 23,
+  RecordType_Ternary_VAL_TV_TV = 24,
+  RecordType_Ternary_VAL_VAL_TV = 25,
+  RecordType_Ternary_TV_VAL_VAL = 26,
+  RecordType_Ternary_VAL_TV_VAL = 27,
+  RecordType_Ternary_Alpha_TV = 28,
+  RecordType_Ternary_Alpha_VAL = 29,
+  RecordType_Ternary_Alpha_TV_TV_VAL = 30,
+  RecordType_Ternary_Alpha_TV_VAL_TV = 31,
+  RecordType_Ternary_Alpha_VAL_TV_TV = 32,
+  RecordType_Ternary_Alpha_VAL_VAL_TV = 33,
+  RecordType_Ternary_Alpha_TV_VAL_VAL = 34,
+  RecordType_Ternary_Alpha_VAL_TV_VAL = 35,
+  RecordType_OutputTv = 36,
+  RecordType_OutputVal = 37,
+  RecordType_PadOp = 38,
+  RecordType_PermuteOp = 39,
+  RecordType_RandomOp = 40,
+  RecordType_ReductionMax = 41,
+  RecordType_ReductionMin = 42,
+  RecordType_ReductionProd = 43,
+  RecordType_ReductionSum = 44,
+  RecordType_ReshapeOp = 45,
+  RecordType_ScalarBool = 46,
+  RecordType_ScalarComplexDouble = 47,
+  RecordType_ScalarDouble = 48,
+  RecordType_ScalarInput = 49,
+  RecordType_ScalarLong = 50,
   RecordType_SliceOp = 51,
   RecordType_SqueezeOp = 52,
   RecordType_Start = 53,
@@ -295,10 +298,6 @@ inline const RecordType (&EnumValuesRecordType())[58] {
     RecordType_CastTv,
     RecordType_CastVal,
     RecordType_CatOp,
-    RecordType_ConstantBool,
-    RecordType_ConstantComplexDouble,
-    RecordType_ConstantDouble,
-    RecordType_ConstantLong,
     RecordType_End,
     RecordType_FullOp,
     RecordType_IotaOp,
@@ -337,7 +336,11 @@ inline const RecordType (&EnumValuesRecordType())[58] {
     RecordType_ReductionProd,
     RecordType_ReductionSum,
     RecordType_ReshapeOp,
-    RecordType_Scalar,
+    RecordType_ScalarBool,
+    RecordType_ScalarComplexDouble,
+    RecordType_ScalarDouble,
+    RecordType_ScalarInput,
+    RecordType_ScalarLong,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -359,10 +362,6 @@ inline const char * const *EnumNamesRecordType() {
     "CastTv",
     "CastVal",
     "CatOp",
-    "ConstantBool",
-    "ConstantComplexDouble",
-    "ConstantDouble",
-    "ConstantLong",
     "End",
     "FullOp",
     "IotaOp",
@@ -401,7 +400,11 @@ inline const char * const *EnumNamesRecordType() {
     "ReductionProd",
     "ReductionSum",
     "ReshapeOp",
-    "Scalar",
+    "ScalarBool",
+    "ScalarComplexDouble",
+    "ScalarDouble",
+    "ScalarInput",
+    "ScalarLong",
     "SliceOp",
     "SqueezeOp",
     "Start",
@@ -440,14 +443,15 @@ enum RecordData : uint8_t {
   RecordData_Squeeze = 16,
   RecordData_Reduction = 17,
   RecordData_Reshape = 18,
-  RecordData_Tensor = 19,
-  RecordData_TensorCreation = 20,
-  RecordData_TensorCreationSymbolic = 21,
+  RecordData_ScalarInput = 19,
+  RecordData_Tensor = 20,
+  RecordData_TensorCreation = 21,
+  RecordData_TensorCreationSymbolic = 22,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_TensorCreationSymbolic
 };
 
-inline const RecordData (&EnumValuesRecordData())[22] {
+inline const RecordData (&EnumValuesRecordData())[23] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_BatchNorm,
@@ -468,6 +472,7 @@ inline const RecordData (&EnumValuesRecordData())[22] {
     RecordData_Squeeze,
     RecordData_Reduction,
     RecordData_Reshape,
+    RecordData_ScalarInput,
     RecordData_Tensor,
     RecordData_TensorCreation,
     RecordData_TensorCreationSymbolic
@@ -476,7 +481,7 @@ inline const RecordData (&EnumValuesRecordData())[22] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[23] = {
+  static const char * const names[24] = {
     "NONE",
     "BatchNorm",
     "Bool",
@@ -496,6 +501,7 @@ inline const char * const *EnumNamesRecordData() {
     "Squeeze",
     "Reduction",
     "Reshape",
+    "ScalarInput",
     "Tensor",
     "TensorCreation",
     "TensorCreationSymbolic",
@@ -584,6 +590,10 @@ template<> struct RecordDataTraits<nvfuser::serde::Reduction> {
 
 template<> struct RecordDataTraits<nvfuser::serde::Reshape> {
   static const RecordData enum_value = RecordData_Reshape;
+};
+
+template<> struct RecordDataTraits<nvfuser::serde::ScalarInput> {
+  static const RecordData enum_value = RecordData_ScalarInput;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Tensor> {
@@ -959,6 +969,47 @@ inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
   return nvfuser::serde::CreateTensorShape(
       _fbb,
       shape__);
+}
+
+struct ScalarInput FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ScalarInputBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DTYPE = 4
+  };
+  nvfuser::serde::DataType dtype() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+           verifier.EndTable();
+  }
+};
+
+struct ScalarInputBuilder {
+  typedef ScalarInput Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_dtype(nvfuser::serde::DataType dtype) {
+    fbb_.AddElement<int32_t>(ScalarInput::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+  }
+  explicit ScalarInputBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<ScalarInput> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<ScalarInput>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<ScalarInput> CreateScalarInput(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
+  ScalarInputBuilder builder_(_fbb);
+  builder_.add_dtype(dtype);
+  return builder_.Finish();
 }
 
 struct BatchNorm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -2085,6 +2136,9 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Reshape *data_as_Reshape() const {
     return data_type() == nvfuser::serde::RecordData_Reshape ? static_cast<const nvfuser::serde::Reshape *>(data()) : nullptr;
   }
+  const nvfuser::serde::ScalarInput *data_as_ScalarInput() const {
+    return data_type() == nvfuser::serde::RecordData_ScalarInput ? static_cast<const nvfuser::serde::ScalarInput *>(data()) : nullptr;
+  }
   const nvfuser::serde::Tensor *data_as_Tensor() const {
     return data_type() == nvfuser::serde::RecordData_Tensor ? static_cast<const nvfuser::serde::Tensor *>(data()) : nullptr;
   }
@@ -2180,6 +2234,10 @@ template<> inline const nvfuser::serde::Reduction *RecordFunctor::data_as<nvfuse
 
 template<> inline const nvfuser::serde::Reshape *RecordFunctor::data_as<nvfuser::serde::Reshape>() const {
   return data_as_Reshape();
+}
+
+template<> inline const nvfuser::serde::ScalarInput *RecordFunctor::data_as<nvfuser::serde::ScalarInput>() const {
+  return data_as_ScalarInput();
 }
 
 template<> inline const nvfuser::serde::Tensor *RecordFunctor::data_as<nvfuser::serde::Tensor>() const {
@@ -2519,6 +2577,10 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
     }
     case RecordData_Reshape: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Reshape *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case RecordData_ScalarInput: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarInput *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Tensor: {

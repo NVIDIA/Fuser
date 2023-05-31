@@ -79,6 +79,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* modExpr(Val* lhs, Val* rhs);
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
+  static Val* gcdExpr(Val* lhs, Val* rhs);
 
   // Ternary operations
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
@@ -149,6 +150,7 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Bool* andExpr(Val* lhs, Val* rhs);
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
+  static Val* gcdExpr(Val* lhs, Val* rhs);
 
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 };
