@@ -701,9 +701,12 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   return ir_utils::rfactorHelper(reference_tv, rfactor_axes);
 }
 
-// Take all projectable persistent buffers, and move them to the inputs. This
-// function create dummy outputs which should be used in later stages of the
-// scheduling.
+namespace {
+// If project_to_inputs is true, take all projectable persistent buffers,
+// and move them to the inputs. Otherwise, try to project to their immediate
+// producers if these producers are persistent buffers.
+// This function create dummy outputs which should be used in later stages of
+// the scheduling.
 class PersistentBufferProjector {
  public:
   PersistentBufferProjector(Fusion* fusion, const bool project_to_inputs)
@@ -736,6 +739,10 @@ class PersistentBufferProjector {
           persistent_buffers.begin(), persistent_buffers.end());
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
+        // skip reduction buffers
+        if (buffer->hasReduction()) {
+          continue;
+        }
         const auto& producers = ir_utils::producerTvsOf(buffer);
         if (!producers.empty() &&
             std::all_of(producers.begin(), producers.end(), [&](auto producer) {
@@ -749,7 +756,7 @@ class PersistentBufferProjector {
         }
       }
     }
-    return dummy_outputs;
+    return dummy_outputs_;
   }
 
  private:
@@ -759,7 +766,7 @@ class PersistentBufferProjector {
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
   const std::vector<TensorView*>& projectable_persistent_buffers;
-  std::vector<TensorView*> dummy_outputs;
+  std::vector<TensorView*> dummy_outputs_;
   const bool project_to_inputs_;
 
   // get all uses of the persistent buffer
@@ -845,12 +852,12 @@ class PersistentBufferProjector {
       // domain. But adding `T7 = T1 + T6` creates a new propagation path
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
-      dummy_outputs.emplace_back(add(buffer_replicate, buffer));
+      dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
       ir_utils::replaceValInExpr(use->definition(), buffer, buffer_replicate);
     }
   }
 };
-
+} // namespace
 std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
     const bool project_to_inputs) {
