@@ -33,6 +33,7 @@ enum DataType : int {
 enum StateType : int {
     Tensor = 0,
     Scalar,
+    Vector,
     None,
 }
 
@@ -55,10 +56,6 @@ enum RecordType : int {
     CastTv,
     CastVal,
     CatOp,
-    ConstantBool,
-    ConstantComplexDouble,
-    ConstantDouble,
-    ConstantLong,
     End,
     FullOp,
     IotaOp,
@@ -97,7 +94,11 @@ enum RecordType : int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    Scalar,
+    ScalarBool,
+    ScalarComplexDouble,
+    ScalarDouble,
+    ScalarInput,
+    ScalarLong,
     SliceOp,
     SqueezeOp,
     Start,
@@ -130,6 +131,7 @@ union RecordData {
   Squeeze,
   Reduction,
   Reshape,
+  ScalarInput,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
@@ -175,6 +177,11 @@ table ComplexDouble {
 // Data representing a tensor shape
 table TensorShape {
   shape : [long];
+}
+
+// Data for Scalar Input
+table ScalarInput {
+  dtype: DataType;
 }
 
 //
