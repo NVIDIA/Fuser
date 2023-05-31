@@ -1380,7 +1380,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     // CUDA>=12 creates a context when cudaSetDevice is called. However, before
     // cu12, that context is not necessarily created. In that case, we create
     // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(0);
+    cudaFree(nullptr);
   }
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
