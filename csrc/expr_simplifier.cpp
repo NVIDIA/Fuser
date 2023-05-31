@@ -1143,10 +1143,17 @@ Val* factorizeFlattenedMul(Val* x) {
       std::move(symbolic_factors));
 }
 
+// Does the following factorization:
+// - a * x + b * x -> (a + b) * x
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
+//
+// Note (proof of the second rule): according to
+// https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties, We have:
+// For m > 0, m*gcd(a,b) = gcd(m*a, m*b). If we further define gcd(0, 0) = 0,
+// the above equation holds also for m = 0. Also, observe that gcd(a, b) is a
+// even function w.r.t. both a and b, we have:
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
 Val* factorizeFlattenedAddOrGcd(Val* x) {
-  // a * x + b * x -> (a + b) * x
-  // gcd(a * x, b * x) -> gcd(a, b) * abs(x)
-
   // Warning: This implementation can only factorize out common divisor. It can
   // not factorize FlattenedAdd(x * x, 2 * x, 1) as FlattenedMul(x + 1, x + 1).
   // But I believe factorizing out common divisor is sufficient for index
