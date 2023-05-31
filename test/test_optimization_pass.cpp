@@ -9,6 +9,11 @@
 #include <gtest/gtest.h>
 
 #include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <optimization/optimization_pass.h>
+#include <optimization/pre_segmenter.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <torch/torch.h>
 
@@ -17,6 +22,36 @@
 #include <c10/cuda/CUDAStream.h>
 
 namespace nvfuser::optimization {
+
+TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
+  class DerivedPass : public OptimizationPass<DerivedPass> {
+    friend class OptimizationPass<DerivedPass>;
+
+   protected:
+    static void runPass(Fusion* fusion) {
+      throw std::runtime_error("running DerivedPass");
+    };
+  };
+
+  auto fusion = std::make_unique<Fusion>();
+
+  {
+    // disabling the flag explicitly
+    OptimizationPassGuard<DerivedPass> guard(false);
+    OptimizationPass<DerivedPass>::runPass(fusion.get());
+  }
+
+  // the flag should be default on
+  bool except_thrown = false;
+  try {
+    OptimizationPass<DerivedPass>::runPass(fusion.get());
+  } catch (std::runtime_error& err) {
+    if (std::strcmp(err.what(), "running DerivedPass") == 0) {
+      except_thrown = true;
+    }
+  }
+  TORCH_CHECK(except_thrown, "optimization pass is skipped unexpectedly");
+}
 
 // Test cast optimization
 TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
@@ -145,4 +180,4 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 }
 
-}
+} // namespace nvfuser::optimization

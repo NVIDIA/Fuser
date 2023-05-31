@@ -63,8 +63,11 @@ class TORCH_CUDA_CU_API OptimizationPass {
 template <typename OptPass>
 class TORCH_CUDA_CU_API OptimizationPassGuard {
  public:
-  OptimizationPassGuard(bool enabled)
-      : prev_status_(OptPass::setEnabled(enabled)) {}
+  OptimizationPassGuard(bool enabled) : prev_status_(OptPass::getEnabled()) {
+    if (prev_status_ != enabled) {
+      OptPass::setEnabled(enabled);
+    }
+  }
   ~OptimizationPassGuard() {
     OptPass::setEnabled(prev_status_);
   }
