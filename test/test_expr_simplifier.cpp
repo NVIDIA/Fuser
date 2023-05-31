@@ -158,7 +158,11 @@ Val* parseNumber(std::string_view token_str) {
 }
 
 Val* functionCall(std::string_view name, std::deque<Val*> args) {
-  if (name == "max") {
+  if (name == "gcd") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::gcdExpr(args.at(0), args.at(1));
+  } else if (name == "max") {
     TORCH_CHECK(
         args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::maxExpr(args.at(0), args.at(1));
@@ -493,11 +497,13 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   EXPECT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
   EXPECT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
   EXPECT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
+  EXPECT_TRUE(simplifyExpr("gcd( i , 0 )"_)->sameAs("abs( i )"_));
 
   EXPECT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
   EXPECT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
   EXPECT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
+  EXPECT_EQ(simplifyExpr("gcd( i , 1 )"_)->getInt(), 1);
 
   EXPECT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
   EXPECT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
