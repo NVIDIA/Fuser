@@ -33,14 +33,13 @@ namespace {
 Vector define_vector_fn(
     FusionDefinition& fd,
     std::optional<std::vector<int64_t>> value,
-    int64_t size,
+    size_t size,
     PrimDataType dtype = DataType::Int) {
   FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");
-  TORCH_CHECK(size > 0, "Vector size should be >0.");
   if (value.has_value()) {
     TORCH_CHECK(
-        value.value().size() == static_cast<size_t>(size),
-        "value size and input size do not  match!");
+        value.value().size() == size,
+        "value size and input size do not match!");
   }
   Vector out = fd.defineVector(size);
   auto rtype = value.has_value() ? serde::RecordType_VectorLong

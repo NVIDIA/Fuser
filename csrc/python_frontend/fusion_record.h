@@ -2826,27 +2826,27 @@ struct VectorRecord : RecordFunctor {
       std::vector<State> _outputs,
       serde::RecordType record_type,
       std::optional<std::vector<ValueType>> value,
-      int64_t size,
+      size_t size,
       PrimDataType dtype)
       : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
         value_(std::move(value)),
         size_(size),
         dtype_(dtype) {}
-  virtual ~VectorRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~VectorRecord() override = default;
+  RecordFunctor* clone() final {
     return new VectorRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 --------------- 16 | 15 ---------------  0 |
   //! | Dtype                 | Size                  |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     result |= (static_cast<size_t>(dtype_) & 0xffff) << 16;
-    return result | (static_cast<size_t>(size_) & 0xffff);
+    return result | (size_ & 0xffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2856,18 +2856,18 @@ struct VectorRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     std::vector<Val*> output(size_, nullptr);
     TORCH_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
     if (value_.has_value()) {
-      for (int64_t i = 0; i < size_; ++i) {
+      for (size_t i = 0; i < size_; ++i) {
         output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
       }
     } else {
-      for (int64_t i = 0; i < size_; ++i) {
+      for (size_t i = 0; i < size_; ++i) {
         output[i] = IrBuilder::create<Int>();
         fd.addInput(output.at(i));
       }
@@ -2899,7 +2899,7 @@ struct VectorRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     if (value_.has_value()) {
       return {
@@ -2920,7 +2920,7 @@ struct VectorRecord : RecordFunctor {
   //! The vector's value.
   std::optional<std::vector<ValueType>> value_;
   //! Since the vector's value is optional, the size is stored here
-  int64_t size_;
+  size_t size_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
