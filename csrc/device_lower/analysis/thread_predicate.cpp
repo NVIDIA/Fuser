@@ -558,14 +558,33 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   void setConcretizedBroadcastRootDomain() {
-    for (auto rd : root_domain_) {
-      if (!rd->isBroadcast()) {
-        continue;
-      }
-      auto concrete_id_0 = GpuLower::current()->caMap()->getConcreteMappedID(
-          rd, IdMappingMode::PERMISSIVE);
-      if (concrete_id_0) {
-        concretized_broadcast_root_domains_[rd] = concrete_id_0;
+    std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
+    for (auto leaf_id : candidate_leaf_domains_) {
+      auto loop_concrete_id =
+          caMap->getConcreteMappedID(leaf_id, IdMappingMode::LOOP);
+      auto concrete_root_vals = IterVisitor::getInputsTo({loop_concrete_id});
+      auto concrete_root_ids =
+          ir_utils::filterByType<IterDomain>(concrete_root_vals);
+
+      // get concretized root domains
+      for (auto rd : root_domain_) {
+        if (!rd->isBroadcast()) {
+          continue;
+        }
+        auto it = std::find_if(
+            concrete_root_ids.begin(),
+            concrete_root_ids.end(),
+            [&caMap, &rd](auto concrete_root_id) {
+              return caMap->areMapped(
+                  rd, concrete_root_id, IdMappingMode::PERMISSIVE);
+            });
+        if (it == concrete_root_ids.end()) {
+          // Failed to find the concrete ID. This could happen in complex
+          // broadcast and computeAt patterns. Not addressed for now
+          continue;
+        }
+        auto concrete_root_id = *it;
+        concretized_broadcast_root_domains_[rd] = concrete_root_id;
       }
     }
   }
