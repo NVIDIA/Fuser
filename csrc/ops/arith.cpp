@@ -895,6 +895,38 @@ NVFUSER_DEFINE_INT_ONLY_OP(bitwise_right_shift, Rshift)
 NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 #undef NVFUSER_DEFINE_INT_ONLY_OP
 
+template <typename LHS, typename RHS>
+TORCH_CUDA_CU_API typename std::conditional<
+    std::is_same<LHS, TensorView*>::value ||
+        std::is_same<RHS, TensorView*>::value,
+    TensorView*,
+    Val*>::type
+logical_right_shift_helper(LHS x, RHS shift) {
+  auto number_of_bits = (x->dtype() == PrimDataType::Int) ? 64 : 32;
+  auto one = IrBuilder::create<Int>(x->container(), 1);
+  auto two = IrBuilder::create<Int>(x->container(), 2);
+  auto thirty_two = IrBuilder::create<Int>(x->container(), number_of_bits);
+  auto mask = sub(pow(two, shift), one);
+  auto shifted_mask = bitwise_left_shift(mask, sub(thirty_two, shift));
+  auto right_shift_value = bitwise_right_shift(x, shift);
+  return where(
+      signbit(x),
+      bitwise_xor(shifted_mask, right_shift_value),
+      right_shift_value);
+}
+TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+TensorView* logical_right_shift(TensorView* x, Val* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+TensorView* logical_right_shift(Val* x, TensorView* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+Val* logical_right_shift(Val* x, Val* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+
 #define NVFUSER_DEFINE_BINARY_COMPARE_OP(op_name, op_type)                   \
   Val* op_name(Val* v1, Val* v2) {                                           \
     return binaryOp(                                                         \

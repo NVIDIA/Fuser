@@ -74,11 +74,4 @@ TORCH_CUDA_CU_API TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 TORCH_CUDA_CU_API TensorView* view_as_real(TensorView* x);
 
-TORCH_CUDA_CU_API TensorView* logical_right_shift(
-    TensorView* x,
-    TensorView* shift);
-TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
-TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
-TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
-
 } // namespace nvfuser

@@ -477,6 +477,13 @@ TORCH_CUDA_CU_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_right_shift(
     TensorView* v1,
     TensorView* v2);
+// logical_right_shift
+TORCH_CUDA_CU_API TensorView* logical_right_shift(
+    TensorView* x,
+    TensorView* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
+TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
 // bitwise_or
 TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
