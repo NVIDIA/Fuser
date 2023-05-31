@@ -190,7 +190,7 @@ void castOptimizationPass(Fusion* fusion) {
 
 } // namespace
 
-void ConsecutiveCastPass::run(Fusion* fusion) {
+void ConsecutiveCastPass::runPass(Fusion* fusion) {
   castOptimizationPass(fusion);
 }
 

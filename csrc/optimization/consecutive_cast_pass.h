@@ -13,7 +13,7 @@ namespace nvfuser::optimization {
 //! doesn't have any impact on output from fusion.
 class TORCH_CUDA_CU_API ConsecutiveCastPass : public OptimizationPass<ConsecutiveCastPass> {
  public:
-  static void run(Fusion* fusion);
+  static void runPass(Fusion* fusion);
 };
 
 } // namespace nvfuser::optimization

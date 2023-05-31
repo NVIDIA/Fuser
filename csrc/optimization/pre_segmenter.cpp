@@ -12,7 +12,7 @@ namespace nvfuser::optimization {
 
 void PreSegmenter::runPass(Fusion* fusion) {
   // removes consecutive cast operations
-  OptimizationPass<ConsecutiveCastPass>::run(fusion);
+  OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::optimization
