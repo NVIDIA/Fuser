@@ -8082,10 +8082,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.write_index_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
       TORCH_CHECK(
           predicted,
-          "Tv15 should be predicted by ParallelType::BIDx with a write_index_map!");
+          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
       break;
     }
   }
@@ -8142,10 +8142,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
         bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-            thread_pred.write_index_map.count(ParallelType::BIDx);
+            thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
         TORCH_CHECK(
             predicted,
-            "Tv8 should be predicted by ParallelType::BIDx with a write_index_map!");
+            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
         break;
       }
     }
@@ -8319,10 +8319,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.write_index_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
       TORCH_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a write_index_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
     }
   }
 
@@ -8389,10 +8389,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.write_index_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
       TORCH_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a write_index_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
     }
   }
 

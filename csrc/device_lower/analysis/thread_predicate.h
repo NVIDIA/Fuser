@@ -51,25 +51,14 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
 
-    // when a leaf domain is merged from concretized broadcast root domain, only
-    // part of thread/block do the write to gmem is enough.
-    // e.g. [B1,I2,B3] is merged to [B1*I2*B3] and parallelized by blockIdx.x,
-    // the write condition is: blockIdx.x == write_index,
-    // where write_index = write_index_map[ParallelType::BIDx].
-    // write_index is calculated by the following method:
-    // (1) Find the root domains merged to this leaf domain, e.g. [B1, I2, B3]
-    // (2) Calculate the stride if we index the leaf domain using its root
-    // domains,
-    //     e.g. extended_stride = [len(I2)*len(B3), len(B3) ,1],
-    //     where len(Bx) is the length its concretized domain.
-    // (3) Calculate the index of each dimension. e.g. linear_index =
-    // blockIdx.x;
-    //     index[i] = (linear_index / stride[i]); linear_index %= stride[i];
-    // (4) index the leaf domain skipping the broadcasted dimensions.
-    //     e.g. write_index = 0 * stride[0] + index[1] * stride[1] + 0 *
-    //     stride[2]
-
-    std::unordered_map<ParallelType, Val*> write_index_map;
+    // when a leaf domain of a Tensor stored in global memory
+    // is merged from concretized broadcast root domain, the broadcasted
+    // root domains should be skipped when writing to global memory.
+    // broadcast_rd_indices_map maps a parallel type to a list of indices
+    // of the broadcasted root domains. The write to global memory is needed
+    // only when the index equals to 0.
+    std::unordered_map<ParallelType, std::vector<Val*>>
+        broadcast_rd_indices_map;
 
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]

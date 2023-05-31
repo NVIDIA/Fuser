@@ -42,17 +42,23 @@ Bool* getPredicatePerParallelType(
         ->as<Bool>();
   }
 
-  const auto& write_index_map = pred_info.write_index_map;
-  Val* valid_index = nullptr;
-  if (auto it = write_index_map.find(pt); it != write_index_map.end()) {
+  const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
+  if (auto it = broadcast_rd_indices_map.find(pt);
+      it != broadcast_rd_indices_map.end()) {
     // skip concretized broadcast root domains
-    valid_index = it->second;
-  } else {
-    // Otherwise, only thread of index 0 executes the computation
-    valid_index = GpuLower::current()->kernel()->zeroVal();
+    const auto& broadcast_rd_indices = it->second;
+    Val* zero = GpuLower::current()->kernel()->zeroVal();
+    Bool* pred = GpuLower::current()->kernel()->trueVal();
+    for (auto broadcast_rd_index : broadcast_rd_indices) {
+      pred = SimplifyingIrBuilder::andExpr(
+          pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
+    }
+    return pred;
   }
+
   return SimplifyingIrBuilder::eqExpr(
-             NamedScalar::getParallelIndex(pt), valid_index)
+             NamedScalar::getParallelIndex(pt),
+             GpuLower::current()->kernel()->zeroVal())
       ->as<Bool>();
 }
 
@@ -525,13 +531,14 @@ class ConcretizedBroadcastRedundantWriteRemover {
           getRootDomainsMergedToLeaf(ld);
       if (!merged_root_domains.empty()) {
         const ParallelType& pt = ld->getParallelType();
-        Val* write_index = getIndexWithoutBroadcast(merged_root_domains, pt);
-        write_index_map_[pt] = write_index;
+        const std::vector<Val*>& broadcast_root_indices =
+            getIndexOfBroadcastRootDomains(merged_root_domains, pt);
+        write_index_map_[pt] = broadcast_root_indices;
       }
     }
   }
   // interface to get results
-  const std::unordered_map<ParallelType, Val*>& getWriteIndexMap() {
+  const std::unordered_map<ParallelType, std::vector<Val*>>& getWriteIndexMap() {
     return write_index_map_;
   }
 
@@ -545,7 +552,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   std::unordered_map<IterDomain*, IterDomain*>
       concretized_broadcast_root_domains_;
   // map from parallel type to its write index
-  std::unordered_map<ParallelType, Val*> write_index_map_;
+  std::unordered_map<ParallelType, std::vector<Val*>> write_index_map_;
 
   void setCandidateLeafDomains() {
     for (auto ld : tv_->domain()->leaf()) {
@@ -639,7 +646,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   // Get the index of the leaf domain if we skip the broadcasted root domains
-  Val* getIndexWithoutBroadcast(
+  std::vector<Val*> getIndexOfBroadcastRootDomains(
       const std::vector<IterDomain*>& merged_root_domains,
       ParallelType pt) {
     const int ndim = (int)merged_root_domains.size();
@@ -656,23 +663,17 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // convert the linear index of the leaf domain to the indices of the root
     // domains
     Val* remaining_index = NamedScalar::getParallelIndex(pt);
-    std::vector<Val*> root_indices(ndim);
+    std::vector<Val*> index_broadcast_root_domains;
+    index_broadcast_root_domains.reserve(ndim);
     for (int i = 0; i < ndim; i++) {
-      root_indices.at(i) =
+      Val* root_index_at_i =
           IrBuilder::divExpr(remaining_index, root_stride.at(i));
       remaining_index = IrBuilder::modExpr(remaining_index, root_stride.at(i));
-    }
-
-    // get the index of the leaf domain if we skip the broadcasted root domains
-    Val* index_without_broadcast = IrBuilder::create<Int>(0);
-    for (int i = 0; i < ndim; i++) {
-      if (!merged_root_domains.at(i)->isBroadcast()) {
-        index_without_broadcast = IrBuilder::addExpr(
-            index_without_broadcast,
-            IrBuilder::mulExpr(root_indices.at(i), root_stride.at(i)));
+      if (merged_root_domains.at(i)->isBroadcast()) {
+        index_broadcast_root_domains.emplace_back(root_index_at_i);
       }
     }
-    return index_without_broadcast;
+    return index_broadcast_root_domains;
   }
 };
 } // namespace
@@ -685,10 +686,12 @@ class ConcretizedBroadcastRedundantWriteRemover {
 void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
   ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
-  const auto& write_index_map = redundant_write_remover.getWriteIndexMap();
-  if (!write_index_map.empty()) {
-    thread_predicates_[out_tv].write_index_map = write_index_map;
-    for (auto iter : write_index_map) {
+  const auto& broadcast_rd_indices_map =
+      redundant_write_remover.getWriteIndexMap();
+  if (!broadcast_rd_indices_map.empty()) {
+    thread_predicates_[out_tv].broadcast_rd_indices_map =
+        broadcast_rd_indices_map;
+    for (auto iter : broadcast_rd_indices_map) {
       thread_predicates_[out_tv].redundant_types.set(iter.first);
     }
   }
