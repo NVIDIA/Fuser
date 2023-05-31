@@ -25,7 +25,7 @@ bool isCast(Expr* expr) {
 Val* replaceInputInCast(Val* cast_output, Val* new_input) {
   auto tmp_expr = cast_output->definition();
   // short-cut for cases when no substitution is needed;
-  if (new_input == tmp_expr->input(0)) {
+  if (cast_output == new_input || new_input == tmp_expr->input(0)) {
     return cast_output;
   }
   auto new_expr = nvfuser::ir_utils::replaceValInExpr(
@@ -178,12 +178,12 @@ void castOptimizationPass(Fusion* fusion) {
       // 1.4.b: if lo_anchor is wider than output_dtype, casting to lo_anchor
       // isn't doing anything, we'll just fold away to the starting_anchor
       // instead
-      replaceInputInCast(expr->input(0), starting_anchor);
+      replaceInputInCast(expr->output(0), starting_anchor);
     } else {
       // 1.4.c: This is the case where we cannot fold away the cast of
       // lo_anchor; we'll just re-wire input to expr with lo_anchor
       lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
-      replaceInputInCast(expr->input(0), lo_anchor);
+      replaceInputInCast(expr->output(0), lo_anchor);
     }
   }
 }
