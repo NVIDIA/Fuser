@@ -16,54 +16,36 @@ namespace nvfuser::optimization {
 using FusionPass = std::function<void(Fusion*)>;
 
 //! [experimental API]
-//! Base class to unify optimization pass APIs.
-//! OptimizationPass is functional and defines the granularity of mutation
-//! passes that is used to compose OptimizationGroups
-class TORCH_CUDA_CU_API OptimizationPass {
- public:
-  virtual void run(Fusion*) = 0;
-  virtual std::string name() = 0;
-  virtual ~OptimizationPass() = default;
-};
-
-//! [experimental API]
 //! Base class to unify optimization group APIs.
-//! OptimizationGroup composes optimization passes that is used at certain stage
-//! in the runtime system. OptimizationGroup can be turned on/off
+//! OptimizationPass composes optimization passes that is used at certain stage
+//! in the runtime system. OptimizationPass can be turned on/off
 //! programmatically with the `setEnabled/flipEnabled` API. There's helper
 //! template OptimizationGroupGuard to temporarily switch the enablement within
 //! the context. Note the we are using a curiously recurring template pattern
 //! here to ensure that static objects are unique for each DerivedClass. In
-//! order to apply OptimizationGroup with the switch enabled, you need to run
-//! the function with `OptimizationGroup<DerivedClass>::runPass(...)`
+//! order to apply OptimizationPass with the switch enabled, you need to run
+//! the function with `OptimizationPass<DerivedClass>::runPass(...)`
 template <typename DerivedClass>
-class TORCH_CUDA_CU_API OptimizationGroup {
+class TORCH_CUDA_CU_API OptimizationPass {
  public:
-  static bool flipEnabled(bool flip) {
-    static std::mutex mutex_;
-    static bool enable_flag_ = true;
-
-    std::lock_guard<std::mutex> guard(mutex_);
-    enable_flag_ = enable_flag_ ^ flip;
-    return enable_flag_ ^ flip;
+  static void setEnabled(bool enabled) {
+    flag_.store(enabled);
   }
 
-  static bool setEnabled(bool enabled) {
-    auto tmp = flipEnabled(false);
-    if (enabled != tmp) {
-      flipEnabled(true);
-    }
-    return tmp;
+  static bool getEnabled() {
+    return flag_.load();
   }
 
   static void runPass(Fusion* fusion) {
-    if (!flipEnabled(false)) {
+    if (!flag_.load()) {
       return;
     }
     DerivedClass::runPass(fusion);
   }
 
-  virtual ~OptimizationGroup() = default;
+  virtual ~OptimizationPass() = default;
+ protected:
+  static inline std::atomic<bool> flag_{true};
 };
 
 //! [experimental API]

@@ -194,8 +194,4 @@ void ConsecutiveCastPass::run(Fusion* fusion) {
   castOptimizationPass(fusion);
 }
 
-std::string ConsecutiveCastPass::name() {
-  return "ConsecutiveCastOptimization";
-}
-
 } // namespace nvfuser::optimization

@@ -666,7 +666,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
 
   all_tvs_ = ir_utils::allTvs(fusion.get());

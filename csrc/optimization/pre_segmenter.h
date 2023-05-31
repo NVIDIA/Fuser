@@ -13,7 +13,7 @@ namespace nvfuser::optimization {
 
 //! PreSegmenter is an optimization group that runs right before fusion executor
 //! segments a fusion into multiple kernels.
-class TORCH_CUDA_CU_API PreSegmenter : public OptimizationGroup<PreSegmenter> {
+class TORCH_CUDA_CU_API PreSegmenter : public OptimizationPass<PreSegmenter> {
  public:
   static void runPass(Fusion* fusion);
 };

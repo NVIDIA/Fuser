@@ -8403,7 +8403,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Double, tv);
     // (input)double -> float -> half -> float -> double
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
     // simplified as (input)double -> half -> double
     auto ref_tv = castOp(DataType::Half, tv0);
@@ -8423,7 +8423,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> float
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
     // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)
@@ -8450,7 +8450,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     // (input)float -> double -> half -> float -> double -> float -> double ->
     // float -> double -> float
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
     // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)float -> half -> float
@@ -8474,7 +8474,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> half -> float -> bfloat16 -> float
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
     // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)float -> half -> bfloat16 -> float
@@ -8500,7 +8500,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Double, tv);
     // (input)float -> double -> half -> float -> bfloat16 -> float
     fusion->addOutput(tv);
-    optimization::OptimizationGroup<optimization::PreSegmenter>::runPass(
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
     // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)float -> half -> bfloat16 -> float
