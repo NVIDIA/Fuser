@@ -74,18 +74,9 @@ TORCH_CUDA_CU_API TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 TORCH_CUDA_CU_API TensorView* view_as_real(TensorView* x);
 
-/*
-template <typename LHS, typename RHS>
-TORCH_CUDA_CU_API typename std::conditional<
-    std::is_same<LHS, TensorView*>::value || std::is_same<RHS, TensorView*>::value,
-    TensorView*,
-    Val*>::type
-logical_right_shift(LHS x, RHS shift) {
-  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
-  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
-}
-*/
-TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, TensorView* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(
+    TensorView* x,
+    TensorView* shift);
 TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
 TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
 TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);

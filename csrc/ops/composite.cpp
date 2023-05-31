@@ -280,24 +280,31 @@ TensorView* view_as_real(TensorView* x) {
   return viewAsScalar(tv_vector);
 }
 
-TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
+template <typename LHS, typename RHS>
+TORCH_CUDA_CU_API typename std::conditional<
+    std::is_same<LHS, TensorView*>::value ||
+        std::is_same<RHS, TensorView*>::value,
+    TensorView*,
+    Val*>::type
+logical_right_shift_helper(LHS x, RHS shift) {
   auto right_shift_arithmetic = bitwise_right_shift(x, shift);
   return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+}
+
+TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
+  return logical_right_shift_helper(x, shift);
 }
 
 TensorView* logical_right_shift(TensorView* x, Val* shift) {
-  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
-  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+  return logical_right_shift_helper(x, shift);
 }
 
 TensorView* logical_right_shift(Val* x, TensorView* shift) {
-  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
-  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+  return logical_right_shift_helper(x, shift);
 }
 
 Val* logical_right_shift(Val* x, Val* shift) {
-  auto right_shift_arithmetic = bitwise_right_shift(x, shift);
-  return where(signbit(x), abs(right_shift_arithmetic), right_shift_arithmetic);
+  return logical_right_shift_helper(x, shift);
 }
 
 } // namespace nvfuser
