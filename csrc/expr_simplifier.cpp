@@ -455,15 +455,24 @@ namespace assoc_comm {
 // This minimizes the total number of computations.
 
 bool isAssociativeAndCommutative(BinaryOpType type) {
+  // gcd is associative and commutative, see:
+  // https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties
   return type == BinaryOpType::Add || type == BinaryOpType::Mul ||
       type == BinaryOpType::And || type == BinaryOpType::Or ||
       type == BinaryOpType::Xor || type == BinaryOpType::Max ||
-      type == BinaryOpType::Min;
+      type == BinaryOpType::Min || type == BinaryOpType::Gcd;
 }
 
-// Identity `e` is a special number that, for all x:
-// x (op) e = e (op) x = x
-bool isIdentity(Val* v, BinaryOpType type) {
+// No-op term `e` is a special number that, for all x:
+//   x (op) e = e (op) x = op(x)
+// Above, we are slightly abusing terms, because op is a binary operator, in
+// principle, op(x) is not well defined. However, because this is only used to
+// eliminate trivial computation, for the sake of simplicity, we can consider
+// gcd(x) = abs(x) and op(x) = x for all other ops.
+// Note that the concept of "no-op term" here is very similar to the concept of
+// identity in mathematics, whose definition is
+//   x (op) e = e (op) x = x
+bool isNoOpTerm(Val* v, BinaryOpType type) {
   if (v->isConstScalar()) {
     v = foldConstants(v);
   }
@@ -480,6 +489,8 @@ bool isIdentity(Val* v, BinaryOpType type) {
     case BinaryOpType::Or:
     case BinaryOpType::Xor:
       return v->getBool() == false;
+    case BinaryOpType::Gcd:
+      return v->isZeroInt();
     default:
       return false;
   }
@@ -501,6 +512,8 @@ bool isBlackhole(Val* v, BinaryOpType type) {
       return v->getBool() == false || v->getInt() == 0;
     case BinaryOpType::Or:
       return v->getBool() == true;
+    case BinaryOpType::Gcd:
+      return v->isOneInt();
     default:
       return false;
   }
@@ -958,6 +971,9 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
 
 inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
   if (inputs.size() == 1) {
+    if (bop == BinaryOpType::Gcd) {
+      return IrBuilder::absExpr(inputs.at(0));
+    }
     return inputs.at(0);
   }
   auto result = IrBuilder::newScalar(inferDtypes(inputs));
@@ -1125,7 +1141,7 @@ Val* factorizeFlattenedAdd(Val* x) {
   }
   // Find common factors
   auto gcd = greatestCommonDivisor(factorized_inputs);
-  if (assoc_comm::isIdentity(gcd, BinaryOpType::Mul)) {
+  if (gcd->isOne()) {
     return x;
   }
   // divide by common factors
@@ -1560,10 +1576,14 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     return folded;
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
+    auto op = fop->getOpType();
     if (fop->isTrivial()) {
+      // For gcd, we have gcd(a) -> |a|. For everything else, we have op(a) -> a
+      if (op == BinaryOpType::Gcd) {
+        return IrBuilder::absExpr(fop->input(0));
+      }
       return fop->input(0);
     }
-    auto op = fop->getOpType();
     { // 0 * a -> 0, 1 * a -> a
       std::vector<Val*> new_inputs;
       Val* const_term = nullptr;
@@ -1593,7 +1613,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           // 0 * a -> 0
           return const_term;
         }
-        if (assoc_comm::isIdentity(const_term, op)) {
+        if (assoc_comm::isNoOpTerm(const_term, op)) {
           // 1 * a -> a
           const_term = nullptr;
           changed = true;
@@ -1677,15 +1697,32 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
-    // -(-x) -> x, !(!x) -> x
     auto optype = uop->getUnaryOpType();
     if (optype == UnaryOpType::Neg || optype == UnaryOpType::Not) {
+      // -(-x) -> x, !(!x) -> x
       auto uop_in = dynamic_cast<UnaryOp*>(uop->in()->definition());
       if (uop_in != nullptr) {
         auto optype_in = uop_in->getUnaryOpType();
         if (optype == optype_in) {
           return uop_in->in();
         }
+      }
+    } else if (optype == UnaryOpType::Abs) {
+      // abs(x) -> x if x >= 0
+      auto abs_in = uop->in();
+      if (prove::isNonNegative(abs_in, context)) {
+        return abs_in;
+      }
+    }
+  } else if (auto top = dynamic_cast<TernaryOp*>(value->definition())) {
+    // where(true, x, y) -> x, where(false, x, y) -> y
+    auto optype = top->getTernaryOpType();
+    if (optype == TernaryOpType::Where) {
+      auto cond = foldConstants(top->in1());
+      if (cond->isTrue()) {
+        return top->in2();
+      } else if (cond->isFalse()) {
+        return top->in3();
       }
     }
   }

@@ -1399,8 +1399,8 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   auto proxy = kir::KernelInternalProxy(kernel);
 
   const auto indent = "  ";
-  const auto ks0_name = "i" + std::to_string(ks0->name());
-  const auto ks1_name = "i" + std::to_string(ks1->name());
+  const auto ks0_name = "i0";
+  const auto ks1_name = "i1";
   const auto tk0_name = "T" + std::to_string(tk0->name());
 
   auto& exprs = proxy.topLevelExprs();
@@ -1728,23 +1728,23 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  int64_t i75;
-  i75 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i7;
-  i7 = T0.size[0] * T0.size[1];
-  bool b149;
-  b149 = i75 < i7;
-  float f8;
-  f8 = (float)(i7);
+  int64_t i0;
+  i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i1;
+  i1 = T0.size[0] * T0.size[1];
+  bool b2;
+  b2 = i0 < i1;
+  float f3;
+  f3 = (float)(i1);
   float T1[1];
-  if (b149) {
+  if (b2) {
     T1[0]
-       = sinf(T0[i75]);
+       = sinf(T0[i0]);
   }
-  if (b149) {
-    T2[i75]
+  if (b2) {
+    T2[i0]
       = T1[0]
-      + f8;
+      + f3;
   }
 }
 )";
@@ -8380,6 +8380,65 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
   }
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
+  const int hidden_size = 1024 * 10;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  std::vector<int64_t> input_shape{2048, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeSymbolicTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+
+  // capture stdout and check stdout contains register spill warning
+  testing::internal::CaptureStdout();
+  {
+    // generate persistent kernel
+    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    schedulePersistentKernel(&fusion, *persistent_params);
+
+    // compile and run persistent kernel
+    // intentionally set maxrregcount to 32 to trigger register spill
+    CompileParams compile_opts = {
+        .maxrregcount = 32, .enable_ptxas_verbose = true};
+    auto lparams = persistent_params->lparams;
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
+    auto cg_outputs = fe.runFusion({aten_input});
+
+    // validate results
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+  }
+  std::string output = testing::internal::GetCapturedStdout();
+  TORCH_CHECK(
+      output.find("Register spill detected") != std::string::npos,
+      "Register spill is not captured!");
 }
 
 // https://github.com/NVIDIA/Fuser/issues/335
