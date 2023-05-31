@@ -16,15 +16,23 @@ namespace nvfuser::optimization {
 using FusionPass = std::function<void(Fusion*)>;
 
 //! [experimental API]
-//! Base class to unify optimization group APIs.
-//! OptimizationPass composes optimization passes that is used at certain stage
-//! in the runtime system. OptimizationPass can be turned on/off
-//! programmatically with the `setEnabled/flipEnabled` API. There's helper
-//! template OptimizationGroupGuard to temporarily switch the enablement within
-//! the context. Note the we are using a curiously recurring template pattern
-//! here to ensure that static objects are unique for each DerivedClass. In
-//! order to apply OptimizationPass with the switch enabled, you need to run
-//! the function with `OptimizationPass<DerivedClass>::runPass(...)`
+//! Base class to unify optimization pass APIs.
+//! OptimizationPass can be turned on/off programmatically with the `setEnabled`
+//! API. There's helper template OptimizationPassGuard to temporarily switch the
+//! enablement within the context. Note the we are using a curiously recurring
+//! template pattern here to ensure that static objects are unique for each
+//! DerivedClass. In order to apply OptimizationPass with the switch enabled,
+//! you need to run the function with
+//! `OptimizationPass<DerivedClass>::runPass(...)`
+//!
+//! Specific optimization pass needs to be created like:
+//!
+//!   class TORCH_CUDA_CU_API Pass0 : public OptimizationPass<Pass0> {
+//!     friend class OptimizationPass<Pass0>;
+//!
+//!    protected:
+//!     static void runPass(Fusion* fusion);
+//!   };
 template <typename DerivedClass>
 class TORCH_CUDA_CU_API OptimizationPass {
  public:
@@ -50,15 +58,15 @@ class TORCH_CUDA_CU_API OptimizationPass {
 };
 
 //! [experimental API]
-//! OptimizationGroupGuard is used to temporarily switch enable/disable on a
+//! OptimizationPassGuard is used to temporarily switch enable/disable on a
 //! certain pass. Original status will be restored at destruction.
-template <typename OptGroup>
-class TORCH_CUDA_CU_API OptimizationGroupGuard {
+template <typename OptPass>
+class TORCH_CUDA_CU_API OptimizationPassGuard {
  public:
-  OptimizationGroupGuard(bool enabled)
-      : prev_status_(OptGroup::setEnabled(enabled)) {}
-  ~OptimizationGroupGuard() {
-    OptGroup::setEnabled(prev_status_);
+  OptimizationPassGuard(bool enabled)
+      : prev_status_(OptPass::setEnabled(enabled)) {}
+  ~OptimizationPassGuard() {
+    OptPass::setEnabled(prev_status_);
   }
 
  protected:

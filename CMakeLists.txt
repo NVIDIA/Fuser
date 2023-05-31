@@ -181,7 +181,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/utils.cpp
     ${NVFUSER_SRCS_DIR}/mma_type.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
-    ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast_pass.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
     ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
 )
 

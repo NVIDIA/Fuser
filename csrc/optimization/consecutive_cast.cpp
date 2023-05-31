@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <optimization/consecutive_cast.h>
+
 #include <ir/utils.h>
-#include <optimization/consecutive_cast_pass.h>
 
 namespace nvfuser::optimization {
 
