@@ -20,27 +20,17 @@ bool isCast(Expr* expr) {
   return false;
 }
 
-// note: returns
-//  - -1 : v0 contains strictly more information than v1;
-//  - 0  : a complex case, where each v0 and v1 isn't a super set of the other;
-//  - 1  : v0 and v1 has the same dtype;
-//  - 2  : v0 contains strictly less information than v1;
-int checkInformationLoss(Val* v0, Val* v1) {
-  auto dtype0 = v0->getDataType().value();
-  auto dtype1 = v1->getDataType().value();
-  if (dtype0 == dtype1) {
-    return 1;
+// replaces input to the cast op that produes cast_output, return the new
+// cast_output
+Val* replaceInputInCast(Val* cast_output, Val* new_input) {
+  auto tmp_expr = cast_output->definition();
+  // short-cut for cases when no substitution is needed;
+  if (new_input == tmp_expr->input(0)) {
+    return cast_output;
   }
-  if ((dtype0 == DataType::BFloat16 && dtype1 == DataType::Half) ||
-      (dtype1 == DataType::BFloat16 && dtype0 == DataType::Half)) {
-    return 0;
-  }
-  if (isWiderType(dtype0, dtype1)) {
-    return 2;
-  }
-  TORCH_INTERNAL_ASSERT(
-      isWiderType(dtype1, dtype0), "unrecognized cast category is encountered");
-  return -1;
+  auto new_expr = nvfuser::ir_utils::replaceValInExpr(
+      tmp_expr, tmp_expr->input(0), new_input);
+  return new_expr->output(0);
 }
 
 // castOptimizationPass folds away consecutive cast operations. e.g. a chain of
@@ -110,6 +100,8 @@ void castOptimizationPass(Fusion* fusion) {
   // that to improve the effieciency of the pass. In the case of a straight line
   // casts, we are doing a lot of meaningless work here on mutating intermediate
   // casts that would have been done again at the end of the chain.
+  // We should really use the reverse topological order and filters out exprs
+  // that has been rendered as dead code during the pass.
   for (auto expr : fusion->exprs()) {
     // skip current expr if it's not a foldable cast
     if (!isCast(expr)) {
@@ -119,7 +111,7 @@ void castOptimizationPass(Fusion* fusion) {
     auto prev_expr = expr->input(0)->definition();
     while (prev_expr != nullptr && isCast(prev_expr)) {
       auto intermediate_cast = prev_expr->output(0);
-      // Note, if the output of prev_expr
+      // 1.2 Note, if the output of prev_expr
       //   is used by other operation(s); or
       //   is a direct output from fusion
       // we skip the casting chaining
@@ -138,14 +130,14 @@ void castOptimizationPass(Fusion* fusion) {
       continue;
     }
 
-    // Note, chain_cast_tvs has a straight-line use without branches
+    // 1.3.1 Note, chain_cast_tvs has a straight-line use without branches
     auto lo_anchor = chain_cast_tvs.front()->definition()->input(0);
     auto anchor_dtype = lo_anchor->getDataType().value();
     auto starting_anchor = lo_anchor;
     for (auto val : chain_cast_tvs) {
       auto val_dtype = val->getDataType().value();
 
-      // short-cut when we are not losing precision in the cast, either:
+      // 1.3.2.a short-cut when we are not losing precision, either:
       //   1. casting to the same type as the previously seen lowest precision;
       //   or
       //   2. casting to a wider type.
@@ -153,7 +145,7 @@ void castOptimizationPass(Fusion* fusion) {
         continue;
       }
 
-      // NOTE: To enter here, we have
+      // 1.3.2.c NOTE: To enter here, we have
       //   !isWiderType(anchor_dtype, val_dtype) && isWiderType(val_dtype,
       //   anchor_dtype)
       //
@@ -163,38 +155,35 @@ void castOptimizationPass(Fusion* fusion) {
       // incompatible casts. e.g. for cases where no one type is strictly wider
       // than the other: i.e. bf16 & fp16, int32 & float32 e.t.c.
       if (!isWiderType(val_dtype, anchor_dtype)) {
-        auto tmp_expr = val->definition();
-        // we replace the input to current expr with lo_anchor when it's not.
-        if (lo_anchor != tmp_expr->input(0)) {
-          nvfuser::ir_utils::replaceValInExpr(
-              tmp_expr, tmp_expr->input(0), lo_anchor);
-        }
+        lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
+        val = replaceInputInCast(val, lo_anchor);
         // We need to update the starting_anchor for the fold to be past this
         // current cast.
         starting_anchor = val;
       }
-      // updating new lo_anchor to current val
+      // 1.3.2.b/c updating new lo_anchor to current val
       lo_anchor = val;
       anchor_dtype = lo_anchor->getDataType().value();
     }
 
     auto output_dtype = expr->output(0)->getDataType().value();
     if (anchor_dtype == output_dtype) {
-      // final cast is the same dtype as with previous lo_anchor, replacing
-      // output with lo_anchor in the fusion
+      // 1.4.a final cast is the same dtype as with previous lo_anchor,
+      // replacing output with lo_anchor in the fusion
       ir_utils::replaceValue(fusion, {{expr->output(0), lo_anchor}});
       if (expr->output(0)->isFusionOutput()) {
         fusion->replaceOutput(expr->output(0), lo_anchor);
       }
     } else if (isWiderType(output_dtype, anchor_dtype)) {
-      // if lo_anchor is wider than output_dtype, casting to lo_anchor isn't
-      // doing anything, we'll just fold away to the starting_anchor instead
-      nvfuser::ir_utils::replaceValInExpr(
-          expr, expr->input(0), starting_anchor);
+      // 1.4.b: if lo_anchor is wider than output_dtype, casting to lo_anchor
+      // isn't doing anything, we'll just fold away to the starting_anchor
+      // instead
+      replaceInputInCast(expr->input(0), starting_anchor);
     } else {
-      // This is the case where we cannot fold away the cast of lo_anchor; we'll
-      // just re-wire input to expr with lo_anchor
-      nvfuser::ir_utils::replaceValInExpr(expr, expr->input(0), lo_anchor);
+      // 1.4.c: This is the case where we cannot fold away the cast of
+      // lo_anchor; we'll just re-wire input to expr with lo_anchor
+      lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
+      replaceInputInCast(expr->input(0), lo_anchor);
     }
   }
 }
