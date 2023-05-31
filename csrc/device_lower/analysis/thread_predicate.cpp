@@ -691,7 +691,7 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
   if (!broadcast_rd_indices_map.empty()) {
     thread_predicates_[out_tv].broadcast_rd_indices_map =
         broadcast_rd_indices_map;
-    for (auto iter : broadcast_rd_indices_map) {
+    for (const auto& iter : broadcast_rd_indices_map) {
       thread_predicates_[out_tv].redundant_types.set(iter.first);
     }
   }
