@@ -141,9 +141,9 @@ enum class KernelIndexMode { INT32, INT64 };
 PrimDataType indexModeToDtype(KernelIndexMode index_mode);
 KernelIndexMode indexTypeToMode(DataType index_type);
 
-// check if type is a wider type than ref
-// Which indicates a cast from ref -> type -> ref should be bit-wise identical
-bool isWiderType(const DataType& base_type, const DataType& wider_type);
+// check if type preserves all information from base_type. Which indicates a
+// cast from base_type -> type -> base_type should be bit-wise identical
+bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {

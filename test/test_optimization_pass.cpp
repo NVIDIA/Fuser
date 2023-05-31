@@ -42,15 +42,10 @@ TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
   }
 
   // the flag should be default on
-  bool except_thrown = false;
-  try {
-    OptimizationPass<DerivedPass>::runPass(fusion.get());
-  } catch (std::runtime_error& err) {
-    if (std::strcmp(err.what(), "running DerivedPass") == 0) {
-      except_thrown = true;
-    }
-  }
-  TORCH_CHECK(except_thrown, "optimization pass is skipped unexpectedly");
+  EXPECT_THAT(
+      [&]() { OptimizationPass<DerivedPass>::runPass(fusion.get()); },
+      ::testing::ThrowsMessage<std::runtime_error>(
+          ::testing::HasSubstr("running DerivedPass")));
 }
 
 // Test cast optimization
@@ -95,7 +90,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
-    // TODO: should I have copied the tensor to avoid an alised output?!
+    // TODO: should I have copied the tensor to avoid an aliased output?!
     // simplified as (input)
     ASSERT_TRUE(tv0->sameAs(fusion->outputs()[0]));
   }
@@ -122,7 +117,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
-    // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)float -> half -> float
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::Float, ref_tv);
@@ -146,7 +140,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
-    // TODO: should I have copied the tensor to avoid an alised output?!
     // simplified as (input)float -> half -> bfloat16 -> float
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::BFloat16, ref_tv);
@@ -168,12 +161,12 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::BFloat16, tv);
     tv = castOp(DataType::Float, tv);
     tv = castOp(DataType::Double, tv);
-    // (input)float -> double -> half -> float -> bfloat16 -> float
+    // (input)int32 -> double -> complex double -> int64 -> bfloat16 -> float ->
+    // double
     fusion->addOutput(tv);
     optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
-    // TODO: should I have copied the tensor to avoid an alised output?!
-    // simplified as (input)float -> half -> bfloat16 -> float
+    // simplified as (input)int32 -> bfloat16 -> double
     auto ref_tv = castOp(DataType::BFloat16, tv0);
     ref_tv = castOp(DataType::Double, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));

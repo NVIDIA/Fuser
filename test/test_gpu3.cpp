@@ -30,7 +30,6 @@
 #include <kernel_ir_dispatch.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
-#include <optimization/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>

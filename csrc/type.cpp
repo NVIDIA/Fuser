@@ -32,7 +32,7 @@ KernelIndexMode indexTypeToMode(DataType index_type) {
       : KernelIndexMode::INT64;
 }
 
-bool isWiderType(const DataType& base_type, const DataType& wider_type) {
+bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
   if (base_type == wider_type) {
     return true;
   }

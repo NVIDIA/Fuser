@@ -9,7 +9,7 @@
 
 #include <ir/interface_nodes.h>
 
-#include <mutex>
+#include <atomic>
 
 namespace nvfuser::optimization {
 

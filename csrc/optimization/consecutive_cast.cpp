@@ -14,8 +14,7 @@ namespace nvfuser::optimization {
 namespace {
 
 bool isCast(Expr* expr) {
-  if (expr != nullptr && expr->isA<UnaryOp>()) {
-    auto op = expr->as<UnaryOp>();
+  if (auto op = dynamic_cast<UnaryOp*>(expr)) {
     return op->getUnaryOpType() == UnaryOpType::Cast;
   }
   return false;
@@ -57,20 +56,20 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 // 1. iterating through all expr in the fusion:
 //    1.1 we skip all exprs other than cast;
 //    1.2 for each end cast-op 'expr', we trace back its producers iteratively
-//    and push the value(s) on top of `chain_cast_tvs`, until:
+//    and push the value(s) on top of `chain_cast_vals`, until:
 //
 //        a. the producer is not a cast op; or
 //
 //        b. the producer is used by other ops, or is a fusion output.
 //
-//    1.3 at this point, each `chain_cast_tvs` has an ordered cast outputs with
+//    1.3 at this point, each `chain_cast_vals` has an ordered cast outputs with
 //    a straight line dependency:
 //        1.3.1 we point starting_anchor at the beginning op, indicating the
 //        starting point of our folding optimization, meanwhile, we point
 //        lo_anchor at the first op, indicating the narrowest dtype we have seen
 //        in the segment;
 //        1.3.2 we enter the loop to iterate through items
-//        inside `chain_cast_tvs`, for item `val`:
+//        inside `chain_cast_vals`, for item `val`:
 //
 //              a. if `val_dtype` is the same as, or wider than `anchor_dtype`
 //              of `lo_anchor`, current cast is a no-op and can be ignored;
@@ -108,9 +107,9 @@ void castOptimizationPass(Fusion* fusion) {
     if (!isCast(expr)) {
       continue;
     }
-    std::list<Val*> chain_cast_tvs;
+    std::list<Val*> chain_cast_vals;
     auto prev_expr = expr->input(0)->definition();
-    while (prev_expr != nullptr && isCast(prev_expr)) {
+    while (isCast(prev_expr)) {
       auto intermediate_cast = prev_expr->output(0);
       // 1.2 Note, if the output of prev_expr
       //   is used by other operation(s); or
@@ -122,40 +121,37 @@ void castOptimizationPass(Fusion* fusion) {
       }
 
       // in the loop, we just repetitively chaining consecutive casts.
-      chain_cast_tvs.push_front(intermediate_cast);
+      chain_cast_vals.push_front(intermediate_cast);
       prev_expr = prev_expr->input(0)->definition();
     }
 
-    // skip current expr if there's no chain_cast_tvs
-    if (chain_cast_tvs.empty()) {
+    // skip current expr if there's no chain_cast_vals
+    if (chain_cast_vals.empty()) {
       continue;
     }
 
-    // 1.3.1 Note, chain_cast_tvs has a straight-line use without branches
-    auto lo_anchor = chain_cast_tvs.front()->definition()->input(0);
+    // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
+    auto lo_anchor = chain_cast_vals.front()->definition()->input(0);
     auto anchor_dtype = lo_anchor->getDataType().value();
     auto starting_anchor = lo_anchor;
-    for (auto val : chain_cast_tvs) {
+    for (auto val : chain_cast_vals) {
       auto val_dtype = val->getDataType().value();
 
-      // 1.3.2.a short-cut when we are not losing precision, either:
-      //   1. casting to the same type as the previously seen lowest precision;
-      //   or
-      //   2. casting to a wider type.
-      if (val_dtype == anchor_dtype || isWiderType(anchor_dtype, val_dtype)) {
+      // 1.3.2.a short-cut when we are not losing precision
+      if (isInclusiveType(anchor_dtype, val_dtype)) {
         continue;
       }
 
       // 1.3.2.c NOTE: To enter here, we have
-      //   !isWiderType(anchor_dtype, val_dtype) && isWiderType(val_dtype,
-      //   anchor_dtype)
+      //   !isInclusiveType(anchor_dtype, val_dtype) &&
+      //   !isInclusiveType(val_dtype, anchor_dtype)
       //
       // Which means the dtype between lo_anchor and val isn't compatible and
       // can't be fold away without losing information. So we update the
       // starting_anchor to current val, which ensures that we preserve the
       // incompatible casts. e.g. for cases where no one type is strictly wider
       // than the other: i.e. bf16 & fp16, int32 & float32 e.t.c.
-      if (!isWiderType(val_dtype, anchor_dtype)) {
+      if (!isInclusiveType(val_dtype, anchor_dtype)) {
         lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
         val = replaceInputInCast(val, lo_anchor);
         // We need to update the starting_anchor for the fold to be past this
@@ -175,7 +171,7 @@ void castOptimizationPass(Fusion* fusion) {
       if (expr->output(0)->isFusionOutput()) {
         fusion->replaceOutput(expr->output(0), lo_anchor);
       }
-    } else if (isWiderType(output_dtype, anchor_dtype)) {
+    } else if (isInclusiveType(output_dtype, anchor_dtype)) {
       // 1.4.b: if lo_anchor is wider than output_dtype, casting to lo_anchor
       // isn't doing anything, we'll just fold away to the starting_anchor
       // instead
