@@ -55,6 +55,7 @@ enum class DebugDumpOption {
   FusionIr, //!< Dump the Fusion IR before lowering
   FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
   FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FusionIrDynamic, //!< Dump the Fusion IR before concretization
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map

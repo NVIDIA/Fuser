@@ -554,6 +554,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrDynamic)) {
+    std::cout << "Dynamic Fusion (before concretization):" << std::endl;
+    fusion()->printMath();
+  }
+
   // Compute or get cached initial concretization info
   auto& initial_info = initialInfo();
 
