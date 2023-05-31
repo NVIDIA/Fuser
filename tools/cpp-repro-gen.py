@@ -48,7 +48,7 @@ def replace_name(name: str):
             return "outputs.push_back"
         else:
             return "fusion->addOutput"
-    elif name == "fd.define_constant":
+    elif name == "fd.define_scalar":
         if not is_aten:
             return "IrBuilder::create"
     return name
@@ -81,7 +81,7 @@ def handle_call(l: ast.Call):
             func.id = func.id + "<Double>"
         elif isinstance(arg, int):
             func.id = func.id + "<Int>"
-    elif func.id == "fd.define_constant":
+    elif func.id == "fd.define_scalar":
         assert is_aten
         arg = args[0]
         assert isinstance(arg, ast.Constant)
