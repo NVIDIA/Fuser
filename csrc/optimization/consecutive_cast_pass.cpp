@@ -125,7 +125,7 @@ void castOptimizationPass(Fusion* fusion) {
       if (expr->output(0)->isFusionOutput()) {
         fusion->replaceOutput(expr->output(0), lo_anchor);
       }
-    } else if (isWiderType(output_dtype, lo_anchor)) {
+    } else if (isWiderType(output_dtype, anchor_dtype)) {
       // if lo_anchor is wider than output_dtype, casting to lo_anchor isn't
       // doing anything, we'll just fold away to the starting_anchor instead
       nvfuser::ir_utils::replaceValInExpr(
