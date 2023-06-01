@@ -26,7 +26,7 @@ except ImportError as err:
     raise err
 from ._C import *  # noqa: F401,F403
 
-from . import contrib
+from . import contrib  # noqa: F401
 
 
 logger = logging.getLogger("nvfuser")

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 
 import nvfuser
+
 # from nvfuser import compute_contiguity
 # from nvfuser import DataType
 # from nvfuser import FusionDefinition
@@ -363,7 +364,7 @@ def norm_fusion_backward(
     return grad_input, grad_weight_reduced, grad_bias_reduced
 
 
-class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
+class NormNVFuserFunction(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: Any,  # contexts are actually objects of the type we are currently defining
@@ -387,7 +388,7 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
         )
         xorig = x
         if channels_last:
-            order = [0] + [i for i in range(2, len(x.shape))] + [1]
+            order = [0] + list(range(2, len(x.shape))) + [1]
             x = x.permute(order)
 
         x_datatype = to_nvfuser_dtype(x.dtype)
@@ -416,7 +417,9 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
                 tv_running_var = partially_contig_tensor(fd, running_var)
                 inputs.extend([running_mean, running_var])
                 if running_mean.dtype in [torch.half, torch.bfloat16]:
-                    tv_running_mean = fd.ops.cast(tv_running_mean, nvfuser.DataType.Float)
+                    tv_running_mean = fd.ops.cast(
+                        tv_running_mean, nvfuser.DataType.Float
+                    )
                 if running_var.dtype in [torch.half, torch.bfloat16]:
                     tv_running_var = fd.ops.cast(tv_running_var, nvfuser.DataType.Float)
 
@@ -464,7 +467,7 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
         # saving for backward in "explicit channels-last format"
         ctx.save_for_backward(x, weight, bias, running_mean, running_var, mean, invstd)
         if channels_last:
-            order = [0, len(x.shape) - 1] + [i for i in range(1, len(x.shape) - 1)]
+            order = [0, len(x.shape) - 1] + list(range(1, len(x.shape) - 1))
             out = out.permute(order)
             if len(out.shape) == 4:
                 assert out.is_contiguous(memory_format=torch.channels_last)
@@ -473,7 +476,9 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
                 assert out.is_contiguous(memory_format=torch.channels_last_3d)
                 assert xorig.is_contiguous(memory_format=torch.channels_last_3d)
             else:
-                assert False, "unhandled channels_last format variation in forward"
+                assert (
+                    False
+                ), "unhandled channels_last format variation in forward"  # noqa: B011
         return out
 
     @staticmethod
@@ -493,7 +498,7 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
     ]:
         """Instance norm backward using NVFuser"""
         if ctx.channels_last:
-            order = [0] + [i for i in range(2, len(grad_output.shape))] + [1]
+            order = [0] + list(range(2, len(grad_output.shape))) + [1]
             grad_output = grad_output.permute(order)
         # input was saved in "explicit channels-last format"
         # assert ctx.saved_tensors[0].is_contiguous()
@@ -522,7 +527,9 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
             if running_mean is not None:
                 tv_running_mean = partially_contig_tensor(fd, running_mean)
                 if running_mean.dtype in [torch.half, torch.bfloat16]:
-                    tv_running_mean = fd.ops.cast(tv_running_mean, nvfuser.DataType.Float)
+                    tv_running_mean = fd.ops.cast(
+                        tv_running_mean, nvfuser.DataType.Float
+                    )
                 inputs.append(running_mean)
             else:
                 tv_running_mean = None
@@ -596,16 +603,18 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
             grad_bias = None
 
         if ctx.channels_last:
-            order = [0, len(grad_input.shape) - 1] + [
-                i for i in range(1, len(grad_input.shape) - 1)
-            ]
+            order = [0, len(grad_input.shape) - 1] + list(
+                range(1, len(grad_input.shape) - 1)
+            )
             grad_input = grad_input.permute(order)
             if len(grad_input.shape) == 4:
                 assert grad_input.is_contiguous(memory_format=torch.channels_last)
             elif len(grad_input.shape) == 5:
                 assert grad_input.is_contiguous(memory_format=torch.channels_last_3d)
             else:
-                assert False, "unhandled channels_last format variation in backward"
+                assert (
+                    False
+                ), "unhandled channels_last format variation in backward"  # noqa: B011
         return (
             grad_input,
             grad_weight,
@@ -620,7 +629,7 @@ class NormNVFuserFunction(torch.autograd.Function):  # type: ignore
         )
 
 
-class _NormNVFuserBase(torch.nn.modules.batchnorm._NormBase):  # type: ignore
+class _NormNVFuserBase(torch.nn.modules.batchnorm._NormBase):
     stat_axes: Optional[List[NamedAxis]] = None
 
     def __init__(
