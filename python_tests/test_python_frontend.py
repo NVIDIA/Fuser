@@ -176,8 +176,8 @@ class TestNvFuserFrontend(TestCase):
 
     def test_cast_double_to_half(self):
         inputs = [
-            torch.randn(2, 4, device="cuda", dtype=torch.float64).half().double(),
-            torch.randn(2, 4, device="cuda", dtype=torch.float64).half().double(),
+            torch.randn(2, 4, device="cuda", dtype=torch.float64),
+            torch.randn(2, 4, device="cuda", dtype=torch.float64),
         ]
 
         def fusion_func(fd: FusionDefinition):
