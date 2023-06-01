@@ -431,13 +431,6 @@ std::vector<IterDomain*> matchReshapeRFactorExtents(
       " but expected ",
       desired_extents_rfactor.size());
 
-  std::cout << "desired_extents_rfactor:" << std::endl;
-  for (auto id : desired_extents_rfactor) {
-    std::cout << id->toString() << " has extent " << id->extent()->toString()
-              << std::endl;
-  }
-  std::cout << std::endl;
-
   std::vector<IterDomain*> new_rfactor(old_rfactor.size(), nullptr);
 
   // Note: we do not use c10::irange here so that we can advance i if we see a
@@ -455,21 +448,15 @@ std::vector<IterDomain*> matchReshapeRFactorExtents(
         auto desired_outer_extent = desired_extents_rfactor.at(i)->extent();
         auto new_outer =
             IterDomainBuilder(old_id).extent(desired_outer_extent).build();
-        std::cout << "desired_extent = " << desired_outer_extent->toString()
-                  << std::endl;
         new_rfactor.at(i) = new_outer;
         i++;
         TORCH_INTERNAL_ASSERT(
             i < old_rfactor.size(), "Found outer split output without inner");
         auto desired_inner_extent = desired_extents_rfactor.at(i)->extent();
-        std::cout << "desired_inner_extent = "
-                  << desired_inner_extent->toString() << std::endl;
         auto old_inner = old_rfactor.at(i);
         auto new_inner =
             IterDomainBuilder(old_inner).extent(desired_inner_extent).build();
         new_rfactor.at(i) = new_inner;
-        std::cout << "new_outer = " << new_outer->toString()
-                  << "  new_inner = " << new_inner->toString() << std::endl;
         IrBuilder::create<Split>(
             new_outer,
             new_inner,
