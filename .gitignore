@@ -42,3 +42,4 @@ nvfuser/cmake
 
 # debugging temporaries
 *.log
+foo.bin

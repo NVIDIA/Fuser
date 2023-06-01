@@ -369,6 +369,21 @@ __device__ int64_t signbit(int64_t a) {
   return a < 0;
 }
 
+// Reference:
+// https://en.wikipedia.org/wiki/Euclidean_algorithm#Implementations
+// https://github.com/pytorch/pytorch/blob/c9f4f01981fd73fcc7c27676cc50230cd1b5bc22/aten/src/ATen/native/Math.h#L1232
+template <typename T>
+__device__ T gcd(T a, T b) {
+  a = abs(a);
+  b = abs(b);
+  while (b != 0) {
+    auto t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+}
+
 template <int size, int align = size>
 struct alignas(align) TypelessData {
   int8_t data[size];

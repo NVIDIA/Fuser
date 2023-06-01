@@ -12,7 +12,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>
-#include <serde/fusion_record_serde.h>
+#include <serde/utils.h>
 #include <utils.h>
 
 #include <algorithm>
@@ -43,6 +43,7 @@ struct RecordFunctor {
       std::string _name,
       serde::RecordType _record_type)
       : args_(std::move(_args)),
+        arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
         record_type_(_record_type) {}
@@ -72,6 +73,7 @@ struct RecordFunctor {
     auto result = (record_type_ == other.record_type_);
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
+    result = result && (arg_names_ == other.arg_names_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -117,15 +119,17 @@ struct RecordFunctor {
     // }
 
     std::vector<serde::State> fb_args;
+    fb_args.reserve(args_.size());
     for (auto& it : args_) {
-      fb_args.push_back(serde::State(it.index, it.stype));
+      fb_args.emplace_back(it.index, it.stype);
     }
     auto args_fb =
         builder.CreateVectorOfStructs(fb_args.data(), fb_args.size());
 
     std::vector<serde::State> fb_outputs;
+    fb_outputs.reserve(outputs_.size());
     for (auto& it : outputs_) {
-      fb_outputs.push_back(serde::State(it.index, it.stype));
+      fb_outputs.emplace_back(it.index, it.stype);
     }
     auto outputs_fb =
         builder.CreateVectorOfStructs(fb_outputs.data(), fb_outputs.size());
@@ -157,19 +161,24 @@ struct RecordFunctor {
     if (always_returns_tuple_) {
       os << ",";
     }
-    if (outputs_.size() > 0) {
+    if (!outputs_.empty()) {
       os << " = "
          << "fd." << name_ << "(";
     } else {
       os << "fd." << name_ << "(";
     }
     bool first_arg = true;
+    size_t idx = 0;
     for (auto& arg : args_) {
       if (first_arg) {
         first_arg = false;
       } else {
         os << ", ";
       }
+      if (!arg_names_[idx].empty()) {
+        os << arg_names_[idx] << "=";
+      }
+      ++idx;
       os << arg;
     }
     if (close_function) {
@@ -188,6 +197,8 @@ struct RecordFunctor {
  protected:
   //! Inputs that are indices into the FusionState's Recorded State.
   std::vector<State> args_;
+  //! String name to print for arg in Python, if any. Defaults to empty.
+  std::vector<std::string> arg_names_;
   //! Outputs that are indices into the FusionState's Recorded State.
   std::vector<State> outputs_;
   //! Record Name
@@ -223,20 +234,20 @@ struct OpRecord : RecordFunctor {
             _name,
             record_type),
         fusion_op_(fusion_op) {}
-  virtual ~OpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~OpRecord() override = default;
+  RecordFunctor* clone() final {
     return new OpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.= at::Symbol
   //! | 31 -------------------------------------  0 |
   //! | Arith Function Sigs hash code               |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (fusion_op_.target_type().hash_code() & 0xffffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     // A succesfull cast indicates a RecordFunctor of the same child class
     if (auto child_ptr = dynamic_cast<const OpRecord*>(&other)) {
@@ -289,7 +300,7 @@ struct OpRecord : RecordFunctor {
             fd.getFusionState(args_.at(Is).index))...);
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     using arg_tuple_t = std::tuple<ArgTypes...>;
     auto indices =
         std::make_index_sequence<std::tuple_size<arg_tuple_t>::value>();
@@ -317,15 +328,15 @@ struct ReshapeOpRecord : RecordFunctor {
             serde::RecordType_ReshapeOp),
         original_shape_(std::move(original_shape)),
         new_shape_(std::move(new_shape)) {}
-  virtual ~ReshapeOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~ReshapeOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new ReshapeOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------------- 16 | 15 --------------  0 |
   //! | original_shape hash  | new_shape hash       |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t new_shape_hash = 0;
     for (auto shape : new_shape_) {
@@ -339,7 +350,7 @@ struct ReshapeOpRecord : RecordFunctor {
     return result | original_shape_hash | (new_shape_hash & 0xffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ReshapeOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -388,7 +399,7 @@ struct ReshapeOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Reshape,
@@ -414,15 +425,15 @@ struct PadOpRecord : RecordFunctor {
             "ops.pad",
             serde::RecordType_PadOp),
         pad_widths_(std::move(pad_widths)) {}
-  virtual ~PadOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~PadOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new PadOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 ------------------------------ 0 |
   //! |          pad_widths                 |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t widths_hash = 0;
     for (size_t i = 0; i < pad_widths_.size(); ++i) {
@@ -438,7 +449,7 @@ struct PadOpRecord : RecordFunctor {
     return result | (widths_hash & 0xffffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
       if (!RecordFunctor::operator==(other)) {
         return false;
@@ -465,7 +476,7 @@ struct PadOpRecord : RecordFunctor {
       val_widths.push_back(pval);
     }
 
-    TensorView* output;
+    TensorView* output = nullptr;
     if (args_.at(1).stype == serde::StateType_Scalar) {
       output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
     } else { // default: None
@@ -501,7 +512,7 @@ struct PadOpRecord : RecordFunctor {
     os << ")";
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Pad,
@@ -525,12 +536,12 @@ struct PermuteOpRecord : RecordFunctor {
             "ops.permute",
             serde::RecordType_PermuteOp),
         dims_(std::move(dims)) {}
-  virtual ~PermuteOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~PermuteOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new PermuteOpRecord(*this);
   }
 
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t dims_hash = 0;
     for (auto dim : dims_) {
@@ -539,7 +550,7 @@ struct PermuteOpRecord : RecordFunctor {
     return result | (dims_hash & 0xffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const PermuteOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -582,7 +593,7 @@ struct PermuteOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Permute,
@@ -607,15 +618,15 @@ struct SqueezeOpRecord : RecordFunctor {
             serde::RecordType_SqueezeOp),
         original_shape_(std::move(original_shape)),
         dims_(std::move(dims)) {}
-  virtual ~SqueezeOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~SqueezeOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new SqueezeOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------------- 16 | 15 --------------  0 |
   //! | Squeeze Dim hash     | original_shape hash  |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t original_shape_hash = 0;
     for (auto shape : original_shape_) {
@@ -628,7 +639,8 @@ struct SqueezeOpRecord : RecordFunctor {
     squeeze_dims_hash = (squeeze_dims_hash & 0xffff) << 16;
     return result | squeeze_dims_hash | (original_shape_hash & 0xffff);
   }
-  virtual bool operator==(const RecordFunctor& other) const final {
+
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const SqueezeOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -689,7 +701,7 @@ struct SqueezeOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Squeeze,
@@ -721,8 +733,8 @@ struct BroadcastInDimOpRecord : RecordFunctor {
             record_type),
         output_shape_(std::move(output_shape)),
         broadcast_dims_(std::move(broadcast_dims)) {}
-  virtual ~BroadcastInDimOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~BroadcastInDimOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new BroadcastInDimOpRecord(*this);
   }
 
@@ -737,7 +749,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
   //! outputShapeHash:
   //! 1. int64_t - hashes dimension sizes.
   //! 2. State - hashes number of dimensions
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t broadcast_dims_hash = 0;
     for (auto dim : broadcast_dims_) {
@@ -748,7 +760,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         (outputShapeHash(output_shape_) & 0xffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BroadcastInDimOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -784,7 +796,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
   //! The operator() call is specialize with th expandShape() method based on
   //! the OutputShapeType template parameter
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
@@ -858,7 +870,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return outputShapeRecordData(builder, output_shape_);
   };
@@ -957,8 +969,9 @@ BroadcastInDimOpRecord<State>::outputShapeRecordData(
     flatbuffers::FlatBufferBuilder& builder,
     const std::vector<State>& shape) const {
   std::vector<serde::State> fb_output_shape;
+  fb_output_shape.reserve(shape.size());
   for (auto& it : shape) {
-    fb_output_shape.push_back(serde::State(it.index, it.stype));
+    fb_output_shape.emplace_back(it.index, it.stype);
   }
   auto output_shape_fb = builder.CreateVectorOfStructs(
       fb_output_shape.data(), fb_output_shape.size());
@@ -987,12 +1000,12 @@ struct BroadcastOpRecord : RecordFunctor {
             _name,
             serde::RecordType_BroadcastOp),
         is_broadcast_dim_(std::move(is_broadcast_dim)) {}
-  virtual ~BroadcastOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~BroadcastOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new BroadcastOpRecord(*this);
   }
 
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t is_broadcast_dim_hash = 0;
     for (size_t i = 0; i < is_broadcast_dim_.size(); ++i) {
@@ -1002,7 +1015,7 @@ struct BroadcastOpRecord : RecordFunctor {
     return result | (is_broadcast_dim_hash & 0xfff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BroadcastOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1014,7 +1027,7 @@ struct BroadcastOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto output = broadcast(arg, is_broadcast_dim_);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -1038,7 +1051,7 @@ struct BroadcastOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_broadcast_dims = builder.CreateVector(is_broadcast_dim_);
 
@@ -1069,22 +1082,22 @@ struct CastOpRecord : RecordFunctor {
             record_type),
         fusion_op_(fusion_op),
         dtype_(dtype) {}
-  virtual ~CastOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~CastOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new CastOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 --- 24 | 23 --------------------------  0 |
   //! | Dtype     | Arith Function Sig hash code     |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     result |= ((static_cast<size_t>(dtype_) & 0xff) << 24);
     result |= (fusion_op_.target_type().hash_code() & 0xffffff);
     return result;
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const CastOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1117,7 +1130,7 @@ struct CastOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = dynamic_cast<ArgType>(fd.getFusionState(args_.at(0).index));
     auto output = fusion_op_(dtype_, arg);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -1131,7 +1144,7 @@ struct CastOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
@@ -1156,17 +1169,17 @@ struct CatOpRecord : RecordFunctor {
             "ops.cat",
             serde::RecordType_CatOp),
         dim_(dim) {}
-  virtual ~CatOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~CatOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new CatOpRecord(*this);
   }
 
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (static_cast<size_t>(dim_) & 0xffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const CatOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
@@ -1199,7 +1212,7 @@ struct CatOpRecord : RecordFunctor {
     if (always_returns_tuple_) {
       os << ",";
     }
-    if (outputs_.size() > 0) {
+    if (!outputs_.empty()) {
       os << " = "
          << "fd." << name_ << "(";
     } else {
@@ -1221,7 +1234,7 @@ struct CatOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dimension,
@@ -1233,173 +1246,24 @@ struct CatOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-//! Specialized Record Functor for recording FusionDefinition constant state.
-
-template <typename ExprType, typename ValueType>
-struct ConstantRecord : RecordFunctor {
-  ConstantRecord(
-      std::vector<State> _outputs,
-      serde::RecordType record_type,
-      ValueType val,
-      PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_constant", record_type),
-        value_(val),
-        dtype_(dtype) {}
-  virtual ~ConstantRecord() = default;
-  virtual RecordFunctor* clone() final {
-    return new ConstantRecord(*this);
-  }
-
-  //! Going to start out hashing nothing extra since hashing a complex number
-  //! seems complicated.  Initially, the thought was to simply static cast the
-  //! value_
-  virtual size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    return result;
-  }
-
-  virtual bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const ConstantRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
-        if constexpr (
-            std::is_same_v<ValueType, float> ||
-            std::is_same_v<ValueType, double>) {
-          if (std::isnan(value_) && std::isnan(child_ptr->value_)) {
-            return true;
-          } else {
-            result = (value_ == child_ptr->value_);
-          }
-        } else {
-          result = (value_ == child_ptr->value_);
-        }
-      }
-    }
-    return result;
-  }
-
-  virtual void operator()(FusionState& fd) final {
-    Val* output = IrBuilder::create<ExprType>(value_, dtype_);
-    fd.setFusionState(outputs_.at(0).index, output);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if constexpr (std::is_same_v<ValueType, bool>) {
-      bool value = __toBool(value_);
-      os << (value ? "True" : "False");
-    } else if constexpr (
-        std::is_same_v<ValueType, std::complex<float>> ||
-        std::is_same_v<ValueType, std::complex<double>>) {
-      os << std::showpoint << std::real(value_) << "+" << std::showpoint
-         << std::imag(value_) << "j";
-    } else if constexpr (
-        std::is_same_v<ValueType, float> || std::is_same_v<ValueType, double>) {
-      if (std::isinf(value_)) {
-        if (std::signbit(value_)) {
-          os << "float(\"-inf\")";
-        } else {
-          os << "float(\"inf\")";
-        }
-      } else if (std::isnan(value_)) {
-        os << "float(\"nan\")";
-      } else {
-        os << std::showpoint << value_;
-      }
-    } else {
-      os << std::showpoint << value_;
-    }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
-
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return valueRecordData(builder, value_);
-  };
-
-  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
-      flatbuffers::FlatBufferBuilder& builder,
-      ValueType value) const;
-
- private:
-  //! The constants literal value.
-  ValueType value_;
-
-  //! The DataType provided
-  PrimDataType dtype_;
-};
-
-//! valueRecordData Specializations used by recordData()
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Bool,
-    bool>::valueRecordData(flatbuffers::FlatBufferBuilder& builder, bool value)
-    const {
-  return {serde::RecordData_Bool, serde::CreateBool(builder, value).Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    ComplexDouble,
-    std::complex<double>>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::complex<double> value) const {
-  return {
-      serde::RecordData_ComplexDouble,
-      serde::CreateComplexDouble(
-          builder, value.real(), value.imag(), serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Double,
-    double>::
-    valueRecordData(flatbuffers::FlatBufferBuilder& builder, double value)
-        const {
-  return {
-      serde::RecordData_Double,
-      serde::CreateDouble(builder, value, serde::mapToSerdeDtype(dtype_))
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ConstantRecord<
-    Int,
-    int64_t>::
-    valueRecordData(flatbuffers::FlatBufferBuilder& builder, int64_t value)
-        const {
-  return {
-      serde::RecordData_Int,
-      serde::CreateInt(builder, value, serde::mapToSerdeDtype(dtype_)).Union()};
-}
-
 //! Specialized Record Functor for recording FusionState End.
 //! The accompanying Fusion Cache Entry holds a Fusion Object.
 
 struct EndRecord : RecordFunctor {
   EndRecord() : RecordFunctor({}, {}, "end", serde::RecordType_End) {}
-  virtual ~EndRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~EndRecord() override = default;
+  RecordFunctor* clone() final {
     return new EndRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 ---------------------------------------  0 |
   //! | None                                          |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     return RecordFunctor::hash();
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (dynamic_cast<const EndRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1407,7 +1271,7 @@ struct EndRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {}
+  void operator()(FusionState& fd) final {}
 };
 
 //! Specialized Record Functor for recording FusionState input tensors.
@@ -1428,15 +1292,15 @@ struct TensorRecord : RecordFunctor {
         contiguity_(std::move(_contiguity)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {}
-  virtual ~TensorRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~TensorRecord() override = default;
+  RecordFunctor* clone() final {
     return new TensorRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! |  31  | 30 --- 24 | 23 --------- 12 | 11 ---------  0 |
   //! | CPU? | Dtype     | Symbolic Sizes  | Contiguous Info |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t ssize_hash = 0;
     for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
@@ -1448,8 +1312,9 @@ struct TensorRecord : RecordFunctor {
     }
     size_t contig_hash = 0;
     for (size_t i = 0; i < contiguity_.size(); ++i) {
+      auto contiguity_value = contiguity_[i];
       contig_hash |=
-          ((contiguity_[i].has_value() && contiguity_[i].value())
+          ((contiguity_value.has_value() && contiguity_value.value())
            << (contiguity_.size() - 1 - i));
     }
 
@@ -1458,7 +1323,7 @@ struct TensorRecord : RecordFunctor {
     return result | ((ssize_hash & 0xfff) << 12) | (contig_hash & 0xfff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const TensorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1489,8 +1354,8 @@ struct TensorRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
-    int rank = symbolic_sizes_.size();
+  void operator()(FusionState& fd) final {
+    auto rank = symbolic_sizes_.size();
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
@@ -1554,7 +1419,7 @@ struct TensorRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_sizes = builder.CreateVector(symbolic_sizes_);
 
@@ -1620,8 +1485,8 @@ struct OutputRecord : RecordFunctor {
       }
     }
   }
-  virtual ~OutputRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~OutputRecord() override = default;
+  RecordFunctor* clone() final {
     return new OutputRecord(*this);
   }
 
@@ -1629,15 +1494,15 @@ struct OutputRecord : RecordFunctor {
   //! Child specific hash function in lower 32 bits.
   //! | 31 ----------------------------------------  0 |
   //! | stride_order hash                              |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     size_t stride_order_hash = 0;
-    for (size_t i = 0; i < stride_order_.size(); ++i) {
+    for (auto i : c10::irange(stride_order_.size())) {
       stride_order_hash = (stride_order_hash << 4) | stride_order_[i];
     }
     return RecordFunctor::hash() | (stride_order_hash & 0xffffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const OutputRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1656,7 +1521,7 @@ struct OutputRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto output = fd.getFusionState(args_.at(0).index);
     Val* alias_input = nullptr;
     if (args_.size() == 2) {
@@ -1680,7 +1545,7 @@ struct OutputRecord : RecordFunctor {
         if (!stride_order_.empty()) {
           std::vector<int64_t> reverse_perm(stride_order_.size());
           int64_t duplicate_check = 0;
-          for (const auto i : c10::irange(stride_order_.size())) {
+          for (const auto i : c10::irange((int64_t)stride_order_.size())) {
             TORCH_CHECK(
                 stride_order_[i] >= 0 &&
                     stride_order_[i] < (int64_t)reverse_perm.size(),
@@ -1725,7 +1590,7 @@ struct OutputRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Output,
@@ -1756,24 +1621,24 @@ struct ReductionOpRecord : RecordFunctor {
             std::move(_outputs),
             _name,
             record_type),
-        fusion_op_(fusion_op),
+        fusion_op_(std::move(fusion_op)),
         axes_(std::move(axes)),
         keep_dim_(keep_dim),
         dtype_(dtype) {}
-  virtual ~ReductionOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~ReductionOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new ReductionOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 -- 28 | 27 --- 20 | 19 -----------------  0 |
   //! | keep_dim | Dtype     | Axes Hash               |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (size_t i = 0; i < axes_.size(); ++i) {
+    for (auto i : c10::irange(axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
 
@@ -1781,7 +1646,7 @@ struct ReductionOpRecord : RecordFunctor {
         ((static_cast<size_t>(dtype_) & 0xff) << 20) | (axes_hash & 0xfffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ReductionOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -1833,7 +1698,7 @@ struct ReductionOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto output = fusion_op_(arg, axes_, keep_dim_, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -1859,7 +1724,7 @@ struct ReductionOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     // TODO add dtype
     return {
@@ -1893,12 +1758,12 @@ struct IndexSelectOpRecord : RecordFunctor {
             "ops.index_select",
             serde::RecordType_IndexSelectOp),
         dim_(dim) {}
-  virtual ~IndexSelectOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~IndexSelectOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new IndexSelectOpRecord(*this);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const IndexSelectOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
@@ -1910,7 +1775,7 @@ struct IndexSelectOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = index_select(arg1, dim_, arg3);
+    Val* output = index_select(arg1, (int)dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1922,7 +1787,7 @@ struct IndexSelectOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dimension,
@@ -1945,8 +1810,8 @@ struct TorchGatherOpRecord : RecordFunctor {
             "ops.gather",
             serde::RecordType_TorchGatherOp),
         dim_(dim) {}
-  virtual ~TorchGatherOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~TorchGatherOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new TorchGatherOpRecord(*this);
   }
 
@@ -1954,11 +1819,11 @@ struct TorchGatherOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torch_gather(arg1, dim_, arg3);
+    Val* output = torch_gather(arg1, (int)dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const TorchGatherOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
@@ -1974,7 +1839,7 @@ struct TorchGatherOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dimension,
@@ -1999,8 +1864,8 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
             "ops.take_along_axis",
             serde::RecordType_TakeAlongAxisOp),
         dim_(dim) {}
-  virtual ~TakeAlongAxisOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~TakeAlongAxisOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new TakeAlongAxisOpRecord(*this);
   }
 
@@ -2012,7 +1877,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const TakeAlongAxisOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
@@ -2028,7 +1893,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dimension,
@@ -2040,74 +1905,220 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-//! Specialized Record Functor for recording FusionState input scalars.
+//! Specialized Record Functor for recording FusionState scalars for both
+//! inputs and constants.
 
+template <typename ValueType>
 struct ScalarRecord : RecordFunctor {
-  ScalarRecord(std::vector<State> _outputs, PrimDataType dtype)
-      : RecordFunctor(
-            {},
-            std::move(_outputs),
-            "define_scalar",
-            serde::RecordType_Scalar),
+  ScalarRecord(
+      std::vector<State> _outputs,
+      serde::RecordType record_type,
+      std::optional<ValueType> value,
+      PrimDataType dtype)
+      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
+        value_(std::move(value)),
         dtype_(dtype) {}
-  virtual ~ScalarRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~ScalarRecord() override = default;
+  RecordFunctor* clone() final {
     return new ScalarRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 ---------------------------------------  0 |
   //! | Dtype                                         |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (dtype_ == child_ptr->dtype_);
+      if (result) {
+        if (value_.has_value()) {
+          if constexpr (
+              std::is_same_v<ValueType, float> ||
+              std::is_same_v<ValueType, double>) {
+            if (std::isnan(value_.value()) &&
+                std::isnan(child_ptr->value_.value())) {
+              return true;
+            } else {
+              result = (value_ == child_ptr->value_);
+            }
+          } else {
+            result = (value_ == child_ptr->value_);
+          }
+        }
+      }
     }
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     Val* output = nullptr;
-    if (dtype_ == DataType::Double) {
-      output = IrBuilder::create<Double>();
-    } else if (dtype_ == DataType::ComplexDouble) {
-      output = IrBuilder::create<ComplexDouble>();
-    } else if (dtype_ == DataType::Bool) {
-      output = IrBuilder::create<Bool>();
-    } else if (dtype_ == DataType::Int) {
-      output = IrBuilder::create<Int>();
+    if (value_.has_value()) {
+      output =
+          IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
     } else {
-      TORCH_CHECK(false, "Dtype is not supported:", dtype_);
+      if ((dtype_ == DataType::Double) || (dtype_ == DataType::Float)) {
+        output = IrBuilder::create<Double>(dtype_);
+      } else if (
+          (dtype_ == DataType::ComplexDouble) ||
+          (dtype_ == DataType::ComplexFloat)) {
+        output = IrBuilder::create<ComplexDouble>(dtype_);
+      } else if (dtype_ == DataType::Bool) {
+        output = IrBuilder::create<Bool>();
+      } else if (dtype_ == DataType::Int) {
+        output = IrBuilder::create<Int>();
+      } else {
+        TORCH_CHECK(false, "Dtype is not supported as a Scalar input:", dtype_);
+      }
+      fd.addInput(output);
     }
-    fd.addInput(output);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << "dtype=" << dtypeToPyString(dtype_);
+    if (value_.has_value()) {
+      auto val = value_.value();
+      if constexpr (std::is_same_v<ValueType, bool>) {
+        bool value = __toBool(val);
+        os << (value ? "True" : "False");
+      } else if constexpr (
+          std::is_same_v<ValueType, std::complex<float>> ||
+          std::is_same_v<ValueType, std::complex<double>>) {
+        os << std::showpoint << std::real(val) << "+" << std::showpoint
+           << std::imag(val) << "j";
+      } else if constexpr (
+          std::is_same_v<ValueType, float> ||
+          std::is_same_v<ValueType, double>) {
+        if (std::isinf(val)) {
+          if (std::signbit(val)) {
+            os << "float(\"-inf\")";
+          } else {
+            os << "float(\"inf\")";
+          }
+        } else if (std::isnan(val)) {
+          os << "float(\"nan\")";
+        } else {
+          os << std::showpoint << val;
+        }
+      } else if constexpr (std::is_same_v<ValueType, int64_t>) {
+        os << val;
+      } else {
+        TORCH_CHECK(false, "Unsupported dtype.");
+      }
+    } else {
+      os << "None";
+    }
+
+    os << ", dtype=" << dtypeToPyString(dtype_);
+
     if (close_function) {
       os << ")";
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData_Dtype,
-        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
-  }
+    return valueRecordData(builder, value_);
+  };
+
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      std::optional<ValueType> value) const;
 
  private:
+  //! The scalar's value, an input is a nullopt
+  std::optional<ValueType> value_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
+
+//! valueRecordData Specializations used by recordData() for ScalarRecord
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    bool>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::optional<bool> value) const {
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Bool,
+        serde::CreateBool(builder, value.value()).Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    std::complex<double>>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::optional<std::complex<double>> value) const {
+  if (value.has_value()) {
+    return {
+        serde::RecordData_ComplexDouble,
+        serde::CreateComplexDouble(
+            builder,
+            value.value().real(),
+            value.value().imag(),
+            serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    double>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::optional<double> value) const {
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Double,
+        serde::CreateDouble(
+            builder, value.value(), serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
+}
+
+template <>
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
+    int64_t>::
+    valueRecordData(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::optional<int64_t> value) const {
+  if (value.has_value()) {
+    return {
+        serde::RecordData_Long,
+        serde::CreateLong(
+            builder, value.value(), serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
+}
 
 //! Specialized Record Functor for the slice operation.
 //! Note: the python API is significantly different from the Codegen function.
@@ -2124,18 +2135,18 @@ struct SliceOpRecord : RecordFunctor {
             std::move(_outputs),
             "ops.slice",
             serde::RecordType_SliceOp),
-        start_indices_(start_indices),
-        end_indices_(end_indices),
-        strides_(strides) {}
-  virtual ~SliceOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+        start_indices_(std::move(start_indices)),
+        end_indices_(std::move(end_indices)),
+        strides_(std::move(strides)) {}
+  ~SliceOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new SliceOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
   //! | start_indices  | end_indices    | strides      |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t start_idx_hash = 0;
     for (auto i : start_indices_) {
@@ -2155,7 +2166,7 @@ struct SliceOpRecord : RecordFunctor {
     return result | (stride_hash & 0xff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) &&
@@ -2166,7 +2177,7 @@ struct SliceOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto ndims = start_indices_.size();
     std::vector<Slice> ranges;
     ranges.reserve(ndims);
@@ -2221,7 +2232,7 @@ struct SliceOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Slice,
@@ -2248,19 +2259,19 @@ struct SliceOpRecord : RecordFunctor {
 
 struct StartRecord : RecordFunctor {
   StartRecord() : RecordFunctor({}, {}, "start", serde::RecordType_Start) {}
-  virtual ~StartRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~StartRecord() override = default;
+  RecordFunctor* clone() final {
     return new StartRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 ---------------------------------------  0 |
   //! | None                                          |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     return RecordFunctor::hash();
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (dynamic_cast<const StartRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2268,7 +2279,7 @@ struct StartRecord : RecordFunctor {
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {}
+  void operator()(FusionState& fd) final {}
 };
 
 //! Specialized Record Functors for Normalization based ops.
@@ -2283,10 +2294,10 @@ struct NormOpRecord : RecordFunctor {
       int64_t correction,
       bool keep_dim)
       : RecordFunctor(std::move(args), std::move(outputs), name, type),
-        axes_(axes),
+        axes_(std::move(axes)),
         correction_(correction),
         keep_dim_(keep_dim) {}
-  virtual ~NormOpRecord() = default;
+  ~NormOpRecord() override = default;
   RecordFunctor* clone() override = 0;
 
   // I am skipping the bassel's correction value in the hash because
@@ -2294,19 +2305,19 @@ struct NormOpRecord : RecordFunctor {
   //! Child specific hash function in lower 32 bits.
   //! | 31 -- 28 | 27 -----------------------------  0 |
   //! | keep_dim | Axes Hash                           |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (size_t i = 0; i < axes_.size(); ++i) {
+    for (auto i : c10::irange(axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
     return result | (static_cast<size_t>(keep_dim_) << 28) |
         (axes_hash & 0xfffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const NormOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2330,7 +2341,7 @@ struct NormOpRecord : RecordFunctor {
   //! Each NormOp Child should define the operator() to build the IR
   void operator()(FusionState& fd) override = 0;
 
-  virtual void print(std::ostream& os, bool close_function = true) const final {
+  void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", axes=[";
     bool first_arg = true;
@@ -2350,7 +2361,7 @@ struct NormOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Norm,
@@ -2382,12 +2393,12 @@ struct VarianceOpRecord : NormOpRecord {
             std::move(axes),
             correction,
             keep_dim) {}
-  virtual ~VarianceOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~VarianceOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new VarianceOpRecord(*this);
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto output = variance(arg, axes_, correction_, keep_dim_);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2411,8 +2422,8 @@ struct VarianceMeanOpRecord : NormOpRecord {
             std::move(axes),
             correction,
             keep_dim) {}
-  virtual ~VarianceMeanOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~VarianceMeanOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new VarianceMeanOpRecord(*this);
   }
 
@@ -2437,12 +2448,12 @@ struct BatchNormOpRecord : RecordFunctor {
             serde::RecordType_BatchNormOp),
         training_(training),
         channels_last_(channels_last) {}
-  virtual ~BatchNormOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~BatchNormOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new BatchNormOpRecord(*this);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BatchNormOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2452,7 +2463,7 @@ struct BatchNormOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (static_cast<size_t>(training_) << 28) |
         (static_cast<size_t>(channels_last_) << 29);
@@ -2489,7 +2500,7 @@ struct BatchNormOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(2).index, output.invstd);
   }
 
-  virtual void print(std::ostream& os, bool close_function = true) const final {
+  void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", training=" << (training_ ? "True" : "False");
     os << ", channels_last=" << (channels_last_ ? "True" : "False");
@@ -2498,7 +2509,7 @@ struct BatchNormOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_BatchNorm,
@@ -2522,12 +2533,12 @@ struct TensorSizesRecord : RecordFunctor {
             serde::RecordType_TensorSizes) {
     always_returns_tuple_ = true;
   }
-  virtual ~TensorSizesRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~TensorSizesRecord() override = default;
+  RecordFunctor* clone() final {
     return new TensorSizesRecord(*this);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (dynamic_cast<const TensorSizesRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2557,15 +2568,15 @@ struct FullOpRecord : RecordFunctor {
             serde::RecordType_FullOp),
         shape_(std::move(shape)),
         dtype_(dtype) {}
-  virtual ~FullOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~FullOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new FullOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 --- 24 | 23 --------------------------  0 |
   //! | Dtype     | Shape hash code                  |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t shape_hash = 0;
     for (auto p : shape_) {
@@ -2576,7 +2587,7 @@ struct FullOpRecord : RecordFunctor {
     return result;
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const FullOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) &&
@@ -2596,8 +2607,7 @@ struct FullOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
-  virtual void print(std::ostream& os, bool close_function = true)
-      const override {
+  void print(std::ostream& os, bool close_function = true) const override {
     RecordFunctor::print(os, false);
     os << ", shape=[";
     bool first_arg = true;
@@ -2616,7 +2626,7 @@ struct FullOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_TensorCreation,
@@ -2643,19 +2653,19 @@ struct IotaOpRecord : RecordFunctor {
             "ops.iota",
             serde::RecordType_IotaOp),
         dtype_(dtype) {}
-  virtual ~IotaOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~IotaOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new IotaOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 --------------------------------------  0 |
   //! | Dtype                                        |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     return RecordFunctor::hash() | static_cast<uint32_t>(dtype_);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const IotaOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dtype_ == child_ptr->dtype_;
@@ -2675,8 +2685,7 @@ struct IotaOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
-  virtual void print(std::ostream& os, bool close_function = true)
-      const override {
+  void print(std::ostream& os, bool close_function = true) const override {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
@@ -2684,7 +2693,7 @@ struct IotaOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
@@ -2711,21 +2720,21 @@ struct RandomOpRecord : RecordFunctor {
             serde::RecordType_RandomOp),
         output_shape_(std::move(output_shape)),
         dtype_(dtype) {}
-  virtual ~RandomOpRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~RandomOpRecord() override = default;
+  RecordFunctor* clone() final {
     return new RandomOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 -------------- 16 | 15 --------------  0 |
   //! |   distribution hash  | output_shape hash    |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (output_shape_.size() & 0xffff) |
         (std::hash<std::string>{}(name_.c_str()) & 0xffff << 16);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const RandomOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
@@ -2787,11 +2796,12 @@ struct RandomOpRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     std::vector<serde::State> fb_shape;
+    fb_shape.reserve(output_shape_.size());
     for (auto& it : output_shape_) {
-      fb_shape.push_back(serde::State(it.index, it.stype));
+      fb_shape.emplace_back(it.index, it.stype);
     }
     return {
         serde::RecordData_TensorCreationSymbolic,

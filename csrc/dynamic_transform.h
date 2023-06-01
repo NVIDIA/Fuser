@@ -75,9 +75,6 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return scalar_inputs_affecting_concretization_;
   }
 
-  DynamicTransformInitialInfo(const DynamicTransformInitialInfo& other) =
-      default;
-
  protected:
   //! Holds the set of scalar fusion inputs that affect concretization.
   std::unordered_set<size_t> scalar_inputs_affecting_concretization_;
