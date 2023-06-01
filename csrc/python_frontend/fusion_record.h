@@ -2862,7 +2862,7 @@ struct VectorFromStateRecord : RecordFunctor {
           "Unsupported State type!");
       output.at(i) = fd.getFusionState(args_.at(i).index);
     }
-    fd.setFusionState(outputs_.at(0).index, output);
+    fd.setFusionStateVector(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
