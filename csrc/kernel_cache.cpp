@@ -557,7 +557,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrDynamic)) {
     std::cout << "Dynamic Fusion (before concretization):" << std::endl;
     fusion()->printMath();
-    fusion()->printTransforms();
   }
 
   // Compute or get cached initial concretization info
@@ -641,7 +640,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
       std::cout << "Concretized Fusion:" << std::endl;
       fusion->printMath();
-      fusion->printTransforms();
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(fusion), args, forced_index_type));

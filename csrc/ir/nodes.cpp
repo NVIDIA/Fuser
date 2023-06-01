@@ -1963,14 +1963,6 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  // Note: we also add the output extents as INPUTS here. This helps to ensure
-  // that we include necessary scalars during segmentation to determine outputs.
-  // Without this, the user may pass expressions for the desired shape that are
-  // not available in a given segment. See
-  // https://github.com/NVIDIA/Fuser/issues/418
-  for (auto id : out->as<TensorView>()->getMaybeRFactorDomain()) {
-    addInput(id->extent());
-  }
 }
 
 std::string ViewOp::toString(int indent_size) const {
@@ -2734,8 +2726,7 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<std::optional<bool>> contiguity,
-    bool validate_domain_equivalence)
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       rfactor_domain_(std::move(rfactor_domain)),
@@ -2745,15 +2736,12 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  if (validate_domain_equivalence) {
-    if (!root_domain_.empty()) {
-      TORCH_CHECK(
-          !leaf_domain_.empty(), "Root domain is not empty but leaf is");
-      ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
-      if (!rfactor_domain_.empty()) {
-        ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-        ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
-      }
+  if (!root_domain_.empty()) {
+    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    if (!rfactor_domain_.empty()) {
+      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
     }
   }
 

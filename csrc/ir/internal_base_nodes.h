@@ -444,8 +444,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> rfactor_domain,
       std::vector<IterDomain*> leaf_domain,
-      std::vector<std::optional<bool>> contiguity = {},
-      bool validate_domain_equivalence = true);
+      std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,

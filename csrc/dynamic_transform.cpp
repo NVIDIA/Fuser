@@ -11,7 +11,6 @@
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -437,153 +436,6 @@ void DynamicTransformConcretizer::concretize() {
   }
 }
 
-//! Given a concrete rfactor domain and a symbolic rfactor domain, create a new
-//! rfactor domain with the same history as the concrete one, but with the
-//! extent expressions of the symbolic IterDomains.
-std::vector<IterDomain*> matchReshapeRFactorExtents(
-    const std::vector<IterDomain*>& old_rfactor,
-    const std::vector<IterDomain*>& desired_extents_rfactor) {
-  TORCH_INTERNAL_ASSERT(
-      old_rfactor.size() == desired_extents_rfactor.size(),
-      "New RFactor length does not match symbolic RFactor length: found ",
-      old_rfactor.size(),
-      " but expected ",
-      desired_extents_rfactor.size());
-
-  std::vector<IterDomain*> new_rfactor(old_rfactor.size(), nullptr);
-
-  // Note: we do not use c10::irange here so that we can advance i if we see a
-  // Split
-  for (size_t i = 0; i < old_rfactor.size(); i++) {
-    auto old_id = old_rfactor.at(i);
-    // create new Split or Merge expression
-    auto def = old_id->definition();
-    if (def) {
-      if (def->isA<Split>()) {
-        auto spl = def->as<Split>();
-        // For Split, we will replace both this rfactor ID and the next at once
-        // Note: I think this is safe since we don't have any broadcasts at this
-        // point.
-        auto desired_outer_extent = desired_extents_rfactor.at(i)->extent();
-        auto new_outer =
-            IterDomainBuilder(old_id).extent(desired_outer_extent).build();
-        new_rfactor.at(i) = new_outer;
-        i++;
-        TORCH_INTERNAL_ASSERT(
-            i < old_rfactor.size(), "Found outer split output without inner");
-        auto desired_inner_extent = desired_extents_rfactor.at(i)->extent();
-        auto old_inner = old_rfactor.at(i);
-        auto new_inner =
-            IterDomainBuilder(old_inner).extent(desired_inner_extent).build();
-        new_rfactor.at(i) = new_inner;
-        IrBuilder::create<Split>(
-            new_outer,
-            new_inner,
-            spl->in(),
-            spl->factor(),
-            spl->innerSplit(),
-            spl->startOffset(),
-            spl->stopOffset());
-        // If we do not remove the original expression, there will be multiple
-        // uses of the same root ID, which will cause an error in
-        // BestEffortReplay. So we remove the old expression here.
-        spl->fusion()->removeExpr(spl);
-      } else if (def->isA<Merge>()) {
-        auto m = def->as<Merge>();
-        auto desired_extent = desired_extents_rfactor.at(i)->extent();
-        auto new_id = IterDomainBuilder(old_id).extent(desired_extent).build();
-        new_rfactor.at(i) = new_id;
-        IrBuilder::create<Merge>(new_id, m->outer(), m->inner());
-        m->fusion()->removeExpr(m); // see above
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false,
-            "Unhandled definition for reshape rfactor ID ",
-            old_id->toString(),
-            ". Definition is ",
-            def->toString());
-      }
-    } else {
-      new_rfactor.at(i) = old_id;
-    }
-  }
-  return new_rfactor;
-}
-
-//! Given a concretized reshape (concrete_tv) and its symbolic stand-in
-//! (symbolic_tv), generate a new TensorView having the same concretization as
-//! concrete_tv with the same final rfactor extents as symbolic_tv.
-//!
-//! Currently, reshape works by applying squeeze, split/merge, then broadcasts
-//! (in that order). Each of these three phases produces a new TensorView. We
-//! re-use the squeezed TV, then replace the applyViewTransforms TV and replay
-//! the broadcast.
-TensorView* matchSymbolicReshapeExtents(
-    TensorView* concrete_tv,
-    TensorView* symbolic_tv) {
-  TORCH_INTERNAL_ASSERT(
-      concrete_tv->getMaybeRFactorDomain().size() ==
-          symbolic_tv->getMaybeRFactorDomain().size(),
-      "Mismatch between concrete and symbolic rfactor domain sizes");
-  // We will skip axes in the symbolic rfactor domain matching broadcast axes
-  // in the concrete rfactor for now.
-  std::vector<IterDomain*> symbolic_rfactor_nobcast;
-  for (auto i : c10::irange(concrete_tv->getMaybeRFactorDomain().size())) {
-    if (concrete_tv->getMaybeRFactorDomain().at(i)->isBroadcast()) {
-      continue;
-    }
-    symbolic_rfactor_nobcast.push_back(
-        symbolic_tv->getMaybeRFactorDomain().at(i));
-  }
-
-  // First determine if there is a broadcast
-  auto def = concrete_tv->definition();
-  TORCH_INTERNAL_ASSERT(
-      def, "matchSymbolicReshapeExtents input has no definition.");
-  BroadcastOp* bcast = nullptr;
-  if (def->isA<BroadcastOp>()) {
-    // There were broadcasts. Move upstream but hold onto the op so we can
-    // replay it later
-    bcast = def->as<BroadcastOp>();
-    concrete_tv = bcast->in()->as<TensorView>();
-    def = concrete_tv->definition();
-    TORCH_INTERNAL_ASSERT(
-        def, "Reshape's internal broadcast has no definition");
-  }
-  TORCH_INTERNAL_ASSERT(
-      def->isA<ViewOp>(),
-      "matchSymbolicReshapeExtents expects a ViewOp output");
-
-  // We can now ignore output broadcast axes and just replace the rfactor
-  // extents in the ViewOp output
-  auto new_rfactor = matchReshapeRFactorExtents(
-      concrete_tv->getMaybeRFactorDomain(), symbolic_rfactor_nobcast);
-  // NOTE: we avoid the validate_domain_equivalence check when creating this
-  // TensorDomain since we cannot easily prove that the new rfactor will match
-  // the root. However, this should be guaranteed by analyzeView in this case.
-  auto new_td = IrBuilder::create<TensorDomain>(
-      concrete_tv->getRootDomain(),
-      new_rfactor,
-      new_rfactor,
-      concrete_tv->domain()->contiguity(),
-      /*validate_domain_equivalence*/ false);
-  auto new_tv = IrBuilder::create<TensorView>(
-      concrete_tv->container(), new_td, concrete_tv->getDataType().value());
-
-  // Create a new ViewOp linking the input to this new output
-  IrBuilder::create<ViewOp>(
-      concrete_tv->container(),
-      new_tv,
-      concrete_tv->definition()->input(0)->as<TensorView>());
-
-  // Replay broadcast
-  if (bcast) {
-    new_tv = broadcast(new_tv, bcast->getBroadcastDimFlags());
-  }
-
-  return new_tv;
-}
-
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
   for (const auto& kv : info_.getReshapeTransforms()) {
@@ -594,35 +446,19 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    // The above call to reshape uses static sizes and recomputes the output
-    // extents based on the decomposed Split and Merge operations. This means
-    // that it will produce a TensorView with different extent expressions
-    // (though equal for the given inputs) than what the user requested in the
-    // original symbolic reshape invocation. This can cause subtle issues as
-    // it introduces a mismatch with downstream extents; e.g.
-    // https://github.com/NVIDIA/Fuser/issues/418
-    // Here, we take the output above and replace the rfactor extents with the
-    // original ones in order to prevent such mismatches.
-    TensorView* new_tv = concrete_reshape_out_tv;
-    if (!new_tv->sameAs(inp_tv)) {
-      new_tv = matchSymbolicReshapeExtents(new_tv, incomplete_out_tv);
-      // Remove the concrete TV after we've replaced its extents and generated a
-      // new TV
-      new_tv->fusion()->removeVal(concrete_reshape_out_tv);
-      concrete_reshape_out_tv = nullptr;
-    }
-
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
-    checkConcretizedUses(incomplete_out_tv, new_tv);
+    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
     // Replace the old tensor with the new concretized tensor
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
-      ir_utils::replaceValInExpr(use_of_old_tv, incomplete_out_tv, new_tv);
+      ir_utils::replaceValInExpr(
+          use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
 
     if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->replaceOutput(incomplete_out_tv, new_tv);
+      incomplete_out_tv->fusion()->replaceOutput(
+          incomplete_out_tv, concrete_reshape_out_tv);
     }
 
     incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
@@ -669,9 +505,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   propagateFromProducerToConsumer(tv);
 
   // If no root domain is altered by producer, we don't need to propagate back
-  // up to rfactor. We could return early, but instead we go ahead and check
-  // the root to rfactor transforms to be sure we have concretized any
-  // intermediate IterDomains.
+  // up to rfactor. We could return early, but instead we go ahead and check the
+  // root to rfactor transforms to be sure we have concretized any intermediate
+  // IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
@@ -708,17 +544,16 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // padded with constant pad widths (1, 1), in which case although we do
       // not know the exact extent of the output, we know it is at least as
       // large as the sum of the pad widths, 2. In such cases, the output
-      // IterDomain is concrete at definition, since if the extent is >1 we
-      // know the IterType is Iteration. In these cases, we must continue to
+      // IterDomain is concrete at definition, since if the extent is >1 we know
+      // the IterType is Iteration. In these cases, we must continue to
       // concretize intermediate expressions between the root and R-factor
       // domain. See test DynamicTransform5_CUDA which demonstrates this
       // behavior.
       // NOTE: We also do not assume that if one output ID is symbolic, that
       // they all must be. See test FusionSliceForNanoGPT3_CUDA for an example
-      // that does a static split by a factor of 16 of a symbolic input
-      // domain. The static split in that case results in a concrete
-      // IterDomain with extent 16 along with a symbolic one (extent ceilDiv(n
-      // / 16)).
+      // that does a static split by a factor of 16 of a symbolic input domain.
+      // The static split in that case results in a concrete IterDomain with
+      // extent 16 along with a symbolic one (extent ceilDiv(n / 16)).
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
@@ -829,6 +664,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     // corresponding producer IDs
 
     std::optional<IterType> id_type;
+    Val* extent = nullptr;
 
     for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
       PairwiseRootDomainMap root_map(producer, consumer);
@@ -851,6 +687,11 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       } else {
         id_type = input_id->getIterType();
       }
+
+      // Set extent expression based on producer, overwriting that of consumer
+      if (!extent) {
+        extent = input_id->extent();
+      }
     }
 
     TORCH_INTERNAL_ASSERT(
@@ -868,7 +709,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         consumer->toString());
 
     auto concretized_id =
-        IterDomainBuilder(root_id).iter_type(*id_type).build();
+        IterDomainBuilder(root_id).extent(extent).iter_type(*id_type).build();
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;
