@@ -584,8 +584,14 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // https://github.com/NVIDIA/Fuser/issues/418
     // Here, we take the output above and replace the rfactor extents with the
     // original ones in order to prevent such mismatches.
-    auto new_tv =
-        matchSymbolicReshapeExtents(concrete_reshape_out_tv, incomplete_out_tv);
+    TensorView* new_tv = concrete_reshape_out_tv;
+    if (!new_tv->sameAs(inp_tv)) {
+      new_tv = matchSymbolicReshapeExtents(new_tv, incomplete_out_tv);
+      // Remove the concrete TV after we've replaced its extents and generated a
+      // new TV
+      new_tv->fusion()->removeVal(concrete_reshape_out_tv);
+      concrete_reshape_out_tv = nullptr;
+    }
 
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
