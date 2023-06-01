@@ -7,8 +7,8 @@
 // clang-format on
 #include <optimization/pre_segmenter.h>
 
-#include <optimization/consecutive_cast.h>
 #include <optimization/add_axioms.h>
+#include <optimization/consecutive_cast.h>
 
 namespace nvfuser::optimization {
 
