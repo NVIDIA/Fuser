@@ -9624,7 +9624,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection_CUDA) {
 
   fusion.addOutput(tv9);
 
-  reduction_scheduler_utils::projectPersistentBuffers(&fusion);
+  reduction_scheduler_utils::projectPersistentBuffers(&fusion, true);
 
   auto tv5_producers = ir_utils::producerTvsOf(tv5);
   auto tv7_producers = ir_utils::producerTvsOf(tv7);
