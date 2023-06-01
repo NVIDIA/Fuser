@@ -1451,10 +1451,10 @@ void beforeSchedule(
   // does not create trouble for transform propagation.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  if (rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty()) {
-    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(fusion);
-  }
+  const bool project_to_inputs = rparams.project_persistent_buffers &&
+      ir_utils::getViewOps(fusion).empty();
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, project_to_inputs);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view

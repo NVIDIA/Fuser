@@ -426,13 +426,18 @@ Bool* operator""_b(const char* str, size_t) {
 
 using namespace stupid_simple_compiler::ops;
 
-class ExprSimplifierTest : public NVFuserTest {};
+class ExprSimplifierTest : public NVFuserTest {
+  std::unique_ptr<Fusion> fusion_ptr;
+  std::unique_ptr<FusionGuard> fusion_guard_ptr;
+
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    fusion_ptr = std::make_unique<Fusion>();
+    fusion_guard_ptr = std::make_unique<FusionGuard>(fusion_ptr.get());
+  }
+};
 
 TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   EXPECT_EQ(
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )"_
           ->toInlineString(),
@@ -443,10 +448,6 @@ TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   std::vector<VarInfo> variables(6);
   variables[0].variable = "i0"_;
   variables[1].variable = "i1"_;
@@ -480,10 +481,6 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Bool>()});
   };
@@ -551,10 +548,6 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   // assert that our system can correctly find that x is a multiple of y and z,
   // and simplify:
   // x % y -> 0
@@ -562,9 +555,9 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
   // x / y -> z
   // and if x_div_z is true, also test
   // x / z -> y
-  auto expectSimplifiedDivMod = [&fusion](Val* x, Val* y, Val* z) {
-    expectSimplifiedMod(x, y, fusion.zeroVal());
-    expectSimplifiedMod(x, z, fusion.zeroVal());
+  auto expectSimplifiedDivMod = [](Val* x, Val* y, Val* z) {
+    expectSimplifiedMod(x, y, "0"_);
+    expectSimplifiedMod(x, z, "0"_);
     expectSimplifiedDiv(x, y, z);
     expectSimplifiedDiv(x, z, y);
   };
@@ -615,58 +608,52 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, SignProve_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-  auto assertProvedPositive = [&fusion](
-                                  Val* x,
-                                  const std::vector<Bool*>& assumptions = {}) {
-    auto proved =
-        (simplifyExpr(IrBuilder::gtExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::ltExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::geExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
-    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
-  };
-  auto assertProvedNonNegative = [&fusion](
-                                     Val* x,
-                                     const std::vector<Bool*>& assumptions =
-                                         {}) {
-    auto proved =
-        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
-    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
-  };
-  auto assertProvedNonZero = [&fusion](
-                                 Val* x,
+  auto assertProvedPositive = [](Val* x,
                                  const std::vector<Bool*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::neExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::neExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::eqExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::eqExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
+        (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::ltExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::geExpr("0"_, x), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
+  };
+  auto assertProvedNonNegative = [](Val* x,
+                                    const std::vector<Bool*>& assumptions =
+                                        {}) {
+    auto proved =
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
+  };
+  auto assertProvedNonZero = [](Val* x,
+                                const std::vector<Bool*>& assumptions = {}) {
+    auto proved =
+        (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::neExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::eqExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::eqExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " != 0";
   };
 
@@ -720,10 +707,6 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   std::vector<Bool*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
   EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
@@ -740,10 +723,6 @@ TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto assertProvedEquiv = [](Val* x, Val* y) {
     auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true) &&
         (simplifyExpr(IrBuilder::neExpr(x, y))->getBool() == false);
@@ -757,10 +736,6 @@ TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   expectSimplifiedDiv(
       "6 * ( i1 * i3 )"_, "15 * ( i1 * i2 )"_, "( 2 * i3 ) / ( 5 * i2 )"_);
   expectSimplifiedMod(
@@ -773,10 +748,6 @@ TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   std::vector<Bool*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
 
   expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
@@ -784,10 +755,6 @@ TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
   expectSimplifiedMod(
       "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
@@ -809,20 +776,12 @@ TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   EXPECT_TRUE(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
   EXPECT_TRUE(isEquivalent(
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
 }
 
 TEST_F(ExprSimplifierTest, Compare_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Bool>()})->getBool();
   };
@@ -873,10 +832,6 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   EXPECT_TRUE(
       isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
   EXPECT_TRUE(isEquivalent(
@@ -890,16 +845,12 @@ TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto a = IrBuilder::create<NamedScalar>("a", DataType::Int);
   auto b = IrBuilder::create<NamedScalar>("b", DataType::Int);
   auto u1 = IrBuilder::create<NamedScalar>("u1", DataType::Int);
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
-  auto zero = fusion.zeroVal();
+  auto zero = "0"_;
   auto five = IrBuilder::create<Int>(5);
   auto neg_five = IrBuilder::create<Int>(-5);
 
@@ -1054,10 +1005,6 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, MinMax_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Bool>()});
   };
@@ -1069,10 +1016,6 @@ TEST_F(ExprSimplifierTest, MinMax_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, Assume_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto expr =
       "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[1] , 128 ) ) , 4 )"_;
   EXPECT_EQ(
@@ -1086,14 +1029,20 @@ TEST_F(ExprSimplifierTest, Assume_CUDA) {
 }
 
 TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
   auto expect = "i1 < ( i2 * T0.size[0] )"_;
 
   EXPECT_TRUE(simplified->sameAs(expect));
+}
+
+TEST_F(ExprSimplifierTest, FactorizeGcd_CUDA) {
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_)
+                  ->sameAs("gcd( i1 , i3 ) * abs( i2 )"_));
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_b})
+                  ->sameAs("gcd( i1 , i3 ) * i2"_));
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
+  EXPECT_TRUE(
+      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_b})->sameAs("i2"_));
 }
 
 } // namespace nvfuser

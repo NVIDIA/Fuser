@@ -23,8 +23,10 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include "ATen/cuda/CUDAContext.h"
 #include "mma_type.h"
+#include "mma_utils.h"
 #include "type.h"
 #include "utils.h"
 
@@ -32,43 +34,9 @@ namespace nvfuser {
 namespace {
 
 using MatmulLayout = MmaOptions::MmaLayout;
-using LayoutData =
-    std::pair<std::optional<MatmulLayout>, std::optional<std::string>>;
-using TensorShape = std::vector<int64_t>;
-using ProblemShape = TensorShape;
-
-//! A constant with position of M value (a number of columns in A tensor for TT
-//!  layout) in problem in ProblemShape type.
-constexpr size_t M_POS = 0;
-//! A constant with position of N value (a number of rows in B tensor for TT
-//!  layout) in problem in ProblemShape type.
-constexpr size_t N_POS = 1;
-//! A constant with position of K value (a number of rows in A tensor for TT
-//!  layout) in problem in ProblemShape type.
-// constexpr size_t K_POS = 2;
-//! A constant with expected number of dimensions in ProblemShape type.
-constexpr size_t PROBLEM_DIMS = 3;
-
-// TODO: helpers to be moved to 'iter_visitor.h'
-std::deque<std::deque<Val*>> getAllDepndencyChains(
-    const std::vector<Val*>& producers,
-    const std::vector<Val*>& consumers) {
-  std::deque<std::deque<Val*>> all_paths;
-  for (auto* consumer : consumers) {
-    for (auto* producer : producers) {
-      auto paths = DependencyCheck::getAllDependencyChains(producer, consumer);
-      if (paths.empty()) {
-        continue;
-      }
-      all_paths.insert(
-          all_paths.end(),
-          std::make_move_iterator(paths.begin()),
-          std::make_move_iterator(paths.end()));
-    }
-  }
-
-  return all_paths;
-}
+//! Access to the structure should be done with labels defined in
+//!  MmaOptions::MmaDomains.
+using ProblemShape = std::array<int64_t, 3>;
 
 //! A wrapper for printing debug details.
 void printMsg(const std::string& msg) {
@@ -80,14 +48,11 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
   using MacroType = MmaOptions::MacroType;
-
-  TORCH_INTERNAL_ASSERT(
-      problem.size() == PROBLEM_DIMS,
-      "Invalid size of problem shape (number of dimensions)");
+  using MmaDomains = MmaOptions::MmaDomains;
 
   // NOTE: A temp condition
-  const bool use_small_n =
-      ((problem[N_POS] % 8) == 0) && ((problem[N_POS] % 16) != 0);
+  const ProblemShape::value_type n_extend = problem[(size_t)MmaDomains::N];
+  const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
 
   switch (dev_version) {
     case 70:
@@ -116,6 +81,7 @@ inline bool initCoreHeuristics(
   GemmTile cta_tile = {-1, -1, -1};
 
   using DimType = decltype(GemmTile::m);
+  using MmaDomains = MmaOptions::MmaDomains;
 
   // warp tile shape
   {
@@ -149,8 +115,8 @@ inline bool initCoreHeuristics(
     DimType m_ratio = 2;
     DimType n_ratio = 2;
 
-    const auto mn_ratio =
-        (double)problem_shape[M_POS] / (double)problem_shape[N_POS];
+    const auto mn_ratio = (double)problem_shape[(size_t)MmaDomains::M] /
+        (double)problem_shape[(size_t)MmaDomains::N];
     if (mn_ratio < 0.5) {
       m_ratio = 1;
       n_ratio = 4;
@@ -183,138 +149,45 @@ inline bool initExtraHeuristics(
   return true;
 }
 
-//! A helper for getting problem shape from fusion and runtime info. Operation
-//! can fail and nullopt object is returned.
-std::optional<ProblemShape> getProblemShape(
+//! A helper for getting problem shape from fusion and runtime info.
+ProblemShape getProblemShape(
     Fusion* fusion,
     const MmaOp* mma_expr,
-    SchedulerRuntimeInfo& runtime_info,
-    const MatmulLayout matmul_layout) {
-  const auto& fusion_inputs = fusion->inputs();
-  const auto& fusion_outputs = fusion->outputs();
-  const auto& mma_inputs = mma_expr->inputs();
-  const auto& mma_outputs = mma_expr->outputs();
+    SchedulerRuntimeInfo& runtime_info) {
+  ComputeAtMap ca_map(fusion);
 
-  // It is an unsupported fusion if
-  // - there are more than one fusion input TensorViews (producers)
-  //   for MMA op input
-  // - there are more than one fusion output TensorViews (consumers)
-  //   MMA op output
-  const auto getKeyTvFromPathBetween =
-      [](const std::vector<Val*>& producers,
-         const std::vector<Val*>& consumers) -> Val* {
-    const auto paths = getAllDepndencyChains(producers, consumers);
-
-    if (paths.empty()) {
-      return nullptr;
-    }
-
-    std::vector<Val*> tvs;
-    for (const auto& path : paths) {
-      if (path.empty()) {
-        continue;
-      }
-      if (path.size() >= 2 && path.at(1)->isA<TensorView>() &&
-          path.at(1)->as<TensorView>()->hasRFactor()) {
-        tvs.push_back(path.at(1));
-      } else if (path.front()->isA<TensorView>()) {
-        tvs.push_back(path.front());
-      }
-    }
-    return (tvs.size() == 1) ? tvs[0] : nullptr;
-  };
-
-  const auto* tv_input_A =
-      getKeyTvFromPathBetween(fusion_inputs, {mma_inputs[0]});
-  if (nullptr == tv_input_A) {
-    return std::nullopt;
+  const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    TORCH_INTERNAL_ASSERT(false, mma_output_domains.getErrorMsg());
   }
 
-  const auto* tv_input_B =
-      getKeyTvFromPathBetween(fusion_inputs, {mma_inputs[1]});
-  if (nullptr == tv_input_B) {
-    return std::nullopt;
+  const auto [m, n, k] = mma_output_domains.getData();
+
+  auto m_extend = runtime_info.expressionEvaluator().evaluate(m->extent());
+  auto n_extend = runtime_info.expressionEvaluator().evaluate(n->extent());
+  auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
+
+  if (!(m_extend && n_extend && k_extend)) {
+    TORCH_INTERNAL_ASSERT(
+        false,
+        "Failed to acquire one of problem dimensions, M(",
+        m_extend.has_value(),
+        "), N(",
+        n_extend.has_value(),
+        " K(",
+        k_extend.has_value(),
+        ")");
   }
 
-  const auto* tv_output =
-      getKeyTvFromPathBetween({mma_outputs[0]}, fusion_outputs);
-  if (nullptr == tv_output) {
-    return std::nullopt;
-  }
-
-  // A helper for populating concrete domains from TensorView
-  const auto getShape = [&runtime_info](const TensorView* tv) {
-    TensorShape tv_shape;
-    const auto concrete_domains = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(tv->getLeafDomain()));
-    for (const auto* domain : concrete_domains) {
-      const auto domain_extend =
-          runtime_info.expressionEvaluator().evaluate(domain->extent());
-      if (domain_extend) {
-        tv_shape.push_back(domain_extend->as<int64_t>());
-      }
-    }
-    return tv_shape;
-  };
-
-  const auto& in_A = getShape(tv_input_A->as<TensorView>());
-  const auto& in_B = getShape(tv_input_B->as<TensorView>());
-  const auto& output = getShape(tv_output->as<TensorView>());
-
-  constexpr size_t expected_dims = 2;
-  if (in_A.size() != expected_dims || //
-      in_B.size() != expected_dims || //
-      output.size() != expected_dims) {
-    return std::nullopt;
-  }
-
-  switch (matmul_layout) {
-    case MatmulLayout::TT: {
-      // in_A := [M, K]
-      // in_B := [K, N]
-      // output := [M, N]
-      const bool check_k = in_A[1] == in_B[0];
-      const bool check_m = in_A[0] == output[0];
-      const bool check_n = in_B[1] == output[1];
-      if (!(check_k && check_m && check_n)) {
-        return std::nullopt;
-      }
-      // [M, N, K]
-      return TensorShape{output[0], output[1], in_A[1]};
-    }
-    case MatmulLayout::NT: {
-      // in_A := [K, M]
-      // in_B := [K, N]
-      // output := [M, N]
-      const bool check_k = in_A[0] == in_B[0];
-      const bool check_m = in_A[1] == output[0];
-      const bool check_n = in_B[1] == output[1];
-      if (!(check_k && check_m && check_n)) {
-        return std::nullopt;
-      }
-      // [M, N, K]
-      return TensorShape{output[0], output[1], in_A[0]};
-    }
-    case MatmulLayout::TN: {
-      // in_A := [M, K]
-      // in_B := [N, K]
-      // output := [M, N]
-      const bool check_k = in_A[1] == in_B[1];
-      const bool check_m = in_A[0] == output[0];
-      const bool check_n = in_B[0] == output[1];
-      if (!(check_k && check_m && check_n)) {
-        return std::nullopt;
-      }
-      // [M, N, K]
-      return TensorShape{output[0], output[1], in_A[1]};
-    }
-    default:
-      return std::nullopt;
-  }
-  return std::nullopt;
+  return ProblemShape{
+      m_extend->as<int64_t>(),
+      n_extend->as<int64_t>(),
+      k_extend->as<int64_t>()};
 }
 
-std::string checkMatmulType(Fusion* fusion, const MmaOp* mma_expr) {
+std::string isMatmulFusionDefinitionSupported(
+    Fusion* fusion,
+    const MmaOp* mma_expr) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   const auto& mma_inputs = mma_expr->inputs();
@@ -457,20 +330,18 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #2
   {
-    for (const auto* mma_expr : mma_exprs) {
-      const auto input_layout = mma_expr->layout();
-      if (!input_layout) {
-        return "Failed to acquire inputs layout.";
-      }
+    const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
+    if (!input_layout_opt.isValid()) {
+      return input_layout_opt.getErrorMsg();
     }
   }
 
   // #3
   {
     for (auto mma_expr : mma_exprs) {
-      auto matmul_status = checkMatmulType(fusion, mma_expr);
-      if (!matmul_status.empty()) {
-        return matmul_status;
+      auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
+      if (!support_status.empty()) {
+        return support_status;
       }
     }
   }
@@ -495,24 +366,21 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto layout = mma_exprs.front()->layout();
   TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
-  const auto problem_shape = getProblemShape(
-      fusion, mma_exprs.front()->as<MmaOp>(), runtime_info, layout.value());
-  TORCH_INTERNAL_ASSERT(
-      problem_shape.has_value(), "Failed to acquire problem shape.");
+  const auto problem_shape =
+      getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  const auto mma_op = getMmaOp(
-      device_prop->major * 10 + device_prop->minor, problem_shape.value());
+  const auto mma_op =
+      getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
   TORCH_INTERNAL_ASSERT(
       mma_op.has_value(), "Can not determine MMA op for problem.");
 
   // Populate heuristic details
-  auto status =
-      initCoreHeuristics(params, mma_op.value(), problem_shape.value());
+  auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
   TORCH_INTERNAL_ASSERT(
       status, "Core part of heuristics failed to initialize.");
 
-  status = initExtraHeuristics(params, problem_shape.value());
+  status = initExtraHeuristics(params, problem_shape);
   TORCH_INTERNAL_ASSERT(
       status, "Additional part of heuristics failed to initialize.");
 
