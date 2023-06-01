@@ -531,6 +531,9 @@ std::vector<EvaluatorValue> BinaryOp::evaluate(
     case BinaryOpType::Min:
       return {min(lhs, rhs)};
       break;
+    case BinaryOpType::Gcd:
+      return {gcd(lhs, rhs)};
+      break;
     default:
       TORCH_CHECK(
           false,
