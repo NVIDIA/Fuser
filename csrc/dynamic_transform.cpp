@@ -403,17 +403,36 @@ void DynamicTransformConcretizer::concretize() {
   concretizeResize();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
-  for (auto stmt : all_stmts) {
-    if (stmt->isA<Val>() && !stmt->asVal()->definition()) {
-      // vals with definitions will be processed as exprs along with _all_
-      // outputs
-      mutate(stmt);
-    } else if (stmt->isA<Expr>()) {
-      // concretize all outputs of each expression that will be evaluated
-      for (auto o : stmt->as<Expr>()->outputs()) {
-        mutate(o);
+
+  // We need to concretize all immediate outputs of all intermediate
+  // expressions; even those leading to dead code branches. To do this, we
+  // insert all outputs from all intermediate expressions to "leaves". If we
+  // don't insert anything new, we are done. Otherwise, we traverse again using
+  // these as outputs as well, which ensures the output is sorted.
+  auto leaves = info_.fusion()->getTerminatingOutputs();
+  auto leaves_set =
+      std::unordered_set<Statement*>(leaves.begin(), leaves.end());
+  std::vector<Statement*> all_stmts;
+  bool inserted = true;
+  while (inserted) {
+    all_stmts = StmtSort::getStmts(info_.fusion(), leaves, true);
+    inserted = false;
+    for (auto stmt : all_stmts) {
+      if (stmt->isExpr()) {
+        for (auto o : stmt->as<Expr>()->outputs()) {
+          if (leaves_set.find(o) == leaves_set.end()) {
+            leaves.push_back(o);
+            leaves_set.insert(o);
+            inserted = true;
+          }
+        }
       }
+    }
+  }
+  // Concretize all vals in the final vector
+  for (auto stmt : all_stmts) {
+    if (stmt->isVal()) {
+      mutate(stmt);
     }
   }
 }
