@@ -96,15 +96,13 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //        c. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
 void castOptimizationPass(Fusion* fusion) {
-  // TODO: Traveral implies topological order on returned exprs, we can leverage
-  // that to improve the effieciency of the pass. In the case of a straight line
-  // casts, we are doing a lot of meaningless work here on mutating intermediate
-  // casts that would have been done again at the end of the chain.
-  // We should really use the reverse topological order and filters out exprs
-  // that has been rendered as dead code during the pass.
-  for (auto expr : fusion->exprs()) {
-    // skip current expr if it's not a foldable cast
-    if (!isCast(expr)) {
+  auto exprs = fusion->exprs();
+  std::unordered_set<Val*> visited;
+  for (int i = exprs.size(); i >= 0; --i) {
+    auto expr = exprs[i];
+    // skip current expr if it's not a foldable cast or it has already been
+    // addressed
+    if (!isCast(expr) || visited.count(expr) != 0) {
       continue;
     }
     std::list<Val*> chain_cast_vals;
@@ -122,6 +120,8 @@ void castOptimizationPass(Fusion* fusion) {
 
       // in the loop, we just repetitively chaining consecutive casts.
       chain_cast_vals.push_front(intermediate_cast);
+      // adding intermediate_cast to visited node so we'll short-cut it.
+      visited.insert(intermediate_cast);
       prev_expr = prev_expr->input(0)->definition();
     }
 
