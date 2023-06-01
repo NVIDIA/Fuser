@@ -55,6 +55,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   at::Tensor at_x = at::randn(input_shape, options);
 
   {
+    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -77,6 +78,52 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
+    // 1.4.b testing case
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Double)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Float, tv0);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Half, tv);
+    // (input)double -> float -> double -> half
+    fusion->addOutput(tv);
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        fusion.get());
+    // simplified as (input)double -> half
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+  }
+
+  {
+    // 1.4.a testing case
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Double)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Float, tv0);
+    tv = castOp(DataType::Half, tv);
+    tv = castOp(DataType::Float, tv);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Half, tv);
+    // (input)double -> float -> half -> float -> double -> half
+    fusion->addOutput(tv);
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        fusion.get());
+    // simplified as (input)double -> half
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ref_tv = castOp(DataType::Double, ref_tv);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+  }
+
+  {
+    // 1.4.a testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -96,6 +143,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
+    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -124,6 +172,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
+    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -148,6 +197,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
+    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -173,6 +223,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
+    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -189,12 +240,35 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     fusion->addOutput(tv);
     optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
         fusion.get());
-    // simplified as (input)int32 -> bfloat16 -> double
+    // simplified as (input)float -> double(output0) -> half -> float(output1)
     auto ref_tv = castOp(DataType::Double, tv0);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
     ref_tv = castOp(DataType::Half, ref_tv);
     ref_tv = castOp(DataType::Float, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[1]));
+  }
+
+  {
+    // 1.4.c testing case
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Half, tv0);
+    tv = castOp(DataType::BFloat16, tv);
+    tv = castOp(DataType::Half, tv);
+    // (input)float -> half -> bfloat16 -> half
+    fusion->addOutput(tv);
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        fusion.get());
+    // simplified as (input)float -> half -> bfloat -> half
+    auto ref_tv = castOp(DataType::Half, tv0);
+    ref_tv = castOp(DataType::BFloat16, ref_tv);
+    ref_tv = castOp(DataType::Half, ref_tv);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
 }
 

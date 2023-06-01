@@ -167,6 +167,7 @@ void castOptimizationPass(Fusion* fusion) {
     if (anchor_dtype == output_dtype) {
       // 1.4.a final cast is the same dtype as with previous lo_anchor,
       // replacing output with lo_anchor in the fusion
+      lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
       ir_utils::replaceValue(fusion, {{expr->output(0), lo_anchor}});
       if (expr->output(0)->isFusionOutput()) {
         fusion->replaceOutput(expr->output(0), lo_anchor);
