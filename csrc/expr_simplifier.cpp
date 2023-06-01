@@ -921,6 +921,21 @@ bool isFlattenedMul(Val* x) {
   return toFlattenedMul(x->definition()) != nullptr;
 }
 
+FOp* toFlattenedGcd(Expr* expr) {
+  auto fop = dynamic_cast<FOp*>(expr);
+  if (!fop) {
+    return nullptr;
+  }
+  if (fop->getOpType() == BinaryOpType::Gcd) {
+    return fop;
+  }
+  return nullptr;
+}
+
+bool isFlattenedGcd(Val* x) {
+  return toFlattenedGcd(x->definition()) != nullptr;
+}
+
 BinaryOp* toDivModOp(Expr* expr) {
   auto bop = dynamic_cast<BinaryOp*>(expr);
   if (!bop) {
@@ -1128,42 +1143,58 @@ Val* factorizeFlattenedMul(Val* x) {
       std::move(symbolic_factors));
 }
 
-Val* factorizeFlattenedAdd(Val* x) {
+// Does the following factorization:
+// - a * x + b * x -> (a + b) * x
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
+//
+// Note (proof of the second rule): according to
+// https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties, We have:
+// For m > 0, m*gcd(a,b) = gcd(m*a, m*b). If we further define gcd(0, 0) = 0,
+// the above equation holds also for m = 0. Also, observe that gcd(a, b) is a
+// even function w.r.t. both a and b, we have:
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
+Val* factorizeFlattenedAddOrGcd(Val* x) {
   // Warning: This implementation can only factorize out common divisor. It can
   // not factorize FlattenedAdd(x * x, 2 * x, 1) as FlattenedMul(x + 1, x + 1).
   // But I believe factorizing out common divisor is sufficient for index
   // simplification.
-  auto fop = toFlattenedAdd(x->definition());
+  auto fadd = toFlattenedAdd(x->definition());
+  auto fgcd = toFlattenedGcd(x->definition());
+  bool is_gcd = (fgcd != nullptr);
+  auto fop = is_gcd ? fgcd : fadd;
   TORCH_INTERNAL_ASSERT(fop != nullptr);
   std::vector<Val*> factorized_inputs;
   for (auto inp : fop->inputs()) {
     factorized_inputs.emplace_back(factorize(inp));
   }
   // Find common factors
-  auto gcd = greatestCommonDivisor(factorized_inputs);
-  if (gcd->isOne()) {
+  auto common_factor = greatestCommonDivisor(factorized_inputs);
+  if (common_factor->isOne()) {
     return x;
   }
   // divide by common factors
   std::vector<Val*> quotient_inputs;
   quotient_inputs.reserve(factorized_inputs.size());
   for (auto inp : factorized_inputs) {
-    auto quotient = divideFactorized(inp, gcd);
+    auto quotient = divideFactorized(inp, common_factor);
     TORCH_INTERNAL_ASSERT(quotient != nullptr);
     quotient_inputs.emplace_back(quotient);
   }
   auto quotient = IrBuilder::newScalar(inferDtypes(quotient_inputs));
   IrBuilder::create<FOp>(
-      BinaryOpType::Add, quotient, std::move(quotient_inputs));
+      fop->getOpType(), quotient, std::move(quotient_inputs));
+  if (is_gcd) {
+    common_factor = IrBuilder::absExpr(common_factor);
+  }
   auto product = IrBuilder::newScalar(
-      promoteType(*quotient->getDataType(), *gcd->getDataType()));
+      promoteType(*quotient->getDataType(), *common_factor->getDataType()));
   IrBuilder::create<FOp>(
-      BinaryOpType::Mul, product, std::vector<Val*>{quotient, gcd});
-  // Quotient might contain nested FlattenedAdd, for example, if we have:
+      BinaryOpType::Mul, product, std::vector<Val*>{quotient, common_factor});
+  // Quotient might contain nested FlattenedOp, for example, if we have:
   //   FlattenedAdd(a * FlattenedAdd(b, c), a * FlattenedAdd(d, e))
-  // then the gcd will be a, and the quotient will be:
+  // then the common_factor will be a, and the quotient will be:
   //   FlattenedAdd(FlattenedAdd(b, c), FlattenedAdd(d, e))
-  // So we need to reflatten to get rid of this nested FlattenedAdd.
+  // So we need to reflatten to get rid of this nested FlattenedOp.
   return assoc_comm::flatten(product);
 }
 
@@ -1200,8 +1231,8 @@ Val* factorize(Val* x) {
   if (isFlattenedMul(x)) {
     return factorizeFlattenedMul(x);
   }
-  if (isFlattenedAdd(x)) {
-    return factorizeFlattenedAdd(x);
+  if (isFlattenedAdd(x) || isFlattenedGcd(x)) {
+    return factorizeFlattenedAddOrGcd(x);
   }
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition())) {
     if (bop->getBinaryOpType() == BinaryOpType::Mod) {
@@ -2401,6 +2432,14 @@ Val* fundamentalDivisionWithRemainderProperty(
   return value;
 }
 
+// gcd(a * c, b * c) = |c| * gcd(a, b)
+Val* factorizeGcd(Val* value, const Context& context) {
+  if (isFlattenedGcd(value)) {
+    return sym_algebra::factorize(value);
+  }
+  return value;
+}
+
 } // namespace rules
 
 #define RUN_PASS(pass_name)                                     \
@@ -2465,6 +2504,7 @@ Val* simplifyExpr(
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
     RUN_PASS(distributeGcdRemainderDivMod);
+    RUN_PASS(factorizeGcd);
     PASS_BARRIER;
     RUN_PASS(distributeMul);
     PASS_BARRIER;
