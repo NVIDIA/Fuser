@@ -97,7 +97,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
 void castOptimizationPass(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  std::unordered_set<Val*> visited;
+  std::unordered_set<Expr*> visited;
   for (int i = exprs.size(); i >= 0; --i) {
     auto expr = exprs[i];
     // skip current expr if it's not a foldable cast or it has already been
