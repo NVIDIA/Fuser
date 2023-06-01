@@ -98,11 +98,11 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 void castOptimizationPass(Fusion* fusion) {
   auto exprs = fusion->exprs();
   std::unordered_set<Expr*> visited;
-  for (int i = exprs.size(); i >= 0; --i) {
+  for (int i = exprs.size() - 1; i >= 0; --i) {
     auto expr = exprs[i];
     // skip current expr if it's not a foldable cast or it has already been
     // addressed
-    if (!isCast(expr) || visited.count(expr) != 0) {
+    if (visited.count(expr) != 0 || !isCast(expr) ) {
       continue;
     }
     std::list<Val*> chain_cast_vals;
@@ -118,10 +118,10 @@ void castOptimizationPass(Fusion* fusion) {
         break;
       }
 
+      // adding prev_expr to visited node so we'll short-cut it.
+      visited.insert(prev_expr);
       // in the loop, we just repetitively chaining consecutive casts.
       chain_cast_vals.push_front(intermediate_cast);
-      // adding intermediate_cast to visited node so we'll short-cut it.
-      visited.insert(intermediate_cast);
       prev_expr = prev_expr->input(0)->definition();
     }
 
