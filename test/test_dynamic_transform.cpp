@@ -1036,8 +1036,8 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
     std::vector<c10::IValue> inputs = {t0, 32};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
     auto t0_resh = t0.reshape({256, 4, 32, 28, 28});
-    auto mu = t0_resh.mean({2, 3, 4});
-    auto v = t0_resh.var({2, 3, 4});
+    auto mu = t0_resh.mean({2, 3, 4}, true);
+    auto v = t0_resh.var({2, 3, 4}, true, true);
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
