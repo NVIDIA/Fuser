@@ -1963,6 +1963,14 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
   addOutput(out);
   addInput(in);
+  // Note: we also add the output extents as INPUTS here. This helps to ensure
+  // that we include necessary scalars during segmentation to determine outputs.
+  // Without this, the user may pass expressions for the desired shape that are
+  // not available in a given segment. See
+  // https://github.com/NVIDIA/Fuser/issues/418
+  for (auto id : out->as<TensorView>()->getMaybeRFactorDomain()) {
+    addInput(id->extent());
+  }
 }
 
 std::string ViewOp::toString(int indent_size) const {
