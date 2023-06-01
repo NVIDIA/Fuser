@@ -102,7 +102,7 @@ void castOptimizationPass(Fusion* fusion) {
     auto expr = exprs[i];
     // skip current expr if it's not a foldable cast or it has already been
     // addressed
-    if (visited.count(expr) != 0 || !isCast(expr) ) {
+    if (visited.count(expr) != 0 || !isCast(expr)) {
       continue;
     }
     std::list<Val*> chain_cast_vals;
