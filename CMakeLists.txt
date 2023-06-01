@@ -41,11 +41,7 @@ else() # PROJECT_IS_TOP_LEVEL
     return()
   endif()
 
-  if(NOT USE_ROCM)
-    set(TORCHLIB_FLAVOR torch_cuda)
-  else()
-    set(TORCHLIB_FLAVOR torch_hip)
-  endif()
+  set(TORCHLIB_FLAVOR torch_cuda)
 
   # TODO: have TORCH_ROOT setup as a variable instead
   # currently we are expecting nvfuser to be added from the pytorch root cmake file.
@@ -185,6 +181,8 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/utils.cpp
     ${NVFUSER_SRCS_DIR}/mma_type.cpp
     ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
 )
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
@@ -376,6 +374,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
+    ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   )
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
 
