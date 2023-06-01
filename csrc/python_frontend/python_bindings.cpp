@@ -33,14 +33,13 @@ namespace {
 Vector define_vector_fn(
     FusionDefinition& fd,
     std::optional<std::vector<int64_t>> value,
-    int64_t size,
+    size_t size,
     PrimDataType dtype = DataType::Int) {
   FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");
-  TORCH_CHECK(size > 0, "Vector size should be >0.");
   if (value.has_value()) {
     TORCH_CHECK(
-        value.value().size() == static_cast<size_t>(size),
-        "value size and input size do not  match!");
+        value.value().size() == size,
+        "value size and input size do not match!");
   }
   Vector out = fd.defineVector(size);
   auto rtype = value.has_value() ? serde::RecordType_VectorLong
@@ -542,23 +541,41 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference);
 
 // This is the canonical version of define_scalar
-#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                             \
-    Nvfuser_DType, Serde_RType, CType)                                       \
-  fusion_def.def(                                                            \
-      "define_scalar",                                                       \
-      [](FusionDefinition& self,                                             \
-         std::optional<CType> value,                                         \
-         PrimDataType dtype) -> Scalar {                                     \
-        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                  \
-        Scalar out = self.defineScalar();                                    \
-        auto rtype =                                                         \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput; \
-        self.defineRecord(new ScalarRecord<CType>(                           \
-            {self.recordingState(out())}, rtype, value, dtype));             \
-        return out;                                                          \
-      },                                                                     \
-      py::arg("value"),                                                      \
-      py::arg("dtype") = Nvfuser_DType,                                      \
+#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
+    Nvfuser_DType, Serde_RType, CType)                                                         \
+  fusion_def.def(                                                                              \
+      "define_scalar",                                                                         \
+      [](FusionDefinition& self,                                                               \
+         std::optional<CType> value,                                                           \
+         PrimDataType dtype) -> Scalar {                                                       \
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
+        Scalar out = self.defineScalar();                                                      \
+        auto rtype =                                                                           \
+            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
+        self.defineRecord(new ScalarRecord<CType>(                                             \
+            {self.recordingState(out())}, rtype, value, dtype));                               \
+        return out;                                                                            \
+      },                                                                                       \
+      py::arg("value"),                                                                        \
+      py::arg("dtype") = Nvfuser_DType,                                                        \
+      py::return_value_policy::reference);                                                     \
+  fusion_def.def(                                                                              \
+      "define_constant",                                                                       \
+      [](FusionDefinition& self,                                                               \
+         std::optional<CType> value,                                                           \
+         PrimDataType dtype) -> Scalar {                                                       \
+        FUSER_PERF_SCOPE("FusionDefinition.define_contant");                                   \
+        TORCH_WARN_ONCE(                                                                       \
+            "Deprecating define_constant functions in favor of define_scalar for constants."); \
+        Scalar out = self.defineScalar();                                                      \
+        auto rtype =                                                                           \
+            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
+        self.defineRecord(new ScalarRecord<CType>(                                             \
+            {self.recordingState(out())}, rtype, value, dtype));                               \
+        return out;                                                                            \
+      },                                                                                       \
+      py::arg("value"),                                                                        \
+      py::arg("dtype") = Nvfuser_DType,                                                        \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
@@ -888,6 +905,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("gcd", gcd)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \

@@ -9,6 +9,9 @@
 
 #include <fusion.h>
 #include <mma_type.h>
+#include <array>
+#include <variant>
+#include <vector>
 
 namespace nvfuser {
 
@@ -208,6 +211,55 @@ void checkDimSize(
 
 // Returns if the loopnest is initializing for an mma op.
 bool isMmaInitLoop(const kir::ForLoop* loop);
+
+//! A constant with minimum number of fusion inputs that could be MMA inputs.
+//!  TODO: update for square matmuls where both inputs are the same tensor
+constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
+
+//! An alias for data structure for passing IterDomains representing problem
+//! shape dimensions
+//!  TODO: extend definition for handling batch matmuls
+using ProblemIterDomains = std::array<IterDomain*, 3>;
+
+//! A wrapper for data containers with optional error message stored if
+//!  initialization of the data fails.
+template <typename DataType>
+class DataWrapperOpt {
+ private:
+  std::variant<std::string, DataType> data;
+
+ public:
+  DataWrapperOpt(std::string&& v) : data(std::move(v)) {}
+  DataWrapperOpt(DataType&& v) : data(std::move(v)) {}
+
+  bool isValid() const {
+    return std::holds_alternative<DataType>(data);
+  }
+  DataType getData() const {
+    return std::get<DataType>(data);
+  }
+  std::string getErrorMsg() const {
+    if (data.valueless_by_exception() ||
+        std::holds_alternative<std::string>(data)) {
+      return "Uninitialized data in data holder object";
+    } else {
+      return std::get<std::string>(data);
+    }
+  }
+};
+
+using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
+using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
+
+//! Returns matmul input layout if supported, otherwise returns message with
+//!  failure root cause.
+TORCH_CUDA_CU_API MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+
+//! Returns a collection of IterDomains that can be used to get problem shape
+//!  with runtime info. Data is stored in the following order: m, n, k.
+//!  An error message is returned if valid data cannot be gathered.
+//!  TODO: 4th domain must be added for batch gemm support.
+TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 
 } // namespace mma_utils
 

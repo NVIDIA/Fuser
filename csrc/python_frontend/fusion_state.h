@@ -22,7 +22,7 @@ struct TORCH_CUDA_CU_API State {
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
-  //! StateType is either: Tensor or Scalar
+  //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
 };
 
@@ -51,7 +51,7 @@ class TORCH_CUDA_CU_API FusionState {
   //! Adds a Fusion IR Tensor/Scalar object
   void addFusionState(Val* val);
   //! Adds a Fusion IR Vector of Scalars
-  void addFusionState(std::vector<Val*> val);
+  void addFusionStateVector(std::vector<Val*> val);
   //! Gets a Fusion IR Tensor/Scalar object
   Val* getFusionState(size_t index) const;
   //! Gets a Fusion IR Vector of Scalars
@@ -61,7 +61,7 @@ class TORCH_CUDA_CU_API FusionState {
   //! Sets a Fusion IR Tensor/Scalar object
   void setFusionState(size_t index, Val* val);
   //! Sets a Fusion IR Vector of Scalars
-  void setFusionState(size_t index, std::vector<Val*> val);
+  void setFusionStateVector(size_t index, std::vector<Val*> val);
 
   //! Adds a Tensor/Scalar input to the Fusion object
   void addInput(Val* input);

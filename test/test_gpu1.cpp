@@ -1201,17 +1201,17 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
-  int64_t i113;
-  i113 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i113 < T0.size[0])) {
+  int64_t i0;
+  i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  if ((i0 < T0.size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
-       = T1[i113];
+       = T1[i0];
     float T4[1];
     T4[0] = 0;
     T4[0]
-       = T0[i113];
+       = T0[i0];
     float T2[1];
     T2[0]
       = T4[0]
@@ -1220,7 +1220,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> 
     T6[0]
       = T2[0]
       * T4[0];
-    T3[i113]
+    T3[i0]
        = T6[0];
   }
 }
@@ -3278,6 +3278,8 @@ Val* gen_jit_operand(std::pair<ValType, DataType> desc) {
       return IrBuilder::create<ComplexDouble>();
     } else if (desc.second == DataType::Int) {
       return IrBuilder::create<Int>();
+    } else if (desc.second == DataType::Int32) {
+      return IrBuilder::create<Int>();
     } else {
       TORCH_CHECK(false, "Not currently supported type: ", desc.first);
     }
@@ -3343,7 +3345,7 @@ at::IValue gen_aten_operand(
         desc.second == DataType::Double || desc.second == DataType::Float ||
         desc.second == DataType::Half || desc.second == DataType::BFloat16) {
       return at::IValue(at::Scalar(1.0));
-    } else if (desc.second == DataType::Int) {
+    } else if (desc.second == DataType::Int || desc.second == DataType::Int32) {
       return at::IValue(at::Scalar(1));
     } else {
       TORCH_CHECK(false, "Not currently supported type: ", desc.first);
@@ -3592,6 +3594,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
   std::vector<DataType> dtypes = {
+      DataType::Int,
+      DataType::Int32,
       DataType::Double,
       DataType::Float,
       DataType::ComplexFloat,
@@ -3611,9 +3615,26 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
 
   // see [Note: explicit tuple type for uniform initialization list]
   std::vector<OpTuple> math_ops{
-      OpTuple{at::div, BinaryOpType::Div, "div"},
       OpTuple{at::mul, BinaryOpType::Mul, "mul"},
       OpTuple{at::pow, BinaryOpType::Pow, "pow"}};
+
+  std::vector<OpTuple> math_ops_without_int{
+      OpTuple{at::div, BinaryOpType::Div, "div"},
+  };
+
+  std::vector<OpTuple> int_only_ops{
+      OpTuple{at::gcd, BinaryOpType::Gcd, "gcd"},
+      OpTuple{
+          at::bitwise_left_shift, BinaryOpType::Lshift, "bitwise_left_shift"},
+      OpTuple{
+          at::bitwise_right_shift,
+          BinaryOpType::Rshift,
+          "bitwise_right_shift"}};
+
+  std::vector<OpTuple> int_and_bool_ops{
+      OpTuple{at::bitwise_and, BinaryOpType::And, "bitwise_and"},
+      OpTuple{at::bitwise_or, BinaryOpType::Or, "bitwise_or"},
+      OpTuple{at::bitwise_xor, BinaryOpType::Xor, "bitwise_xor"}};
 
   // The following ops has no complex support in eager mode
   std::vector<OpTuple> math_ops_without_complex{
@@ -3657,8 +3678,31 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
           math_ops_without_complex.begin(),
           math_ops_without_complex.end());
     }
+    if (isIntegralType(dtype)) {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(), int_only_ops.begin(), int_only_ops.end());
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          int_and_bool_ops.begin(),
+          int_and_bool_ops.end());
+    } else {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          math_ops_without_int.begin(),
+          math_ops_without_int.end());
+    }
+    if (dtype == DataType::Bool) {
+      enabled_math_ops.insert(
+          enabled_math_ops.end(),
+          int_and_bool_ops.begin(),
+          int_and_bool_ops.end());
+    }
     std::for_each(
         enabled_math_ops.begin(), enabled_math_ops.end(), [&](OpTuple& op) {
+          if (std::get<1>(op) == BinaryOpType::Atan2 && isIntegralType(dtype)) {
+            // atan2 for integer not supported yet...
+            return;
+          }
           test_op(
               /*blocks*/ 640,
               /*threads*/ 64,

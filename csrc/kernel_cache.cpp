@@ -11,6 +11,7 @@
 #include <executor_params.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <optimization/pre_segmenter.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
@@ -202,12 +203,14 @@ class ArgumentManager {
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<c10::IValue>& inputs,
-    const std::unordered_set<size_t>& scalar_inputs_to_record) {
+    const std::unordered_set<size_t>& scalar_inputs_to_record,
+    int8_t device) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
+  encodeBuffer(device, encoding_);
   for (const auto i : c10::irange(inputs.size())) {
     auto input = inputs[i];
     if (input.isTensor()) {
@@ -228,8 +231,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
           SchedulerRuntimeInfo::computeAlignmentSize(
               (size_t)input_tensor.data_ptr()),
           encoding_);
-      encoding_.push_back('d');
-      encodeBuffer(input_tensor.device().index(), encoding_);
+      // NOTE: device is set for the whole set of inputs first using device arg
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
@@ -306,7 +308,9 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret = inputs_id_lookup_.lookupId(
-      inputs, initialInfo().scalarInputsAffectingConcretization());
+      inputs,
+      initialInfo().scalarInputsAffectingConcretization(),
+      args.getDeviceIndex());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
@@ -315,11 +319,14 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   return args;
 }
 
-bool FusionExecutorCache::isCompiled(const at::ArrayRef<c10::IValue>& inputs) {
+bool FusionExecutorCache::isCompiled(
+    const at::ArrayRef<c10::IValue>& inputs,
+    int8_t device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
   // Access kernels associated with the common device id
   KernelArgumentHolder args = prepareInputs(inputs);
+  args.setDeviceIndex(device);
 
   return getKernelRuntimeFor(args)->isCompiled();
 }
@@ -383,7 +390,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
-  if (!isCompiled(perm_inputs)) {
+  if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
   }
 
@@ -658,6 +665,9 @@ FusionKernelRuntime::FusionKernelRuntime(
   TORCH_INTERNAL_ASSERT(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
+
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+      fusion.get());
 
   all_tvs_ = ir_utils::allTvs(fusion.get());
 

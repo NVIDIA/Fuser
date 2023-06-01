@@ -570,24 +570,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         ceilDiv(outer_reduction_numel, bdimz * outer_reduction_unroll_factor));
   }
 
-  // If we haven't gotten to the max_unroll case, try to take it out of the
-  // iteration domain
-  if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
-          max_unroll &&
-      scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy) > 2) {
-    // Don't go over a combined inner/outer unroll of max_unroll
-    auto unroll_available = std::min(
-        scheduler_utils::safeDiv(
-            max_unroll,
-            inner_reduction_unroll_factor * outer_reduction_unroll_factor),
-        scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy));
-    if (unroll_available > 1 && godim > 2 * device_multiprocessor_count) {
-      unroll_available = std::min(
-          unroll_available, ceilDiv(godim, 2 * device_multiprocessor_count));
-      iter_unroll_factor = unroll_available;
-    }
-  }
-
   // Adjust bdimx based on batches_per_block and unroll factor set as they could
   // have moved a bit since they're the free variables, not the buffers
   bdimx = ceilDiv(
@@ -1469,10 +1451,10 @@ void beforeSchedule(
   // does not create trouble for transform propagation.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  if (rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty()) {
-    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(fusion);
-  }
+  const bool project_to_inputs = rparams.project_persistent_buffers &&
+      ir_utils::getViewOps(fusion).empty();
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, project_to_inputs);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
