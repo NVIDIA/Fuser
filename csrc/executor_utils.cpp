@@ -1376,6 +1376,18 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
 
   at::cuda::jit::initializeCudaContext();
 
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
+
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
   int major = 0, minor = 0;
