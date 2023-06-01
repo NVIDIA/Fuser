@@ -171,6 +171,31 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     ref_tv = castOp(DataType::Double, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv = castOp(DataType::Double, tv0);
+    fusion->addOutput(tv);
+    tv = castOp(DataType::Half, tv);
+    tv = castOp(DataType::Double, tv);
+    tv = castOp(DataType::Float, tv);
+    // (input)float -> double(output0) -> half -> double -> float(output1)
+    fusion->addOutput(tv);
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        fusion.get());
+    // simplified as (input)int32 -> bfloat16 -> double
+    auto ref_tv = castOp(DataType::Double, tv0);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
+    ref_tv = castOp(DataType::Half, ref_tv);
+    ref_tv = castOp(DataType::Float, ref_tv);
+    ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[1]));
+  }
 }
 
 } // namespace nvfuser::optimization
