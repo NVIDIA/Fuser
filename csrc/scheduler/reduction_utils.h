@@ -82,11 +82,14 @@ TORCH_CUDA_CU_API void propagateParallelization(
 // Reduction inliner expects an rfactored domain.
 TORCH_CUDA_CU_API TensorView* sortAndRFactor(TensorView* reference_tv);
 
-// Take all projectable persistent buffers, and move them to the inputs. This
-// function create dummy outputs which should be used in later stages of the
-// scheduling.
+// If project_to_inputs is true, take all projectable persistent buffers,
+// and move them to the inputs. Otherwise, try to project to their immediate
+// producers if these producers are persistent buffers.
+// This function create dummy outputs which should be used in later stages of
+// the scheduling.
 TORCH_CUDA_CU_API std::vector<TensorView*> projectPersistentBuffers(
-    Fusion* fusion);
+    Fusion* fusion,
+    const bool project_to_inputs);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

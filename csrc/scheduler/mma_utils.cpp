@@ -12,6 +12,8 @@
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
+#include <variant>
+#include "mma_type.h"
 
 namespace nvfuser {
 
@@ -1245,6 +1247,154 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Apply the new ordering
   tv->reorder(order_map);
+}
+
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  const auto mma_output = mma_exprs.front()->out();
+
+  // NOTE: the iter domains of MMA output should be [...,M,K,N]
+  IterDomain* m = nullptr;
+  IterDomain* n = nullptr;
+  IterDomain* k = nullptr;
+
+  const auto leaf_domains =
+      static_cast<const TensorView*>(mma_output)->getLeafDomain();
+  const auto concrete =
+      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
+    std::stringstream ss;
+    ss << "Failed to find the minimum number of MMA input candidates, expected "
+       << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
+    return ss.str();
+  }
+
+  // M,N are inner most concrete iter domains
+  m = concrete.rbegin()[1];
+  n = concrete.rbegin()[0];
+
+  // K is a reduction domain, search for the inner most reduction domain
+  for (auto iter_domain = leaf_domains.rbegin();
+       iter_domain != leaf_domains.rend();
+       ++iter_domain) {
+    if ((*iter_domain)->isReduction()) {
+      k = *iter_domain;
+      break;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(k != nullptr, "Failed to find K domain in MMA output");
+
+  return ProblemIterDomains{m, n, k};
+}
+
+MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+  using MmaDomains = MmaOptions::MmaDomains;
+  using DomainsDesc = std::vector<MmaDomains>;
+  using DependenciesMap = std::map<TensorView*, DomainsDesc>;
+
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto [m, n, k] = mma_output_domains.getData();
+
+  DependenciesMap deps_map;
+
+  // NOTE: MMA input requirements:
+  // - 2 or more domains
+  // - no broadcasts
+  // - reductions do not matter
+  for (const auto in_tv : mma_input_candidates) {
+    if (in_tv->nDims() < 2) {
+      continue;
+    }
+    if (in_tv->hasBroadcast()) {
+      continue;
+    }
+    for (const auto in_domain : in_tv->getLeafDomain()) {
+      if (ca_map.areMapped(m, in_domain, IdMappingMode::EXACT)) {
+        deps_map[in_tv].push_back(MmaDomains::M);
+        continue;
+      }
+      if (ca_map.areMapped(n, in_domain, IdMappingMode::EXACT)) {
+        deps_map[in_tv].push_back(MmaDomains::N);
+        continue;
+      }
+      if (ca_map.areMapped(k, in_domain, IdMappingMode::EXACT)) {
+        deps_map[in_tv].push_back(MmaDomains::K);
+        continue;
+      }
+    }
+  }
+
+  bool mk_found = false;
+  bool km_found = false;
+  bool nk_found = false;
+  bool kn_found = false;
+  const static DomainsDesc mk_desc = {MmaDomains::M, MmaDomains::K};
+  const static DomainsDesc km_desc = {MmaDomains::K, MmaDomains::M};
+  const static DomainsDesc nk_desc = {MmaDomains::N, MmaDomains::K};
+  const static DomainsDesc kn_desc = {MmaDomains::K, MmaDomains::N};
+
+  for (const auto& item : deps_map) {
+    if (item.second == mk_desc) {
+      if (mk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., M, ..., K, ...] iter domains"};
+      }
+      mk_found = true;
+    }
+    if (item.second == km_desc) {
+      if (km_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., M, ...] iter domains"};
+      }
+      km_found = true;
+    }
+    if (item.second == nk_desc) {
+      if (nk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., N, ..., K, ...] iter domains"};
+      }
+      nk_found = true;
+    }
+    if (item.second == kn_desc) {
+      if (kn_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., N, ...] iter domains"};
+      }
+      kn_found = true;
+    }
+  }
+
+  if ((mk_found && kn_found) && !(km_found || nk_found)) {
+    return MmaOptions::MmaLayout::TT;
+  }
+  if ((km_found && kn_found) && !(mk_found || nk_found)) {
+    return MmaOptions::MmaLayout::NT;
+  }
+  if ((mk_found && nk_found) && !(km_found || kn_found)) {
+    return MmaOptions::MmaLayout::TN;
+  }
+  if ((km_found && nk_found) && !(mk_found || kn_found)) {
+    return MmaOptions::MmaLayout::NN;
+  }
+
+  return {"Failed to decide fusion inputs' data layout."};
 }
 
 } // namespace mma_utils

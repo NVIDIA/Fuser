@@ -8536,6 +8536,17 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     outputs.emplace_back(t33);
   }
 
+  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info1.persistent_buffers.size() == 2,
+      "Before project to other buffers, should have two persistent buffers!");
+
+  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info2.persistent_buffers.size() == 1,
+      "After project to other buffers, should have one persistent buffer!");
+
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
@@ -8642,6 +8653,74 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
     testValidate(
         fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
   }
+}
+
+TEST_F(NVFuserTest, FusionRecomputePersistentBuffer_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 1024;
+  const int hidden_size = 2048;
+  {
+    DataType dtype = DataType::Float;
+    auto tv0 = makeContigTensor(2, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    auto tv2 = add(tv0, tv1);
+    auto tv3 = castOp(DataType::Half, tv2);
+
+    auto tv4 = castOp(DataType::Float, tv3);
+    auto tv5 = sum(tv4, {1});
+    auto tv6 = broadcast(tv5, {false, true});
+    auto tv7 = add(tv4, tv6);
+
+    auto tv8 = castOp(DataType::Float, tv3);
+    auto tv9 = add(tv6, tv8);
+
+    fusion->addOutput(tv7);
+    fusion->addOutput(tv9);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn({batch_size, hidden_size}, options);
+    auto t1 = at::randn({batch_size, hidden_size}, options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+
+    auto t2 = t0.add(t1);
+    auto t3 = t2.to(at::kHalf);
+    auto t4 = t3.to(at::kFloat);
+    auto t5 = t4.sum({1});
+    auto t6 = t5.unsqueeze(1).expand({batch_size, hidden_size});
+    auto t7 = t4.add(t6);
+    auto t8 = t3.to(at::kFloat);
+    auto t9 = t8.add(t6);
+
+    outputs.emplace_back(t7);
+    outputs.emplace_back(t9);
+  }
+
+  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info1.persistent_buffers.size() == 2,
+      "Before project to other buffers, should have two persistent buffers!");
+
+  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info2.persistent_buffers.size() == 1,
+      "After project to other buffers, should have one persistent buffer!");
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
