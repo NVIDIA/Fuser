@@ -48,10 +48,9 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
   using MacroType = MmaOptions::MacroType;
-  using MmaDomains = MmaOptions::MmaDomains;
 
   // NOTE: A temp condition
-  const ProblemShape::value_type n_extend = problem[(size_t)MmaDomains::N];
+  const ProblemShape::value_type n_extend = problem[(size_t)MatmulDomain::N];
   const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
 
   switch (dev_version) {
@@ -81,7 +80,6 @@ inline bool initCoreHeuristics(
   GemmTile cta_tile = {-1, -1, -1};
 
   using DimType = decltype(GemmTile::m);
-  using MmaDomains = MmaOptions::MmaDomains;
 
   // warp tile shape
   {
@@ -115,8 +113,8 @@ inline bool initCoreHeuristics(
     DimType m_ratio = 2;
     DimType n_ratio = 2;
 
-    const auto mn_ratio = (double)problem_shape[(size_t)MmaDomains::M] /
-        (double)problem_shape[(size_t)MmaDomains::N];
+    const auto mn_ratio = (double)problem_shape[(size_t)MatmulDomain::M] /
+        (double)problem_shape[(size_t)MatmulDomain::N];
     if (mn_ratio < 0.5) {
       m_ratio = 1;
       n_ratio = 4;
@@ -154,8 +152,6 @@ ProblemShape getProblemShape(
     Fusion* fusion,
     const MmaOp* mma_expr,
     SchedulerRuntimeInfo& runtime_info) {
-  ComputeAtMap ca_map(fusion);
-
   const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
   if (!mma_output_domains.isValid()) {
     TORCH_INTERNAL_ASSERT(false, mma_output_domains.getErrorMsg());
@@ -191,22 +187,13 @@ std::string isMatmulFusionDefinitionSupported(
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   const auto& mma_inputs = mma_expr->inputs();
-  const auto& mma_outputs = mma_expr->outputs();
+  const auto mma_output = mma_expr->out()->as<TensorView>();
 
   const auto fusion_inputs_tvs =
       ir_utils::filterByType<TensorView>(fusion_inputs).vector();
   const auto fusion_outputs_tvs =
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
-  using DimSizeType = std::decay<decltype(fusion_inputs)>::type::size_type;
-
-  static_assert(
-      std::is_same<
-          DimSizeType,
-          std::decay<decltype(fusion_outputs)>::type::size_type>::value,
-      "The type used to define the number of dimension in input and output TV must be the same.");
-
-  constexpr DimSizeType expected_gemm_dims = static_cast<DimSizeType>(2);
   constexpr size_t expected_number_of_inputs = 2;
   constexpr size_t expected_number_of_outputs = 1;
 
@@ -219,6 +206,10 @@ std::string isMatmulFusionDefinitionSupported(
         mma_expr->kAxes().size() != expected_axes_numbers ||
         !mma_expr->batchAxes().empty()) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
+    }
+
+    if (!mma_output->hasReduction()) {
+      return "MMA output TV has no reduction domain";
     }
   }
 
@@ -236,43 +227,43 @@ std::string isMatmulFusionDefinitionSupported(
     if ((expected_number_of_outputs != fusion_outputs_tvs.size())) {
       return "Fusion has more than a single TensorView object in its outputs";
     }
+  }
 
-    // Each of fusion input TVs must have:
-    //  - 2 concrete domains,
-    //  - no broadcasts domain,
-    for (const auto tv : fusion_inputs_tvs) {
-      if (tv->hasBroadcast()) {
-        return "Fusion input TV has broadcast domain";
-      }
-      const auto result = TensorDomain::noReductions(
-                              TensorDomain::noBroadcasts(tv->getLeafDomain()))
-                              .size();
-      if (result != expected_gemm_dims) {
-        return "Fusion input TV has unsupported number of domains";
-      }
+  // Fusion topology check
+  {
+    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+    if (!roles_map_opt.isValid()) {
+      return roles_map_opt.getErrorMsg();
     }
 
-    // Each of fusion output TVs must have:
-    // - 2 concrete domains,
-    // - reduction domain,
-    // - no broadcast domain,
-    for (const auto tv : fusion_outputs_tvs) {
-      if (tv->hasBroadcast()) {
-        return "Fusion output TV has broadcast domain";
-      }
-      if (!tv->hasReduction()) {
-        return "Fusion output TV has no reduction domain";
-      }
-      const auto result = TensorDomain::noReductions(
-                              TensorDomain::noBroadcasts(tv->getLeafDomain()))
-                              .size();
-      if (result != expected_gemm_dims) {
-        return "Fusion output TV has unsupported number of domains";
-      }
+    size_t core_roles_count = 0;
+    const auto& roles_map = roles_map_opt.getData();
+    if (roles_map.count(MatmulRole::MMA_INPUT_A) ==
+        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
+      ++core_roles_count;
+    } else {
+      return "No candidate in fusion inputs for MMA first input";
+    }
+    if (roles_map.count(MatmulRole::MMA_INPUT_B) ==
+        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
+      ++core_roles_count;
+    } else {
+      return "No candidate in fusion inputs for MMA second input";
+    }
+    if (roles_map.count(MatmulRole::MMA_OUTPUT) ==
+        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
+      ++core_roles_count;
+    } else {
+      return "No candidate in fusion outputs MMA output";
+    }
+    if (roles_map.size() != core_roles_count) {
+      return "Detected fusion roles that are not supported";
     }
   }
 
   // MmaOp inputs/outputs dependencies check
+  // TODO: check to be removed when more rules are added to TV roles
+  //  calculations
   {
     // Check the expected path between MmaOp input and fusion inputs
     const auto areMmaOpInputDependeciesValid = [](const Val* val) {
@@ -294,7 +285,7 @@ std::string isMatmulFusionDefinitionSupported(
     }
 
     // MmaOp output must be a fusion output
-    if (!mma_outputs.front()->isFusionOutput()) {
+    if (!mma_output->isFusionOutput()) {
       return "Mma op output does not belong to fusion outputs";
     }
   }
@@ -362,9 +353,6 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   auto mma_exprs = ir_utils::getMmaOps(fusion);
   TORCH_INTERNAL_ASSERT(
       mma_exprs.size() == 1, "Support only fusion with a single mma op.");
-
-  const auto layout = mma_exprs.front()->layout();
-  TORCH_INTERNAL_ASSERT(layout.has_value(), "Failed to acquire inputs layout.");
 
   const auto problem_shape =
       getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
