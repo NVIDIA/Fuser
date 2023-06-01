@@ -163,8 +163,19 @@ void castOptimizationPass(Fusion* fusion) {
     auto output_dtype = expr->output(0)->getDataType().value();
 
     if (isInclusiveType(output_dtype, anchor_dtype)) {
-      // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an no-op
-      replaceInputInCast(expr->output(0), starting_anchor);
+      // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an
+      // no-op
+
+      if (starting_anchor->getDataType().value() == output_dtype) {
+        // if output dtype is identical to starting_anchor dtype, we can't keep
+        // the last cast op and will need to re-write all uses here
+        ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
+        if (expr->output(0)->isFusionOutput()) {
+          fusion->replaceOutput(expr->output(0), starting_anchor);
+        }
+      } else {
+        replaceInputInCast(expr->output(0), starting_anchor);
+      }
     } else {
       // 1.4.b: This is the case where we cannot fold away the cast of
       // lo_anchor; we'll just re-wire input to expr with lo_anchor
