@@ -86,14 +86,11 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
 //    1.4 At this point we look at `anchor_dtype` of `lo_anchor` and
 //    `output_dtype` of `expr->output(0)`:
 //
-//        a. if `anchor_dtype` is the same as `output_dtype`, we skip the last
-//        cast op and replace all its uses with `lo_anchor`;
-//
-//        b. if `anchor_dtype` is wider than `output_dtype`, all previous cast
-//        after `starting_anchor` is no-op, we re-wire `starting_anchor`
+//        a. if `anchor_dtype` is no narrower than `output_dtype`, all previous
+//        cast after `starting_anchor` is no-op, we re-wire `starting_anchor`
 //        directly to `expr`;
 //
-//        c. otherwise, we can't bypass `lo_anchor` cast, we rewire this
+//        b. otherwise, we can't bypass `lo_anchor` cast, we rewire this
 //        section as `starting_anchor`->`lo_anchor`->`expr->output(0)`
 void castOptimizationPass(Fusion* fusion) {
   auto exprs = fusion->exprs();
@@ -164,21 +161,12 @@ void castOptimizationPass(Fusion* fusion) {
     }
 
     auto output_dtype = expr->output(0)->getDataType().value();
-    if (anchor_dtype == output_dtype) {
-      // 1.4.a final cast is the same dtype as with previous lo_anchor,
-      // replacing output with lo_anchor in the fusion
-      lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
-      ir_utils::replaceValue(fusion, {{expr->output(0), lo_anchor}});
-      if (expr->output(0)->isFusionOutput()) {
-        fusion->replaceOutput(expr->output(0), lo_anchor);
-      }
-    } else if (isInclusiveType(output_dtype, anchor_dtype)) {
-      // 1.4.b: if lo_anchor is wider than output_dtype, casting to lo_anchor
-      // isn't doing anything, we'll just fold away to the starting_anchor
-      // instead
+
+    if (isInclusiveType(output_dtype, anchor_dtype)) {
+      // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an no-op
       replaceInputInCast(expr->output(0), starting_anchor);
     } else {
-      // 1.4.c: This is the case where we cannot fold away the cast of
+      // 1.4.b: This is the case where we cannot fold away the cast of
       // lo_anchor; we'll just re-wire input to expr with lo_anchor
       lo_anchor = replaceInputInCast(lo_anchor, starting_anchor);
       replaceInputInCast(expr->output(0), lo_anchor);

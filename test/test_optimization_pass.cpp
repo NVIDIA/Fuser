@@ -55,7 +55,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   at::Tensor at_x = at::randn(input_shape, options);
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -78,7 +77,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.b testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -99,7 +97,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.a testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -122,7 +119,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.a testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -142,7 +138,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -171,7 +166,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -196,7 +190,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -222,7 +215,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -248,7 +240,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
   }
 
   {
-    // 1.4.c testing case
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
