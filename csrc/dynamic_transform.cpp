@@ -645,6 +645,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     // corresponding producer IDs
 
     std::optional<IterType> id_type;
+    Val* extent = nullptr;
 
     for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
       PairwiseRootDomainMap root_map(producer, consumer);
@@ -667,6 +668,11 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       } else {
         id_type = input_id->getIterType();
       }
+
+      // Set extent expression based on producer, overwriting that of consumer
+      if (!extent) {
+        extent = input_id->extent();
+      }
     }
 
     TORCH_INTERNAL_ASSERT(
@@ -684,7 +690,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         consumer->toString());
 
     auto concretized_id =
-        IterDomainBuilder(root_id).iter_type(*id_type).build();
+        IterDomainBuilder(root_id).extent(extent).iter_type(*id_type).build();
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;
