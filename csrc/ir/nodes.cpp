@@ -2726,7 +2726,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> rfactor_domain,
     std::vector<IterDomain*> leaf_domain,
-    std::vector<std::optional<bool>> contiguity)
+    std::vector<std::optional<bool>> contiguity,
+    bool validate_domain_equivalence)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       rfactor_domain_(std::move(rfactor_domain)),
@@ -2736,12 +2737,15 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
-    if (!rfactor_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+  if (validate_domain_equivalence) {
+    if (!root_domain_.empty()) {
+      TORCH_CHECK(
+          !leaf_domain_.empty(), "Root domain is not empty but leaf is");
+      ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+      if (!rfactor_domain_.empty()) {
+        ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
+        ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+      }
     }
   }
 
