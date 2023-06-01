@@ -256,6 +256,36 @@ void PrecomputedValues::invalidate() {
   has_valid_values_ = false;
 }
 
+PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
+  PrecomputedValues pv(static_cast<Fusion*>(ir_cloner.container()));
+
+  // this is a map to unique pointers to vectors, so we need to copy the
+  // vectors and create new unique pointers
+  for (const auto& kv : thread_dim_value_indices_) {
+    std::vector<int> new_vec(kv.second->begin(), kv.second->end());
+    pv.thread_dim_value_indices_[kv.first] =
+        std::make_unique<std::vector<int>>(new_vec);
+  }
+
+  pv.has_valid_values_ = has_valid_values_;
+  pv.num_of_values_ = num_of_values_;
+  pv.defined_.insert(pv.defined_.end(), defined_.begin(), defined_.end());
+  pv.is_constant_.insert(
+      pv.is_constant_.end(), is_constant_.begin(), is_constant_.end());
+  pv.values_.insert(pv.values_.end(), values_.begin(), values_.end());
+  pv.binding_log_.insert(
+      pv.binding_log_.end(), binding_log_.begin(), binding_log_.end());
+
+  pv.symbols_.resize(symbols_.size());
+  for (const auto i : c10::irange(symbols_.size())) {
+    pv.symbols_[i] = ir_cloner.clone(symbols_[i]);
+  }
+
+  pv.value_machine_->copyFrom(*value_machine_.get());
+
+  return pv;
+}
+
 namespace {
 
 //! Compares the name of given scalar with thread size strings
@@ -342,6 +372,35 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
       }
     }
   }
+}
+
+void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
+  num_of_instructions_ = other.num_of_instructions_;
+
+  inst_type_.clear();
+  inst_type_.insert(
+      inst_type_.end(), other.inst_type_.begin(), other.inst_type_.end());
+
+  uop_type_.clear();
+  uop_type_.insert(
+      uop_type_.end(), other.uop_type_.begin(), other.uop_type_.end());
+
+  data_type_.clear();
+  data_type_.insert(
+      data_type_.end(), other.data_type_.begin(), other.data_type_.end());
+
+  bop_type_.clear();
+  bop_type_.insert(
+      bop_type_.end(), other.bop_type_.begin(), other.bop_type_.end());
+
+  src0_.clear();
+  src0_.insert(src0_.end(), other.src0_.begin(), other.src0_.end());
+
+  src1_.clear();
+  src1_.insert(src1_.end(), other.src1_.begin(), other.src1_.end());
+
+  dest_.clear();
+  dest_.insert(dest_.end(), other.dest_.begin(), other.dest_.end());
 }
 
 void NaiveValueMachine::run() {
@@ -505,6 +564,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::Min:
       dest = lhs < rhs ? lhs : rhs;
+      break;
+    case BinaryOpType::Gcd:
+      dest = gcd(lhs, rhs);
       break;
     default:
       TORCH_CHECK(!"Unexpected operator type");

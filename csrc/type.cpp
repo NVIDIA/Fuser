@@ -32,6 +32,36 @@ KernelIndexMode indexTypeToMode(DataType index_type) {
       : KernelIndexMode::INT64;
 }
 
+bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
+  if (base_type == wider_type) {
+    return true;
+  }
+  if (base_type == DataType::Bool) {
+    return true;
+  }
+  if ((wider_type == DataType::Double ||
+       wider_type == DataType::ComplexDouble) &&
+      (base_type == DataType::Double || base_type == DataType::Float ||
+       base_type == DataType::Half || base_type == DataType::BFloat16)) {
+    return true;
+  }
+  if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
+      (base_type == DataType::Float || base_type == DataType::Half ||
+       base_type == DataType::BFloat16)) {
+    return true;
+  }
+  if ((wider_type == DataType::Int || wider_type == DataType::Double ||
+       wider_type == DataType::ComplexDouble) &&
+      base_type == DataType::Int32) {
+    return true;
+  }
+  if (wider_type == DataType::ComplexDouble &&
+      base_type == DataType::ComplexFloat) {
+    return true;
+  }
+  return false;
+}
+
 DataType getTypeFromComplexType(DataType dtype) {
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::ComplexFloat:
@@ -405,6 +435,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "lshift";
     case BinaryOpType::Rshift:
       return "rshift";
+    case BinaryOpType::Gcd:
+      return "gcd";
 
     // Logical Ops
     case BinaryOpType::And:

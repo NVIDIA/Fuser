@@ -80,6 +80,7 @@ struct TORCH_CUDA_CU_API Vector {
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
+  //! Elements in the vector
   size_t size;
 
   //! Pointer to the FusionDefinition used to create this scalar
@@ -125,7 +126,8 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
-      bool override_user_schedule) const;
+      bool override_user_schedule,
+      std::optional<int8_t> device) const;
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs

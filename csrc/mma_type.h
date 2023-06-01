@@ -82,6 +82,9 @@ struct MmaOptions {
   //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
   enum class MmaLayout { NT = 0, TT, TN, NN };
 
+  //! Named descriptors of domains in matmul
+  enum class MmaDomains { M = 0, N, K };
+
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };
 

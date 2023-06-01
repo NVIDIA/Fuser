@@ -494,6 +494,11 @@ TORCH_CUDA_CU_API Val* bitwise_xor(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_xor(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, TensorView* v2);
+// gcd
+TORCH_CUDA_CU_API Val* gcd(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* gcd(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* gcd(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* gcd(TensorView* v1, TensorView* v2);
 // Logical binary ops
 // eq
 TORCH_CUDA_CU_API Val* eq(Val* v1, Val* v2);
