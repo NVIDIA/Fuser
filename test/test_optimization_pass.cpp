@@ -118,7 +118,6 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
         fusion.get());
     // simplified as (input)double -> half
     auto ref_tv = castOp(DataType::Half, tv0);
-    ref_tv = castOp(DataType::Double, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
 
