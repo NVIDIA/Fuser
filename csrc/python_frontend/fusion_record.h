@@ -2581,7 +2581,7 @@ struct ShapeRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto result = shape(arg);
-    fd.setFusionState(outputs_.at(0).index, result);
+    fd.setFusionStateVector(outputs_.at(0).index, result);
   }
 };
 

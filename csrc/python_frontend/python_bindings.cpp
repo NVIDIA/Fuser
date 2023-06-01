@@ -2064,7 +2064,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   auto shape_def = [](Tensor arg) {
     auto fd = arg.fusion_definition;
-    Vector output = fd->defineVector();
+    Vector output = fd->defineVector(arg.dims);
     fd->defineRecord(new ShapeRecord(
         {fd->recordingState(arg())}, {fd->recordingState(output())}));
     return output;
