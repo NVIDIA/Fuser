@@ -553,7 +553,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
-TvProperties getProperties(
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv) {
@@ -575,7 +575,7 @@ TvProperties getProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRFactorDomain();
+  const auto& root_dom = tv->getRootDomain();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -613,7 +613,7 @@ TvProperties getProperties(
     }
   }
 
-  TvProperties properties;
+  ReductionTvProperties properties;
   properties.total_reduction_numel = total_reduction_numel;
   properties.total_iteration_numel = total_iteration_numel;
   properties.fastest_dim_reduction = fastest_dim_reduction;
@@ -1163,16 +1163,7 @@ IterDomain* projectIdToRFactor(
 } // namespace
 
 IterDomain* innerMostRootDim(TensorView* tv) {
-  // This is backwards from how we normally think about grabbing root dimensions
-  // to process. If we're in a reduction scheduler and we're using the rfactored
-  // reduction tensor view, we don't care about the rfactor domain, we care
-  // about the root domain because we're looking to vectorize the reads (input
-  // tensor views). Otherwise we do want the rfactor domain. So this is the
-  // reverse of our typical check, we actually want to selectively ignore the
-  // rfactor domain.
-  const auto& root_domain = tv->hasReduction() && tv->hasRFactor()
-      ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
+  const auto& root_domain = tv->getMaybeRFactorDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1181,12 +1172,7 @@ IterDomain* innerMostRootDim(TensorView* tv) {
   IterDomain* inner_most_id = nullptr;
 
   for (auto it = root_domain.rbegin(); it != root_domain.rend(); it++) {
-    // If we're looking at a reduction domain on an input because of
-    // segmentation we don't want to consider those reduction domains as a
-    // vectorization opportunity. If we're looking at a reduction reference
-    // tensor we want to consider the reduction iteration domains as domains we
-    // can vectorize on.
-    if (((*it)->isReduction() && tv->isFusionInput()) || (*it)->isBroadcast()) {
+    if ((*it)->isReduction() || (*it)->isBroadcast()) {
       continue;
     }
     inner_most_id = *it;
@@ -2005,8 +1991,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 bool isFastestDimReduction(TensorView* tv) {
-  for (auto it = tv->getMaybeRFactorDomain().rbegin();
-       it != tv->getMaybeRFactorDomain().rend();
+  for (auto it = tv->getRootDomain().rbegin(); it != tv->getRootDomain().rend();
        ++it) {
     auto root_id = *it;
     if (root_id->isBroadcast()) {

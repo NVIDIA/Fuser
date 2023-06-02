@@ -184,80 +184,31 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
-  // found either in the root domain, or the rfactor domain**.
-  bool reference_is_rfactor = reference->hasRFactor() &&
-      std::all_of(reference_ids.begin(),
-                  reference_ids.end(),
-                  [reference](IterDomain* id) {
-                    return (
-                        std::find(
-                            reference->getMaybeRFactorDomain().begin(),
-                            reference->getMaybeRFactorDomain().end(),
-                            id) != reference->getMaybeRFactorDomain().end());
-                  });
-
-  if (!reference_is_rfactor) {
-    TORCH_INTERNAL_ASSERT(
-        std::all_of(
-            reference_ids.begin(),
-            reference_ids.end(),
-            [reference](IterDomain* id) {
-              return (
-                  std::find(
-                      reference->getRootDomain().begin(),
-                      reference->getRootDomain().end(),
-                      id) != reference->getRootDomain().end());
-            }),
-        "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-        "ContiguousInnerDimensionsMapper must either all exist in the root domain, or all exist ",
-        "in the rfactor domain.\nReference: ",
-        reference->toString());
-  }
+  // found either in the the rfactor domain**.
+  TORCH_INTERNAL_ASSERT(
+      std::all_of(
+          reference_ids.begin(),
+          reference_ids.end(),
+          [reference](IterDomain* id) {
+            return (
+                std::find(
+                    reference->getMaybeRFactorDomain().begin(),
+                    reference->getMaybeRFactorDomain().end(),
+                    id) != reference->getMaybeRFactorDomain().end());
+          }),
+      "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
+      "ContiguousInnerDimensionsMapper must either all exist in the root rfactor domain.\n",
+      "Reference: ",
+      reference->toString());
 
   // Record while processing reference's information
   recording_ = true;
   std::shared_ptr<Information> reference_information;
-  // Ordering of dimensions is important in this analysis, if an ordering is
-  // contiguous in the reference, but not the target tensor views, then we
-  // cannot consider that a contiguous merge dimension for vectorization.
-  if (reference_is_rfactor) {
-    std::vector<IterDomain*> reordered_rfactor;
-    for (auto id : reference->getMaybeRFactorDomain()) {
-      if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-          reference_ids.end()) {
-        reordered_rfactor.push_back(id);
-        // Initiailze the extent for the mapped iter domain
-        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-      } else if (!id->isBroadcast()) {
-        // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-        // IDs in the reference tensor as this is the contiguous mapper.
-        reordered_rfactor.clear();
-      }
-    }
 
-    reference_information = MappedDomain::build(
-        projectIdToRoot(reference, reordered_rfactor),
-        reordered_rfactor,
-        true /*shouldn't matter how we initialize this*/);
-  } else {
-    std::vector<IterDomain*> reordered_root;
-    for (auto id : reference->getRootDomain()) {
-      if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-          reference_ids.end()) {
-        reordered_root.push_back(id);
-        // Initiailze the extent for the mapped iter domain
-        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-      } else if (!id->isBroadcast()) {
-        // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-        // IDs in the reference tensor as this is the contiguous mapper.
-        reordered_root.clear();
-      }
-    }
-    reference_information = MappedDomain::build(
-        reordered_root,
-        projectIdToRFactor(reference, reordered_root),
-        false /*shouldn't matter how we initialize this*/);
-  }
+  reference_information = MappedDomain::build(
+      projectIdToRoot(reference, reference_ids),
+      reference_ids,
+      true /*shouldn't matter how we initialize this*/);
   // Stop recording before traversal
   recording_ = false;
 
@@ -911,16 +862,11 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
-  // Logic copied to get root according to
-  // SchedulerRuntimeInfo::getMaxVectorizableWidth
-  bool use_root_dom = of_tv->hasReduction() && of_tv->hasRFactor();
-  auto of_tv_root =
-      use_root_dom ? of_tv->getRootDomain() : of_tv->getMaybeRFactorDomain();
+  auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
   TORCH_INTERNAL_ASSERT(hasMappedDims(of_tv));
 
-  const std::vector<IterDomain*>& projected_dims =
-      use_root_dom ? mappedRootIds(of_tv) : mappedRFactorIds(of_tv);
+  const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
   auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
 
   auto contiguity = of_tv->domain()->contiguity();
@@ -1008,9 +954,7 @@ namespace {
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->hasReduction() && ref->hasRFactor()
-      ? ref->getRootDomain()
-      : ref->getMaybeRFactorDomain();
+  auto root_dom = ref->getMaybeRFactorDomain();
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());

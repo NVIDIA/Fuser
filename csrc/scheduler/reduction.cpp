@@ -919,29 +919,36 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       ir_utils::isReductionOp(red_expr),
       "TensorView doesn't have a reduction.");
 
-  auto properties =
-      scheduler_utils::getProperties(fusion, runtime_info, reduction_tv);
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, reduction_tv);
 
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
   TORCH_INTERNAL_ASSERT(
       !tv_inps.empty(),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
+  auto reduction_producers = ir_utils::producerTvsOf(reduction_tv);
+  TORCH_INTERNAL_ASSERT(
+      reduction_producers.size() == 1,
+      "Expected only one producer of reduction tensor view.");
+  auto reduction_producer = reduction_producers.at(0);
+
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduction_tv]() {
+          data_cache, [&reduction_producer]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduction_tv, false, false));
+                    reduction_producer, false, false));
           });
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      reduction_tv,
+      reduction_producer,
       data_cache,
-      (int)(reduction_tv->nDims() - properties.inner_most_dimension_ndims));
+      (int)(reduction_producer->nDims() -
+            properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
