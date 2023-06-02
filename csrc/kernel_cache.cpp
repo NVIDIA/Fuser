@@ -11,6 +11,7 @@
 #include <executor_params.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <optimization/pre_segmenter.h>
 #include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
@@ -669,6 +670,9 @@ FusionKernelRuntime::FusionKernelRuntime(
   TORCH_INTERNAL_ASSERT(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
+
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+      fusion.get());
 
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
