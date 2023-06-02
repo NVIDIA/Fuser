@@ -931,24 +931,23 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   TORCH_INTERNAL_ASSERT(
       reduction_producers.size() == 1,
       "Expected only one producer of reduction tensor view.");
-  auto reduction_producer = reduction_producers.at(0);
+  auto reduced_tv = reduction_producers.at(0);
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduction_producer]() {
+          data_cache, [&reduced_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduction_producer, false, false));
+                    reduced_tv, false, false));
           });
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      reduction_producer,
+      reduced_tv,
       data_cache,
-      (int)(reduction_producer->nDims() -
-            properties.inner_most_dimension_ndims));
+      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
