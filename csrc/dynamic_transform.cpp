@@ -392,8 +392,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   const DynamicTransformConcretizationInfo& info_;
-
-  std::unordered_map<Val*, Val*> replaced_extents_;
 };
 
 void DynamicTransformConcretizer::concretize() {
@@ -498,6 +496,10 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
+  if (!tv->domain()->hasSymbolicAxis()) {
+    return;
+  }
+
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
   propagateFromProducerToConsumer(tv);
@@ -644,6 +646,11 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
 bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     TensorView* consumer) {
+  if (consumer->definition() == nullptr ||
+      !consumer->domain()->hasSymbolicAxis()) {
+    return false;
+  }
+
   const auto& root_domain = consumer->getRootDomain();
 
   auto def = consumer->definition();
@@ -652,25 +659,15 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   for (const auto i : c10::irange(root_domain.size())) {
     auto root_id = root_domain.at(i);
-    Val* extent = nullptr;
-
-    auto replaced_extent_it = replaced_extents_.find(root_id->extent());
-    if (replaced_extent_it == replaced_extents_.end()) {
-      if (root_id->getIterType() != IterType::Symbolic) {
-        continue;
-      }
-    } else {
-      extent = replaced_extent_it->second;
+    if (root_id->getIterType() != IterType::Symbolic) {
+      continue;
     }
 
     // Figure out the right IterType of this consumer root ID from its
     // corresponding producer IDs
 
-    std::optional<IterType> id_type = std::nullopt;
-
-    if (root_id->isReduction()) {
-      id_type = IterType::Reduction;
-    }
+    std::optional<IterType> id_type;
+    Val* extent = nullptr;
 
     for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
       PairwiseRootDomainMap root_map(producer, consumer);
@@ -689,9 +686,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           input_id->toString());
 
       if (id_type.has_value()) {
-        if (*id_type != IterType::Reduction) {
-          id_type = ops::promoteIterType(*id_type, input_id->getIterType());
-        }
+        id_type = ops::promoteIterType(*id_type, input_id->getIterType());
       } else {
         id_type = input_id->getIterType();
       }
@@ -718,12 +713,6 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     auto concretized_id =
         IterDomainBuilder(root_id).extent(extent).iter_type(*id_type).build();
-
-    if (!extent->sameAs(root_id->extent())) {
-      replaced_extents_[root_id->extent()] = extent;
-      // In case this value is used elsewhere, register for mutation
-      registerMutation(root_id->extent(), extent);
-    }
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;
