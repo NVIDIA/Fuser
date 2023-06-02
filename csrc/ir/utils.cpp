@@ -1057,13 +1057,16 @@ std::vector<Statement*> checkCycle(
     for (auto stmt : next_stmts) {
       if (path.count(stmt) != 0) {
         // find a cycle, return current path;
-        return std::vector<Statement*>(path.begin(), path.end());
+        std::vector<Statement*> ret;
+        std::copy_if(path.begin(), path.end(), std::back_inserter(ret), [](Statement* stmt) { return stmt->isExpr(); });
+        return ret;
       }
       // adding statement to a queue;
       queue.push_front(stmt);
     }
   }
 
+  // no cycle detected, return empty
   return {};
 }
 
@@ -1100,8 +1103,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
 }
 
 std::vector<Statement*> checkCycle(Fusion* fusion) {
-  auto outs = fusion->getTerminatingOutputs();
-  return checkCycle(fusion, {}, outs);
+  return checkCycle(fusion, {}, fusion->outputs());
 }
 
 } // namespace nvfuser::ir_utils
