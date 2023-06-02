@@ -129,7 +129,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   //! Return the total kernel time of all segments
   float kernelTimeMs() const {
-    TORCH_INTERNAL_ASSERT(measure_kernel_time_);
     return kernel_time_ms_;
   }
 
@@ -552,7 +551,6 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   }
 
   float getMostRecentKernelTimeMs() const {
-    TORCH_INTERNAL_ASSERT(measure_kernel_time_);
     auto rt = getMostRecentKernelRuntime();
     TORCH_INTERNAL_ASSERT(rt != nullptr);
     return rt->kernelTimeMs();
