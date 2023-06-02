@@ -5,12 +5,7 @@ import torch
 
 import nvfuser
 
-# from nvfuser import compute_contiguity
-# from nvfuser import DataType
-# from nvfuser import FusionDefinition
-# from nvfuser import Scalar
-# from nvfuser import Tensor
-from nvfuser.utils import to_nvfuser_dtype
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 
 __all__ = [
@@ -30,7 +25,7 @@ def partially_contig_tensor(
     return fd.define_tensor(
         symbolic_sizes=[-1] * x.ndim,
         contiguity=nvfuser.compute_contiguity(x.size(), x.stride()),
-        dtype=to_nvfuser_dtype(x.dtype),
+        dtype=torch_dtype_to_nvfuser_dtype(x.dtype),
     )
 
 
@@ -555,7 +550,7 @@ class NormNVFuserFunction(torch.autograd.Function):
                 tv_grad_output = fd.ops.cast(tv_grad_output, nvfuser.DataType.Float)
             inputs.append(grad_output)
 
-            x_datatype = to_nvfuser_dtype(x.dtype)
+            x_datatype = torch_dtype_to_nvfuser_dtype(x.dtype)
 
             grad_input, grad_weight, grad_bias = norm_fusion_backward(
                 fd,
