@@ -73,18 +73,12 @@ void ConcretizedBroadcastDomains::handle(CatOp* op) {
 }
 
 void ConcretizedBroadcastDomains::handle(PadOp* op) {
-  std::cout << "handle(PadOp* " << op->toString() << ")" << std::endl;
   for (auto i : op->getPaddedAxes()) {
-    std::cout << "padded axis " << i << std::endl;
     // Instead of the root domain of the output, as with BroadcastOp, we set the
     // origin as the RFactor domain, since PadOp inserts Resize ops between root
     // and rfactor
     auto id = op->out()->as<TensorView>()->getMaybeRFactorDomain().at(i);
-    std::cout << "id = " << id->toString() << std::endl;
     if (id->isBroadcast()) {
-      std::cout << "broadcast_origin_map_.emplace(";
-      std::cout << id->toString() << ", std::unordered_set<IterDomain*>({";
-      std::cout << "id"/*id->toString()*/ << "}));" << std::endl;;
       broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
     }
   }
