@@ -67,12 +67,25 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
     fusion->printMath();
 
+    if (cycle.empty()) {
+      printf("checking 0 cycle found cycle\n");
+      for (auto expr : cycle) {
+        std::cout << expr;
+      }
+    }
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
 
-    std::cout << "---- mutated fusion " << std::endl;
-    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
-    fusion->printMath();
+    auto cycle = ir_utils::checkCycle(fusion);
+    if (cycle.empty()) {
+      printf("checking 1 cycle found cycle\n");
+      for (auto expr : cycle) {
+        std::cout << expr;
+      }
+    }
+    // std::cout << "---- mutated fusion " << std::endl;
+    // std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
+    // fusion->printMath();
 }
 
 // Test cast optimization

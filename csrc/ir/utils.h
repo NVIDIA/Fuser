@@ -433,5 +433,8 @@ void validateDomainEquivalence(
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
+//! Check and return a cycle found in fusion
+std::vector<Statement*> checkCycle(Fusion* fusion);
+
 } // namespace ir_utils
 } // namespace nvfuser
