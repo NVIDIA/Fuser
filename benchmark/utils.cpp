@@ -150,6 +150,10 @@ void runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
+  if (getenv("NEW")) {
+    fusion_executor_cache->enableKernelTimeMeasurement();
+  }
+
   if (!segmented) {
     fusion_executor_cache->profile(true);
     fusion_executor_cache->runFusionWithInputs(aten_inputs);
@@ -181,12 +185,23 @@ void runBenchmarkIterations(
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
     }
     C10_CUDA_CHECK(cudaDeviceSynchronize());
-    CudaKernelTimer timer;
-    for (auto _ : benchmark_state) {
-      clearL2Cache();
-      timer.restart();
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
+    if (getenv("NEW")) {
+      for (auto _ : benchmark_state) {
+        clearL2Cache();
+        auto cg_outputs =
+            fusion_executor_cache->runFusionWithInputs(aten_inputs);
+        benchmark_state.SetIterationTime(
+            fusion_executor_cache->getMostRecentKernelTimeMs() / 1000.0);
+      }
+    } else {
+      CudaKernelTimer timer;
+      for (auto _ : benchmark_state) {
+        clearL2Cache();
+        timer.restart();
+        auto cg_outputs =
+            fusion_executor_cache->runFusionWithInputs(aten_inputs);
+        benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
+      }
     }
     // Sync everything up before we're finished, don't want to run ahead on the
     // cpu while benchmarking.
