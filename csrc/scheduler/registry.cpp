@@ -1936,8 +1936,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
         ? first_inner_reduction_tv
         : reduction_tvs[0];
 
-    auto properties =
-        scheduler_utils::getReductionProperties(fusion, runtime_info, reference_tv);
+    auto properties = scheduler_utils::getReductionProperties(
+        fusion, runtime_info, reference_tv);
 
     if (!properties.fastest_dim_reduction) {
       return canScheduleRunTimeOuter(
