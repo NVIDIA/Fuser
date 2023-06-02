@@ -62,16 +62,20 @@ enum class PredicateType {
 // int64_t which is relatively heavy to carry around. Index will be resolved
 // at compile time with KernelIndexMode.
 enum class PrimDataType {
+  // Floating point types
   Double,
   Float,
   Half,
-  Int,
-  Index,
-  Int32,
-  Bool,
   BFloat16,
-  ComplexFloat,
+  // Integral types
+  Int,
+  Int32,
+  Index,
+  // Boolean types
+  Bool,
+  // Complex types
   ComplexDouble,
+  ComplexFloat,
   // Pointers
   SMemAddress,
   // Null
@@ -136,6 +140,10 @@ enum class KernelIndexMode { INT32, INT64 };
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode);
 KernelIndexMode indexTypeToMode(DataType index_type);
+
+// check if type preserves all information from base_type. Which indicates a
+// cast from base_type -> type -> base_type should be bit-wise identical
+bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
