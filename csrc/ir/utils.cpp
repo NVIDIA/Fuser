@@ -1000,14 +1000,28 @@ class ValidateDomainEquivalence : private IterVisitor {
   std::unordered_set<Val*> frontier_;
 };
 
+std::vector<Statement*> next(Statement* stmt) {
+  if (stmt->isVal()) {
+    if (auto val = stmt->as<Val>()->definition()) {
+      return {val->definition()};
+    } else {
+      return {};
+    }
+  } else {
+    auto expr = stmt->as<Expr>();
+    std::vector<Statement*> inputs{expr->inputs().begin(), expr->inputs().end()};
+    return inputs;
+  }
+}
+
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
-    const std::unordered_set<Val*>& from,
+    const std::unordered_set<Statement*>& from,
     const std::vector<Val*>& to) {
   std::unordered_set<Statement*> path;
   std::unordered_set<Statement*> visited;
   std::deque<Statement*> queue;
-  queue.insert(stack.end(), to.begin(), to.end());
+  queue.insert(queue.end(), to.begin(), to.end());
 
   while (!queue.empty()) {
     auto val = queue.front();
@@ -1028,7 +1042,8 @@ std::vector<Statement*> checkCycle(
     }
 
     // if val is already in path, we are just cleaning up the stack here.
-    if (auto iter = path.find(val)) {
+    auto iter = path.find(val);
+    if (iter != path.end()) {
       queue.pop_front();
       path.erase(iter);
       visited.insert(val);
@@ -1048,6 +1063,8 @@ std::vector<Statement*> checkCycle(
       queue.push_front(stmt);
     }
   }
+
+  return {};
 }
 
 } // namespace
