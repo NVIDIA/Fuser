@@ -236,7 +236,10 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     }
 
     reference_information = MappedDomain::build(
-        projectIdToRoot(reference, reordered_rfactor),
+        projectId(
+            reference->getMaybeRFactorDomain(),
+            reference->getRootDomain(),
+            reordered_rfactor),
         reordered_rfactor,
         true /*shouldn't matter how we initialize this*/);
   } else {
@@ -255,7 +258,10 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     }
     reference_information = MappedDomain::build(
         reordered_root,
-        projectIdToRFactor(reference, reordered_root),
+        projectId(
+            reference->getRootDomain(),
+            reference->getMaybeRFactorDomain(),
+            reordered_root),
         false /*shouldn't matter how we initialize this*/);
   }
   // Stop recording before traversal
@@ -348,17 +354,23 @@ void ContiguousInnerDimensionsMapper::distributePE(
   addProjectedExtent(merge_or_split->outer(), projected_outer_extent);
 }
 
-std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
-    TensorView* ref,
+std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
+    const std::vector<IterDomain*>& from,
+    const std::vector<IterDomain*>& to,
     std::vector<IterDomain*> ids) {
-  auto transform_exprs = StmtSort::getExprs(
-      ref->fusion(),
-      {ref->getRFactorDomain().begin(), ref->getRFactorDomain().end()});
+  if (ids.empty()) {
+    return {};
+  }
+
+  auto backward_exprs = StmtSort::getExprsBetween(
+      ids.front()->fusion(),
+      {to.begin(), to.end()},
+      {from.begin(), from.end()});
 
   // Mapping from rfactor to root, reverse expressions
-  std::reverse(transform_exprs.begin(), transform_exprs.end());
+  std::reverse(backward_exprs.begin(), backward_exprs.end());
 
-  for (auto* expr : transform_exprs) {
+  for (auto* expr : backward_exprs) {
     if (Split* split = dynamic_cast<Split*>(expr)) {
       // Initialize state
       auto find_outer_it = ids.begin();
@@ -500,21 +512,17 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
     } // switch on expr type
   } // For loop on the transform expressions
 
-  return ids;
-}
+  if (ids.empty()) {
+    return {};
+  }
 
-// This function is very similar to projectIdToRoot, we just generally swap the
-// logic of split and merge as the reverse mapping of merge looks a lot like
-// split and vice versa.
-std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
-    TensorView* ref,
-    std::vector<IterDomain*> ids) {
-  auto transform_exprs = StmtSort::getExprs(
-      ref->fusion(),
-      {ref->getRFactorDomain().begin(), ref->getRFactorDomain().end()});
+  auto forward_exprs = StmtSort::getExprsBetween(
+      ids.at(0)->fusion(),
+      {from.begin(), from.end()},
+      {to.begin(), to.end()});
 
   // Map forward through transforms since we're going from root to rfactor
-  for (auto* expr : transform_exprs) {
+  for (auto* expr : forward_exprs) {
     if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
       // Initialize state
       auto find_outer_it = ids.begin();
@@ -656,6 +664,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
           expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
+
   return ids;
 }
 
@@ -729,7 +738,12 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectIdToRoot(to, producer_rfactor_ids), producer_rfactor_ids, true);
+      projectId(
+          to->getMaybeRFactorDomain(),
+          to->getRootDomain(),
+          producer_rfactor_ids),
+      producer_rfactor_ids,
+      true);
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
@@ -791,7 +805,10 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     }
   }
   return MappedDomain::build(
-      consumer_root_ids, projectIdToRFactor(to, consumer_root_ids), false);
+      consumer_root_ids,
+      projectId(
+          to->getRootDomain(), to->getMaybeRFactorDomain(), consumer_root_ids),
+      false);
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
