@@ -76,7 +76,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
 
-    auto cycle = ir_utils::checkCycle(fusion);
+    auto cycle = ir_utils::checkCycle(fusion.get());
     if (cycle.empty()) {
       printf("checking 1 cycle found cycle\n");
       for (auto expr : cycle) {

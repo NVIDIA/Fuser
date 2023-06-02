@@ -1003,7 +1003,7 @@ class ValidateDomainEquivalence : private IterVisitor {
 std::vector<Statement*> next(Statement* stmt) {
   if (stmt->isVal()) {
     if (auto val = stmt->as<Val>()->definition()) {
-      return {val->definition()};
+      return {val};
     } else {
       return {};
     }
