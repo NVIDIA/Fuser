@@ -7,16 +7,14 @@ from make_tensor import map_dtype_to_str
 
 
 def _instantiate_opinfo_test_template(
-    template: Callable, scope, *, opinfo, dtype: torch.dtype
+    template: Callable, *, opinfo, dtype: torch.dtype
 ) -> Callable:
     """Instantiates a test template for an operator."""
-
-    test_name = "_".join((template.__name__, opinfo.name, map_dtype_to_str[dtype]))
 
     def test():
         return template(opinfo, dtype)
 
-    test.__name__ = test_name
+    test.__name__ = "_".join((template.__name__, opinfo.name, map_dtype_to_str[dtype]))
     test.__module__ = test.__module__
     return test
 
@@ -40,7 +38,6 @@ class ops:
             for dtype in sorted(opinfo._dtypes, key=lambda t: repr(t)):
                 test = _instantiate_opinfo_test_template(
                     test_template,
-                    self.scope,
                     opinfo=opinfo,
                     dtype=dtype,
                 )

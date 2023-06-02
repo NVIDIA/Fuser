@@ -16,6 +16,13 @@ except ImportError:
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
 
+def is_pre_volta():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 7
+
+
 def fusion_func(fd: FusionDefinition, operation, inputs):
     nvf_inputs = [fd.from_pytorch(x) for x in inputs]
     t1 = operation(fd)(*nvf_inputs)

@@ -4,8 +4,6 @@ from functools import partial, wraps
 from typing import Callable
 import torch
 
-Domain = namedtuple("Domain", ["low", "high"])
-
 
 class SampleInput:
     """Represents sample inputs to a function."""
@@ -26,6 +24,8 @@ class SampleInput:
 class OpInfo:
     """Operator information and helper functions for acquiring it."""
 
+    Domain = namedtuple("Domain", ["low", "high"])
+
     def __init__(
         self,
         op: Callable,
@@ -35,8 +35,6 @@ class OpInfo:
         sample_input_generator,
         error_input_generator=None,
         torch_reference=None,
-        numpy_reference=None,
-        jax_reference=None,
         domain=(None, None),
     ):
         self.op = op
@@ -45,9 +43,7 @@ class OpInfo:
         self.sample_input_generator = sample_input_generator
         self.error_input_generator = error_input_generator
         self.torch_reference = torch_reference
-        self.numpy_reference = numpy_reference
-        self.jax_reference = jax_reference
-        self.domain = Domain(*domain)
+        self.domain = OpInfo.Domain(*domain)
 
     def __call__(self, *args, **kwargs):
         """Calls the function variant of the operator."""
@@ -128,7 +124,6 @@ def _elementwise_unary_torch(op):
     def _fn(x):
         if isinstance(x, torch.Tensor):
             return op(x)
-
         return op(torch.tensor(x)).item()
 
     return _fn
