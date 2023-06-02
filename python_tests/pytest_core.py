@@ -4,7 +4,7 @@ from functools import partial, wraps
 from typing import Callable
 import torch
 
-Domain = namedtuple("Domain", "low high")
+Domain = namedtuple("Domain", ["low", "high"])
 
 
 class SampleInput:
@@ -23,7 +23,6 @@ class SampleInput:
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
 
-# TODO: require use of generic Thunder dtypes (once they exist)
 class OpInfo:
     """Operator information and helper functions for acquiring it."""
 
@@ -91,7 +90,7 @@ def elementwise_unary_generator(
         # TODO: restore size zero cases
         # (0, 2, 1),
         # (5, 0, 3),
-        # (),
+        (),
         (11,),
         (4, 4),
         (1024, 1024),

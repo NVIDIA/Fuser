@@ -3,6 +3,7 @@ import os
 import sys
 import torch
 from typing import Callable
+from make_tensor import map_dtype_to_str
 
 
 def _instantiate_opinfo_test_template(
@@ -10,7 +11,7 @@ def _instantiate_opinfo_test_template(
 ) -> Callable:
     """Instantiates a test template for an operator."""
 
-    test_name = "_".join((template.__name__, opinfo.name, str(dtype)))
+    test_name = "_".join((template.__name__, opinfo.name, map_dtype_to_str[dtype]))
 
     def test():
         return template(opinfo, dtype)
@@ -32,7 +33,7 @@ class ops:
 
     def __call__(self, test_template):
         # NOTE Unlike a typical decorator, this __call__ does not return a function, because it may
-        #   (and typically does) instantiate multiple functions from the template it consumes
+        #   (and typically does) instantiate multiple functions from the template it consumes.
         #   Since Python doesn't natively support one-to-many function decorators, the produced
         #   functions are directly assigned to the requested scope (the caller's global scope by default)
         for opinfo in self.opinfos:

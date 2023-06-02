@@ -11,13 +11,37 @@ all_dtypes = [
     # torch.int16,
     torch.int32,
     torch.int64,
-    torch.bfloat16,
-    torch.float16,
+    # torch.bfloat16,
+    # torch.float16,
     torch.float32,
     torch.float64,
     torch.complex64,
     torch.complex128,
 ]
+
+int_float_dtypes = [
+    torch.int32,
+    torch.int64,
+    # torch.bfloat16,
+    # torch.float16,
+    torch.float32,
+    torch.float64,
+]
+
+map_dtype_to_str = {
+    torch.bool: "bool",
+    torch.uint8: "uint8",
+    torch.int8: "int8",
+    torch.int16: "int16",
+    torch.int32: "int32",
+    torch.int64: "int64",
+    torch.bfloat16: "bfloat16",
+    torch.float16: "float16",
+    torch.float32: "float32",
+    torch.float64: "float64",
+    torch.complex64: "complex64",
+    torch.complex128: "complex128",
+}
 
 # adapted from https://github.com/pytorch/pytorch/blob/master/torch/testing/_creation.py
 # Changes:

@@ -1,6 +1,3 @@
-import pytest
-import numpy as np
-import math
 import torch
 from torch.testing import assert_close
 from pytest_framework import ops, run_snippet
@@ -12,24 +9,16 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 
 # Will only create the nvfuser module if CUDA is available
 try:
-    from nvfuser import (
-        FusionCache,
-        FusionDefinition,
-        DataType,
-        Tensor,
-        version,
-        compute_contiguity,
-    )
-    from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+    from nvfuser import FusionDefinition
 except ImportError:
     pass
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
 
-def unary_fusion_func(fd: FusionDefinition, operation, inputs):
-    t0 = fd.from_pytorch(inputs[0])
-    t1 = operation(fd)(t0)
+def fusion_func(fd: FusionDefinition, operation, inputs):
+    nvf_inputs = [fd.from_pytorch(x) for x in inputs]
+    t1 = operation(fd)(*nvf_inputs)
     fd.add_output(t1)
 
 
@@ -37,12 +26,12 @@ def snippet_errors(nvf_op, sample, ex_type):
     ex = None
     try:
         with FusionDefinition() as fd:
-            unary_fusion_func(fd, nvf_op, sample.args)
+            fusion_func(fd, nvf_op, sample.args)
         fd.execute(*sample.args, **sample.kwargs)
     except Exception as e:
         ex = e
 
-    assert ex is not None, f"Expected an exception"
+    assert ex is not None, "Expected an exception"
     assert ex_type is type(
         ex
     ), f"Expected an exception with type {ex_type}, but found ex={ex}"
@@ -50,7 +39,7 @@ def snippet_errors(nvf_op, sample, ex_type):
 
 def snippet_torch_consistency(nvf_op, torch_op, sample):
     with FusionDefinition() as fd:
-        unary_fusion_func(fd, nvf_op, sample.args)
+        fusion_func(fd, nvf_op, sample.args)
     nvfuser_result = fd.execute(sample.args, **sample.kwargs)
     torch_result = torch_op(*sample.args, **sample.kwargs)
 
