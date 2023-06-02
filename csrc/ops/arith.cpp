@@ -848,7 +848,7 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_or, Or)
 NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, Xor)
 #undef NVFUSER_DEFINE_BITWISE_OP
 
-#define NVFUSER_DEFINE_BITWISE_SHIFT_OP(op_name, op_type)                 \
+#define NVFUSER_DEFINE_INT_ONLY_OP(op_name, op_type)                      \
   Val* op_name(Val* v1, Val* v2) {                                        \
     TORCH_CHECK(                                                          \
         isIntegralType(v1->dtype()) && isIntegralType(v2->dtype()),       \
@@ -890,9 +890,10 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, Xor)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }
 
-NVFUSER_DEFINE_BITWISE_SHIFT_OP(bitwise_left_shift, Lshift)
-NVFUSER_DEFINE_BITWISE_SHIFT_OP(bitwise_right_shift, Rshift)
-#undef NVFUSER_DEFINE_BITWISE_SHIFT_OP
+NVFUSER_DEFINE_INT_ONLY_OP(bitwise_left_shift, Lshift)
+NVFUSER_DEFINE_INT_ONLY_OP(bitwise_right_shift, Rshift)
+NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
+#undef NVFUSER_DEFINE_INT_ONLY_OP
 
 #define NVFUSER_DEFINE_BINARY_COMPARE_OP(op_name, op_type)                   \
   Val* op_name(Val* v1, Val* v2) {                                           \

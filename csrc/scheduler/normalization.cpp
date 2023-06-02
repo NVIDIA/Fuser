@@ -436,12 +436,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         std::min(max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
   }
   // Compute maximum number of reductions we could do in the same kernel based
-  // on persistent buffer size. Bounded by the iteration count as the
-  // factor is split off from the iteration domains.
+  // on persistent buffer size. Bounded by the wave count for utilization of
+  // SMs.
   const int64_t max_multi_reduction_factor = std::min(
       scheduler_utils::safeDiv(
           scheduler_utils::register_file_size, max_persistent_buffer_size),
-      total_iteration_numel);
+      ceilDiv(total_iteration_numel, device_multiprocessor_count));
 
   // To get to target threads:
   // Prioritize
@@ -568,24 +568,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     outer_reduction_unroll_factor *= 2;
     batches_per_block_outer_reduction = scheduler_utils::roundUpPow2Or8(
         ceilDiv(outer_reduction_numel, bdimz * outer_reduction_unroll_factor));
-  }
-
-  // If we haven't gotten to the max_unroll case, try to take it out of the
-  // iteration domain
-  if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
-          max_unroll &&
-      scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy) > 2) {
-    // Don't go over a combined inner/outer unroll of max_unroll
-    auto unroll_available = std::min(
-        scheduler_utils::safeDiv(
-            max_unroll,
-            inner_reduction_unroll_factor * outer_reduction_unroll_factor),
-        scheduler_utils::safeDiv(max_multi_reduction_factor, bdimy));
-    if (unroll_available > 1 && godim > 2 * device_multiprocessor_count) {
-      unroll_available = std::min(
-          unroll_available, ceilDiv(godim, 2 * device_multiprocessor_count));
-      iter_unroll_factor = unroll_available;
-    }
   }
 
   // Adjust bdimx based on batches_per_block and unroll factor set as they could
@@ -1469,10 +1451,10 @@ void beforeSchedule(
   // does not create trouble for transform propagation.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  if (rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty()) {
-    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(fusion);
-  }
+  const bool project_to_inputs = rparams.project_persistent_buffers &&
+      ir_utils::getViewOps(fusion).empty();
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, project_to_inputs);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view

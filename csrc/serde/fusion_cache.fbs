@@ -11,8 +11,11 @@ namespace nvfuser.serde;
 // breaking change is applied to the schema.
 file_identifier "NV00";
 
+// =====================================================================================
+// Enum definitions
+
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType:int {
+enum DataType : int {
     Double = 0,
     Float,
     Half,
@@ -27,14 +30,14 @@ enum DataType:int {
 
 // The StateType enum is used to indicate the whether the state object is a
 // Scalar or Tensor.
-enum StateType:int {
+enum StateType : int {
     Tensor = 0,
     Scalar,
     Vector,
     None,
 }
 
-enum Contiguity:int {
+enum Contiguity : int {
     Strided = 0,
     Contiguous,
     None,
@@ -44,7 +47,7 @@ enum Contiguity:int {
 // Otherwise, the record type is determined via the success of dynamic casting.
 // We enumerate the template arguments of a RecordFunctor, so we can specify
 // them during deserialization.
-enum RecordType:int {
+enum RecordType : int {
     Base = 0,
     AtOp,
     BatchNormOp,
@@ -92,11 +95,11 @@ enum RecordType:int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    ScalarConstantBool,
-    ScalarConstantComplexDouble,
-    ScalarConstantDouble,
-    ScalarConstantInt,
+    ScalarBool,
+    ScalarComplexDouble,
+    ScalarDouble,
     ScalarInput,
+    ScalarLong,
     ShapeOp,
     SizeOp,
     SliceOp,
@@ -106,10 +109,13 @@ enum RecordType:int {
     TensorSizes,
     VarianceOp,
     VarianceMeanOp,
-    VectorConstantInt,
     VectorFromState,
     VectorInput,
+    VectorLong,
 }
+
+// =====================================================================================
+// Union definitions
 
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
@@ -119,10 +125,10 @@ union RecordData {
   Broadcast,
   BroadcastInDim,
   ComplexDouble,
+  Dimension,
   Double,
   Dtype,
-  Dimension,
-  Int,
+  Long,
   Norm,
   Output,
   Pad,
@@ -135,39 +141,56 @@ union RecordData {
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
-  VectorInt,
   VectorFromState,
   VectorInput,
+  VectorLong,
 }
+
+// =====================================================================================
+// Basic data tables
 
 // Data for At
 table At {
   index: long;
 }
 
-// Data for Scalar Constant Bool
+// Data for Constant Bool
 table Bool {
-  bool_val: bool;
+  value: bool;
+}
+
+// Data for Constant Double and Float
+table Double {
+  value: double;
   dtype: DataType;
 }
 
-// Data for Scalar Constant Complex Double or Float
+// Data for Constant Long and Int32
+table Long {
+  value: long;
+  dtype: DataType;
+}
+
+// Data for Half
+table Half {
+  value: ushort;
+}
+
+// Data for BFloat16
+table BFloat16 {
+  value: ushort;
+}
+
+// Data for Constant Complex Double and Float
 table ComplexDouble {
   real: double;
   imag: double;
   dtype: DataType;
 }
 
-// Data for Scalar Constant Double or Float
-table Double {
-  double_val: double;
-  dtype: DataType;
-}
-
-// Data for Scalar Constant Int or Long
-table Int {
-  int_val: long;
-  dtype: DataType;
+// Data representing a tensor shape
+table TensorShape {
+  shape : [long];
 }
 
 // Data for Scalar Input
@@ -175,10 +198,13 @@ table ScalarInput {
   dtype: DataType;
 }
 
-// Data for Scalar Input
+// Data for Size
 table Size {
   dim: long;
 }
+
+//
+// =====================================================================================
 
 // Data for BatchNormOpRecord
 table BatchNorm {
@@ -267,7 +293,7 @@ table TensorCreation {
 // Data for RandomOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
-  shape: [State];
+  output_size: long;
   dtype: DataType;
 }
 
@@ -283,11 +309,14 @@ table VectorInput {
 }
 
 // Data for Vector of Constant Int or Long
-table VectorInt {
-  int_vals: [long];
+table VectorLong {
+  value: [long];
   size: long;
   dtype: DataType;
 }
+
+//
+// =====================================================================================
 
 // The State struct represents each scalar and tensor value.
 // e.g., all input, output and intermediate values in the fusion.

@@ -254,8 +254,8 @@ bool checkProjectedExtent(
     ExpressionEvaluator& expr_eval,
     int64_t expected_numer,
     int64_t expected_denom) {
-  auto numerator_val = expr_eval.evaluate(pe.getNumerator());
-  auto denominator_val = expr_eval.evaluate(pe.getDenominator());
+  auto numerator_val = expr_eval.evaluate(pe.numerator());
+  auto denominator_val = expr_eval.evaluate(pe.denominator());
 
   if (!numerator_val.has_value() || !denominator_val.has_value()) {
     return false;
@@ -289,7 +289,7 @@ bool trivialOrOneProjectedExtent(vectorize_helper::ProjectedExtent& pe) {
     return true;
   }
 
-  auto numerator_val = pe.getNumerator();
+  auto numerator_val = pe.numerator();
   if (!numerator_val->isConstInt()) {
     return false;
   }
@@ -677,7 +677,7 @@ TEST_F(NVFuserTest, FusionVectorizeBackwardMapper9_CUDA) {
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 7, 3),
+      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 35, 15),
       mapper.getMappedExtent(tv1->axis(1)).toString());
   TORCH_CHECK(
       checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 15, 1),
@@ -1062,14 +1062,14 @@ TEST_F(NVFuserTest, FusionVectorizeForwardMapper9_CUDA) {
       mapper.getMappedExtent(tv2->axis(1)).toString());
   TORCH_CHECK(
       checkProjectedExtent(mapper.getMappedExtent(tv2->axis(2)), 7, 1),
-      mapper.getMappedExtent(tv2->axis(1)).toString());
+      mapper.getMappedExtent(tv2->axis(2)).toString());
 
   TORCH_CHECK(mapper.mappedRFactorIds(tv1).size() == 2);
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   TORCH_CHECK(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
   TORCH_CHECK(
-      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 7, 3),
-      mapper.getMappedExtent(tv1->axis(1)).toString());
+      checkProjectedExtent(mapper.getMappedExtent(tv1->axis(0)), 35, 15),
+      mapper.getMappedExtent(tv1->axis(0)).toString());
   TORCH_CHECK(
       checkProjectedExtent(mapper.getMappedExtent(tv1->axis(1)), 15, 1),
       mapper.getMappedExtent(tv1->axis(1)).toString());
@@ -1209,11 +1209,9 @@ TEST_F(NVFuserTest, FusionVectorizeSpanningTree_CUDA) {
           }
           for (auto axis : tv->getRootDomain()) {
             TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).getNumerator()->evaluateInt() ==
-                2);
+                mapper.getMappedExtent(axis).numerator()->evaluateInt() == 2);
             TORCH_INTERNAL_ASSERT(
-                mapper.getMappedExtent(axis).getDenominator()->evaluateInt() ==
-                1);
+                mapper.getMappedExtent(axis).denominator()->evaluateInt() == 1);
           }
         }
       }

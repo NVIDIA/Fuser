@@ -40,7 +40,7 @@ Vector define_vector_fn(FusionDefinition& fd, std::optional<std::vector<int64_t>
   }
   Vector out = fd.defineVector(size);
   auto rtype = value.has_value()
-      ? serde::mapToSerdeVectorRecordType(dtype)
+      ? serde::RecordType_VectorLong
       : serde::RecordType_VectorInput;
   fd.defineRecord(new VectorRecord<int64_t>(
       {fd.recordingState(out())}, rtype, value, size, dtype));
@@ -90,9 +90,7 @@ Tensor broadcast_in_dim_fn(FusionDefinition::Operators& op, Tensor arg, ShapeTyp
   }
   Tensor output = fd->defineTensor(output_size);
   fd->defineRecord(new BroadcastInDimOpRecord(
-      {fd->recordingState(arg()),
-       // A state object is created in order to specify a name for printing
-       State(output_shape(), serde::StateType_Vector, "shape")},
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
       {fd->recordingState(output())},
       output_size,
       broadcast_dims));
@@ -124,8 +122,7 @@ Tensor random_op_fn(FusionDefinition::Operators& op, Scalar arg1, Scalar arg2, S
       {
           fd->recordingState(arg1()),
           fd->recordingState(arg2()),
-          // A state object is created in order to specify a name for printing
-          State(output_shape(), serde::StateType_Vector, "shape")
+          fd->recordingState(output_shape()),
       },
       {fd->recordingState(output())},
       name,
@@ -167,9 +164,7 @@ Tensor reshape_fn(FusionDefinition::Operators& op, Tensor arg, ShapeType shape) 
   }
   Tensor output = fd->defineTensor(output_size);
   fd->defineRecord(new ReshapeOpRecord(
-      {fd->recordingState(arg()),
-       // A state object is created in order to specify a name for printing
-       State(output_shape(), serde::StateType_Vector, "shape")},
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
       {fd->recordingState(output())}));
   return output;
 }
@@ -367,15 +362,23 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule) {
+             bool override_user_schedule,
+             std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            return self.execute(inputs, override_user_schedule);
+            std::optional<int8_t> int8_device = std::nullopt;
+            if (device.has_value()) {
+              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              int8_device = (int8_t)device.value();
+            }
+            return self.execute(inputs, override_user_schedule, int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
+          py::kw_only(),
+          py::arg("device") = py::none(),
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
@@ -627,32 +630,56 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference);
 
 // This is the canonical version of define_scalar
-#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(Nvfuser_DType, CType) \
-  fusion_def.def(                                                     \
-      "define_scalar",                                                \
-      [](FusionDefinition& self,                                      \
-         std::optional<CType> value,                                  \
-         PrimDataType dtype) -> Scalar {                              \
-        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");           \
-        Scalar out = self.defineScalar();                             \
-        auto rtype = value.has_value()                                \
-            ? serde::mapToSerdeScalarRecordType(Nvfuser_DType)        \
-            : serde::RecordType_ScalarInput;                          \
-        self.defineRecord(new ScalarRecord<CType>(                    \
-            {self.recordingState(out())}, rtype, value, dtype));      \
-        return out;                                                   \
-      },                                                              \
-      py::arg("value"),                                               \
-      py::arg("dtype") = Nvfuser_DType,                               \
+#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
+    Nvfuser_DType, Serde_RType, CType)                                                         \
+  fusion_def.def(                                                                              \
+      "define_scalar",                                                                         \
+      [](FusionDefinition& self,                                                               \
+         std::optional<CType> value,                                                           \
+         PrimDataType dtype) -> Scalar {                                                       \
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
+        Scalar out = self.defineScalar();                                                      \
+        auto rtype =                                                                           \
+            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
+        self.defineRecord(new ScalarRecord<CType>(                                             \
+            {self.recordingState(out())}, rtype, value, dtype));                               \
+        return out;                                                                            \
+      },                                                                                       \
+      py::arg("value"),                                                                        \
+      py::arg("dtype") = Nvfuser_DType,                                                        \
+      py::return_value_policy::reference);                                                     \
+  fusion_def.def(                                                                              \
+      "define_constant",                                                                       \
+      [](FusionDefinition& self,                                                               \
+         std::optional<CType> value,                                                           \
+         PrimDataType dtype) -> Scalar {                                                       \
+        FUSER_PERF_SCOPE("FusionDefinition.define_contant");                                   \
+        TORCH_WARN_ONCE(                                                                       \
+            "Deprecating define_constant functions in favor of define_scalar for constants."); \
+        Scalar out = self.defineScalar();                                                      \
+        auto rtype =                                                                           \
+            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
+        self.defineRecord(new ScalarRecord<CType>(                                             \
+            {self.recordingState(out())}, rtype, value, dtype));                               \
+        return out;                                                                            \
+      },                                                                                       \
+      py::arg("value"),                                                                        \
+      py::arg("dtype") = Nvfuser_DType,                                                        \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Bool, bool);
   NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::ComplexDouble, std::complex<double>);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Double, double);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(DataType::Int, int64_t);
+      DataType::Bool, serde::RecordType_ScalarBool, bool);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::ComplexDouble,
+      serde::RecordType_ScalarComplexDouble,
+      std::complex<double>);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::Double, serde::RecordType_ScalarDouble, double);
+  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
+      DataType::Int, serde::RecordType_ScalarLong, int64_t);
 #undef NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR
 
+  // This is the input version of define_vector
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self,
@@ -663,15 +690,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("size"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
-  fusion_def.def(
-      "define_vector",
-      define_vector_from_scalars_fn,
-      py::arg("args"),
-      py::arg("dtype") = DataType::Int,
-      py::return_value_policy::reference);
-// This is the canonical version of define_vector that accepts either a nullptr
-// or a vector of values to indicate either an input or a constant for use
-// when printing out the associated Fusion Record.
+  // This is the canonical version of define_vector that accepts either a
+  // nullptr or a vector of values to indicate either an input or a constant
+  // for use when printing out the associated Fusion Record.
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self,
@@ -684,8 +705,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("size"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
-// This is the constant version of define_vector when given a vector
-// of constant values.
+  // This is the constant version of define_vector when given a vector
+  // of constant values.
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self,
@@ -694,6 +715,13 @@ void initNvFuserPythonBindings(PyObject* module) {
         return define_vector_fn(self, value, value.size(), dtype);
       },
       py::arg("value"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  // Creates a Vector from exiting Scalars
+  fusion_def.def(
+      "define_vector",
+      define_vector_from_scalars_fn,
+      py::arg("args"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
@@ -965,7 +993,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_or", bitwise_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("gcd", gcd)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
@@ -1049,7 +1078,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__rshift__", "bitwise_right_shift", bitwise_left_shift)
+      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
   // In PyTorch, __div__ (//) and __truediv__ (/) are different.
   // When applied to integer-dtype arguments, they do as expected, returning
   // integer and float outputs, respectively. When applied to two floating-type
