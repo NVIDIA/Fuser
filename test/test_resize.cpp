@@ -1391,7 +1391,10 @@ TEST_F(NVFuserTest, FusionResizeCatReduceScheduler1_CUDA) {
   auto ref = at::cat({t0, t1}, 1).sum({1});
 
   testValidate(
-      executor_cache.fusion(),
+      // Reference the most recent concretized Fusion, not the dynamic Fusion
+      executor_cache.getMostRecentKernelRuntime()
+          ->fusionSegments()
+          ->completeFusion(),
       cg_outputs,
       aten_inputs,
       {ref},
@@ -1429,7 +1432,10 @@ TEST_F(NVFuserTest, FusionResizeCatSoftmaxScheduler1_CUDA) {
   auto ref = at::_softmax(t2.to(at::kDouble), -1, false);
 
   testValidate(
-      executor_cache.fusion(),
+      // Reference the most recent concretized Fusion, not the dynamic Fusion
+      executor_cache.getMostRecentKernelRuntime()
+          ->fusionSegments()
+          ->completeFusion(),
       cg_outputs,
       aten_inputs,
       {ref},
