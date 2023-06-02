@@ -19,7 +19,7 @@ template <
     bool X_REDUCE,
     bool Y_REDUCE,
     bool Z_REDUCE,
-    bool aligned,
+    bool Aligned,
     typename T,
     typename Func>
 __device__ void blockReduce(
@@ -58,21 +58,21 @@ __device__ void blockReduce(
     shared_mem[smem_offset] = init_val;
   }
 
-  block_sync::sync<aligned>();
+  block_sync::sync<Aligned>();
   // Reduce down to nearest power of 2 for the tree reduction:
   int np2 = 1 << (31 - __clz(reduction_size));
 
   if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
     reduction_op(shared_mem[smem_offset], shared_mem[smem_offset + np2]);
   }
-  block_sync::sync<aligned>();
+  block_sync::sync<Aligned>();
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
     if (reduction_tid < factor) {
       reduction_op(shared_mem[smem_offset], shared_mem[smem_offset + factor]);
     }
-    block_sync::sync<aligned>();
+    block_sync::sync<Aligned>();
   }
 
   if (should_write && write_pred) {
@@ -83,7 +83,7 @@ __device__ void blockReduce(
     }
     out = result;
   }
-  block_sync::sync<aligned>();
+  block_sync::sync<Aligned>();
 }
 
 // Use the same pred for both reads and writes
@@ -91,7 +91,7 @@ template <
     bool X_REDUCE,
     bool Y_REDUCE,
     bool Z_REDUCE,
-    bool aligned,
+    bool Aligned,
     typename T,
 
     typename Func>
@@ -102,7 +102,7 @@ __device__ void blockReduce(
     T* shared_mem,
     bool read_write_pred,
     T init_val) {
-  blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, aligned, T, Func>(
+  blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
       out,
       inp_val,
       reduction_op,
