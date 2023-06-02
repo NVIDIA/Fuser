@@ -305,9 +305,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   // Projection from root<->rfactor domains
   std::vector<IterDomain*> projectId(
-      const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to,
-      std::vector<IterDomain*> from_info);
+      std::vector<IterDomain*> from,
+      const std::vector<IterDomain*>& to);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;
