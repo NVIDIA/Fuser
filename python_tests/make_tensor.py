@@ -4,6 +4,21 @@ from typing import cast, List, Optional, Tuple, Union
 
 import torch
 
+all_dtypes = [
+    torch.bool,
+    # torch.uint8,
+    # torch.int8,
+    # torch.int16,
+    torch.int32,
+    torch.int64,
+    torch.bfloat16,
+    torch.float16,
+    torch.float32,
+    torch.float64,
+    torch.complex64,
+    torch.complex128,
+]
+
 # adapted from https://github.com/pytorch/pytorch/blob/master/torch/testing/_creation.py
 # Changes:
 #   bool generation respects low and high
@@ -17,7 +32,9 @@ complex_to_corresponding_float_type_map = {
     torch.complex64: torch.float32,
     torch.complex128: torch.float64,
 }
-float_to_corresponding_complex_type_map = {v: k for k, v in complex_to_corresponding_float_type_map.items()}
+float_to_corresponding_complex_type_map = {
+    v: k for k, v in complex_to_corresponding_float_type_map.items()
+}
 
 
 def _uniform_random(t: torch.Tensor, low: float, high: float):
@@ -107,7 +124,14 @@ def make_tensor(
         low = clamp(low, lowest, highest)
         high = clamp(high, lowest, highest)
 
-        if dtype in [torch.bool, torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64]:
+        if dtype in [
+            torch.bool,
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        ]:
             return math.ceil(low), math.ceil(high)
 
         return low, high
@@ -147,13 +171,17 @@ def make_tensor(
         result = torch.randint(low, high, shape, device=device, dtype=dtype)  # type: ignore[call-overload]
     elif dtype in _floating_types:
         ranges_floats = (torch.finfo(dtype).min, torch.finfo(dtype).max)
-        m_low, m_high = _modify_low_high(low, high, ranges_floats[0], ranges_floats[1], -9, 9, dtype)
+        m_low, m_high = _modify_low_high(
+            low, high, ranges_floats[0], ranges_floats[1], -9, 9, dtype
+        )
         result = torch.empty(shape, device=device, dtype=dtype)
         _uniform_random(result, m_low, m_high)
     elif dtype in _complex_types:
         float_dtype = complex_to_corresponding_float_type_map[dtype]
         ranges_floats = (torch.finfo(float_dtype).min, torch.finfo(float_dtype).max)
-        m_low, m_high = _modify_low_high(low, high, ranges_floats[0], ranges_floats[1], -9, 9, dtype)
+        m_low, m_high = _modify_low_high(
+            low, high, ranges_floats[0], ranges_floats[1], -9, 9, dtype
+        )
         result = torch.empty(shape, device=device, dtype=dtype)
         result_real = torch.view_as_real(result)
         _uniform_random(result_real, m_low, m_high)
@@ -174,10 +202,14 @@ def make_tensor(
         if dtype in _integral_types or dtype is torch.bool:
             replace_with = torch.tensor(1, device=device, dtype=dtype)
         elif dtype in _floating_types:
-            replace_with = torch.tensor(torch.finfo(dtype).tiny, device=device, dtype=dtype)
+            replace_with = torch.tensor(
+                torch.finfo(dtype).tiny, device=device, dtype=dtype
+            )
         else:  # dtype in _complex_types:
             float_dtype = complex_to_corresponding_float_type_map[dtype]
-            float_eps = torch.tensor(torch.finfo(float_dtype).tiny, device=device, dtype=float_dtype)
+            float_eps = torch.tensor(
+                torch.finfo(float_dtype).tiny, device=device, dtype=float_dtype
+            )
             replace_with = torch.complex(float_eps, float_eps)
         result[result == 0] = replace_with
 
@@ -197,4 +229,6 @@ def make_tensor_like(a):
     Returns:
         torch.Tensor: A tensor with the same properties as :attr:`a`.
     """
-    return make_tensor(a.shape, device=a.device, dtype=a.dtype, requires_grad=a.requires_grad)
+    return make_tensor(
+        a.shape, device=a.device, dtype=a.dtype, requires_grad=a.requires_grad
+    )
