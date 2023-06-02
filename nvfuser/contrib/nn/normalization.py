@@ -476,9 +476,7 @@ class NormNVFuserFunction(torch.autograd.Function):
                 assert out.is_contiguous(memory_format=torch.channels_last_3d)
                 assert xorig.is_contiguous(memory_format=torch.channels_last_3d)
             else:
-                assert (
-                    False
-                ), "unhandled channels_last format variation in forward"  # noqa: B011
+                raise RuntimeError("unhandled channels_last format variation in forward")
         return out
 
     @staticmethod
@@ -612,9 +610,7 @@ class NormNVFuserFunction(torch.autograd.Function):
             elif len(grad_input.shape) == 5:
                 assert grad_input.is_contiguous(memory_format=torch.channels_last_3d)
             else:
-                assert (
-                    False
-                ), "unhandled channels_last format variation in backward"  # noqa: B011
+                raise RuntimeError("unhandled channels_last format variation in backward")
         return (
             grad_input,
             grad_weight,
