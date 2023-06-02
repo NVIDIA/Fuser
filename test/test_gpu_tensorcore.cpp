@@ -27,6 +27,7 @@
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
+#include <optimization/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -935,6 +936,9 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
+
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        &fusion);
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
