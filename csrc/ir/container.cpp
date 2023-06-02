@@ -196,7 +196,7 @@ void IrContainer::clear() noexcept {
   exprs_.clear();
   exprs_up_.clear();
   raw_ptrs_.clear();
-  axioms_.release();
+  axioms_.reset();
   val_type_name_map_.clear();
   expr_name_counter_ = 0;
 }
