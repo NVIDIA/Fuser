@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <optimization/optimization_pass.h>
 #include <optimization/pre_segmenter.h>
@@ -46,6 +47,32 @@ TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
       [&]() { OptimizationPass<DerivedPass>::runPass(fusion.get()); },
       ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("running DerivedPass")));
+}
+
+TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = TensorViewBuilder()
+                   // .ndims(input_shape.size())
+                   .dtype(DataType::Double)
+                   .build();
+    fusion->addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    auto tv3 = set(tv2);
+    auto tv4 = set(tv3);
+    fusion->addOutput(tv4);
+
+    std::cout << "---- original fusion " << std::endl;
+    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
+    fusion->printMath();
+
+    auto expr = tv2->definition();
+    ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
+
+    std::cout << "---- mutated fusion " << std::endl;
+    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
+    fusion->printMath();
 }
 
 // Test cast optimization
