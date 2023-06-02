@@ -301,7 +301,8 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! returned ID.
   IdLookupReturn lookupId(
       const at::ArrayRef<c10::IValue>& inputs,
-      const std::unordered_set<size_t>& scalar_inputs_to_record = {});
+      const std::unordered_set<size_t>& scalar_inputs_to_record = {},
+      int8_t device = 0);
 
   //! debugging API that returns the size of lookup table
   size_t size() const {
@@ -452,7 +453,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
-  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs);
+  bool isCompiled(const at::ArrayRef<c10::IValue>& inputs, int8_t device = 0);
 
   Fusion* fusion() {
     return fusion_.get();

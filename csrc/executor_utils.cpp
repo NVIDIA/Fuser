@@ -1060,16 +1060,14 @@ class NvrtcCompileDriver {
 
     size_t logsize = 0;
     NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log;
-    log.reserve(logsize);
+    std::string log(logsize, 0);
     NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(
-          false, src, "\nCUDA NVRTC compile error: ", log.data());
+      TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
     }
 
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log.data() << std::endl;
+      std::cout << log << std::endl;
     }
 
     return log;
@@ -1106,7 +1104,7 @@ class CuModuleLoadDataDriver {
   //! Enable logging of cuModuleLoadData
   void enableLogging() {
     logging_enabled_ = true;
-    log_.reserve(kLogSize);
+    log_.resize(kLogSize);
   }
 
   const std::string& log() const {
@@ -1187,8 +1185,8 @@ void fillCompileOptions(
     bool compile_to_sass,
     int major,
     int minor,
-    std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic) {
+    const CompileParams& compile_params,
+    std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1224,10 +1222,10 @@ void fillCompileOptions(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
   }
-
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+      isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1263,7 +1261,7 @@ void fillCompileOptions(
   }
 
   const auto max_register =
-      getMaxRegCount(opt_block_size, max_register_heuristic);
+      getMaxRegCount(opt_block_size, compile_params.maxrregcount);
 
   // If the max register count is set
   if (max_register.has_value()) {
@@ -1296,14 +1294,16 @@ void warnRegisterSpill(const std::string& compile_log) {
   int stack_count = getRegisterSpillInfo(compile_log, str_stack);
   int store_count = getRegisterSpillInfo(compile_log, str_store);
   int load_count = getRegisterSpillInfo(compile_log, str_load);
-  auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
   int allowed_spill = 0;
-  if (!optionArgs.empty()) {
-    try {
-      allowed_spill = std::stoi(optionArgs[0]);
-    } catch (const std::exception& e) {
-      std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
-                << optionArgs[0] << std::endl;
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+    auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
+    if (!optionArgs.empty()) {
+      try {
+        allowed_spill = std::stoi(optionArgs[0]);
+      } catch (const std::exception& e) {
+        std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
+                  << optionArgs[0] << std::endl;
+      }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
@@ -1326,8 +1326,8 @@ void createNvrtcProgram(
 }
 
 // Compile the given source code with the NVRTC compiler
-// driver. Return the binary of the kernel and its lowered name
-std::tuple<std::vector<char>, std::string> compileSource(
+// driver. Return the binary of the kernel, compile log, and its lowered name
+std::tuple<std::vector<char>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1358,7 +1358,7 @@ std::tuple<std::vector<char>, std::string> compileSource(
     dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, lowered_kernel_name_str};
+  return {object_code, log.str(), lowered_kernel_name_str};
 }
 
 } // namespace
@@ -1369,12 +1369,24 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
+    const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -1403,8 +1415,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       compile_to_sass,
       major,
       minor,
-      opt_block_size,
-      max_register_heuristic);
+      compile_params,
+      opt_block_size);
 
   std::stringstream log;
 
@@ -1434,9 +1446,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             compile_args,
             lowered_kernel_name_str,
             object_code))) {
-    std::tie(object_code, lowered_kernel_name_str) = compileSource(
+    std::string compile_log;
+    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-
+    log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
@@ -1455,7 +1468,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
       << std::endl;
 
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     warnRegisterSpill(log.str());
   }
 

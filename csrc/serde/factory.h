@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <c10/util/Exception.h>
+#include <functional>
+
 namespace nvfuser::serde {
 
 // Flatbuffer enum are represented as an unscoped enumeration, so we can map
@@ -16,24 +19,24 @@ namespace nvfuser::serde {
 // All parser functions have the same signature. We use lambdas to support
 // functions that require extra arguments.
 
-template <typename SerdeBuffer, typename BaseType>
+template <typename SerdeBuffer, typename BaseTypePtr>
 class Factory {
  public:
   // A function pointer that creates a BaseType object given a Buffer
-  typedef std::function<BaseType*(const SerdeBuffer*)> SerdeParser;
+  typedef std::function<BaseTypePtr(const SerdeBuffer*)> SerdeParser;
 
   Factory(size_t num_parsers) : parsers_(num_parsers, nullptr){};
 
   void registerParser(int serde_type, SerdeParser parser) {
-    TORCH_CHECK(
+    TORCH_INTERNAL_ASSERT(
         serde_type >= 0 && serde_type < (int)parsers_.size(),
         "RegisterParser: Invalid serde type: ",
         serde_type);
     parsers_.at(serde_type) = parser;
   }
 
-  BaseType* parse(int serde_type, const SerdeBuffer* buffer) {
-    TORCH_CHECK(
+  BaseTypePtr parse(int serde_type, const SerdeBuffer* buffer) {
+    TORCH_INTERNAL_ASSERT(
         serde_type >= 0 && serde_type < (int)parsers_.size(),
         "Deserialize: Invalid serde type: ",
         serde_type);
