@@ -1099,4 +1099,55 @@ TEST_F(NVFuserTest, DynamicTransformIssue418Full_CUDA) {
       executor_cache.fusion(), cg_outputs, inputs, {gn}, __LINE__, __FILE__);
 }
 
+// Repro of https://github.com/NVIDIA/Fuser/issues/418 (channels-last)
+TEST_F(NVFuserTest, DynamicTransformIssue418FullNHWC_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion->addInput(tv0);
+  auto weight = makeSymbolicTensor({1, 1, 1, -1});
+  fusion->addInput(weight);
+  auto bias = makeSymbolicTensor({1, 1, 1, -1});
+  fusion->addInput(bias);
+  auto s0 = IrBuilder::create<Int>();
+  fusion->addInput(s0);
+
+  auto v00 = tv0->axis(0)->extent();
+  auto v01 = tv0->axis(1)->extent();
+  auto v02 = tv0->axis(2)->extent();
+  auto v03 = tv0->axis(3)->extent();
+
+  auto tv1 = reshape(tv0, {v00, v01, v02, div(v03, s0), s0});
+  auto vm = variance_mean(tv1, {1, 2, 4}, 0, true);
+  auto eps = IrBuilder::create<Double>(1e-5);
+  auto tv2 = mul(sub(tv1, vm.mean), rsqrt(add(vm.var, eps)));
+  auto tv3 = reshape(tv2, {v00, v01, v02, v03});
+  auto tv4 = add(mul(tv3, weight), bias);
+  fusion->addOutput(tv4);
+
+  // tv1 has symbolic axes as reshape is dynamic
+  TORCH_CHECK(
+      tv1->domain()->hasSymbolicAxis(),
+      "Expected to have symbolic axes: ",
+      tv1->toString());
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn({256, 28, 28, 128}, options);
+  auto w = at::randn({1, 1, 1, 128}, options);
+  auto b = at::randn({1, 1, 1, 128}, options);
+  std::vector<c10::IValue> inputs = {t0, w, b, 32};
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto t0_resh = t0.reshape({256, 28, 28, 4, 32});
+  auto mu = t0_resh.mean({1, 2, 4}, true);
+  auto v = t0_resh.var({1, 2, 4}, true, true);
+  auto gn =
+      ((t0_resh - mu) * (v + 1e-5).rsqrt()).reshape({256, 28, 28, 128}) * w + b;
+  testValidate(
+      executor_cache.fusion(), cg_outputs, inputs, {gn}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
