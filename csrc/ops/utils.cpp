@@ -223,9 +223,10 @@ std::vector<IterDomain*> newOutputDomain(
   std::vector<int64_t> start_offsets(out_domain.size(), 0);
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
+  std::vector<bool> mismatched_symbolic_extents(out_domain.size(), false);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
-  std::vector<c10::optional<IterType>> iter_types(
-      out_domain.size(), c10::nullopt);
+  std::vector<std::optional<IterType>> iter_types(
+      out_domain.size(), std::nullopt);
 
   for (auto tv : tvs) {
     auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -236,6 +237,53 @@ std::vector<IterDomain*> newOutputDomain(
         " dimensions but expected ",
         out_domain.size());
     for (const auto i : c10::irange(dom.size())) {
+      auto iter_type = dom[i]->getIterType();
+      auto prev_iter_type = iter_types[i];
+      if (prev_iter_type.has_value()) {
+        // Clang-tidy complains about unchecked access to optional value here
+        if (iter_type == IterType::Iteration &&
+            prev_iter_type.value() == IterType::Symbolic) {
+          // Prefer the Iteration extent, since Symbolic could be broadcast
+          extent_vals[i] = nullptr;
+        } else if (iter_type == IterType::Symbolic) {
+          switch (prev_iter_type.value()) {
+            case IterType::Iteration:
+              // Previously found Iteration domain, so ignore all Symbolic
+              // domains
+              continue;
+            case IterType::Symbolic:
+              if (extent_vals[i]->sameAs(dom[i]->extent())) {
+                // matching symbolic extent
+                continue;
+              } else {
+                // Mismatched symbolic input extents. Any one of the symbolic
+                // inputs could be a Broadcast or Iteration domain. Until
+                // concretization, we will not know which one holds the true
+                // extent (or whether they all are Broadcast, so that the output
+                // is also Broadcast). We record that these symbolic extents
+                // mismatched so that we can introduce a new symbolic extent
+                // later.
+                mismatched_symbolic_extents[i] = true;
+              }
+              break;
+            case IterType::Broadcast:
+              // Previously found only broadcast, so this will either also
+              // broadcast or resolve those broadcasts. If the expanded
+              // extent of any of the broadcasts is not 1, then it will need to
+              // match that of the dom[i]. In either case, prefer dom[i]'s
+              // extent, so clear iter_types[i] and extent_vals[i] so that the
+              // rest of this iteration will mark output as Symbolic.
+              iter_types[i] = std::nullopt;
+              extent_vals[i] = nullptr;
+              break;
+            default:
+              TORCH_CHECK(
+                  false,
+                  "Encountered unexpected IterType when creating new output domain: ",
+                  prev_iter_type.value());
+          }
+        }
+      }
       if (dom[i]->isBroadcast()) {
         if (dom[i]->hasExpandedExtent()) {
           expanded_extent_vals[i] =
@@ -244,9 +292,9 @@ std::vector<IterDomain*> newOutputDomain(
         continue;
       }
       extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
-      if (iter_types[i].has_value()) {
+      if (prev_iter_type.has_value()) {
         iter_types[i] =
-            promoteIterType(iter_types[i].value(), dom[i]->getIterType());
+            promoteIterType(prev_iter_type.value(), dom[i]->getIterType());
       } else {
         iter_types[i] = dom[i]->getIterType();
       }
@@ -268,15 +316,21 @@ std::vector<IterDomain*> newOutputDomain(
     }
   }
   for (const auto dim_i : c10::irange(out_domain.size())) {
+    auto iter_type = iter_types[dim_i];
+    if (iter_type == IterType::Symbolic && mismatched_symbolic_extents[dim_i]) {
+      // if we have a symbolic output but the input symbolic extents did not
+      // match, create a new extent
+      extent_vals[dim_i] = IrBuilder::create<Int>();
+    }
     if (extent_vals[dim_i] != nullptr) {
       TORCH_INTERNAL_ASSERT(
-          iter_types[dim_i].has_value(),
+          iter_type.has_value(),
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
               IrBuilder::create<Int>(start_offsets[dim_i]), extent_vals[dim_i])
               .stop_offset(IrBuilder::create<Int>(stop_offsets[dim_i]))
-              .iter_type(iter_types[dim_i].value())
+              .iter_type(iter_type.value())
               .build();
     } else {
       out_domain[dim_i] = IterDomainBuilder(
