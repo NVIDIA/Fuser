@@ -355,6 +355,161 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     return {};
   }
 
+  // "combine" is a merge in forward propagation, and a split in backward
+  auto propagateCombine = [&](auto* merge_or_split) {
+    // Initialize state
+    auto find_outer_it = from.begin();
+    auto outer_pos = from.size();
+    auto find_inner_it = from.begin();
+    auto inner_pos = from.size();
+
+    // Removes all entries to the left of provided `it`, if `it` is not
+    // from.begin(). Updates all state of finding outer and inner in the
+    // from vector after erasing.
+    auto clear_left_of = [&find_outer_it,
+                          &outer_pos,
+                          &find_inner_it,
+                          &inner_pos,
+                          &from,
+                          &merge_or_split](decltype(find_outer_it) it) {
+      if (it != from.begin()) {
+        from.erase(from.begin(), it);
+      }
+
+      // Set outer it and position
+      find_outer_it =
+          std::find(from.begin(), from.end(), merge_or_split->outer());
+      outer_pos = std::distance(from.begin(), find_outer_it);
+
+      // Set inner it and position
+      find_inner_it =
+          std::find(from.begin(), from.end(), merge_or_split->inner());
+      inner_pos = std::distance(from.begin(), find_inner_it);
+    };
+
+    // Dry run to fill state
+    clear_left_of(from.begin());
+
+    // Cannot map through non-divisible split
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      if (divisible_splits_.find(merge_or_split) == divisible_splits_.end()) {
+        if (find_inner_it != from.end()) {
+          clear_left_of(find_inner_it + 1);
+        }
+        if (find_outer_it != from.end()) {
+          clear_left_of(find_outer_it + 1);
+        }
+        return;
+      }
+    }
+
+    // Check if the domains out of the split are contiguous in the mapped
+    // domain.
+    if (find_outer_it == from.end() && find_inner_it != from.end()) {
+      // Outer dimension was not found, but inner dimension was. Must assume
+      // everything to the left of inner is not contiguously merged.
+      //
+      // Clear left of inner
+      clear_left_of(find_inner_it);
+    } else if (find_outer_it != from.end() && find_inner_it == from.end()) {
+      // Inner dimension was not found, outer and anything left of outer are
+      // definitely not contiguous.
+      //
+      // Clear outer and left of outer
+      clear_left_of(find_outer_it + 1);
+      return;
+    } else if (find_outer_it == from.end() && find_inner_it == from.end()) {
+      // Nothing mapped, just continue
+      return;
+    }
+
+    if (find_outer_it != from.end() && find_inner_it != from.end()) {
+      // Both outer and inner mapped.
+      if (outer_pos >= inner_pos) {
+        // Make sure outer is outside inner, otherwise neither could be part
+        // of a continuous mapping. There are cases where we could have
+        // reversible operations e.g.:
+        //    [id{3} id{5} id{6}] -> merge(1, 0)
+        // -> [id{5*3} id{6}] -> split(0, 3)
+        // -> [id{5} id{3} id{6}] -> transpose(0, 1)
+        // -> [id{3} id{5} id{6}]
+        // However we don't try and capture cases like this correcly, we'd
+        // just reduce this down to only the iter domain of size 6 mapping.
+        //
+        // Clear outer and left of outer
+        clear_left_of(find_outer_it + 1);
+        return;
+      }
+
+      // Find the position inner would have to have to be considered ordered
+      // relative to outer
+      auto pos_after_outer = outer_pos + 1;
+      for (; pos_after_outer < from.size(); pos_after_outer++) {
+        if (from[pos_after_outer]->isBroadcast() &&
+            pos_after_outer != inner_pos) {
+          // Skip broadcast axes as they must not have been concretized in
+          // the reference. We remove dimensions that underwent a
+          // concretization as well as the dimensions to the left of that in
+          // propagateC2P.
+          return;
+        }
+        break;
+      }
+
+      if (inner_pos != pos_after_outer) {
+        // Nothing to the left of inner could be continuous.
+        //
+        // Clear left of inner
+        clear_left_of(find_inner_it);
+      }
+    }
+
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      from[inner_pos] = merge_or_split->in();
+    } else {
+      static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
+      from[inner_pos] = merge_or_split->out();
+    }
+    bool outer_mapped = find_outer_it != from.end();
+    if (outer_mapped) {
+      // Remove outer
+      from.erase(find_outer_it);
+    } else {
+      // Clear to the left of inner in since only inner maps
+      from.erase(from.begin(), from.begin() + (int64_t)inner_pos);
+    }
+
+    combinePE(merge_or_split, outer_mapped);
+  };
+
+  // "distribute" is a split in forward propagation and a merge in backward
+  auto propagateDistribute = [&](auto* merge_or_split) {
+    Val* combined = nullptr;
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      combined = merge_or_split->in();
+    } else {
+      static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
+      combined = merge_or_split->out();
+    }
+    auto find_out_it = std::find(from.begin(), from.end(), combined);
+    if (find_out_it == from.end()) {
+      return;
+    }
+
+    auto out_pos = std::distance(from.begin(), find_out_it);
+    from[out_pos] = merge_or_split->outer();
+    from.insert(from.begin() + out_pos + 1, merge_or_split->inner());
+
+    distributePE(merge_or_split);
+  };
+
+  auto clear_left_of = [&](IterDomain* id) {
+    auto it = std::find(from.begin(), from.end(), id);
+    if (it != from.end()) {
+      from.erase(from.begin(), it + 1);
+    }
+  };
+
   auto backward_exprs = StmtSort::getExprsBetween(
       from.front()->fusion(),
       {to.begin(), to.end()},
@@ -365,136 +520,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
   for (auto* expr : backward_exprs) {
     if (Split* split = dynamic_cast<Split*>(expr)) {
-      // Initialize state
-      auto find_outer_it = from.begin();
-      auto outer_pos = from.size();
-      auto find_inner_it = from.begin();
-      auto inner_pos = from.size();
-
-      // Removes all entries to the left of provided `it`, if `it` is not
-      // from.begin(). Updates all state of finding outer and inner in the from
-      // vector after erasing.
-      auto clear_left_of = [&find_outer_it,
-                            &outer_pos,
-                            &find_inner_it,
-                            &inner_pos,
-                            &from,
-                            &split](decltype(find_outer_it) it) {
-        if (it != from.begin()) {
-          from.erase(from.begin(), it);
-        }
-
-        // Set outer it and position
-        find_outer_it = std::find(from.begin(), from.end(), split->outer());
-        outer_pos = std::distance(from.begin(), find_outer_it);
-
-        // Set inner it and position
-        find_inner_it = std::find(from.begin(), from.end(), split->inner());
-        inner_pos = std::distance(from.begin(), find_inner_it);
-      };
-
-      // Dry run to fill state
-      clear_left_of(from.begin());
-
-      // Cannot map through non-divisible split
-      if (divisible_splits_.find(split) == divisible_splits_.end()) {
-        if (find_inner_it != from.end()) {
-          clear_left_of(find_inner_it + 1);
-        }
-        if (find_outer_it != from.end()) {
-          clear_left_of(find_outer_it + 1);
-        }
-        continue;
-      }
-
-      // Check if the domains out of the split are contiguous in the mapped
-      // domain.
-      if (find_outer_it == from.end() && find_inner_it != from.end()) {
-        // Outer dimension was not found, but inner dimension was. Must assume
-        // everything to the left of inner is not contiguously merged.
-        //
-        // Clear left of inner
-        clear_left_of(find_inner_it);
-      } else if (find_outer_it != from.end() && find_inner_it == from.end()) {
-        // Inner dimension was not found, outer and anything left of outer are
-        // definitely not contiguous.
-        //
-        // Clear outer and left of outer
-        clear_left_of(find_outer_it + 1);
-        continue;
-      } else if (find_outer_it == from.end() && find_inner_it == from.end()) {
-        // Nothing mapped, just continue
-        continue;
-      }
-
-      if (find_outer_it != from.end() && find_inner_it != from.end()) {
-        // Both outer and inner mapped.
-        if (outer_pos >= inner_pos) {
-          // Make sure outer is outside inner, otherwise neither could be part
-          // of a continuous mapping. There are cases where we could have
-          // reversible operations e.g.:
-          //    [id{3} id{5} id{6}] -> merge(1, 0)
-          // -> [id{5*3} id{6}] -> split(0, 3)
-          // -> [id{5} id{3} id{6}] -> transpose(0, 1)
-          // -> [id{3} id{5} id{6}]
-          // However we don't try and capture cases like this correcly, we'd
-          // just reduce this down to only the iter domain of size 6 mapping.
-          //
-          // Clear outer and left of outer
-          clear_left_of(find_outer_it + 1);
-          continue;
-        }
-
-        // Find the position inner would have to have to be considered ordered
-        // relative to outer
-        auto pos_after_outer = outer_pos + 1;
-        for (; pos_after_outer < from.size(); pos_after_outer++) {
-          if (from[pos_after_outer]->isBroadcast() &&
-              pos_after_outer != inner_pos) {
-            // Skip broadcast axes as they must not have been concretized in the
-            // reference. We remove dimensions that underwent a concretization
-            // as well as the dimensions to the left of that in propagateC2P.
-            continue;
-          }
-          break;
-        }
-
-        if (inner_pos != pos_after_outer) {
-          // Nothing to the left of inner could be continuous.
-          //
-          // Clear left of inner
-          clear_left_of(find_inner_it);
-        }
-      }
-
-      from[inner_pos] = split->in();
-      bool outer_mapped = find_outer_it != from.end();
-      if (outer_mapped) {
-        // Remove outer
-        from.erase(find_outer_it);
-      } else {
-        // Clear to the left of inner in since only inner maps
-        from.erase(from.begin(), from.begin() + (int64_t)inner_pos);
-      }
-
-      combinePE(split, outer_mapped);
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_out_it = std::find(from.begin(), from.end(), merge->out());
-      if (find_out_it == from.end()) {
-        continue;
-      }
-
-      auto out_pos = std::distance(from.begin(), find_out_it);
-      from[out_pos] = merge->outer();
-      from.insert(from.begin() + out_pos + 1, merge->inner());
-
-      distributePE(merge);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+      propagateCombine(split);
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      propagateDistribute(merge);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      auto find_out_it = std::find(from.begin(), from.end(), resize->out());
-      if (find_out_it != from.end()) {
-        from.erase(from.begin(), find_out_it + 1);
-      }
+      clear_left_of(resize->out());
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -516,138 +547,13 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
   // Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
-    if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      // Initialize state
-      auto find_outer_it = from.begin();
-      auto outer_pos = from.size();
-      auto find_inner_it = from.begin();
-      auto inner_pos = from.size();
-
-      // Removes all entries to the left of provided `it`, if `it` is not
-      // from.begin(). Updates all state of finding outer and inner in the from
-      // vector after erasing.
-      auto clear_left_of = [&find_outer_it,
-                            &outer_pos,
-                            &find_inner_it,
-                            &inner_pos,
-                            &from,
-                            &merge](decltype(find_outer_it) it) {
-        if (it != from.begin()) {
-          from.erase(from.begin(), it);
-        }
-        find_outer_it = std::find(from.begin(), from.end(), merge->outer());
-        outer_pos = find_outer_it == from.end()
-            ? from.size()
-            : std::distance(from.begin(), find_outer_it);
-
-        find_inner_it = std::find(from.begin(), from.end(), merge->inner());
-        inner_pos = find_inner_it == from.end()
-            ? from.size()
-            : std::distance(from.begin(), find_inner_it);
-      };
-
-      // Dry run to fill state
-      clear_left_of(from.begin());
-
-      // Check if the input domains of the merge are contiguous in the mapped
-      // domain.
-      if (find_outer_it == from.end() && find_inner_it != from.end()) {
-        // Outer dimension was not found, but inner dimension was. Must assume
-        // everything to the left of inner is not contiguously merged.
-        //
-        // Clear left of inner
-        clear_left_of(find_inner_it);
-      } else if (find_outer_it != from.end() && find_inner_it == from.end()) {
-        // Inner dimension was not found, outer and anything left of outer are
-        // definitely not contiguous.
-        //
-        // Clear outer and left of outer
-        clear_left_of(find_outer_it + 1);
-        continue;
-      } else if (find_outer_it == from.end() && find_inner_it == from.end()) {
-        // Nothing mapped, just continue
-        continue;
-      }
-
-      if (find_outer_it != from.end() && find_inner_it != from.end()) {
-        // Both outer and inner mapped.
-        if (outer_pos >= inner_pos) {
-          // Make sure outer is outside inner, otherwise neither could be part
-          // of a continuous mapping. There are cases where we could have
-          // reversible operations e.g.:
-          //    [id{3} id{5} id{6}] -> merge(1, 0)
-          // -> [id{5*3} id{6}] -> split(0, 5)
-          // -> [id{5} id{3} id{6}] -> transpose(0, 1)
-          // -> [id{3} id{5} id{6}]
-          // However we don't try and capture cases like this correcly, we'd
-          // just reduce this down to only the iter domain of size 6 mapping.
-          //
-          // Clear outer and left of outer
-          clear_left_of(find_outer_it + 1);
-          continue;
-        }
-
-        // Find the position inner would have to have to be considered ordered
-        // relative to outer
-        auto pos_after_outer = outer_pos + 1;
-        for (; pos_after_outer < from.size(); pos_after_outer++) {
-          if (from[pos_after_outer]->isBroadcast() &&
-              pos_after_outer != inner_pos) {
-            // Skip broadcast axes as they must not have been concretized in the
-            // reference. We remove dimensions that underwent a concretization
-            // as well as the dimensions to the left of that.
-            continue;
-          }
-          break;
-        }
-
-        if (inner_pos != pos_after_outer) {
-          // Nothing to the left of inner could be continuous.
-          //
-          // Clear left of inner
-          clear_left_of(find_inner_it);
-        }
-      }
-
-      from[inner_pos] = merge->out();
-      bool outer_mapped = find_outer_it != from.end();
-      if (outer_mapped) {
-        // Remove outer
-        from.erase(find_outer_it);
-      } else {
-        // Clear to the left of inner in since only inner maps
-        from.erase(from.begin(), from.begin() + (int64_t)inner_pos);
-      }
-
-      combinePE(merge, outer_mapped);
+    if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      propagateCombine(merge);
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
-      auto find_in_it = std::find(from.begin(), from.end(), split->in());
-      if (find_in_it == from.end()) {
-        continue;
-      }
-
-      auto in_pos = std::distance(from.begin(), find_in_it);
-
-      // Map inner and outer dimensions. If outer doesn't map fully this will be
-      // found during evaluation. Don't have to worry about it here.
-      from[in_pos] = split->outer();
-      from.insert(from.begin() + in_pos + 1, split->inner());
-
-      // Cannot map through non-divisible split
-      if (divisible_splits_.find(split) == divisible_splits_.end()) {
-        if (find_in_it != from.end()) {
-          from.erase(from.begin(), from.begin() + in_pos + 1);
-        }
-        continue;
-      }
-
-      distributePE(split);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+      propagateDistribute(split);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      auto find_in_it = std::find(from.begin(), from.end(), resize->in());
-      if (find_in_it != from.end()) {
-        from.erase(from.begin(), find_in_it + 1);
-      }
+      clear_left_of(resize->in());
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
