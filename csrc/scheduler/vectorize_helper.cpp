@@ -86,10 +86,28 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   recording_ = true;
   std::shared_ptr<Information> reference_information;
 
+  // Ordering of dimensions is important in this analysis, if an ordering is
+  // contiguous in the reference, but not the target tensor views, then we
+  // cannot consider that a contiguous merge dimension for vectorization.
+  std::vector<IterDomain*> reordered_rfactor;
+  for (auto id : reference->getMaybeRFactorDomain()) {
+    if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
+        reference_ids.end()) {
+      reordered_rfactor.push_back(id);
+      // Initiailze the extent for the mapped iter domain
+      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+    } else if (!id->isBroadcast()) {
+      // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
+      // IDs in the reference tensor as this is the contiguous mapper.
+      reordered_rfactor.clear();
+    }
+  }
+
   reference_information = MappedDomain::build(
-      projectIdToRoot(reference, reference_ids),
-      reference_ids,
-      true /*shouldn't matter how we initialize this*/);
+      projectIdToRoot(reference, reordered_rfactor),
+      reordered_rfactor,
+      reference->hasRFactor() /*shouldn't matter how we initialize this*/);
+
   // Stop recording before traversal
   recording_ = false;
 

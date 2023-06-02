@@ -5760,7 +5760,7 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguity2D_CUDA) {
     at::Tensor t0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
     auto cg_outputs = fec.runFusionWithInputs({t0});
 
-    TORCH_CHECK(getVecSizeForPointwise(fec) == (size_t)vec);
+    EXPECT_EQ(getVecSizeForPointwise(fec), (size_t)vec);
 
     testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
   }
@@ -5789,7 +5789,7 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguity3D_CUDA) {
     at::Tensor t0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
     auto cg_outputs = fec.runFusionWithInputs({t0});
 
-    TORCH_CHECK(getVecSizeForPointwise(fec) == (size_t)vec);
+    EXPECT_EQ(getVecSizeForPointwise(fec), (size_t)vec);
 
     testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
   }
@@ -5825,7 +5825,7 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguity5D_CUDA) {
                         .narrow(3, 0, 4);
     auto cg_outputs = fec.runFusionWithInputs({t0});
 
-    TORCH_CHECK(getVecSizeForPointwise(fec) == (size_t)vec);
+    EXPECT_EQ(getVecSizeForPointwise(fec), (size_t)vec);
 
     testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
   }
@@ -5873,7 +5873,7 @@ TEST_F(NVFuserTest, FusionVectorizeStrideContiguitySelfOverlapping_CUDA) {
     at::Tensor t0 = at::empty_strided(shape, stride, options);
     t0.random_();
     auto cg_outputs = fec.runFusionWithInputs({t0});
-    TORCH_CHECK(getVecSizeForPointwise(fec) == (size_t)vec);
+    EXPECT_EQ(getVecSizeForPointwise(fec), (size_t)vec);
     testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
   }
 }
