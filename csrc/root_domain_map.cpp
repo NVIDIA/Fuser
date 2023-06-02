@@ -183,8 +183,9 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
 
     // Condition 5
-    if (producer_id->getIterType() == IterType::Symbolic ||
-        consumer_id->getIterType() == IterType::Symbolic) {
+    if (!map_symbolic_ &&
+        (producer_id->getIterType() == IterType::Symbolic ||
+         consumer_id->getIterType() == IterType::Symbolic)) {
       itc++;
       itp++;
       continue;

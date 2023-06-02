@@ -542,7 +542,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        if (!out_id->isSymbolic() || mutations_.find(out_id) != mutations_.end()) {
+        if (!out_id->isSymbolic() ||
+            mutations_.find(out_id) != mutations_.end()) {
           // Skip symbolic outputs and outputs that have already been registered
           // for mutation
           continue;
@@ -646,6 +647,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
       PairwiseRootDomainMap root_map(producer, consumer);
+      root_map.mapSymbolic(true);
       auto c2p = root_map.mapConsumerToProducer(
           consumer->domain(), producer->domain());
 
