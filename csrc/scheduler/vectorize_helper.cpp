@@ -263,6 +263,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   tv_infos_[reference] = reference_information;
 
   traverse(this);
+
+  // Finalize all projected extents
+  for (auto& entry : projected_extent_) {
+    entry.second.finalize();
+  }
 }
 
 ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
@@ -292,13 +297,9 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitBackward(
     //      !hasPartialExtent(merge->inner())) {
     //      Comment here.
 
-    const auto inner_numerator = inner_mapping.getNumerator();
-    const auto inner_denominator = inner_mapping.getDenominator();
-
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        SimplifyingIrBuilder::divExpr(inner_numerator, inner_denominator),
-        commonOrConstExtent(ca_map_, split->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
@@ -325,12 +326,8 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeBackward(
   // Map inner and outer dimensions. If outer doesn't map fully this will be
   // found during evaluation. Don't have to worry about it here.
 
-  const auto out_numerator = out_mapping.getNumerator();
-  const auto out_denominator = out_mapping.getDenominator();
-
   auto out_bigger_than_inner = IrBuilder::gtExpr(
-      SimplifyingIrBuilder::divExpr(out_numerator, out_denominator),
-      commonOrConstExtent(ca_map_, merge->inner()));
+      out_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -381,13 +378,10 @@ void ContiguousInnerDimensionsMapper::propagateExtentMergeForward(
     // merge(I0*I1, I2*I3) -> I0*I1*I2*I3
     // However, I2*I3 completely maps, and I1 partially maps, then we can
     // forward a partially mapped domain to the output of size I1*I2*I3
-    const auto inner_numerator = inner_mapping.getNumerator();
-    const auto inner_denominator = inner_mapping.getDenominator();
 
     // Is the inner dimension is fully mapped
     auto inner_is_fully_mapped = IrBuilder::eqExpr(
-        SimplifyingIrBuilder::divExpr(inner_numerator, inner_denominator),
-        commonOrConstExtent(ca_map_, merge->inner()));
+        inner_mapping.quotient(), commonOrConstExtent(ca_map_, merge->inner()));
 
     // Divisibility checks are done later, simply propagate fractional
     // values through the graph.
@@ -410,12 +404,9 @@ void ContiguousInnerDimensionsMapper::propagateExtentSplitForward(
   if (in_mapping.isZero()) {
     return;
   }
-  const auto in_numerator = in_mapping.getNumerator();
-  const auto in_denominator = in_mapping.getDenominator();
 
   auto in_bigger_than_inner = IrBuilder::gtExpr(
-      SimplifyingIrBuilder::divExpr(in_numerator, in_denominator),
-      commonOrConstExtent(ca_map_, split->inner()));
+      in_mapping.quotient(), commonOrConstExtent(ca_map_, split->inner()));
 
   // Divisibility checks are done later, simply propagate fractional
   // values through the graph.
@@ -1142,119 +1133,49 @@ int64_t getVectorizationSize(
       continue;
     }
     auto orig_extent_val = dim.second->extent();
-    auto numerator_optional = expr_eval.evaluate(pe.getNumerator());
-    auto denominator_optional = expr_eval.evaluate(pe.getDenominator());
+    auto is_divisible_optional = expr_eval.evaluate(pe.isDivisible());
+    auto quotient_optional = expr_eval.evaluate(pe.quotient());
     auto extent_optional = expr_eval.evaluate(orig_extent_val);
     TORCH_INTERNAL_ASSERT(
-        numerator_optional.has_value() && denominator_optional.has_value() &&
-            extent_optional.has_value(),
+        quotient_optional.has_value() && extent_optional.has_value(),
         "Vectorization heuristic could not evaluate required extents.");
     TORCH_INTERNAL_ASSERT(
-        numerator_optional->isInt() && denominator_optional->isInt() &&
+        is_divisible_optional->isBool() && quotient_optional->isInt() &&
             extent_optional->isInt(),
         "Vectorization heuristic expects integer values only.");
-    auto numerator = numerator_optional->as<int64_t>();
-    auto denominator = denominator_optional->as<int64_t>();
+    auto is_divisible = is_divisible_optional->as<bool>();
+    auto quotient = quotient_optional->as<int64_t>();
     auto extent = extent_optional->as<int64_t>();
 
-    if (denominator != 1) {
+    if (!is_divisible) {
       break;
     }
 
     // Full mapping of numerator
-    if (numerator == extent) {
+    if (quotient == extent) {
       // Full mappings can continue to the next dimension
       vectorize_size = vectorize_size * extent;
       continue;
     }
 
     TORCH_INTERNAL_ASSERT(
-        numerator < extent,
+        quotient < extent,
         "Mapped extent in vectorization analysis should never be greater than the extent but ",
-        numerator,
+        quotient,
         " > ",
         extent);
 
-    if (extent % numerator) {
-      vectorize_size = vectorize_size * numerator;
+    if (extent % quotient) {
+      vectorize_size = vectorize_size * quotient;
       // partial mappings cannot continue to the next dimension
       break;
     }
 
-    int64_t greatest_common_factor = 1;
-    // Look for a common factors of 3 and 2
-    while (extent % 3 == 0 && numerator % 3 == 0) {
-      extent /= 3;
-      numerator /= 3;
-      greatest_common_factor = greatest_common_factor * 3;
-    }
-
-    while (extent % 2 == 0 && numerator % 2 == 0) {
-      extent /= 2;
-      numerator /= 2;
-      greatest_common_factor = greatest_common_factor * 2;
-    }
-    vectorize_size = vectorize_size * greatest_common_factor;
+    vectorize_size = vectorize_size * std::gcd(extent, quotient);
     // partial mappings cannot continue to the next dimension
     break;
   }
   return vectorize_size;
-}
-
-size_t getExpandedVectorization(
-    const std::vector<ContiguousInnerDimensionsMapper>& reference_maps,
-    SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*> vectorizable_inputs_outputs,
-    TensorView* reference_tv,
-    int break_point,
-    size_t default_word_size) {
-  if (vectorizable_inputs_outputs.empty()) {
-    return 1;
-  }
-
-  size_t max_expand_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
-  size_t common_alignment_size =
-      SchedulerRuntimeInfo::max_alignment_size_in_byte;
-
-  for (auto inp_or_out : vectorizable_inputs_outputs) {
-    auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
-
-    max_expand_size = std::min(
-        max_expand_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
-    max_expand_size = std::min(
-        max_expand_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
-    common_alignment_size = std::min(
-        common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
-  }
-
-  // If there's no possibility to increase vector size of provided tensors,
-  // then don't bother doing a more complex analysis to try and do so, just
-  // return early.
-  if (max_expand_size == default_word_size) {
-    return default_word_size;
-  }
-
-  auto reference_map = reference_maps[break_point];
-  // Initialize to max the tensors could support.
-  size_t max_supported_vector_size = max_expand_size;
-  for (auto inp_or_out : vectorizable_inputs_outputs) {
-    size_t contig_dim_size = getVectorizationSize(
-        getContigVectorSizesOf(inp_or_out, reference_map),
-        runtime_info.expressionEvaluator());
-    size_t local_max_vec_size = 1;
-
-    while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
-           local_max_vec_size < max_expand_size) {
-      contig_dim_size /= 2;
-      local_max_vec_size *= 2;
-    }
-
-    max_supported_vector_size =
-        std::min(local_max_vec_size, max_supported_vector_size);
-  }
-  return max_supported_vector_size;
 }
 
 size_t getVectorizationFactor(
@@ -1272,18 +1193,6 @@ size_t getVectorizationFactor(
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
-  size_t vectorize_factor = std::numeric_limits<size_t>::max();
-
-  for (auto tv : vectorizable_inputs_outputs) {
-    const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
-    vectorize_factor = std::min(vectorize_factor, tv_vectorize_factor);
-  }
-
-  if (vectorize_factor == std::numeric_limits<size_t>::max()) {
-    vectorize_factor = 1;
-  }
-
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>(
           data_cache, [&reference_tv]() {
@@ -1292,15 +1201,46 @@ size_t getVectorizationFactor(
                 vectorize_helper::getAllVectorizedMapsOf(reference_tv));
           });
 
-  vectorize_factor = vectorize_helper::getExpandedVectorization(
-      vectorize_maps_entry.get(),
-      runtime_info,
-      vectorizable_inputs_outputs,
-      reference_tv,
-      break_point,
-      vectorize_factor);
+  if (vectorizable_inputs_outputs.empty()) {
+    return 1;
+  }
 
-  return vectorize_factor;
+  size_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  size_t common_alignment_size =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte;
+
+  for (auto inp_or_out : vectorizable_inputs_outputs) {
+    auto dtype_size =
+        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
+
+    max_vec_size = std::min(
+        max_vec_size,
+        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+    max_vec_size = std::min(
+        max_vec_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
+    common_alignment_size = std::min(
+        common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
+  }
+
+  auto reference_map = vectorize_maps_entry.get().at(break_point);
+  // Initialize to max the tensors could support.
+  size_t max_supported_vector_size = max_vec_size;
+  for (auto inp_or_out : vectorizable_inputs_outputs) {
+    size_t contig_dim_size = getVectorizationSize(
+        getContigVectorSizesOf(inp_or_out, reference_map),
+        runtime_info.expressionEvaluator());
+    size_t local_max_vec_size = 1;
+
+    while (contig_dim_size > 1 && contig_dim_size % 2 == 0 &&
+           local_max_vec_size < max_vec_size) {
+      contig_dim_size /= 2;
+      local_max_vec_size *= 2;
+    }
+
+    max_supported_vector_size =
+        std::min(local_max_vec_size, max_supported_vector_size);
+  }
+  return max_supported_vector_size;
 }
 
 } // namespace vectorize_helper

@@ -196,6 +196,10 @@ Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Min, lhs, rhs);
 }
 
+Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
+}
+
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal();
@@ -467,6 +471,19 @@ Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
       rhs,
       [](Val* lhs, Val* rhs) { return IrBuilder::minExpr(lhs, rhs); },
       [](int64_t lhs, int64_t rhs) { return std::min(lhs, rhs); });
+}
+
+Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
+  if (lhs->isZeroInt()) {
+    return rhs;
+  }
+  if (rhs->isZeroInt()) {
+    return lhs;
+  }
+  if (lhs->isOneInt() || rhs->isOneInt()) {
+    return lhs->container()->oneVal();
+  }
+  return IrBuilder::gcdExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
