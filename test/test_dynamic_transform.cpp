@@ -1056,9 +1056,9 @@ TEST_F(NVFuserTest, DynamicTransformIssue418Full_CUDA) {
   auto tv0 = makeSymbolicTensor(4);
   fusion->addInput(tv0);
   auto weight = makeSymbolicTensor(4);
-  fusion->addInput(tv0);
+  fusion->addInput(weight);
   auto bias = makeSymbolicTensor(4);
-  fusion->addInput(tv0);
+  fusion->addInput(bias);
   auto s0 = IrBuilder::create<Int>();
   fusion->addInput(s0);
 
