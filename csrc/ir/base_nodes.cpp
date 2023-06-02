@@ -368,6 +368,14 @@ bool Val::isOneInt() const {
   return int_val.has_value() && int_val.value() == 1;
 }
 
+bool Val::isTrue() const {
+  return getBool() == true;
+}
+
+bool Val::isFalse() const {
+  return getBool() == false;
+}
+
 c10::optional<DataType> Val::getDataType() const {
   TORCH_INTERNAL_ASSERT(
       dtype_ != DataType::Null, "Value does not have a data type.");
@@ -434,6 +442,14 @@ std::string Expr::getGraphvizLabel() const {
   }
   ss << "}}";
   return ss.str();
+}
+
+void Expr::checkConcretization(Val* old_val, Val* new_val) const {
+  TORCH_CHECK(old_val, "Pre-concretized value was null");
+  TORCH_CHECK(new_val, "Concretized value is null");
+  TORCH_CHECK(
+      old_val->vtype() == new_val->vtype(),
+      "Concretization must not change ValType");
 }
 
 bool Expr::sameAs(const Statement* other) const {

@@ -199,9 +199,19 @@ struct TensorArgAbstract : ArgAbstract {
     return tensor_.size(i);
   }
 
-  virtual int64_t getStride(int64_t i) const {
+  virtual int64_t getAllocRank() const {
     TORCH_INTERNAL_ASSERT(
-        false, "The stride of an abstract tensor arg is not known.");
+        false, "The allocation rank of an abstract tensor arg is not known.");
+  }
+
+  virtual int64_t getAllocSize(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The allocation shape of an abstract tensor arg is not known.");
+  }
+
+  virtual int64_t getAllocStride(int64_t i) const {
+    TORCH_INTERNAL_ASSERT(
+        false, "The allocation stride of an abstract tensor arg is not known.");
   }
 
   size_t getPointerAddress() const {
@@ -274,6 +284,7 @@ inferAndValidateAllocationSizesAndStrides(
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
+  std::array<int64_t, TENSOR_TYPE::nAllocationDims()> alloc_sizes;
 
   TensorArg(const at::Tensor& tensor, TensorView* tv, ExpressionEvaluator& eval)
       : TensorArgAbstract(tensor) {
@@ -293,12 +304,21 @@ struct TensorArg : public TensorArgAbstract {
     TORCH_INTERNAL_ASSERT(
         (size_t)instance_.nAllocationDims() == sizes_strides.size());
     for (auto i : c10::irange((int64_t)sizes_strides.size())) {
+      alloc_sizes.at(i) = sizes_strides.at(i).first;
       using stride_t = typename TENSOR_TYPE::index_type;
       instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
     }
   }
 
-  int64_t getStride(int64_t i) const override {
+  int64_t getAllocRank() const override {
+    return instance_.nAllocationDims();
+  }
+
+  int64_t getAllocSize(int64_t i) const override {
+    return alloc_sizes.at(i);
+  }
+
+  int64_t getAllocStride(int64_t i) const override {
     return instance_.getStride(i);
   }
 
@@ -323,10 +343,15 @@ struct TensorArg : public TensorArgAbstract {
   std::string toString() const override {
     std::stringstream ss;
     ss << TensorArgAbstract::toString();
-    ss << " stride: (";
-    for (auto i = 0; i < getRank(); i++) {
-      ss << getStride(i) << ", ";
+    ss << " allocation size: (";
+    for (auto i = 0; i < getAllocRank(); i++) {
+      ss << getAllocSize(i) << ", ";
     }
+    ss << ") allocation stride: (";
+    for (auto i = 0; i < getAllocRank(); i++) {
+      ss << getAllocStride(i) << ", ";
+    }
+    ss << ")";
     return ss.str();
   }
 
@@ -353,7 +378,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! the ownership of the memory from the original inputs, but just recording
   //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs);
+      const c10::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device = std::nullopt);
 
   KernelArgumentHolder() = default;
 

@@ -1096,6 +1096,18 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   auto id_1_relook = inputs_id_lookup.lookupId({t0, t1});
   TORCH_CHECK(id_1_relook.id == id_1.id);
   TORCH_CHECK(id_1_relook.eviction == false);
+
+  // test scalars don't affect ID unless we ask them to
+  auto id_3 = inputs_id_lookup.lookupId(
+      {t0, t1, 5.0, 1, true}, /*scalar_inputs_to_record*/ {2, 3, 4});
+  auto id_3_lookup = inputs_id_lookup.lookupId(
+      {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {2, 3, 4});
+  auto id_3_norecord = inputs_id_lookup.lookupId(
+      {t0, t1, 5.0, 1, true}, /*scalar_inputs_to_record*/ {});
+  auto id_3_lookup_norecord = inputs_id_lookup.lookupId(
+      {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {});
+  TORCH_CHECK(id_3.id != id_3_lookup.id);
+  TORCH_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {
@@ -2917,6 +2929,11 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
               (dtype == DataType::Half || dtype == DataType::BFloat16)) {
             continue;
           }
+          // Shmoo tests can occupy a lot of memory due to allocating many
+          // different tensor sizes. So in order to avoid an OOM during this
+          // test, we manually clear the allocator after it's reached a certain
+          // threshold.
+          maybeClearAllocator();
           testWelford(dtype, axis, odim, rdim);
         }
       }
@@ -9026,27 +9043,27 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  int64_t i1201;
-  i1201 = T0.size[2] * T0.size[1];
-  int64_t i1204;
-  i1204 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1206;
-  i1206 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i1238;
-  i1238 = i1204 % i1206;
-  int64_t i1215;
-  i1215 = T0.size[2] * T0.size[3];
-  int64_t i1239;
-  i1239 = i1238 % i1215;
-  if ((i1204 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  int64_t i0;
+  i0 = T0.size[2] * T0.size[1];
+  int64_t i1;
+  i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  int64_t i2;
+  i2 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  int64_t i3;
+  i3 = i1 % i2;
+  int64_t i4;
+  i4 = T0.size[2] * T0.size[3];
+  int64_t i5;
+  i5 = i3 % i4;
+  if ((i1 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i1201 * T0.size[3]) * (i1204 / i1206)) + (i1201 * (i1239 % T0.size[3]))) + (T0.size[2] * (i1238 / i1215))) + (i1239 / T0.size[3]))];
+       = T2[(((((i0 * T0.size[3]) * (i1 / i2)) + (i0 * (i5 % T0.size[3]))) + (T0.size[2] * (i3 / i4))) + (i5 / T0.size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1204];
+       = T0[i1];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9066,7 +9083,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1204]
+    T7[i1]
        = T10[0];
   }
 }
@@ -9607,7 +9624,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection_CUDA) {
 
   fusion.addOutput(tv9);
 
-  reduction_scheduler_utils::projectPersistentBuffers(&fusion);
+  reduction_scheduler_utils::projectPersistentBuffers(&fusion, true);
 
   auto tv5_producers = ir_utils::producerTvsOf(tv5);
   auto tv7_producers = ir_utils::producerTvsOf(tv7);

@@ -584,6 +584,9 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
   const std::vector<bool>& getSqueezeDimFlags() const {
     return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
   }
+
+  //! Check that squeezed IDs in old_tv concretize to Broadcast IterType
+  void checkConcretization(Val* old_tv, Val* new_tv) const override;
 };
 
 //! Reduction operation. Out is first initialized to _init. Then

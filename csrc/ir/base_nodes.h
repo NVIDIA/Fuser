@@ -322,6 +322,8 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool isZeroInt() const;
   bool isOne() const;
   bool isOneInt() const;
+  bool isTrue() const;
+  bool isFalse() const;
 
   // Returns the Expr that this value is an output of, returns nullptr if none
   // was found
@@ -585,6 +587,11 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   // Get the label for Graphviz
   virtual std::string getGraphvizLabel() const;
+
+  //! Perform assertions on new_val to ensure that it is valid for this
+  //! particular expression. This ensures that invalid values are not propagated
+  //! through the graph during concretization.
+  virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
  protected:
   // TODO: Protect based on being in kernel container

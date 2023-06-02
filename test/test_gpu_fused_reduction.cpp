@@ -2433,6 +2433,11 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
   }
 
   for (const auto& params : param_vec) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     test(params);
   }
 }

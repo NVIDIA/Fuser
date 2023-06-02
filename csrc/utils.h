@@ -13,6 +13,7 @@
 #include <type.h>
 
 #include <deque>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -36,9 +37,15 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
-// TODO: merge these two
-// check if input is compatible with 32b index mode
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
+//! Find common device among tensor inputs. If no tensor inputs are found and
+//! the selected_device argument is omitted, a default value of 0 is returned.
+//! If no tensor inputs are found and selected_device is provided,
+//! selected_device will be returned. If tensor inputs are found their devices
+//! must match one another, and if selected_device is given they must match it
+//! as well, otherwise -1 is returned.
+int8_t getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device = std::nullopt);
 
 //! Types of debug print-outs
 //!
@@ -48,6 +55,7 @@ enum class DebugDumpOption {
   FusionIr, //!< Dump the Fusion IR before lowering
   FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
   FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
+  FusionIrConcretized, //!< Dump the Fusion IR after concretization
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
@@ -88,6 +96,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   MatmulChecks, //! Print logs from tools around matmul scheduler used in
                 //! segmenter
+  Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -113,6 +122,7 @@ enum class DisableOption {
   PredicateElimination, //! Disable predicate elimination
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   MagicZero, //! Disable nvfuser_zero
+  VarNameRemapping, //! Disable variable name remapping
   EndOfOption //! Placeholder for counting the number of elements
 };
 
