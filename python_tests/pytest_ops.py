@@ -58,7 +58,7 @@ def snippet_torch_consistency(nvf_op, torch_op, sample):
 
 @ops(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op):
-    for sample, ex_type in op.error_inputs(device):
+    for sample, ex_type in op.error_inputs():
         result = run_snippet(snippet_errors, op, None, op.op, sample, ex_type)
         if result is not None:
             return result

@@ -212,7 +212,7 @@ elementwise_unary_ops.append(rsqrt_opinfo)
 sigmoid_opinfo = OpInfo(
     lambda fd: fd.ops.sigmoid,
     "sigmoid",
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.sigmoid),
 )
 elementwise_unary_ops.append(sigmoid_opinfo)
@@ -220,7 +220,7 @@ elementwise_unary_ops.append(sigmoid_opinfo)
 sin_opinfo = OpInfo(
     lambda fd: fd.ops.sin,
     "sin",
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.sin),
 )
 elementwise_unary_ops.append(sin_opinfo)
@@ -228,7 +228,7 @@ elementwise_unary_ops.append(sin_opinfo)
 sinh_opinfo = OpInfo(
     lambda fd: fd.ops.sinh,
     "sinh",
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.sinh),
 )
 elementwise_unary_ops.append(sinh_opinfo)
@@ -237,7 +237,7 @@ sqrt_opinfo = OpInfo(
     lambda fd: fd.ops.sqrt,
     "sqrt",
     domain=(0, math.inf),
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.sqrt),
 )
 elementwise_unary_ops.append(sqrt_opinfo)
@@ -246,7 +246,7 @@ tan_opinfo = OpInfo(
     lambda fd: fd.ops.tan,
     "tan",
     dtypes=int_float_dtypes,
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.tan),
 )
 elementwise_unary_ops.append(tan_opinfo)
@@ -255,7 +255,7 @@ tanh_opinfo = OpInfo(
     lambda fd: fd.ops.tanh,
     "tanh",
     dtypes=int_float_dtypes,
-    sample_input_generator=partial(elementwise_unary_generator),
+    sample_input_generator=elementwise_unary_generator,
     torch_reference=_elementwise_unary_torch(torch.tanh),
 )
 elementwise_unary_ops.append(tanh_opinfo)
