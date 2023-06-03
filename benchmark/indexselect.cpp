@@ -273,6 +273,8 @@ static void NvFuserScheduler_IndexSelect(
 
   std::vector<c10::IValue> aten_inputs = {t2, t0, t1};
 
+  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (nFeat * select_size * 2 /*2 elemwise ops*/ + select_size +
