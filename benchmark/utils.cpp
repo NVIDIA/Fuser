@@ -137,12 +137,44 @@ std::string toString(LaunchParams lparams) {
   return ss.str();
 }
 
+namespace {
+
+bool excludeOutliers() {
+  return getenv("NVFUSER_BENCH_EXCLUDE_OUTLIERS");
+}
+
+// Exclude the maximum and minimum values and add the rest to
+// benchmark state
+void setIterationTimesWithoutOutliers(benchmark::State& benchmark_state,
+                                      const std::vector<float>& times) {
+  auto max_time_it = std::max_element(times.begin(), times.end());
+  auto min_time_it = std::min_element(times.begin(), times.end());
+
+  auto times_it = times.begin();
+  for (auto _ : benchmark_state) {
+    while (times_it == max_time_it || times_it == min_time_it) {
+      ++times_it;
+    }
+    TORCH_INTERNAL_ASSERT(times_it != times.end());
+    benchmark_state.SetIterationTime(*times_it / 1000.0);
+    ++times_it;
+  }
+}
+
+} // namespace
+
 void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
+
+  fusion_executor_cache->enableKernelTimeMeasurement();
+  fusion_executor_cache->profile(true);
+
+  // Segment and compile the fusion
   fusion_executor_cache->runFusionWithInputs(aten_inputs);
+
   bool segmented =
       fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
       fusion_executor_cache->getMostRecentKernelRuntime()
@@ -150,10 +182,6 @@ void runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
-  fusion_executor_cache->enableKernelTimeMeasurement();
-
-  fusion_executor_cache->profile(true);
-  fusion_executor_cache->runFusionWithInputs(aten_inputs);
   auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
   auto params = toString(compile_log.params);
   auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
@@ -166,33 +194,24 @@ void runBenchmarkIterations(
 
   fusion_executor_cache->profile(false);
 
-  // Run benchmark 2 times more to excluce min and max
-  const int iter_count = benchmark_state.max_iterations + 2;
-  std::vector<float> kernel_times(iter_count, 0);
-
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
-  for (auto& time : kernel_times) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    time = fusion_executor_cache->getMostRecentKernelTimeMs();
-  }
-
-  // Exclude min and max
-  auto max_time_it =
-      std::max_element(kernel_times.begin(), kernel_times.end());
-  auto min_time_it =
-      std::min_element(kernel_times.begin(), kernel_times.end());
-
-  auto kernel_times_it = kernel_times.begin();
-  for (auto _ : benchmark_state) {
-    while (kernel_times_it == max_time_it || kernel_times_it == min_time_it) {
-      ++kernel_times_it;
+  // Optionally run benchmark 2 times more to excluce min and max
+  if (excludeOutliers()) {
+    std::vector<float> kernel_times(benchmark_state.max_iterations + 2, 0);
+    for (auto& time : kernel_times) {
+      clearL2Cache();
+      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+      time = fusion_executor_cache->getMostRecentKernelTimeMs();
     }
-    TORCH_INTERNAL_ASSERT(kernel_times_it != kernel_times.end());
-    benchmark_state.SetIterationTime(*kernel_times_it / 1000.0);
-    ++kernel_times_it;
+    setIterationTimesWithoutOutliers(benchmark_state, kernel_times);
+  } else {
+    for (auto _ : benchmark_state) {
+      clearL2Cache();
+      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+      benchmark_state.SetIterationTime(fusion_executor_cache->getMostRecentKernelTimeMs() / 1000.0);
+    }
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
@@ -212,34 +231,28 @@ void runBenchmarkIterations(
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
-  // Run benchmark 2 times more to excluce min and max
-  const int iter_count = benchmark_state.max_iterations + 2;
-  std::vector<float> kernel_times(iter_count, 0);
-
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   fusion_executor->setMeasureKernelTimeFlag(true);
 
-  for (auto& time : kernel_times) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor->runFusion(
-        aten_inputs, launch_constraints, compile_params);
-    time = fusion_executor->kernelTimeMs();
-  }
-
-  // Exclude min and max
-  auto max_time_it = std::max_element(kernel_times.begin(), kernel_times.end());
-  auto min_time_it = std::min_element(kernel_times.begin(), kernel_times.end());
-
-  auto kernel_times_it = kernel_times.begin();
-  for (auto _ : benchmark_state) {
-    while (kernel_times_it == max_time_it || kernel_times_it == min_time_it) {
-      ++kernel_times_it;
+  // Optionally run benchmark 2 times more to excluce min and max
+  if (excludeOutliers()) {
+    std::vector<float> kernel_times(benchmark_state.max_iterations + 2, 0);
+    for (auto& time : kernel_times) {
+      clearL2Cache();
+      auto cg_outputs = fusion_executor->runFusion(
+          aten_inputs, launch_constraints, compile_params);
+      time = fusion_executor->kernelTimeMs();
     }
-    TORCH_INTERNAL_ASSERT(kernel_times_it != kernel_times.end());
-    benchmark_state.SetIterationTime(*kernel_times_it / 1000.0);
-    ++kernel_times_it;
+    setIterationTimesWithoutOutliers(benchmark_state, kernel_times);
+  } else {
+    for (auto _ : benchmark_state) {
+      clearL2Cache();
+      auto cg_outputs = fusion_executor->runFusion(
+          aten_inputs, launch_constraints, compile_params);
+      benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
+    }
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
