@@ -104,9 +104,9 @@ static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
-  
+
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
-  
+
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));

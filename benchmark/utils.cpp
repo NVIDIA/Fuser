@@ -150,91 +150,49 @@ void runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
-  if (getenv("NEW2")) {
-    fusion_executor_cache->enableKernelTimeMeasurement();
+  fusion_executor_cache->enableKernelTimeMeasurement();
 
-    fusion_executor_cache->profile(true);
-    fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-    auto params = toString(compile_log.params);
-    auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
-    // Only set if not segmented. In the case of segmented fusions,
-    // this could be confusing as the log would refect only the last
-    // segment. Revisit if necessary.
-    if (!segmented) {
-      benchmark_state.SetLabel(params + lparams);
-    }
+  fusion_executor_cache->profile(true);
+  fusion_executor_cache->runFusionWithInputs(aten_inputs);
+  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  auto params = toString(compile_log.params);
+  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+  // Only set if not segmented. In the case of segmented fusions,
+  // this could be confusing as the log would refect only the last
+  // segment. Revisit if necessary.
+  if (!segmented) {
+    benchmark_state.SetLabel(params + lparams);
+  }
 
-    fusion_executor_cache->profile(false);
+  fusion_executor_cache->profile(false);
 
-    // Run benchmark 2 times more to excluce min and max
-    const int iter_count = benchmark_state.max_iterations + 2;
-    std::vector<float> kernel_times(iter_count, 0);
+  // Run benchmark 2 times more to excluce min and max
+  const int iter_count = benchmark_state.max_iterations + 2;
+  std::vector<float> kernel_times(iter_count, 0);
 
-    // Sync everything up before we start
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+  // Sync everything up before we start
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
-    for (auto& time : kernel_times) {
-      clearL2Cache();
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      time = fusion_executor_cache->getMostRecentKernelTimeMs();
-    }
+  for (auto& time : kernel_times) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    time = fusion_executor_cache->getMostRecentKernelTimeMs();
+  }
 
-    // Exclude min and max
-    auto max_time_it =
-        std::max_element(kernel_times.begin(), kernel_times.end());
-    auto min_time_it =
-        std::min_element(kernel_times.begin(), kernel_times.end());
+  // Exclude min and max
+  auto max_time_it =
+      std::max_element(kernel_times.begin(), kernel_times.end());
+  auto min_time_it =
+      std::min_element(kernel_times.begin(), kernel_times.end());
 
-    auto kernel_times_it = kernel_times.begin();
-    for (auto _ : benchmark_state) {
-      while (kernel_times_it == max_time_it || kernel_times_it == min_time_it) {
-        ++kernel_times_it;
-      }
-      TORCH_INTERNAL_ASSERT(kernel_times_it != kernel_times.end());
-      benchmark_state.SetIterationTime(*kernel_times_it / 1000.0);
+  auto kernel_times_it = kernel_times.begin();
+  for (auto _ : benchmark_state) {
+    while (kernel_times_it == max_time_it || kernel_times_it == min_time_it) {
       ++kernel_times_it;
     }
-  } else {
-    if (!segmented) {
-      fusion_executor_cache->profile(true);
-      fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-      auto executor_instance = compile_log.fusion_executor;
-
-      auto params = toString(compile_log.params);
-      auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
-      benchmark_state.SetLabel(params + lparams);
-
-      executor_instance->setMeasureKernelTimeFlag(true);
-
-      // Sync everything up before we start
-      C10_CUDA_CHECK(cudaDeviceSynchronize());
-      for (auto _ : benchmark_state) {
-        clearL2Cache();
-        auto cg_outputs =
-            fusion_executor_cache->runFusionWithInputs(aten_inputs);
-        benchmark_state.SetIterationTime(
-            executor_instance->kernelTimeMs() / 1000.0);
-      }
-    } else {
-      // Segmented
-      // Sync everything up before we start
-      {
-        // Compile/warmup
-        auto cg_outputs =
-            fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      }
-      C10_CUDA_CHECK(cudaDeviceSynchronize());
-      CudaKernelTimer timer;
-      for (auto _ : benchmark_state) {
-        clearL2Cache();
-        timer.restart();
-        auto cg_outputs =
-            fusion_executor_cache->runFusionWithInputs(aten_inputs);
-        benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-      }
-    }
+    TORCH_INTERNAL_ASSERT(kernel_times_it != kernel_times.end());
+    benchmark_state.SetIterationTime(*kernel_times_it / 1000.0);
+    ++kernel_times_it;
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
@@ -260,20 +218,19 @@ void runBenchmarkIterations(
 
   // Sync everything up before we start
   C10_CUDA_CHECK(cudaDeviceSynchronize());
-  
+
   fusion_executor->setMeasureKernelTimeFlag(true);
-  
+
   for (auto& time : kernel_times) {
     clearL2Cache();
-    auto cg_outputs = fusion_executor->runFusion(aten_inputs, launch_constraints, compile_params);
+    auto cg_outputs = fusion_executor->runFusion(
+        aten_inputs, launch_constraints, compile_params);
     time = fusion_executor->kernelTimeMs();
   }
 
   // Exclude min and max
-  auto max_time_it =
-      std::max_element(kernel_times.begin(), kernel_times.end());
-  auto min_time_it =
-      std::min_element(kernel_times.begin(), kernel_times.end());
+  auto max_time_it = std::max_element(kernel_times.begin(), kernel_times.end());
+  auto min_time_it = std::min_element(kernel_times.begin(), kernel_times.end());
 
   auto kernel_times_it = kernel_times.begin();
   for (auto _ : benchmark_state) {

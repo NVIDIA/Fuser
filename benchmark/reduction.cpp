@@ -62,7 +62,7 @@ static void NvFuserScheduler_Reduction(
   at::Tensor aten_input =
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
-  
+
   std::vector<c10::IValue> aten_inputs({aten_input});
 
   runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);

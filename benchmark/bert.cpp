@@ -197,7 +197,7 @@ static void MagicScheduler_DivMaxSoftDropBwd(
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
 
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);  
+  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
 
   int64_t bytes = 0;
   // Some reason t1 isn't used, ignore it.
