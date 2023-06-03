@@ -32,13 +32,19 @@ std::string toString(const TransposeParams& params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
-// Run benchmark iterations with provided inputs. If not segmented, report
-// kernel time from the runtime, as well as heuristic parameters. If segmented
-// use timers. Make sure to clear L2 between iterations.
+// Run benchmark iterations with provided inputs. Report kernel time
+// from the runtime, as well as heuristic parameters if not segmented.
 void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
+
+void runBenchmarkIterations(
+    benchmark::State& benchmark_state,
+    FusionExecutor* fusion_executor,
+    std::vector<c10::IValue>& aten_inputs,
+    const LaunchParams& launch_constraints = LaunchParams(),
+    CompileParams compile_params = CompileParams());
 
 class CudaKernelTimer {
  public:
