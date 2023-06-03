@@ -196,6 +196,11 @@ void runBenchmarkIterations(
     auto max_time = std::max_element(kernel_times.begin(), kernel_times.end());
     auto min_time = std::min_element(kernel_times.begin(), kernel_times.end());
 
+    float filtered_max = -1;
+    float filtered_min = std::numeric_limits<float>::max();
+    float filtered_sum = 0;
+    int count = 0;
+    
     //std::cerr << "Max: " << *max_time << ", min: " << *min_time <<std::endl;
     auto kernel_times_it = kernel_times.begin();
     for (auto _ : benchmark_state) {
@@ -204,7 +209,17 @@ void runBenchmarkIterations(
       }
       TORCH_INTERNAL_ASSERT(kernel_times_it != kernel_times.end());
       benchmark_state.SetIterationTime(*kernel_times_it / 1000.0);
+      filtered_sum += *kernel_times_it;
+      filtered_max = std::max(filtered_max, *kernel_times_it);
+      filtered_min = std::min(filtered_min, *kernel_times_it);
+      ++count;
     }
+
+    std::cout << "Avg: " << filtered_sum / count << ", max: " << filtered_max
+              << ", min: " << filtered_min
+              << ", excluded max: " << *max_time
+              << ", excluded min: " << *min_time
+              << std::endl;
   } else {
     if (!segmented) {
       fusion_executor_cache->profile(true);
