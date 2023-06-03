@@ -27,6 +27,7 @@
 #include <mma_type.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
+#include <optimization/pre_segmenter.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -935,6 +936,9 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     auto tv2 = matmul(tv0, tv1, layout, true);
 
     fusion.addOutput(tv2);
+
+    optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+        &fusion);
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -3377,7 +3381,19 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
   TORCH_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
-      "input layout from test and MmaOp do not match");
+      "the MmaOp layout of Ampere MMA must be always TN");
+
+  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  TORCH_CHECK(
+      fusion_layout.isValid(),
+      "failed to get decide matmul layout through fusion definition");
+  TORCH_CHECK(
+      fusion_layout.getData() == layout,
+      "mismatch between test layout (",
+      toString(layout),
+      ") and layout inferred from fusion definition (",
+      toString(fusion_layout.getData()),
+      ")");
 
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
@@ -3428,7 +3444,19 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
     TORCH_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
-        "input layout from test and MmaOp do not match");
+        "the MmaOp layout of Ampere MMA must be always TN");
+
+    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    TORCH_CHECK(
+        fusion_layout.isValid(),
+        "failed to get decide matmul layout through fusion definition");
+    TORCH_CHECK(
+        fusion_layout.getData() == layout,
+        "mismatch between test layout (",
+        toString(layout),
+        ") and layout inferred from fusion definition (",
+        toString(fusion_layout.getData()),
+        ")");
 
     at::Tensor t0 =
         matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
@@ -3450,13 +3478,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
             ScheduleHeuristic::Matmul),
         "matmul scheduler was not used to handle prepared fusion");
 
-    // NOTE: checking with lower expectations for relative/absolute error
-#if 1
     TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
-#else
-    testValidate(
-        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
-#endif
   }
 }
 

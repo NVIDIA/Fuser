@@ -8748,6 +8748,65 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
+  const int hidden_size = 1024 * 10;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  std::vector<int64_t> input_shape{2048, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeSymbolicTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+
+  // capture stdout and check stdout contains register spill warning
+  testing::internal::CaptureStdout();
+  {
+    // generate persistent kernel
+    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    schedulePersistentKernel(&fusion, *persistent_params);
+
+    // compile and run persistent kernel
+    // intentionally set maxrregcount to 32 to trigger register spill
+    CompileParams compile_opts = {
+        .maxrregcount = 32, .enable_ptxas_verbose = true};
+    auto lparams = persistent_params->lparams;
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
+    auto cg_outputs = fe.runFusion({aten_input});
+
+    // validate results
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+  }
+  std::string output = testing::internal::GetCapturedStdout();
+  TORCH_CHECK(
+      output.find("Register spill detected") != std::string::npos,
+      "Register spill is not captured!");
+}
+
 // https://github.com/NVIDIA/Fuser/issues/335
 // This test is to make sure the benchmark in layer_norm_fused.cpp is correctly
 // implemented.
@@ -8842,6 +8901,17 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto t33 = std::get<0>(aten_outputs);
     outputs.emplace_back(t33);
   }
+
+  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info1.persistent_buffers.size() == 2,
+      "Before project to other buffers, should have two persistent buffers!");
+
+  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info2.persistent_buffers.size() == 1,
+      "After project to other buffers, should have one persistent buffer!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
@@ -8949,6 +9019,139 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
     testValidate(
         fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
   }
+}
+
+TEST_F(NVFuserTest, Repro413_CUDA) {
+  int64_t n = 10240;
+
+  for (int64_t m : {3, 6, 12, 24}) {
+    for (int64_t k : {10, 20, 40}) {
+      std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+      Fusion& fusion = *fusion_ptr.get();
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeContigConcreteTensor({n, m}, DataType::Half);
+      fusion.addInput(tv0);
+      auto tv1 = broadcast(tv0, {false, true, false});
+      auto tv2 = expand(
+          tv1,
+          {IrBuilder::create<Int>(n),
+           IrBuilder::create<Int>(k),
+           IrBuilder::create<Int>(m)});
+      auto tv3 = reshape(tv2, {n, k, m}, {n, k * m});
+      auto tv4 = reshape(tv3, {n, k * m}, {n, m, k});
+      auto tv5 = transpose(tv4, 0, 1);
+      auto tv6 = reshape(tv5, {m, n, k}, {m * n, k});
+      fusion.addOutput(tv6);
+
+      auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+      auto t0 = at::randn({n, m}, options);
+
+      auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
+
+      auto expect_vec_factor = std::gcd(m, k);
+
+      auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
+        for (auto i : tv->getLeafDomain()) {
+          if (i->getParallelType() == ParallelType::Vectorize) {
+            return i->extent()->evaluateInt();
+          }
+        }
+        return 1;
+      };
+
+      for (auto o : fusion.outputs()) {
+        EXPECT_EQ(
+            getVectorizationFactor(o->as<TensorView>()), expect_vec_factor);
+      }
+      for (auto i : fusion.inputs()) {
+        for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+          EXPECT_EQ(getVectorizationFactor(c), expect_vec_factor);
+        }
+      }
+
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, {t0}, lparams);
+      auto cg_outputs = fe.runFusion({t0}, lparams);
+
+      auto ref = t0.unsqueeze(1)
+                     .expand({-1, k, -1})
+                     .reshape({n, m, k})
+                     .transpose(0, 1)
+                     .reshape({m * n, k});
+
+      testValidate(
+          fusion_ptr.get(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    }
+  }
+}
+
+TEST_F(NVFuserTest, FusionRecomputePersistentBuffer_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 1024;
+  const int hidden_size = 2048;
+  {
+    DataType dtype = DataType::Float;
+    auto tv0 = makeContigTensor(2, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    auto tv2 = add(tv0, tv1);
+    auto tv3 = castOp(DataType::Half, tv2);
+
+    auto tv4 = castOp(DataType::Float, tv3);
+    auto tv5 = sum(tv4, {1});
+    auto tv6 = broadcast(tv5, {false, true});
+    auto tv7 = add(tv4, tv6);
+
+    auto tv8 = castOp(DataType::Float, tv3);
+    auto tv9 = add(tv6, tv8);
+
+    fusion->addOutput(tv7);
+    fusion->addOutput(tv9);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn({batch_size, hidden_size}, options);
+    auto t1 = at::randn({batch_size, hidden_size}, options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+
+    auto t2 = t0.add(t1);
+    auto t3 = t2.to(at::kHalf);
+    auto t4 = t3.to(at::kFloat);
+    auto t5 = t4.sum({1});
+    auto t6 = t5.unsqueeze(1).expand({batch_size, hidden_size});
+    auto t7 = t4.add(t6);
+    auto t8 = t3.to(at::kFloat);
+    auto t9 = t8.add(t6);
+
+    outputs.emplace_back(t7);
+    outputs.emplace_back(t9);
+  }
+
+  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info1.persistent_buffers.size() == 2,
+      "Before project to other buffers, should have two persistent buffers!");
+
+  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  TORCH_CHECK(
+      persistent_buffer_info2.persistent_buffers.size() == 1,
+      "After project to other buffers, should have one persistent buffer!");
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

@@ -363,8 +363,8 @@ void FusionExecutor::compileFusion(
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
+          compile_params,
           block_size,
-          maxrregcount_high_water_mark_,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
@@ -1498,8 +1498,8 @@ void FusionExecutor::recompileKernel(
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
+          new_compile_params,
           block_size_high_water_mark_,
-          maxrregcount_high_water_mark_,
           save_compiled_binary_);
 
   resetCompiledKernelProperties();
@@ -1734,6 +1734,30 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     auto ee = executor_utils::bindInputs(args, kernel());
     auto arg_buffer =
         args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
+
+    if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      int blocks_per_sm = -1;
+      CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+          &blocks_per_sm,
+          compiled_kernel_.function,
+          launch_params_.nThreads(),
+          launch_params_.smem()));
+      const int64_t device_id =
+          static_cast<unsigned char>(options_.device.index());
+      const auto prop = at::cuda::getDeviceProperties(device_id);
+      const int64_t warps_per_sm =
+          ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
+      const int hw_max_warps =
+          prop->maxThreadsPerMultiProcessor / prop->warpSize;
+      const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << occupancy << "%";
+      std::cout << "blocks_per_sm= " << blocks_per_sm
+                << ", warps_per_sm= " << warps_per_sm
+                << ", occupancy= " << oss.str() << std::endl;
+    }
+
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(

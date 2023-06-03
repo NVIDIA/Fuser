@@ -515,19 +515,27 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // start from small block size to minimize expensive inter-threads reduction
   const int64_t threads_after_vectorize =
       inner_most_dimension_numel / inner_reduction_unroll_factor;
-  constexpr int64_t scheduler_per_sm = 4;
+
+  // Test min_threads_per_block using 3 values:
+  // (1) One warp, so we can use single warp reduction and sync.
+  // (2) Two warps, so we can achieve 100% occupancy since most GPUs allow 32
+  //     blocks per SM.
+  // (3) Four warps, number recommended by the cuda-c-best-practices-guide.
+  const int64_t min_threads_per_block = 4l * dev_prop->warpSize;
+
+  // start bdimx with min_threads_per_block then increase if we have too many
+  // persistent buffer batches per block
   if (outer_reduction_numel == 1 && vectorize) {
-    bdimx = std::min(
-        scheduler_per_sm * dev_prop->warpSize, threads_after_vectorize);
+    bdimx = std::min(min_threads_per_block, threads_after_vectorize);
   }
 
-  // If we don't have a full warp, let's do multiple reductions per block.
-  // Still keep vectorization as it is important for performance since V100.
-  // Limit block size to 4 warps to avoid occupancy and SM wave tail issues.
-  if (bdimx * bdimy * bdimz < warp_size) {
+  // If we don't have enough threads, let's do multiple reductions per block.
+  // Multiple reductions per block shows better performance than unroll
+  // iterations. Still keep vectorization as it is important for performance
+  // since V100.
+  if (bdimx * bdimy * bdimz < min_threads_per_block) {
     bdimy = std::min(
-        scheduler_utils::safeDiv(
-            scheduler_per_sm * dev_prop->warpSize, bdimx * bdimz),
+        scheduler_utils::safeDiv(min_threads_per_block, bdimx * bdimz),
         max_multi_reduction_factor);
   }
 
@@ -1451,10 +1459,10 @@ void beforeSchedule(
   // does not create trouble for transform propagation.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  if (rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty()) {
-    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(fusion);
-  }
+  const bool project_to_inputs = rparams.project_persistent_buffers &&
+      ir_utils::getViewOps(fusion).empty();
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, project_to_inputs);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view

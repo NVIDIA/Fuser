@@ -455,15 +455,24 @@ namespace assoc_comm {
 // This minimizes the total number of computations.
 
 bool isAssociativeAndCommutative(BinaryOpType type) {
+  // gcd is associative and commutative, see:
+  // https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties
   return type == BinaryOpType::Add || type == BinaryOpType::Mul ||
       type == BinaryOpType::And || type == BinaryOpType::Or ||
       type == BinaryOpType::Xor || type == BinaryOpType::Max ||
-      type == BinaryOpType::Min;
+      type == BinaryOpType::Min || type == BinaryOpType::Gcd;
 }
 
-// Identity `e` is a special number that, for all x:
-// x (op) e = e (op) x = x
-bool isIdentity(Val* v, BinaryOpType type) {
+// No-op term `e` is a special number that, for all x:
+//   x (op) e = e (op) x = op(x)
+// Above, we are slightly abusing terms, because op is a binary operator, in
+// principle, op(x) is not well defined. However, because this is only used to
+// eliminate trivial computation, for the sake of simplicity, we can consider
+// gcd(x) = abs(x) and op(x) = x for all other ops.
+// Note that the concept of "no-op term" here is very similar to the concept of
+// identity in mathematics, whose definition is
+//   x (op) e = e (op) x = x
+bool isNoOpTerm(Val* v, BinaryOpType type) {
   if (v->isConstScalar()) {
     v = foldConstants(v);
   }
@@ -480,6 +489,8 @@ bool isIdentity(Val* v, BinaryOpType type) {
     case BinaryOpType::Or:
     case BinaryOpType::Xor:
       return v->getBool() == false;
+    case BinaryOpType::Gcd:
+      return v->isZeroInt();
     default:
       return false;
   }
@@ -501,6 +512,8 @@ bool isBlackhole(Val* v, BinaryOpType type) {
       return v->getBool() == false || v->getInt() == 0;
     case BinaryOpType::Or:
       return v->getBool() == true;
+    case BinaryOpType::Gcd:
+      return v->isOneInt();
     default:
       return false;
   }
@@ -908,6 +921,21 @@ bool isFlattenedMul(Val* x) {
   return toFlattenedMul(x->definition()) != nullptr;
 }
 
+FOp* toFlattenedGcd(Expr* expr) {
+  auto fop = dynamic_cast<FOp*>(expr);
+  if (!fop) {
+    return nullptr;
+  }
+  if (fop->getOpType() == BinaryOpType::Gcd) {
+    return fop;
+  }
+  return nullptr;
+}
+
+bool isFlattenedGcd(Val* x) {
+  return toFlattenedGcd(x->definition()) != nullptr;
+}
+
 BinaryOp* toDivModOp(Expr* expr) {
   auto bop = dynamic_cast<BinaryOp*>(expr);
   if (!bop) {
@@ -958,6 +986,9 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
 
 inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
   if (inputs.size() == 1) {
+    if (bop == BinaryOpType::Gcd) {
+      return IrBuilder::absExpr(inputs.at(0));
+    }
     return inputs.at(0);
   }
   auto result = IrBuilder::newScalar(inferDtypes(inputs));
@@ -1112,42 +1143,58 @@ Val* factorizeFlattenedMul(Val* x) {
       std::move(symbolic_factors));
 }
 
-Val* factorizeFlattenedAdd(Val* x) {
+// Does the following factorization:
+// - a * x + b * x -> (a + b) * x
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
+//
+// Note (proof of the second rule): according to
+// https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties, We have:
+// For m > 0, m*gcd(a,b) = gcd(m*a, m*b). If we further define gcd(0, 0) = 0,
+// the above equation holds also for m = 0. Also, observe that gcd(a, b) is a
+// even function w.r.t. both a and b, we have:
+// - gcd(a * x, b * x) -> gcd(a, b) * abs(x)
+Val* factorizeFlattenedAddOrGcd(Val* x) {
   // Warning: This implementation can only factorize out common divisor. It can
   // not factorize FlattenedAdd(x * x, 2 * x, 1) as FlattenedMul(x + 1, x + 1).
   // But I believe factorizing out common divisor is sufficient for index
   // simplification.
-  auto fop = toFlattenedAdd(x->definition());
+  auto fadd = toFlattenedAdd(x->definition());
+  auto fgcd = toFlattenedGcd(x->definition());
+  bool is_gcd = (fgcd != nullptr);
+  auto fop = is_gcd ? fgcd : fadd;
   TORCH_INTERNAL_ASSERT(fop != nullptr);
   std::vector<Val*> factorized_inputs;
   for (auto inp : fop->inputs()) {
     factorized_inputs.emplace_back(factorize(inp));
   }
   // Find common factors
-  auto gcd = greatestCommonDivisor(factorized_inputs);
-  if (assoc_comm::isIdentity(gcd, BinaryOpType::Mul)) {
+  auto common_factor = greatestCommonDivisor(factorized_inputs);
+  if (common_factor->isOne()) {
     return x;
   }
   // divide by common factors
   std::vector<Val*> quotient_inputs;
   quotient_inputs.reserve(factorized_inputs.size());
   for (auto inp : factorized_inputs) {
-    auto quotient = divideFactorized(inp, gcd);
+    auto quotient = divideFactorized(inp, common_factor);
     TORCH_INTERNAL_ASSERT(quotient != nullptr);
     quotient_inputs.emplace_back(quotient);
   }
   auto quotient = IrBuilder::newScalar(inferDtypes(quotient_inputs));
   IrBuilder::create<FOp>(
-      BinaryOpType::Add, quotient, std::move(quotient_inputs));
+      fop->getOpType(), quotient, std::move(quotient_inputs));
+  if (is_gcd) {
+    common_factor = IrBuilder::absExpr(common_factor);
+  }
   auto product = IrBuilder::newScalar(
-      promoteType(*quotient->getDataType(), *gcd->getDataType()));
+      promoteType(*quotient->getDataType(), *common_factor->getDataType()));
   IrBuilder::create<FOp>(
-      BinaryOpType::Mul, product, std::vector<Val*>{quotient, gcd});
-  // Quotient might contain nested FlattenedAdd, for example, if we have:
+      BinaryOpType::Mul, product, std::vector<Val*>{quotient, common_factor});
+  // Quotient might contain nested FlattenedOp, for example, if we have:
   //   FlattenedAdd(a * FlattenedAdd(b, c), a * FlattenedAdd(d, e))
-  // then the gcd will be a, and the quotient will be:
+  // then the common_factor will be a, and the quotient will be:
   //   FlattenedAdd(FlattenedAdd(b, c), FlattenedAdd(d, e))
-  // So we need to reflatten to get rid of this nested FlattenedAdd.
+  // So we need to reflatten to get rid of this nested FlattenedOp.
   return assoc_comm::flatten(product);
 }
 
@@ -1184,8 +1231,8 @@ Val* factorize(Val* x) {
   if (isFlattenedMul(x)) {
     return factorizeFlattenedMul(x);
   }
-  if (isFlattenedAdd(x)) {
-    return factorizeFlattenedAdd(x);
+  if (isFlattenedAdd(x) || isFlattenedGcd(x)) {
+    return factorizeFlattenedAddOrGcd(x);
   }
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition())) {
     if (bop->getBinaryOpType() == BinaryOpType::Mod) {
@@ -1560,10 +1607,14 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     return folded;
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
+    auto op = fop->getOpType();
     if (fop->isTrivial()) {
+      // For gcd, we have gcd(a) -> |a|. For everything else, we have op(a) -> a
+      if (op == BinaryOpType::Gcd) {
+        return IrBuilder::absExpr(fop->input(0));
+      }
       return fop->input(0);
     }
-    auto op = fop->getOpType();
     { // 0 * a -> 0, 1 * a -> a
       std::vector<Val*> new_inputs;
       Val* const_term = nullptr;
@@ -1593,7 +1644,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
           // 0 * a -> 0
           return const_term;
         }
-        if (assoc_comm::isIdentity(const_term, op)) {
+        if (assoc_comm::isNoOpTerm(const_term, op)) {
           // 1 * a -> a
           const_term = nullptr;
           changed = true;
@@ -1677,15 +1728,21 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
-    // -(-x) -> x, !(!x) -> x
     auto optype = uop->getUnaryOpType();
     if (optype == UnaryOpType::Neg || optype == UnaryOpType::Not) {
+      // -(-x) -> x, !(!x) -> x
       auto uop_in = dynamic_cast<UnaryOp*>(uop->in()->definition());
       if (uop_in != nullptr) {
         auto optype_in = uop_in->getUnaryOpType();
         if (optype == optype_in) {
           return uop_in->in();
         }
+      }
+    } else if (optype == UnaryOpType::Abs) {
+      // abs(x) -> x if x >= 0
+      auto abs_in = uop->in();
+      if (prove::isNonNegative(abs_in, context)) {
+        return abs_in;
       }
     }
   } else if (auto top = dynamic_cast<TernaryOp*>(value->definition())) {
@@ -2375,6 +2432,14 @@ Val* fundamentalDivisionWithRemainderProperty(
   return value;
 }
 
+// gcd(a * c, b * c) = |c| * gcd(a, b)
+Val* factorizeGcd(Val* value, const Context& context) {
+  if (isFlattenedGcd(value)) {
+    return sym_algebra::factorize(value);
+  }
+  return value;
+}
+
 } // namespace rules
 
 #define RUN_PASS(pass_name)                                     \
@@ -2439,6 +2504,7 @@ Val* simplifyExpr(
     PASS_BARRIER;
     RUN_PASS(distributeDivisibleDivMod);
     RUN_PASS(distributeGcdRemainderDivMod);
+    RUN_PASS(factorizeGcd);
     PASS_BARRIER;
     RUN_PASS(distributeMul);
     PASS_BARRIER;

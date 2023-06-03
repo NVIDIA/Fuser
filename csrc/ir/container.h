@@ -96,7 +96,13 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
-  const std::vector<Bool*>& axioms();
+  const std::vector<Bool*>& axioms() {
+    lazyInitAxioms();
+    return *axioms_;
+  }
+
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -130,6 +136,8 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   }
 
   void clear() noexcept;
+
+  void lazyInitAxioms();
 
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
