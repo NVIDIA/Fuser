@@ -590,12 +590,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
            batches_per_block_inner_reduction_max ||
        batches_per_block_outer_reduction >= 2)) {
     // Try to decrease per thread register allocation persistence size on inner
-    // reduction by reducing buffer size by half. In most cases,
-    // inner_most_dimension_numel is evenly divisible by
-    // batches_per_block_inner_reduction, thus bdimx will be doubled in each
-    // iteration. In nondivisible boundary cases, the difference between reduce
-    // by half and directly set to batches_per_block_inner_reduction_max is less
-    // than five percent.
+    // reduction by double bdimx.
     if (batches_per_block_inner_reduction >
         batches_per_block_inner_reduction_max) {
       bdimx *= 2;
