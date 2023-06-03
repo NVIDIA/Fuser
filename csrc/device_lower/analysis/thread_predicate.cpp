@@ -591,7 +591,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
           continue;
         }
         auto concrete_root_id = *it;
-        concretized_broadcast_root_domains_[rd] = concrete_root_id;
+        TORCH_INTERNAL_ASSERT(
+            concretized_broadcast_root_domains_.emplace(rd, concrete_root_id)
+                .second);
       }
     }
   }
