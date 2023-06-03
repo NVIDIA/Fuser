@@ -84,9 +84,13 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
         std::cout << expr;
       }
     }
-    // std::cout << "---- mutated fusion " << std::endl;
-    // std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
-    // fusion->printMath();
+    printf("checking terminating outputs\n");
+    for (auto out : fusion->getTerminatingOutputs()) {
+      std::cout << out << std::endl;
+    }
+    std::cout << "---- mutated fusion " << std::endl;
+    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
+    fusion->printMath();
 }
 
 // Test cast optimization

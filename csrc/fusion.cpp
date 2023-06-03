@@ -683,6 +683,7 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   auto is_reachable_to_output = [](Val* val) {
     // traverse to consumers of val and see if there is an output
     std::deque<Val*> consumers;
+    std::unordered_map<Val*> visited;
     for (auto use : val->uses()) {
       for (auto consumer : use->outputs()) {
         consumers.push_back(consumer);
@@ -694,12 +695,17 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
       if (consumer->isFusionOutput()) {
         return true;
       }
+      // short-cut to break infinite loop with cycles
+      if (visited.count(consumer) > 0) {
+        continue;
+      }
       // consumer is not an output; proceed to its consumers
       for (auto use : consumer->uses()) {
         for (auto consumer_of_consumer : use->outputs()) {
           consumers.push_back(consumer_of_consumer);
         }
       }
+      visited.insert(consumer);
     }
     return false;
   };
