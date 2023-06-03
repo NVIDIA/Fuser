@@ -50,6 +50,7 @@ TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
+  {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     auto tv0 = TensorViewBuilder()
@@ -63,34 +64,16 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv4 = set(tv3);
     fusion->addOutput(tv4);
 
-    std::cout << "---- original fusion " << std::endl;
-    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
-    fusion->printMath();
-
     auto cycle = ir_utils::checkCycle(fusion.get());
-    if (cycle.empty()) {
-      printf("checking 0 cycle found cycle\n");
-      for (auto expr : cycle) {
-        std::cout << expr;
-      }
-    }
+    TORCH_CHECK(cycle.empty(), "no cycle should be detected in fusion");
+
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
-
-    cycle = ir_utils::checkCycle(fusion.get());
-    if (cycle.empty()) {
-      printf("checking 1 cycle found cycle\n");
-      for (auto expr : cycle) {
-        std::cout << expr;
-      }
-    }
-    printf("checking terminating outputs\n");
-    for (auto out : fusion->getTerminatingOutputs()) {
-      std::cout << out << std::endl;
-    }
-    std::cout << "---- mutated fusion " << std::endl;
-    std::cout << "                      statements: " << fusion->exprs().size() << std::endl;
-    fusion->printMath();
+    TORCH_CHECK(cycle.size() == 4, "cycle should be detected in fusion");
+    EXPECT_THAT([&]() {StmtSort::getStmtsBetween(fusion.get(), {}, fusion->outputs()); },
+          ::testing::ThrowsMessage<c10::Error>(
+              ::testing::HasSubstr("loop detected")));
+  }
 }
 
 // Test cast optimization

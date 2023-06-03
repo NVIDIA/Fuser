@@ -683,7 +683,7 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   auto is_reachable_to_output = [](Val* val) {
     // traverse to consumers of val and see if there is an output
     std::deque<Val*> consumers;
-    std::unordered_map<Val*> visited;
+    std::unordered_set<Val*> visited;
     for (auto use : val->uses()) {
       for (auto consumer : use->outputs()) {
         consumers.push_back(consumer);

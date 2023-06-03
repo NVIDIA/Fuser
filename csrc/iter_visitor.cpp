@@ -146,6 +146,7 @@ void IterVisitor::traverseBetween(
   FusionGuard fg(fusion);
 
   std::unordered_set<Statement*> visited;
+  std::unordered_set<Statement*> nodes_on_path;
 
   stmt_stack.clear();
   stmt_stack.emplace_back(to.rbegin(), to.rend());
@@ -181,9 +182,15 @@ void IterVisitor::traverseBetween(
       // Remove last value just visited
       current_inputs.pop_back();
 
+      // Done processing it, remove current stmt from path
+      nodes_on_path.erase(stmt);
+
       // Mark that we need to visit a new Stmt's.
       all_inputs_visited = false;
     } else {
+      // Start processing stmt, adding it to current path
+      nodes_on_path.insert(stmt);
+
       // We're not ready to process this node, so add all its inputs to be
       // checked Visit input nodes.
       std::vector<Statement*> next_stmts;
@@ -225,6 +232,7 @@ void IterVisitor::traverseBetween(
         // to process
         all_inputs_visited = true;
       } else {
+        TORCH_INTERNAL_ASSERT(std::none_of(next_stmts.begin(), next_stmts.end, [&nodes_on_path](Statement* next_stmt) {return nodes_on_path.count(next_stmt) >= 0; }), "cycle detected during in fusion");
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
         // We have new things to visit,
