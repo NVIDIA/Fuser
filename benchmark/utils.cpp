@@ -219,6 +219,7 @@ void runBenchmarkIterations(
               << ", min: " << filtered_min
               << ", excluded max: " << *max_time
               << ", excluded min: " << *min_time
+              << ", count: " << count
               << std::endl;
   } else {
     if (!segmented) {
