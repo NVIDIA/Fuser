@@ -24,6 +24,17 @@
 
 #include <cuda_runtime.h>
 
+#define CUDA_RT_SAFE_CALL(x)                                           \
+  do {                                                                 \
+    cudaError_t result = x;                                            \
+    if (result != cudaSuccess) {                                       \
+      std::cerr << "CUDA error: " << cudaGetErrorName(result)          \
+                << " failed with error " << cudaGetErrorString(result) \
+                << std::endl;                                          \
+      std::abort();                                                    \
+    }                                                                  \
+  } while (0)
+
 using namespace nvfuser;
 
 std::string toString(const ReductionParams& rparams);

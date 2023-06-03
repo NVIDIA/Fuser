@@ -145,8 +145,9 @@ bool excludeOutliers() {
 
 // Exclude the maximum and minimum values and add the rest to
 // benchmark state
-void setIterationTimesWithoutOutliers(benchmark::State& benchmark_state,
-                                      const std::vector<float>& times) {
+void setIterationTimesWithoutOutliers(
+    benchmark::State& benchmark_state,
+    const std::vector<float>& times) {
   auto max_time_it = std::max_element(times.begin(), times.end());
   auto min_time_it = std::min_element(times.begin(), times.end());
 
@@ -195,7 +196,7 @@ void runBenchmarkIterations(
   fusion_executor_cache->profile(false);
 
   // Sync everything up before we start
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   // Optionally run benchmark 2 times more to excluce min and max
   if (excludeOutliers()) {
@@ -210,13 +211,14 @@ void runBenchmarkIterations(
     for (auto _ : benchmark_state) {
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      benchmark_state.SetIterationTime(fusion_executor_cache->getMostRecentKernelTimeMs() / 1000.0);
+      benchmark_state.SetIterationTime(
+          fusion_executor_cache->getMostRecentKernelTimeMs() / 1000.0);
     }
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 }
 
 void runBenchmarkIterations(
@@ -232,7 +234,7 @@ void runBenchmarkIterations(
   benchmark_state.SetLabel(lparams);
 
   // Sync everything up before we start
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   fusion_executor->setMeasureKernelTimeFlag(true);
 
@@ -251,13 +253,14 @@ void runBenchmarkIterations(
       clearL2Cache();
       auto cg_outputs = fusion_executor->runFusion(
           aten_inputs, launch_constraints, compile_params);
-      benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
+      benchmark_state.SetIterationTime(
+          fusion_executor->kernelTimeMs() / 1000.0);
     }
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 }
 
 namespace executorCache {

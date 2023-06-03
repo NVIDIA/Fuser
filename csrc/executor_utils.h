@@ -55,7 +55,7 @@ namespace nvfuser {
     }                                  \
   } while (0)
 
-#define CUDA_RT_SAFE_CALL(x)          \
+#define NVFUSER_CUDA_RT_SAFE_CALL(x)  \
   do {                                \
     cudaError_t _result = x;          \
     TORCH_INTERNAL_ASSERT(            \
@@ -306,26 +306,26 @@ class CudaKernelTimer {
 
   ~CudaKernelTimer() {
     if (initialized_) {
-      CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-      CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
     }
   }
 
   void init() {
-    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
-    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
   }
 
   void start() {
-    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
   }
 
   float elapsed() {
     // Record
-    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
-    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
-    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
-    CUDA_RT_SAFE_CALL(
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(
         cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
     return kernel_time_ms_;
   }

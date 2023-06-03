@@ -1858,13 +1858,13 @@ float FusionExecutor::runRtc(
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
 
-  CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
-  CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
   KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(args);
 
-  CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
   ExpressionEvaluator ee;
   std::vector<TensorView*> tvs(args.size(), nullptr);
@@ -1881,15 +1881,15 @@ float FusionExecutor::runRtc(
       kernel_arguments.getBuffer(index_type, tvs, ee),
       nullptr));
 
-  CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
-  CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
-  CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
 
   float kernel_time_ms = 0;
-  CUDA_RT_SAFE_CALL(
+  NVFUSER_CUDA_RT_SAFE_CALL(
       cudaEventElapsedTime(&kernel_time_ms, start_event, finish_event));
-  CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-  CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
 }
