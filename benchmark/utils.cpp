@@ -140,7 +140,7 @@ std::string toString(LaunchParams lparams) {
 namespace {
 
 bool excludeOutliers() {
-  return getenv("NVFUSER_BENCH_EXCLUDE_OUTLIERS");
+  return getenv("NVFUSER_BENCHMARK_EXCLUDE_OUTLIERS");
 }
 
 // Exclude the maximum and minimum values and add the rest to
@@ -168,7 +168,7 @@ void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
-  c10::cuda::CUDACachingAllocator::emptyCache();
+  //c10::cuda::CUDACachingAllocator::emptyCache();
 
   fusion_executor_cache->enableKernelTimeMeasurement();
   fusion_executor_cache->profile(true);
@@ -205,6 +205,7 @@ void runBenchmarkIterations(
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
       time = fusion_executor_cache->getMostRecentKernelTimeMs();
+      std::cout << "Time: " << time << std::endl;
     }
     setIterationTimesWithoutOutliers(benchmark_state, kernel_times);
   } else {
