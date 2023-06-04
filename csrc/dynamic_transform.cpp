@@ -11,6 +11,7 @@
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -159,6 +160,74 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! to compute a minimal cache key in InputsIdLookup::lookupId().
   std::vector<Val*> leaf_dynamic_vals_;
 };
+
+class EmptyBranchFinder : public OptOutDispatch {
+ public:
+  EmptyBranchFinder(Fusion* fusion, ExpressionEvaluator& expr_eval)
+      : fusion_(fusion), expr_eval_(expr_eval) {
+    mutate(fusion_->outputs());
+  }
+
+  bool isTVEmpty(TensorView* tv) {
+    for (auto id : tv->getRootDomain()) {
+      auto extent_opt = expr_eval_.evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          extent_opt.has_value(),
+          "Cannot evaluate extent ",
+          id->extent(),
+          " of ",
+          tv->toString());
+      if (extent_opt.value().as<int64_t>() == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  using OptOutMutator::mutate;
+
+  void mutate(std::vector<Val*> vals) {
+    for (auto v : vals) {
+      mutate(v);
+    }
+  }
+
+  void mutate(TensorView* tv) final {
+    if (isTVEmpty(tv)) {
+      if (tv->definition() && !tv->definition()->isA<FullOp>()) {
+        // Replace with full
+        std::vector<Val*> shape;
+        shape.reserve(tv->getRootDomain().size());
+        for (auto id : tv->getRootDomain()) {
+          shape.push_back(id->extent());
+        }
+        auto full_output = full(
+            shape, fusion_->zeroVal(), tv->Statement::getDataType().value());
+        registerMutation(tv, full_output);
+      }
+      return;
+    }
+    if (tv->definition()) {
+      mutate(tv->definition()->inputs());
+    }
+  }
+
+ private:
+  Fusion* fusion_;
+  ExpressionEvaluator expr_eval_;
+};
+
+void DynamicTransformConcretizer::findEmptyBranches(
+    const DynamicTransformInitialInfo* info,
+    ExpressionEvaluator* expr_eval) {
+  for (auto tv : info_.empty_tensors_) {
+    // TODO: record if empty, with which dimensions are zero
+    // TODO: re-traverse to find dynamic reshapes and resizes in case we find
+    // any empty branches since they may be on removed branches. We may trigger
+    // unnecessary recompilations when the cache misses so we try to include the
+    // minimal amount of information possible.
+  }
+}
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     const DynamicTransformInitialInfo* info,
@@ -338,6 +407,10 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
+  ss << indent << "Empty tensors:\n";
+  for (const auto& tv : empty_tensors_) {
+    ss << indent << indent << tv->toString() << "\n";
+  }
   ss << indent << "Reshape:\n";
   for (const auto& kv : reshape_transforms_) {
     ss << indent << indent << kv.first->toString() << ", "
@@ -360,6 +433,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   void concretize();
+
+  //! Set definitions of empty tensors to full() calls.
+  void removeEmptyBranches();
 
   void concretizeReshape();
 
@@ -392,6 +468,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
+  removeEmptyBranches();
+
   // First, concretize all dynamic reshape ops
   concretizeReshape();
 
