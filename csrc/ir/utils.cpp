@@ -1058,7 +1058,7 @@ std::vector<Statement*> checkCycle(
       if (path.count(stmt) != 0) {
         // find a cycle, return current path;
         std::vector<Statement*> ret;
-        std::copy_if(path.begin(), path.end(), std::back_inserter(ret), [](Statement* stmt) { return stmt->isExpr(); });
+        std::copy(path.begin(), path.end(), std::back_inserter(ret));
         return ret;
       }
       // adding statement to a queue;

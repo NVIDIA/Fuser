@@ -232,7 +232,16 @@ void IterVisitor::traverseBetween(
         // to process
         all_inputs_visited = true;
       } else {
-        TORCH_INTERNAL_ASSERT(std::none_of(next_stmts.begin(), next_stmts.end, [&nodes_on_path](Statement* next_stmt) {return nodes_on_path.count(next_stmt) >= 0; }), "cycle detected during in fusion");
+	// check for cycle in fusion
+	if (std::any_of(next_stmts.begin(), next_stmts.end, [&nodes_on_path](Statement* next_stmt) {return nodes_on_path.count(next_stmt) >= 0; })) {
+          auto cycle = ir_utils::checkCycle(fusion);
+	  std::stringstream ss;
+	  ss << "cycle detected in fusion: " << std::endl;
+          for (auto expr : ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
+	    ss << expr << std::endl;
+	  }
+          TORCH_INTERNAL_ASSERT(false, ss.str());
+	}
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
         // We have new things to visit,
