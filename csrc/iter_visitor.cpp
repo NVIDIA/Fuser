@@ -233,7 +233,7 @@ void IterVisitor::traverseBetween(
         all_inputs_visited = true;
       } else {
 	// check for cycle in fusion
-	if (std::any_of(next_stmts.begin(), next_stmts.end, [&nodes_on_path](Statement* next_stmt) {return nodes_on_path.count(next_stmt) >= 0; })) {
+	if (std::any_of(next_stmts.begin(), next_stmts.end(), [&nodes_on_path](Statement* next_stmt) {return nodes_on_path.count(next_stmt) > 0; })) {
           auto cycle = ir_utils::checkCycle(fusion);
 	  std::stringstream ss;
 	  ss << "cycle detected in fusion: " << std::endl;
