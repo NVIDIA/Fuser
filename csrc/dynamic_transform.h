@@ -38,9 +38,13 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return fusion_;
   }
 
-  //! Return whether any dynamic transforms exist in the Fusion
-  bool hasDynamicTransforms() const {
-    return !dynamic_reshapes_.empty() || !dynamic_resizes_.empty();
+  //! Return whether any dynamic transforms exist in the Fusion, or whether
+  //! there are any tensors which could potentially be empty (size-0 extent)
+  //! given some user input. In either of these cases, concretization may change
+  //! the structure of the Fusion.
+  bool isDynamic() const {
+    return has_possible_empty_tensor_ || !dynamic_reshapes_.empty() ||
+        !dynamic_resizes_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -88,6 +92,8 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   std::vector<ViewOp*> dynamic_reshapes_;
 
   std::vector<Resize*> dynamic_resizes_;
+
+  bool has_possible_empty_tensor_ = false;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;

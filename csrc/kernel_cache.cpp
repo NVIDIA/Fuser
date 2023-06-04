@@ -562,7 +562,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
   size_t conc_info_index = 0;
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     conc_info = DynamicTransform::getConcretizationInfo(
         fusion_.get(), &initial_info, &args);
     TORCH_CHECK(
@@ -614,7 +614,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       const auto& cloned_conc_info =
           fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
               conc_info_index);
@@ -644,7 +644,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     // In the case of cache hits, we tend to accumulate managed data in
     // fusion_. Here we release the concretization info we created to avoid
     // cloning more and more entries.

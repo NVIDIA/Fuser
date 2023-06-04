@@ -128,12 +128,14 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
       }
+      auto extent_opt = info_.expr_eval_.evaluate(id->extent());
+      if (!extent_opt.has_value() || extent_opt.value().as<int64_t>() == 0) {
+        info_.has_possible_empty_tensor_ = true;
+      }
       if (auto op = dynamic_cast<Resize*>(id->definition())) {
         info_.dynamic_resizes_.push_back(op);
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
-        // warm up extent evaluation
-        info_.expr_eval_.evaluate(id->extent());
       }
     }
   }
