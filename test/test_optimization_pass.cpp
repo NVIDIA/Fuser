@@ -69,10 +69,10 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
 
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
-    TORCH_CHECK(cycle.size() == 4, "cycle should be detected in fusion");
+    TORCH_CHECK(cycle.size() == 6, "cycle should be detected in fusion");
     EXPECT_THAT([&]() {StmtSort::getStmtsBetween(fusion.get(), {}, fusion->outputs()); },
           ::testing::ThrowsMessage<c10::Error>(
-              ::testing::HasSubstr("loop detected")));
+              ::testing::HasSubstr("cycle detected")));
   }
 }
 
