@@ -353,13 +353,8 @@ std::string DynamicTransformConcretizationInfo::toString() const {
 //! Concretize a symbolic fusion with concrete transformation info
 class DynamicTransformConcretizer : public OptOutMutator {
  public:
-  DynamicTransformConcretizer(
-      Fusion* fusion,
-      const DynamicTransformConcretizationInfo& info)
+  DynamicTransformConcretizer(const DynamicTransformConcretizationInfo& info)
       : info_(info) {
-    TORCH_INTERNAL_ASSERT(
-        fusion == info.fusion(),
-        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
     concretize();
   }
 
@@ -747,9 +742,8 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
 }
 
 void DynamicTransform::concretizeFusion(
-    Fusion* fusion,
     const DynamicTransformConcretizationInfo& info) {
-  DynamicTransformConcretizer concretizer(fusion, info);
+  DynamicTransformConcretizer concretizer(info);
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {

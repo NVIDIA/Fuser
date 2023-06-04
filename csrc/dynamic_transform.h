@@ -200,9 +200,7 @@ class TORCH_CUDA_CU_API DynamicTransform {
 
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
-  static void concretizeFusion(
-      Fusion*,
-      const DynamicTransformConcretizationInfo& info);
+  static void concretizeFusion(const DynamicTransformConcretizationInfo& info);
 };
 
 } // namespace nvfuser

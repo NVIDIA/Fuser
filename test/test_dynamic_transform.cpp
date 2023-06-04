@@ -192,7 +192,7 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   auto info = DynamicTransform::getConcretizationInfo(
       &fusion, &initial_info, &expr_eval);
 
-  DynamicTransform::concretizeFusion(&fusion, info);
+  DynamicTransform::concretizeFusion(info);
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
 
@@ -258,7 +258,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     auto info = DynamicTransform::getConcretizationInfo(
         &fusion, &initial_info, &expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -307,7 +307,7 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     auto info = DynamicTransform::getConcretizationInfo(
         &fusion, &initial_info, &expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -361,7 +361,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     auto info = DynamicTransform::getConcretizationInfo(
         &fusion, &initial_info, &expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -586,7 +586,7 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   auto info = DynamicTransform::getConcretizationInfo(
       &fusion, &initial_info, &expr_eval);
 
-  DynamicTransform::concretizeFusion(&fusion, info);
+  DynamicTransform::concretizeFusion(info);
 
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");

@@ -621,8 +621,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       TORCH_INTERNAL_ASSERT(
           cloned_conc_info.has_value(),
           "Copied Fusion is missing managed concretization info");
-      DynamicTransform::concretizeFusion(
-          fusion.get(), cloned_conc_info.value());
+      DynamicTransform::concretizeFusion(cloned_conc_info.value());
       // The information in initial_info and cloned_conc_info refers to
       // variables in the copied symbolic fusion which get replaced during
       // concretization. Keeping these around during a subsequent fusion copy
