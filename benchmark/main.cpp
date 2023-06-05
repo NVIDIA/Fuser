@@ -14,6 +14,8 @@
 #include <unistd.h>
 #endif
 
+#include "cupti_test.h"
+
 namespace {
 
 std::string getHostName() {
@@ -49,7 +51,17 @@ int main(int argc, char** argv) {
   ::benchmark::AddCustomContext("Host", getHostName());
   ::benchmark::AddCustomContext("GPU", getDeviceName());
 
+  ProfilingData_t* prof = nullptr;
+  if (getenv("CUPTI")) {
+    prof = initCupti(argc, argv);
+  }
+
   ::benchmark::RunSpecifiedBenchmarks();
+
+  if (getenv("CUPTI")) {
+    finishCupti(prof);
+  }
+  
   ::benchmark::Shutdown();
   return 0;
 }

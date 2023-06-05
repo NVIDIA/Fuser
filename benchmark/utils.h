@@ -19,6 +19,7 @@
 #include <benchmark/benchmark.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/torch.h>
 
@@ -127,6 +128,8 @@ class BenchmarkGraph : public benchmark::Fixture {
       getExecutorCacheMap()[graphName()] =
           std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
     }
+
+    c10::cuda::CUDACachingAllocator::emptyCache();    
   }
 
   void TearDown(const ::benchmark::State& state) override {}
