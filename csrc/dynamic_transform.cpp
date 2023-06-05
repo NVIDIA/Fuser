@@ -173,7 +173,7 @@ class EmptyBranchFinder : public BackwardVisitor {
   }
 
   bool isTVEmpty(TensorView* tv) {
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
       auto extent_opt = expr_eval_->evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_opt.has_value(),
@@ -206,7 +206,7 @@ class EmptyBranchFinder : public BackwardVisitor {
       if (tv->definition() && !tv->definition()->isA<FullOp>()) {
         // Replace with full
         std::vector<size_t> empty_axes;
-        auto rfactor = tv->getMaybeRFactorDomain();
+        auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
         for (size_t i : c10::irange(rfactor.size())) {
           auto id = rfactor.at(i);
           auto extent_eval = expr_eval_->evaluate(id->extent());
@@ -405,6 +405,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
+  for (const auto i : c10::irange(empty_tensors_.size())) {
+    const auto& et = empty_tensors_.at(i);
+    const auto& other_et = other.empty_tensors_.at(i);
+    if (et != other_et) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -426,6 +434,10 @@ DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
         // Similar to reshape_transforms_, we only clone the IterDomains in
         // resize_transforms_
         iter_type);
+  }
+  for (const auto& [tv, empty_axes] : empty_tensors_) {
+    cloned_info.empty_tensors_.emplace_back(
+        EmptyTensorDescriptor{ir_cloner.clone(tv), empty_axes});
   }
   return cloned_info;
 }
@@ -520,7 +532,7 @@ void DynamicTransformConcretizer::concretize() {
 void DynamicTransformConcretizer::removeEmptyBranches() {
   for (auto empty_tv_descr : info_.getEmptyTensors()) {
     auto tv = empty_tv_descr.tv;
-    auto rfactor = tv->getMaybeRFactorDomain();
+    auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     std::vector<Val*> new_shape;
     new_shape.reserve(rfactor.size());
     for (auto id : rfactor) {
@@ -532,7 +544,12 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     auto mut_tv =
         full(new_shape, tv->fusion()->zeroVal(), tv->getDataType().value());
     registerConcretization(tv, mut_tv);
-    mutate(tv);
+    OptOutMutator::mutate(tv);
+    // Replace tv in Fusion outputs() if present
+    auto outputs = tv->fusion()->outputs();
+    if (std::find(outputs.begin(), outputs.end(), tv) != outputs.end()) {
+      tv->fusion()->replaceOutput(tv, mut_tv);
+    }
   }
 }
 

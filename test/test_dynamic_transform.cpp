@@ -1007,4 +1007,86 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
   reductionDynamicPadAddFusion(invocations);
 }
 
+// Test that zero-element tensors are removed from Fusion (replaced by calls to
+// full())
+TEST_F(NVFuserTest, DynamicRewriteEmptyTensors1_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto x = makeSymbolicTensor({-1, 1});
+  auto y = makeSymbolicTensor({1, -1});
+  fusion.addInput(x);
+  fusion.addInput(y);
+
+  auto z = mul(x, y);
+  fusion.addOutput(z);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor at_x = at::randn({3, 1}, options);
+  at::Tensor at_y = at::randn({1, 0}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, at_y};
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_x * at_y},
+      __LINE__,
+      __FILE__);
+
+  auto runtime = fusion_executor_cache.getMostRecentKernelRuntime();
+  auto runtime_outputs = runtime->fusionSegments()->outputs();
+  EXPECT_EQ(runtime_outputs.size(), 1);
+
+  auto tv_output = runtime_outputs.at(0);
+  auto def = tv_output->definition();
+  EXPECT_NE(def, nullptr);
+  std::cout << def->toString() << std::endl;
+  EXPECT_EQ(def->isA<FullOp>(), true);
+}
+
+// Similar to above, but no broadcasts. Instead perform a reduction over
+// non-empty axes first.
+TEST_F(NVFuserTest, DynamicRewriteEmptyTensors2_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto x = makeSymbolicTensor({-1, -1});
+  fusion.addInput(x);
+
+  auto y = sum(x, {1});
+  fusion.addOutput(y);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor at_x = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x};
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_x.sum(1)},
+      __LINE__,
+      __FILE__);
+
+  auto runtime = fusion_executor_cache.getMostRecentKernelRuntime();
+  auto runtime_outputs = runtime->fusionSegments()->outputs();
+  EXPECT_EQ(runtime_outputs.size(), 1);
+
+  auto tv_output = runtime_outputs.at(0);
+  auto def = tv_output->definition();
+  EXPECT_NE(def, nullptr);
+  EXPECT_EQ(def->isA<FullOp>(), true);
+}
+
 } // namespace nvfuser

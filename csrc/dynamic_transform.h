@@ -114,6 +114,14 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
   TensorView* tv;
   std::vector<size_t> empty_axes;
+
+  bool operator==(const EmptyTensorDescriptor& other) const {
+    return tv == other.tv && empty_axes == other.empty_axes;
+  }
+
+  bool operator!=(const EmptyTensorDescriptor& other) const {
+    return !operator==(other);
+  }
 };
 
 //! A set of transformations for a symbolic fusion with concrete sizes
