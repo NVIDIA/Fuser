@@ -476,6 +476,11 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
+    for (auto v : fusion->axioms()) {
+      if (std::find(stmts.begin(), stmts.end(), v) == stmts.end()) {
+        more.emplace_back(v);
+      }
+    }
     auto more_stmts = StmtSort::getStmts(fusion, more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
