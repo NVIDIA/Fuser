@@ -433,5 +433,19 @@ void validateDomainEquivalence(
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
+//! Get the only producer of a tensor view. If there are multiple producers,
+//! then throw an error.
+inline TensorView* getSoleProducerTv(const TensorView* tv) {
+  auto producers = producerTvsOf({tv});
+  TORCH_INTERNAL_ASSERT(
+      producers.size() == 1,
+      "Expected only one producer of ",
+      tv->toString(),
+      ", but found ",
+      producers.size(),
+      " producers.");
+  return producers[0];
+}
+
 } // namespace ir_utils
 } // namespace nvfuser

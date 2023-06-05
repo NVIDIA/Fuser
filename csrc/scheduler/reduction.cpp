@@ -927,11 +927,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       !tv_inps.empty(),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
-  auto reduction_producers = ir_utils::producerTvsOf(reduction_tv);
-  TORCH_INTERNAL_ASSERT(
-      reduction_producers.size() == 1,
-      "Expected only one producer of reduction tensor view.");
-  auto reduced_tv = reduction_producers.at(0);
+  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(

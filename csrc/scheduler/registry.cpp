@@ -2218,11 +2218,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    auto reduction_producers = ir_utils::producerTvsOf(reduction_tvs.at(0));
-    TORCH_INTERNAL_ASSERT(
-        reduction_producers.size() == 1,
-        "Expected only one producer of reduction tensor view.");
-    auto reduced_tv = reduction_producers.at(0);
+    auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tvs.at(0));
 
     const int64_t vectorization_factor =
         (int64_t)vectorize_helper::getVectorizationFactor(
