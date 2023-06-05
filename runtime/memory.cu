@@ -199,6 +199,7 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
 // Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor
 // https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp
 
 namespace Hopper {
