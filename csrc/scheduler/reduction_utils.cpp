@@ -460,9 +460,15 @@ void propagateParallelization(
     // Find all tensor views that should have unroll or vectorization
     std::unordered_set<TensorView*> are_unrolled;
 
+    auto reduction_producers = ir_utils::producerTvsOf(reference_tv);
+    TORCH_INTERNAL_ASSERT(
+        reduction_producers.size() == 1,
+        "Expected only one producer of reduction tensor view.");
+    auto reduced_tv = reduction_producers.at(0);
+
     // Grab all tensor views that should be vectorized
     auto vectorizable_inputs_outputs =
-        scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
     auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 

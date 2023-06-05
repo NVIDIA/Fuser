@@ -1252,10 +1252,14 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto entry : mapped_root_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   for (auto entry : mapped_rfactor_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   return mapped_id_set;
 }
@@ -1265,8 +1269,7 @@ bool hasInnerDim(
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
   const auto& inner_most_dim = innerMostRootDim(tv);
-  // TODO: Why "|| inner_most_dim->isReduction()"
-  if (inner_most_dim == nullptr || inner_most_dim->isReduction()) {
+  if (inner_most_dim == nullptr) {
     return false;
   }
 
