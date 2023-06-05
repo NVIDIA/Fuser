@@ -163,13 +163,21 @@ static void SingleMatmulBase(
         "Shared memory bank conflict not removed.");
   }
 
-  std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
-
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = fe.runFusion({inputs.first, inputs.second});
+  fe.setMeasureKernelTimeFlag(true);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  // Sync everything up before we start
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto outputs = fe.runFusion({inputs.first, inputs.second});
+    checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  cudaDeviceSynchronize();
 
   // TODO: FLOPS calculation
 }

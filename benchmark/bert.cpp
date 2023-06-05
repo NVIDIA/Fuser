@@ -145,8 +145,17 @@ static void MagicScheduler_DivMaxSoftDropFwd(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   for (auto tensor : std::vector<at::Tensor>({t0, t1})) {
@@ -196,8 +205,17 @@ static void MagicScheduler_DivMaxSoftDropBwd(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   // Some reason t1 isn't used, ignore it.
@@ -302,8 +320,18 @@ static void MagicScheduler_BiasDropoutAddLayernormFwd(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
 
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   for (auto inp : at_inputs) {
@@ -402,8 +430,18 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd1(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
 
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   for (auto inp : at_inputs) {
@@ -503,8 +541,18 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd2(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
 
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   for (auto inp : at_inputs) {
@@ -584,8 +632,18 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd3(
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
 
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion(at_inputs, norm_params->lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   int64_t bytes = 0;
   for (auto inp : at_inputs) {

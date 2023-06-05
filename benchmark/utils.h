@@ -19,22 +19,10 @@
 #include <benchmark/benchmark.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/torch.h>
 
 #include <cuda_runtime.h>
-
-#define CUDA_RT_SAFE_CALL(x)                                           \
-  do {                                                                 \
-    cudaError_t result = x;                                            \
-    if (result != cudaSuccess) {                                       \
-      std::cerr << "CUDA error: " << cudaGetErrorName(result)          \
-                << " failed with error " << cudaGetErrorString(result) \
-                << std::endl;                                          \
-      std::abort();                                                    \
-    }                                                                  \
-  } while (0)
 
 using namespace nvfuser;
 
@@ -44,19 +32,13 @@ std::string toString(const TransposeParams& params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
-// Run benchmark iterations with provided inputs. Report kernel time
-// from the runtime, as well as heuristic parameters if not segmented.
+// Run benchmark iterations with provided inputs. If not segmented, report
+// kernel time from the runtime, as well as heuristic parameters. If segmented
+// use timers. Make sure to clear L2 between iterations.
 void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
-
-void runBenchmarkIterations(
-    benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
-    std::vector<c10::IValue>& aten_inputs,
-    const LaunchParams& launch_constraints = LaunchParams(),
-    CompileParams compile_params = CompileParams());
 
 class CudaKernelTimer {
  public:
@@ -128,8 +110,6 @@ class BenchmarkGraph : public benchmark::Fixture {
       getExecutorCacheMap()[graphName()] =
           std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
     }
-
-    c10::cuda::CUDACachingAllocator::emptyCache();    
   }
 
   void TearDown(const ::benchmark::State& state) override {}

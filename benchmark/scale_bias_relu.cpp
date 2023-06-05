@@ -123,8 +123,6 @@ static void NvFuserScheduler_SBR(
       benchmark_state.range(2)};
   std::vector<int64_t> bcast_shape{1, 1, 1, -1};
 
-  //c10::cuda::CUDACachingAllocator::emptyCache();
-
   // inputs
   at::manual_seed(0);
   std::vector<int64_t> static_bcast_shape{1, 1, 1, benchmark_state.range(2)};
@@ -137,7 +135,30 @@ static void NvFuserScheduler_SBR(
   // inputs
   std::vector<c10::IValue> aten_inputs = {at_x, at_scale, at_bias};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  fusion_executor_cache->profile(true);
+  fusion_executor_cache->runFusionWithInputs(aten_inputs);
+
+  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  auto executor_instance = compile_log.fusion_executor;
+  auto params = toString(compile_log.params);
+  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+
+  benchmark_state.SetLabel(params + lparams);
+  benchmark_state.SetLabel(lparams);
+
+  fusion_executor_cache->profile(false);
+  executor_instance->setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    benchmark_state.SetIterationTime(
+        executor_instance->kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
@@ -216,7 +237,30 @@ static void NvFuserScheduler_SBR_Norm(
   std::vector<c10::IValue> aten_inputs = {
       at_x, at_weight, at_bias, at_mean, at_var};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  fusion_executor_cache->profile(true);
+  fusion_executor_cache->runFusionWithInputs(aten_inputs);
+
+  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  auto executor_instance = compile_log.fusion_executor;
+  auto params = toString(compile_log.params);
+  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+
+  benchmark_state.SetLabel(params + lparams);
+
+  fusion_executor_cache->profile(false);
+  executor_instance->setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    benchmark_state.SetIterationTime(
+        executor_instance->kernelTimeMs() / 1000.0);
+  }
+
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];

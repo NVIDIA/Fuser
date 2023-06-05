@@ -104,8 +104,18 @@ static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+  fe.setMeasureKernelTimeFlag(true);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  // Sync everything up before we start
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto outputs = fe.runFusion(aten_inputs);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -149,8 +159,18 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+  fe.setMeasureKernelTimeFlag(true);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  // Sync everything up before we start
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto outputs = fe.runFusion(aten_inputs);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

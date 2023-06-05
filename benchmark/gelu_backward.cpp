@@ -200,12 +200,22 @@ static void GeluBackward_RunFusion_GpuOnly(benchmark::State& benchmark_state) {
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
+  // outputs
+  std::vector<at::Tensor> outputs;
+
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
+  executor.setMeasureKernelTimeFlag(true);
   executor.compileFusion(&fusion, inputs, lparams);
 
-  runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
+  C10_CUDA_CHECK(cudaDeviceSynchronize());
+
+  for (auto _ : benchmark_state) {
+    outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);
+    benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
+    clearL2Cache();
+  }
 }
 
 BENCHMARK(GeluBackward_RunFusion_GpuOnly)
