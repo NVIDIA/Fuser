@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // Utility macro for this file
+// clang-format on
+
 #define DEVICE_INLINE __device__ inline
 
 // Utility for converting generic pointer to SMEM pointer in PTX.
@@ -74,7 +76,7 @@ DEVICE_INLINE void adjustPartialLdMatrixAddrInTuring(unsigned& addr_in_byte) {
 // Finally is an x4 modifier producing a 32x8 using addrs from 0-31 in each
 // warp.
 
-template<typename T>
+template <typename T>
 DEVICE_INLINE void ldMatrix(Array<T, 4, 4>& out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2& val = reinterpret_cast<uint2&>(out);
@@ -87,7 +89,7 @@ DEVICE_INLINE void ldMatrix(Array<T, 4, 4>& out, unsigned addr) {
 // Same as previous, 8x8 matrix is vectorized loaded, then scattered (to perform
 // transpose) so threads will hold 2 values down a column (instead of the
 // previous instruction that's across a row).
-template<typename T>
+template <typename T>
 DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>& out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2& val = reinterpret_cast<uint2&>(out);
@@ -97,7 +99,7 @@ DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>& out, unsigned addr) {
                : "r"(addr));
 }
 
-template<typename T>
+template <typename T>
 DEVICE_INLINE void ldMatrix(Array<T, 8, 8>& out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint4& val = reinterpret_cast<uint4&>(out);
@@ -106,7 +108,7 @@ DEVICE_INLINE void ldMatrix(Array<T, 8, 8>& out, unsigned addr) {
                : "r"(addr));
 }
 
-template<typename T>
+template <typename T>
 DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>& out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint4& val = reinterpret_cast<uint4&>(out);
@@ -178,11 +180,6 @@ DEVICE_INLINE void cpAsyncCg(
       "r"((int)predicate));
 }
 
-// TODO: Might have a different category of sync if we want to build out this:
-DEVICE_INLINE void cpAsyncBarrier() {
-  asm volatile("cp.async.wait_all;");
-}
-
 DEVICE_INLINE void cpAsyncCommit() {
   asm volatile("cp.async.commit_group;");
 }
@@ -195,5 +192,112 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 } // namespace Ampere
 
 #endif // Arch 80
+
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor
+// https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp
+
+namespace Hopper {
+
+DEVICE_INLINE void cpAsyncBulkTensorS2G(
+    void const* const desc_ptr,
+    uint32_t smem_addr,
+    int32_t crd0) {
+  // TODO: remove this cast?
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
+      :
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0)
+      : "memory");
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorS2G(
+    void const* const desc_ptr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
+      :
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0), "r"(crd1)
+      : "memory");
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorS2G(
+    void const* const desc_ptr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
+      :
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0), "r"(crd1), "r"(crd2)
+      : "memory");
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorS2G(
+    void const* const desc_ptr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2,
+    int32_t crd3) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
+      :
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(crd0),
+        "r"(crd1),
+        "r"(crd2),
+        "r"(crd3)
+      : "memory");
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorS2G(
+    void const* const desc_ptr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2,
+    int32_t crd3,
+    int32_t crd4) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
+      :
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(crd0),
+        "r"(crd1),
+        "r"(crd2),
+        "r"(crd3),
+        "r"(crd4)
+      : "memory");
+}
+
+DEVICE_INLINE void cpAsyncBulkCommit() {
+  asm volatile("cp.async.bulk.commit_group;");
+}
+
+// Wait on prior N (Count) TMA_STORE instructions to complete
+template <int keep_stages>
+DEVICE_INLINE void cpAsyncBulkPartialBarrier() {
+  asm volatile("cp.async.bulk.wait_group.read %0;"
+               :
+               : "n"(keep_stages)
+               : "memory");
+}
+
+} // namespace Hopper
+
+#endif // Arch 90
 
 #undef DEVICE_INLINE
