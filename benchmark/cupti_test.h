@@ -1,3 +1,4 @@
+#pragma once
 
 #include <cupti_target.h>
 #include <cupti_profiler_target.h>
@@ -10,9 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "Utils.h"
-//#include "Eval.h"
-
+#include "cupti_utils.h"
 
 #ifndef EXIT_WAIVED
 #define EXIT_WAIVED 2
@@ -79,7 +78,7 @@ struct ProfilingData_t
     std::vector<uint8_t> counterDataScratchBuffer;
 };
 
-void enableProfiling(ProfilingData_t* pProfilingData)
+inline void enableProfiling(ProfilingData_t* pProfilingData)
 {
     CUpti_Profiler_EnableProfiling_Params enableProfilingParams = { CUpti_Profiler_EnableProfiling_Params_STRUCT_SIZE };
     if (pProfilingData->profilerReplayMode == CUPTI_KernelReplay)
@@ -94,7 +93,7 @@ void enableProfiling(ProfilingData_t* pProfilingData)
     }
 }
 
-void disableProfiling(ProfilingData_t* pProfilingData)
+inline void disableProfiling(ProfilingData_t* pProfilingData)
 {
     CUpti_Profiler_DisableProfiling_Params disableProfilingParams = { CUpti_Profiler_DisableProfiling_Params_STRUCT_SIZE };
     CUPTI_API_CALL(cuptiProfilerDisableProfiling(&disableProfilingParams));
@@ -117,7 +116,7 @@ void disableProfiling(ProfilingData_t* pProfilingData)
     }
 }
 
-void beginSession(ProfilingData_t* pProfilingData)
+inline void beginSession(ProfilingData_t* pProfilingData)
 {
     CUpti_Profiler_BeginSession_Params beginSessionParams = { CUpti_Profiler_BeginSession_Params_STRUCT_SIZE };
     beginSessionParams.ctx = NULL;
@@ -132,7 +131,7 @@ void beginSession(ProfilingData_t* pProfilingData)
     CUPTI_API_CALL(cuptiProfilerBeginSession(&beginSessionParams));
 }
 
-void setConfig(ProfilingData_t* pProfilingData)
+inline void setConfig(ProfilingData_t* pProfilingData)
 {
     CUpti_Profiler_SetConfig_Params setConfigParams = { CUpti_Profiler_SetConfig_Params_STRUCT_SIZE };
     setConfigParams.pConfig = &pProfilingData->configImage[0];
@@ -141,7 +140,7 @@ void setConfig(ProfilingData_t* pProfilingData)
     CUPTI_API_CALL(cuptiProfilerSetConfig(&setConfigParams));
 }
 
-void createCounterDataImage(int numRanges,
+inline void createCounterDataImage(int numRanges,
     std::vector<uint8_t>& counterDataImagePrefix,
     std::vector<uint8_t>& counterDataScratchBuffer,
     std::vector<uint8_t>& counterDataImage
@@ -181,7 +180,7 @@ void createCounterDataImage(int numRanges,
     CUPTI_API_CALL(cuptiProfilerCounterDataImageInitializeScratchBuffer(&initScratchBufferParams));
 }
 
-void setupProfiling(ProfilingData_t* pProfilingData)
+inline void setupProfiling(ProfilingData_t* pProfilingData)
 {
     /* Generate configuration for metrics, this can also be done offline*/
     NVPW_InitializeHost_Params initializeHostParams = { NVPW_InitializeHost_Params_STRUCT_SIZE };
@@ -213,7 +212,7 @@ void setupProfiling(ProfilingData_t* pProfilingData)
     setConfig(pProfilingData);
 }
 
-void stopProfiling(ProfilingData_t* pProfilingData)
+inline void stopProfiling(ProfilingData_t* pProfilingData)
 {
     CUpti_Profiler_UnsetConfig_Params unsetConfigParams = { CUpti_Profiler_UnsetConfig_Params_STRUCT_SIZE };
     CUpti_Profiler_EndSession_Params endSessionParams = { CUpti_Profiler_EndSession_Params_STRUCT_SIZE };
@@ -228,7 +227,7 @@ void stopProfiling(ProfilingData_t* pProfilingData)
     WriteBinaryFile(pProfilingData->CounterDataSBFileName.c_str(), pProfilingData->counterDataScratchBuffer);
 }
 
-void callbackHandler(void* userdata, CUpti_CallbackDomain domain,
+inline void callbackHandler(void* userdata, CUpti_CallbackDomain domain,
                       CUpti_CallbackId cbid, void* cbdata)
 {
     ProfilingData_t* profilingData = (ProfilingData_t*)(userdata);
@@ -280,7 +279,7 @@ void callbackHandler(void* userdata, CUpti_CallbackDomain domain,
 
 }
 
-ProfilingData_t* initCupti(int argc, char** argv) {
+inline ProfilingData_t* initCupti(int argc, char** argv) {
   cudaSetDevice(0);
   int deviceNum = 0;
   
@@ -409,7 +408,7 @@ ProfilingData_t* initCupti(int argc, char** argv) {
   return profilingData;
 }
 
-void finishCupti(ProfilingData_t* profilingData) {
+inline void finishCupti(ProfilingData_t* profilingData) {
   if (profilingData->bProfiling)
   {
     stopProfiling(profilingData);
