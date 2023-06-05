@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   if (getenv("CUPTI")) {
     finishCupti(prof);
   }
-  
+
   ::benchmark::Shutdown();
   return 0;
 }

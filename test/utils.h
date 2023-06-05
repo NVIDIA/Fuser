@@ -115,7 +115,6 @@ inline void clearL2Cache() {
 
   auto l2_elems = l2_cache_size / 4;
   torch::Tensor t0 = torch::empty(l2_elems, options);
-  //torch::Tensor t0 = torch::randn(l2_elems, options);
   torch::Tensor t1 = torch::clone(t0);
 };
 

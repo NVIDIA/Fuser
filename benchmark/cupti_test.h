@@ -243,7 +243,7 @@ inline void callbackHandler(void* userdata, CUpti_CallbackDomain domain,
           if (kernel_name.find("kernel1") == std::string::npos) {
             break;
           }
-          
+
             if (cbInfo->callbackSite == CUPTI_API_ENTER)
             {
               //std::cerr << "Profiling " << kernel_name << std::endl;
@@ -282,7 +282,7 @@ inline void callbackHandler(void* userdata, CUpti_CallbackDomain domain,
 inline ProfilingData_t* initCupti(int argc, char** argv) {
   cudaSetDevice(0);
   int deviceNum = 0;
-  
+
   // Initialize profiler API support and test device compatibility
   CUpti_Profiler_Initialize_Params profilerInitializeParams = {CUpti_Profiler_Initialize_Params_STRUCT_SIZE};
   CUPTI_API_CALL(cuptiProfilerInitialize(&profilerInitializeParams));
@@ -393,7 +393,7 @@ inline ProfilingData_t* initCupti(int argc, char** argv) {
       exit(EXIT_FAILURE);
     }
   }
-#endif  
+#endif
 
   CUpti_Device_GetChipName_Params getChipNameParams = { CUpti_Device_GetChipName_Params_STRUCT_SIZE };
   getChipNameParams.deviceIndex = deviceNum;
@@ -417,6 +417,6 @@ inline void finishCupti(ProfilingData_t* profilingData) {
     /* Evaluation of metrics collected in counterDataImage, this can also be done offline*/
     NV::Metric::Eval::PrintMetricValues(profilingData->chipName, profilingData->counterDataImage, profilingData->metricNames);
   }
-  
+
   delete profilingData;
 }

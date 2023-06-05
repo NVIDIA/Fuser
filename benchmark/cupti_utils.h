@@ -360,7 +360,7 @@ bool GetCounterDataPrefixImage(std::string chipName, const std::vector<std::stri
 
   return true;
 }
-        
+
 }
 }
 }
@@ -473,7 +473,7 @@ inline bool GetMetricGpuValue( std::string chipName,
     convertMetricToEvalRequest.pMetricEvalRequest = &metricEvalRequest;
     convertMetricToEvalRequest.metricEvalRequestStructSize = NVPW_MetricEvalRequest_STRUCT_SIZE;
     RETURN_IF_NVPW_ERROR(false, NVPW_MetricsEvaluator_ConvertMetricNameToMetricEvalRequest(&convertMetricToEvalRequest));
-                    
+
     MetricNameValue metricNameValue;
     metricNameValue.numRanges = getNumRangesParams.numRanges;
     metricNameValue.metricName = metricNames[metricIndex];
@@ -520,14 +520,14 @@ inline bool GetMetricGpuValue( std::string chipName,
     }
     metricNameValueMap.push_back(metricNameValue);
   }
-                
+
   NVPW_MetricsEvaluator_Destroy_Params metricEvaluatorDestroyParams = { NVPW_MetricsEvaluator_Destroy_Params_STRUCT_SIZE };
   metricEvaluatorDestroyParams.pMetricsEvaluator = metricEvaluator;
   RETURN_IF_NVPW_ERROR(false, NVPW_MetricsEvaluator_Destroy(&metricEvaluatorDestroyParams));
   return true;
 }
 
-inline bool PrintMetricValues( std::string chipName, 
+inline bool PrintMetricValues( std::string chipName,
                                const std::vector<uint8_t>& counterDataImage,
                                const std::vector<std::string>& metricNames,
                                const uint8_t* pCounterAvailabilityImage = NULL)
@@ -616,12 +616,12 @@ inline bool PrintMetricValues( std::string chipName,
       evaluateToGpuValuesParams.isolated = true;
       evaluateToGpuValuesParams.pMetricValues = &metricValue;
       RETURN_IF_NVPW_ERROR(false, NVPW_MetricsEvaluator_EvaluateToGpuValues(&evaluateToGpuValuesParams));
-                        
+
       std::cout << std::setw(40) << std::left << rangeName << std::setw(100)
                 << std::left << metricName << metricValue << std::endl;
     }
   }
-                
+
   NVPW_MetricsEvaluator_Destroy_Params metricEvaluatorDestroyParams = { NVPW_MetricsEvaluator_Destroy_Params_STRUCT_SIZE };
   metricEvaluatorDestroyParams.pMetricsEvaluator = metricEvaluator;
   RETURN_IF_NVPW_ERROR(false, NVPW_MetricsEvaluator_Destroy(&metricEvaluatorDestroyParams));
