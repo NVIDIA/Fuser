@@ -64,12 +64,14 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv4 = set(tv3);
     fusion->addOutput(tv4);
 
-    auto cycle = ir_utils::checkCycle(fusion.get());
-    TORCH_CHECK(cycle.empty(), "no cycle should be detected in fusion");
-
+    TORCH_CHECK(
+        ir_utils::checkCycle(fusion.get()).empty(),
+        "no cycle should be detected in fusion");
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
-    TORCH_CHECK(cycle.size() == 6, "cycle should be detected in fusion");
+    TORCH_CHECK(
+        ir_utils::checkCycle(fusion.get()).size() == 6,
+        "cycle of size 6 should be detected in fusion");
     EXPECT_THAT(
         [&]() {
           StmtSort::getStmtsBetween(fusion.get(), {}, fusion->outputs());
