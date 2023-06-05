@@ -65,7 +65,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
-  // found either in the the rfactor domain**.
+  // found in the the rfactor domain.
   TORCH_INTERNAL_ASSERT(
       std::all_of(
           reference_ids.begin(),
@@ -78,7 +78,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
                     id) != reference->getMaybeRFactorDomain().end());
           }),
       "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-      "ContiguousInnerDimensionsMapper must either all exist in the root rfactor domain.\n",
+      "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
       "Reference: ",
       reference->toString());
 
