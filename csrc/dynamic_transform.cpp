@@ -126,12 +126,12 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
-      if (!id->definition() || id->getIterType() != IterType::Symbolic) {
-        continue;
-      }
       auto extent_opt = info_.expr_eval_.evaluate(id->extent());
       if (!extent_opt.has_value() || extent_opt.value().as<int64_t>() == 0) {
         info_.has_possible_empty_tensor_ = true;
+      }
+      if (!id->definition() || id->getIterType() != IterType::Symbolic) {
+        continue;
       }
       if (auto op = dynamic_cast<Resize*>(id->definition())) {
         info_.dynamic_resizes_.push_back(op);
@@ -161,16 +161,20 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   std::vector<Val*> leaf_dynamic_vals_;
 };
 
-class EmptyBranchFinder : public OptOutDispatch {
+class EmptyBranchFinder : public BackwardVisitor {
  public:
-  EmptyBranchFinder(Fusion* fusion, ExpressionEvaluator& expr_eval)
+  EmptyBranchFinder(Fusion* fusion, ExpressionEvaluator* expr_eval)
       : fusion_(fusion), expr_eval_(expr_eval) {
-    mutate(fusion_->outputs());
+    // We do not require the traversal to cover all outputs, because if we
+    // replace some outputs with calls to full() then any unused outputs will be
+    // ignored entirely.
+    must_cover_all_expr_outputs_ = false;
+    traverseTo(fusion, fusion->outputs(), false);
   }
 
   bool isTVEmpty(TensorView* tv) {
-    for (auto id : tv->getRootDomain()) {
-      auto extent_opt = expr_eval_.evaluate(id->extent());
+    for (auto id : tv->getMaybeRFactorDomain()) {
+      auto extent_opt = expr_eval_->evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_opt.has_value(),
           "Cannot evaluate extent ",
@@ -184,49 +188,72 @@ class EmptyBranchFinder : public OptOutDispatch {
     return false;
   }
 
-  using OptOutMutator::mutate;
+  std::vector<EmptyTensorDescriptor> getEmptyTensors() const {
+    return empty_tensors_;
+  }
 
-  void mutate(std::vector<Val*> vals) {
+ private:
+  using BackwardVisitor::handle;
+
+  void handle(std::vector<Val*> vals) {
     for (auto v : vals) {
-      mutate(v);
+      handle(v);
     }
   }
 
-  void mutate(TensorView* tv) final {
+  void handle(TensorView* tv) final {
     if (isTVEmpty(tv)) {
       if (tv->definition() && !tv->definition()->isA<FullOp>()) {
         // Replace with full
-        std::vector<Val*> shape;
-        shape.reserve(tv->getRootDomain().size());
-        for (auto id : tv->getRootDomain()) {
-          shape.push_back(id->extent());
+        std::vector<size_t> empty_axes;
+        auto rfactor = tv->getMaybeRFactorDomain();
+        for (size_t i : c10::irange(rfactor.size())) {
+          auto id = rfactor.at(i);
+          auto extent_eval = expr_eval_->evaluate(id->extent());
+          TORCH_INTERNAL_ASSERT(
+              extent_eval.has_value(),
+              "When finding empty tensors: could not evaluate extent of ",
+              id->toString());
+          if (extent_eval.value().as<int64_t>() == 0) {
+            empty_axes.push_back(i);
+          }
         }
-        auto full_output = full(
-            shape, fusion_->zeroVal(), tv->Statement::getDataType().value());
-        registerMutation(tv, full_output);
+        empty_tensors_.push_back(EmptyTensorDescriptor{tv, empty_axes});
       }
       return;
     }
     if (tv->definition()) {
-      mutate(tv->definition()->inputs());
+      handle(tv->definition()->inputs());
     }
   }
 
  private:
   Fusion* fusion_;
-  ExpressionEvaluator expr_eval_;
+  ExpressionEvaluator* expr_eval_;
+  std::vector<EmptyTensorDescriptor> empty_tensors_;
 };
 
-void DynamicTransformConcretizer::findEmptyBranches(
+DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
+    Fusion* fusion,
     const DynamicTransformInitialInfo* info,
-    ExpressionEvaluator* expr_eval) {
-  for (auto tv : info_.empty_tensors_) {
-    // TODO: record if empty, with which dimensions are zero
-    // TODO: re-traverse to find dynamic reshapes and resizes in case we find
-    // any empty branches since they may be on removed branches. We may trigger
-    // unnecessary recompilations when the cache misses so we try to include the
-    // minimal amount of information possible.
-  }
+    ExpressionEvaluator* expr_eval)
+    : fusion_(fusion) {
+  TORCH_INTERNAL_ASSERT(
+      !fusion->isA<kir::Kernel>(),
+      "Invalid container. Kernel container not allowed.\n");
+
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval->propagateBoundValuesThroughExactMaps(fusion);
+
+  analyzeReshapes(info, expr_eval);
+
+  analyzeResizes(info, expr_eval);
+
+  // Find a minimal set of empty tensors to replace with full() calls
+  // NOTE: this does a backward traversal from outputs.
+  empty_tensors_ =
+      EmptyBranchFinder(info->fusion(), expr_eval).getEmptyTensors();
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
@@ -408,8 +435,13 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
   ss << indent << "Empty tensors:\n";
-  for (const auto& tv : empty_tensors_) {
-    ss << indent << indent << tv->toString() << "\n";
+  for (const auto& kv : empty_tensors_) {
+    ss << indent << indent << kv.tv->toString()
+       << " has zero extent in these axes:";
+    for (auto i : kv.empty_axes) {
+      ss << " " << i;
+    }
+    ss << "\n";
   }
   ss << indent << "Reshape:\n";
   for (const auto& kv : reshape_transforms_) {
@@ -482,6 +514,25 @@ void DynamicTransformConcretizer::concretize() {
     if (stmt->isA<Val>()) {
       mutate(stmt);
     }
+  }
+}
+
+void DynamicTransformConcretizer::removeEmptyBranches() {
+  for (auto empty_tv_descr : info_.getEmptyTensors()) {
+    auto tv = empty_tv_descr.tv;
+    auto rfactor = tv->getMaybeRFactorDomain();
+    std::vector<Val*> new_shape;
+    new_shape.reserve(rfactor.size());
+    for (auto id : rfactor) {
+      new_shape.push_back(id->extent());
+    }
+    for (auto ax : empty_tv_descr.empty_axes) {
+      new_shape[ax] = tv->fusion()->zeroVal();
+    }
+    auto mut_tv =
+        full(new_shape, tv->fusion()->zeroVal(), tv->getDataType().value());
+    registerConcretization(tv, mut_tv);
+    mutate(tv);
   }
 }
 

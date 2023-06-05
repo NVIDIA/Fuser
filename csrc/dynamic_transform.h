@@ -47,6 +47,12 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
         !dynamic_resizes_.empty();
   }
 
+  //! Return whether there are any tensors with unknown extent in some
+  //! dimension, so that they might be empty
+  bool hasPossibleEmptyTensor() const {
+    return has_possible_empty_tensor_;
+  }
+
   //! Return a set of scalars that are inputs or extents of input TensorViews
   //! and that appear in inputs to dynamic expressions. Any Vals not in this
   //! list do not affect concretization.
@@ -104,6 +110,12 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   friend class DynamicTransformInitialInfoBuilder;
 };
 
+//! Describes known empty dimensions in a TensorView's maybe RFactor domain
+struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
+  TensorView* tv;
+  std::vector<size_t> empty_axes;
+};
+
 //! A set of transformations for a symbolic fusion with concrete sizes
 //! of the fusion inputs
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
@@ -111,22 +123,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   DynamicTransformConcretizationInfo(
       Fusion* fusion,
       const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval)
-      : fusion_(fusion) {
-    TORCH_INTERNAL_ASSERT(
-        !fusion->isA<kir::Kernel>(),
-        "Invalid container. Kernel container not allowed.\n");
+      ExpressionEvaluator* expr_eval);
 
-    // Make sure all exactly mapped IDs have the same value in the
-    // evaluator when any one of the IDs has a known value
-    expr_eval->propagateBoundValuesThroughExactMaps(fusion);
-
-    // Find a minimal set of empty tensors to replace with full() calls
-    findEmptyTensors(info, expr_eval);
-
-    analyzeReshapes(info, expr_eval);
-
-    analyzeResizes(info, expr_eval);
+  const std::vector<EmptyTensorDescriptor>& getEmptyTensors() const {
+    return empty_tensors_;
   }
 
   const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
@@ -144,10 +144,6 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
   }
-
-  void findEmptyTensors(
-      const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval);
 
   void analyzeReshapes(
       const DynamicTransformInitialInfo* info,
@@ -175,7 +171,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   // Holds, for each empty tensor, a pointer to the tensor along with a vector
   // of positions in its rfactor domain which are size 0
-  std::vector < std::pair<TensorView*, std::vector<size_t>> empty_tensors_;
+  std::vector<EmptyTensorDescriptor> empty_tensors_;
 
   // Holds, for each dynamic reshape, the output TensorView, and the result of
   // analyzeView
