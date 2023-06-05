@@ -61,6 +61,13 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
 
+  if (from->axioms_ != nullptr) {
+    to->axioms_ = std::make_unique<std::vector<Bool*>>();
+    for (auto pred : *from->axioms_) {
+      to->axioms_->emplace_back(ir_cloner.clone(pred));
+    }
+  }
+
   return ir_cloner;
 }
 
@@ -189,7 +196,7 @@ void IrContainer::clear() noexcept {
   exprs_.clear();
   exprs_up_.clear();
   raw_ptrs_.clear();
-
+  axioms_.reset();
   val_type_name_map_.clear();
   expr_name_counter_ = 0;
 }
@@ -305,7 +312,7 @@ NamedScalar* IrContainer::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
-const std::vector<Bool*>& IrContainer::axioms() {
+void IrContainer::lazyInitAxioms() {
   if (!axioms_) {
     axioms_ = std::make_unique<std::vector<Bool*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
@@ -318,7 +325,18 @@ const std::vector<Bool*>& IrContainer::axioms() {
       axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
     }
   }
-  return *axioms_;
+}
+
+void IrContainer::assumePositive(Val* val) {
+  TORCH_INTERNAL_ASSERT(val->container() == this);
+  lazyInitAxioms();
+  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
+}
+
+void IrContainer::assumeNonNegative(Val* val) {
+  TORCH_INTERNAL_ASSERT(val->container() == this);
+  lazyInitAxioms();
+  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
 } // namespace nvfuser
