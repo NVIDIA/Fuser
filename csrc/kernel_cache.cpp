@@ -901,7 +901,8 @@ void FusionKernelRuntime::compileKernel(
       fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
-      scheduler_entry->params()->cparams);
+      scheduler_entry->params()->cparams,
+      scheduler_entry->heuristic());
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

@@ -14,12 +14,15 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <maxinfo_propagator.h>
+#include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_heuristic.h>
 
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
+
+std::string getHeuristicName(ScheduleHeuristic h);
 
 namespace scheduler_utils {
 

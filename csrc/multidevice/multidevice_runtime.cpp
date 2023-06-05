@@ -83,10 +83,14 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
     updateLaunchParamsFromScheduler(scheduler_entry, launch_params);
   }
 
+  auto heuristic = (maybe_scheduler_entry.has_value())
+      ? maybe_scheduler_entry.value()->heuristic()
+      : ScheduleHeuristic::None;
+
   args.setDeviceIndex(device_index);
   // Lower the fusion and compile the generated kernel.
   executor_ptr->compileFusion(
-      fusion_from_cluster.get(), args, launch_params, {});
+      fusion_from_cluster.get(), args, launch_params, {}, heuristic);
 
   return executor_ptr;
 }

@@ -181,7 +181,8 @@ void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    ScheduleHeuristic heuristic) {
   FUSER_PERF_SCOPE("compileFusion");
 
   TORCH_INTERNAL_ASSERT(
@@ -267,6 +268,7 @@ void FusionExecutor::compileFusion(
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel()->as<Fusion>();
 
+  heuristic_ = heuristic;
   fusion_id_ = ++fusion_id_counter_;
   setUsedTVs();
 

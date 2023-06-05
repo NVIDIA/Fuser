@@ -159,7 +159,8 @@ static void SingleMatmulBase(
   // Compile kernel
   auto launch_constraints = LaunchParams();
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  fe.compileFusion(
+      fusion, args, launch_constraints, cparams, ScheduleHeuristic::Matmul);
   if (turing_or_later) {
     TORCH_CHECK(
         getBankConflictInfo(fe.kernel(), launch_constraints).empty(),

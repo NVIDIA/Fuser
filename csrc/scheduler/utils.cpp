@@ -23,6 +23,24 @@
 #include <queue>
 
 namespace nvfuser {
+
+std::string getHeuristicName(ScheduleHeuristic h) {
+  switch (h) {
+    case ScheduleHeuristic::PointWise:
+      return "pointwise";
+    case ScheduleHeuristic::Persistent:
+      return "persistent";
+    case ScheduleHeuristic::Reduction:
+      return "reduction";
+    case ScheduleHeuristic::Transpose:
+      return "transpose";
+    case ScheduleHeuristic::Matmul:
+      return "matmul";
+    default:
+      return "none";
+  }
+}
+
 namespace scheduler_utils {
 
 // Returns number of "valid" dimensions. e.g. if tv has

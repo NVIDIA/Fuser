@@ -14,6 +14,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <scheduler/utils.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -66,7 +67,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
-      CompileParams compile_params);
+      CompileParams compile_params,
+      ScheduleHeuristic heuristic);
 
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
@@ -75,10 +77,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
+      CompileParams compile_params = CompileParams(),
+      ScheduleHeuristic heuristic = ScheduleHeuristic::None) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(fusion, args, launch_constraints, compile_params);
+    compileFusion(fusion, args, launch_constraints, compile_params, heuristic);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -222,8 +225,20 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   }
 
   std::string kernelName() const {
+    // A simple universal hash function between [0, 21474836487]
+    // that shuffles numbers without collision.
+    auto hash_fn = [a = 714468, b = 205029](int64_t x) {
+      auto linear_shift = a * x + b;
+      auto lower_half = linear_shift & 0xFFFF;
+      auto upper_half = linear_shift >> 16;
+      auto rotate = (lower_half << 16) | upper_half;
+      return rotate % 2147483648;
+    };
+
     std::stringstream ss;
-    ss << "kernel" << fusion_id_;
+    ss << "nvfuser";
+    ss << "_" << std::hex << hash_fn(fusion_id_);
+    ss << "_scheduler_" << getHeuristicName(heuristic_);
     return ss.str();
   }
 
@@ -365,6 +380,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Counter to be used for kernel name.
   int64_t fusion_id_ = -1;
   static int64_t fusion_id_counter_;
+  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
