@@ -53,7 +53,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
     TORCH_INTERNAL_ASSERT(
-        checkCycle(fusion).empty(), "cycle detected in fusion IR");
+        ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
   }
 
