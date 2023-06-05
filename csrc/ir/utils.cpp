@@ -1014,7 +1014,8 @@ std::vector<Statement*> next(Statement* stmt) {
     }
   } else {
     auto expr = stmt->as<Expr>();
-    std::vector<Statement*> inputs{expr->inputs().begin(), expr->inputs().end()};
+    std::vector<Statement*> inputs{
+        expr->inputs().begin(), expr->inputs().end()};
     return inputs;
   }
 }
@@ -1031,7 +1032,8 @@ std::vector<Statement*> checkCycle(
   while (!queue.empty()) {
     auto val = queue.front();
 
-    // early termination if we have already reached boundary or hit a previously visited node
+    // early termination if we have already reached boundary or hit a previously
+    // visited node
     if (from.count(val) != 0 || visited.count(val) != 0) {
       queue.pop_front();
       continue;
