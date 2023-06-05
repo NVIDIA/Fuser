@@ -196,4 +196,118 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 
 #endif // Arch 80
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+
+// Reference:
+// https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp
+
+namespace Hopper {
+
+DEVICE_INLINE void tmaLoad(
+    void const* const desc_ptr,
+    uint32_t smem_mbar_addr,
+    uint32_t smem_addr,
+    int32_t crd0) {
+  // TODO: can we remove this cast?
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3}], [%2];"
+      :
+      : "r"(smem_addr), "l"(gmem_int_desc), "r"(smem_int_mbar), "r"(crd0)
+      : "memory");
+}
+
+DEVICE_INLINE void tmaLoad(
+    void const* const desc_ptr,
+    uint32_t smem_mbar_addr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(crd0),
+        "r"(crd1)
+      : "memory");
+}
+
+DEVICE_INLINE void tmaLoad(
+    void const* const desc_ptr,
+    uint32_t smem_mbar_addr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(crd0),
+        "r"(crd1),
+        "r"(crd2)
+      : "memory");
+}
+
+DEVICE_INLINE void tmaLoad(
+    void const* const desc_ptr,
+    uint32_t smem_mbar_addr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2,
+    int32_t crd3) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5, %6}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(crd0),
+        "r"(crd1),
+        "r"(crd2),
+        "r"(crd3)
+      : "memory");
+}
+
+DEVICE_INLINE void tmaLoad(
+    void const* const desc_ptr,
+    uint32_t smem_mbar_addr,
+    uint32_t smem_addr,
+    int32_t crd0,
+    int32_t crd1,
+    int32_t crd2,
+    int32_t crd3,
+    int32_t crd4) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(crd0),
+        "r"(crd1),
+        "r"(crd2),
+        "r"(crd3),
+        "r"(crd4)
+      : "memory");
+}
+
+} // namespace Hopper
+
+#endif // Arch 90
+
 #undef DEVICE_INLINE
