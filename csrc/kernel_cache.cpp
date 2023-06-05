@@ -394,6 +394,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     kernel_runtime->compileFusionParallel(args);
   }
 
+  if (measure_kernel_time_) {
+    kernel_runtime->enableKernelTimeMeasurement();
+  }
+
   most_recent_runtime_ = kernel_runtime;
 
   auto fusion = kernel_runtime->fusionSegments()->completeFusion();
@@ -416,6 +420,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       seq_id);
   auto outputs = kernel_runtime->runWithInputs(args);
   RECORD_OUTPUTS(outputs);
+
+  // Kernel time measurement is off by default
+  kernel_runtime->disableKernelTimeMeasurement();
 
   // Permute output tensor returned by kernel execution.
   // See Part_3 in Note [ Permutation support in nvfuser ]
@@ -727,6 +734,9 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   auto outputs = executor.runFusion(args, launch_params, compile_params);
 
+  // Accumulate the kernel time of each segment
+  kernel_time_ms_ += executor.kernelTimeMs();
+
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     std::cout << "\nRun kernel:\n";
@@ -1005,6 +1015,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
   auto group_cache_id = args.getCacheId();
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
+  kernel_time_ms_ = 0;
   for (auto group_id : c10::irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
