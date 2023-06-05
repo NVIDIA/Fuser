@@ -195,13 +195,18 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
-// Reference:
+// References:
+//
+// TMA:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor
 // https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp
+//
+// Tensor map:
+// https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
 namespace Hopper {
 
-DEVICE_INLINE void cpAsyncBulkTensorS2G(
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
     int32_t crd0) {
@@ -214,7 +219,7 @@ DEVICE_INLINE void cpAsyncBulkTensorS2G(
       : "memory");
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorS2G(
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
     int32_t crd0,
@@ -227,7 +232,7 @@ DEVICE_INLINE void cpAsyncBulkTensorS2G(
       : "memory");
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorS2G(
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
     int32_t crd0,
@@ -241,7 +246,7 @@ DEVICE_INLINE void cpAsyncBulkTensorS2G(
       : "memory");
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorS2G(
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
     int32_t crd0,
@@ -261,7 +266,7 @@ DEVICE_INLINE void cpAsyncBulkTensorS2G(
       : "memory");
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorS2G(
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
     int32_t crd0,
