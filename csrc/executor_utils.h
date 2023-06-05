@@ -55,7 +55,7 @@ namespace nvfuser {
     }                                  \
   } while (0)
 
-#define NVFUSER_CUDA_RT_SAFE_CALL(x)  \
+#define CUDA_RT_SAFE_CALL(x)          \
   do {                                \
     cudaError_t _result = x;          \
     TORCH_INTERNAL_ASSERT(            \
@@ -300,38 +300,45 @@ void validateVectorizedTensors(
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 
+//! Kernel timing utility
+//!
+//! Usage example:
+//!
+//!   CudaKernelTimer timer(stream);
+//!   timer.init();
+//!   kernel<<<..., stream>>>(...);
+//!   auto elapsed_ms = timer.elapsed();
+//!
 class CudaKernelTimer {
  public:
   CudaKernelTimer(cudaStream_t s) : stream_(s) {}
 
   ~CudaKernelTimer() {
     if (initialized_) {
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
     }
   }
 
   void init() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
   }
 
   void start() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
+    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
   }
 
   float elapsed() {
-    // Record
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(
+    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    CUDA_RT_SAFE_CALL(
         cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
     return kernel_time_ms_;
   }
 
  private:
-  // Create
   cudaStream_t stream_;
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};
