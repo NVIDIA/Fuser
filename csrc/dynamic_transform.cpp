@@ -164,7 +164,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 class EmptyBranchFinder : public BackwardVisitor {
  public:
   EmptyBranchFinder(Fusion* fusion, ExpressionEvaluator* expr_eval)
-      : fusion_(fusion), expr_eval_(expr_eval) {
+      : expr_eval_(expr_eval) {
     // We do not require the traversal to cover all outputs, because if we
     // replace some outputs with calls to full() then any unused outputs will be
     // ignored entirely.
@@ -228,7 +228,6 @@ class EmptyBranchFinder : public BackwardVisitor {
   }
 
  private:
-  Fusion* fusion_;
   ExpressionEvaluator* expr_eval_;
   std::vector<EmptyTensorDescriptor> empty_tensors_;
 };
@@ -530,7 +529,7 @@ void DynamicTransformConcretizer::concretize() {
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
-  for (auto empty_tv_descr : info_.getEmptyTensors()) {
+  for (const auto& empty_tv_descr : info_.getEmptyTensors()) {
     auto tv = empty_tv_descr.tv;
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     std::vector<Val*> new_shape;
