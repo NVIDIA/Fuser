@@ -104,6 +104,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/device_lower/analysis/shift.cpp
     ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
     ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
+    ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
     ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
     ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
     ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
@@ -168,6 +169,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/serde/utils.cpp
     ${NVFUSER_SRCS_DIR}/swizzle.cpp
     ${NVFUSER_SRCS_DIR}/sys_utils.cpp
+    ${NVFUSER_SRCS_DIR}/tma.cpp
     ${NVFUSER_SRCS_DIR}/type_inference.cpp
     ${NVFUSER_SRCS_DIR}/type_promotion.cpp
     ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp

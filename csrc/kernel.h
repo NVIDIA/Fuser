@@ -45,6 +45,10 @@ struct KernelSummary {
   //! List of inputs/outputs and global buffers that is accessed by TMA
   std::vector<tma::TensorMapInfo> tma_tensor_maps;
 
+  //! Map from LoadStoreOp to its corresponding index in tma_tensor_maps.
+  //! Multiple LoadStoreOps can map to the same index.
+  std::unordered_map<const LoadStoreOp*, int64_t> tma_tensor_maps_map;
+
   //! Indicate the need to generate random numbers
   int max_rng_offsets = -1;
 

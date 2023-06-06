@@ -297,8 +297,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // TensorMaps for global tensors accessed by TMA
-    for (const auto& tensor_map : kernel_summary.tma_tensor_maps) {
-      code_ << ", TensorMap " << tensor_map.name;
+    for (auto i : c10::irange(kernel_summary.tma_tensor_maps.size())) {
+      code_ << ", TensorMap tensormap" << i;
     }
 
     code_ << ") ";
@@ -620,18 +620,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
-    auto out_tv = out->view();
     TORCH_INTERNAL_ASSERT(
         in->view()->getMemoryType() == MemoryType::Shared &&
-            out_tv->getMemoryType() == MemoryType::Global,
+            out->view()->getMemoryType() == MemoryType::Global,
         "Expected shared to global copy");
 
     ArgumentBuilder func_args;
-    func_args.arg(std::string("tensormap") + std::to_string(out_tv->name()));
-    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
-    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    func_args.arg(
+        std::string("tensormap") +
+        std::to_string(kernel_->summary().tma_tensor_maps_map.at(ldst)));
+    func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
 
-    indent() << genCall("cpAsyncBulkTensorTileS2G", func_args)<< ";\n";
+    indent() << genCall("cpAsyncBulkTensorTileS2G", func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {

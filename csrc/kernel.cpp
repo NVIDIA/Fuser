@@ -307,6 +307,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
   summary_.tma_tensor_maps = GpuLower::current()->tmaTensorMaps();
+  summary_.tma_tensor_maps_map = GpuLower::current()->tmaTensorMapsMap();
 }
 
 void Kernel::analyze() {

@@ -6,15 +6,19 @@
  */
 // clang-format on
 
-#include <ir/all_nodes.h>
 #include <tma.h>
+
+#include <cstdint>
+
+#include <ir/all_nodes.h>
+#include <expr_evaluator.h>
 
 namespace nvfuser::tma {
 
-#if (__CUDACC_VER_MAJOR__ >= 12)
+#if (CUDA_VERSION >= 12000)
 
-inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
-  switch (std::get<PrimDataType>(dtype.type)) {
+inline CUtensorMapDataType getCUtensorMapDataType(PrimDataType dtype) {
+  switch (dtype) {
     case PrimDataType::Double:
       return CU_TENSOR_MAP_DATA_TYPE_FLOAT64;
     case PrimDataType::Float:
@@ -51,9 +55,8 @@ inline CUtensorMapSwizzle getCUtensorMapSwizzle(TensorMapSwizzleType swizzle) {
 TensorMap TensorMapInfo::operator()(
     void* gmem_base_ptr,
     ExpressionEvaluator& ee) const {
+#if (CUDA_VERSION >= 12000)
   TensorMap tmap;
-#if (__CUDACC_VER_MAJOR__ >= 12)
-  TORCH_INTERNAL_ASSERT(tv->getDataType().has_value());
 
   auto dim = gmem_shape.size();
   TORCH_INTERNAL_ASSERT(
@@ -114,22 +117,23 @@ TensorMap TensorMapInfo::operator()(
 
   CUresult result = cuTensorMapEncodeTiled(
       &tmap,
-      getCUtensorMapDataType(tv->getDataType().value()),
+      getCUtensorMapDataType(dtype),
       dim,
       gmem_base_ptr, // TODO: check alignment
       evaluated_gmem_shape.data(),
       evaluated_gmem_strides.data() + 1, // gmem_strides[0] implicitly 1
       evaluated_box_shape.data(),
       evaluated_box_strides.data(),
-      CU_TENSOR_MAP_INTERLEAVE_NONE,  // TODO: determine interleaving
-      getCUtensorMapSwizzle(
-          TensorMapSwizzleType::NoSwizzle), // TODO: support swizzle
+      CU_TENSOR_MAP_INTERLEAVE_NONE, // TODO: determine interleaving
+      getCUtensorMapSwizzle(swizzle), // TODO: support swizzle
       CU_TENSOR_MAP_L2_PROMOTION_NONE,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE); // TODO: what is this?
 
   TORCH_INTERNAL_ASSERT(result == CUDA_SUCCESS, "Failed to create tensor map!");
-#endif
   return tmap;
+#else
+  TORCH_INTERNAL_ASSERT(false, "TMA is only supported on CUDA 12 and above!");
+#endif
 }
 
 } // namespace nvfuser::tma

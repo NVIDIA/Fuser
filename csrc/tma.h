@@ -9,12 +9,15 @@
 #pragma once
 
 #include <cuda.h>
+#include <cuda_runtime.h>
+
+#include <type.h>
 
 // Note: [TMA support in nvFuser]
 
 namespace nvfuser {
 
-class TensorView;
+class Val;
 class ExpressionEvaluator;
 
 namespace tma {
@@ -28,7 +31,7 @@ namespace tma {
 // higher. Additionally, a tensor map object is an opaque value, and, as such,
 // should only be accessed through CUDA API calls.
 
-#if (__CUDACC_VER_MAJOR__ >= 12)
+#if (CUDA_VERSION >= 12000)
 using TensorMap = CUtensorMap;
 #else
 // TODO: Is the size guaranteed to be 128 bytes? This is copied from CUTLASS:
@@ -38,9 +41,11 @@ struct TensorMap {
 };
 #endif
 
+enum class TensorMapSwizzleType { NoSwizzle, B32, B64, B128 };
+
 struct TensorMapInfo {
-  std::string name;
-  LoadStoreOp* expr;
+  PrimDataType dtype;
+  TensorMapSwizzleType swizzle;
   std::vector<Val*> gmem_shape;
   std::vector<Val*> gmem_strides; // column major
   std::vector<Val*> box_shape;
