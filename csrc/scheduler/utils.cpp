@@ -1994,7 +1994,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 bool isFastestDimReduction(TensorView* tv) {
-  for (auto it = tv->getRootDomain().rbegin(); it != tv->getRootDomain().rend();
+  for (auto it = tv->getMaybeAllocationDomain().rbegin();
+       it != tv->getMaybeAllocationDomain().rend();
        ++it) {
     auto root_id = *it;
     if (root_id->isBroadcast()) {
