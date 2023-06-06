@@ -26,6 +26,31 @@
 
 namespace nvfuser::python_frontend {
 
+// Set of local functions that are used to compose python FusionDefinition
+// bindings. Ideally, these would be templated lambda functions but those
+// are not available without C++20.
+namespace {
+Vector define_vector_fn(
+    FusionDefinition& fd,
+    std::optional<std::vector<int64_t>> value,
+    size_t size,
+    PrimDataType dtype = DataType::Int) {
+  FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");
+  if (value.has_value()) {
+    TORCH_CHECK(
+        value.value().size() == size,
+        "value size and input size do not match!");
+  }
+  Vector out = fd.defineVector(size);
+  auto rtype = value.has_value() ? serde::RecordType_VectorLong
+                                 : serde::RecordType_VectorInput;
+  fd.defineRecord(new VectorRecord<int64_t>(
+      {fd.recordingState(out())}, rtype, value, size, dtype));
+  return out;
+}
+
+} // namespace
+
 std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
@@ -133,7 +158,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<Tensor> tensor_class(nvfuser, "Tensor");
   tensor_class.def("__repr__", [](Tensor& self) {
     std::stringstream ss;
-    ss << "Tensor(index=" << self.index << ", dims=" << self.dims << ")";
+    ss << "Tensor(index=" << self.index << ", ndim=" << self.dims << ")";
     return ss.str();
   });
   tensor_class.def_property_readonly(
@@ -163,6 +188,15 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+
+  py::class_<Vector> vector_class(nvfuser, "Vector");
+  vector_class.def("__repr__", [](Vector& self) {
+    std::stringstream ss;
+    ss << "Vector(index=" << self.index << ", size=" << self.size << ")";
+    return ss.str();
+  });
+  vector_class.def_property_readonly(
+      "size", [](Vector& self) { return self.size; });
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
@@ -538,6 +572,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
       DataType::Int, serde::RecordType_ScalarLong, int64_t);
 #undef NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR
+
+  // This is the input version of define_vector
+  fusion_def.def(
+      "define_vector",
+      [](FusionDefinition& self,
+         size_t size,
+         PrimDataType dtype = DataType::Int) -> Vector {
+        return define_vector_fn(self, std::nullopt, size, dtype);
+      },
+      py::arg("size"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  // This is the canonical version of define_vector that accepts either a
+  // nullptr or a vector of values to indicate either an input or a constant
+  // for use when printing out the associated Fusion Record.
+  fusion_def.def(
+      "define_vector",
+      [](FusionDefinition& self,
+         std::optional<std::vector<int64_t>> value,
+         size_t size,
+         PrimDataType dtype) -> Vector {
+        return define_vector_fn(self, value, size, dtype);
+      },
+      py::arg("value").none(true),
+      py::arg("size"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  // This is the constant version of define_vector when given a vector
+  // of constant values.
+  fusion_def.def(
+      "define_vector",
+      [](FusionDefinition& self,
+         std::vector<int64_t> value,
+         PrimDataType dtype) -> Vector {
+        return define_vector_fn(self, value, value.size(), dtype);
+      },
+      py::arg("value"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.

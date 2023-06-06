@@ -1249,6 +1249,35 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
   tv->reorder(order_map);
 }
 
+namespace {
+
+inline void resolveTvToMatmulDomainsMapping(
+    DependenciesMap& deps_map,
+    const std::vector<TensorView*>& tensors,
+    IterDomain* m,
+    IterDomain* n,
+    IterDomain* k,
+    const ComputeAtMap& ca_map) {
+  for (const auto tv : tensors) {
+    for (const auto domain : tv->getLeafDomain()) {
+      if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::M);
+        continue;
+      }
+      if (ca_map.areMapped(n, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::N);
+        continue;
+      }
+      if (ca_map.areMapped(k, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::K);
+        continue;
+      }
+    }
+  }
+}
+
+} // anonymous namespace
+
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   auto mma_exprs = ir_utils::getMmaOps(fusion);
   if (mma_exprs.size() != 1) {
@@ -1294,10 +1323,6 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
 }
 
 MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
-  using MmaDomains = MmaOptions::MmaDomains;
-  using DomainsDesc = std::vector<MmaDomains>;
-  using DependenciesMap = std::map<TensorView*, DomainsDesc>;
-
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1310,45 +1335,23 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto [m, n, k] = mma_output_domains.getData();
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
 
   DependenciesMap deps_map;
-
-  // NOTE: MMA input requirements:
-  // - 2 or more domains
-  // - no broadcasts
-  // - reductions do not matter
-  for (const auto in_tv : mma_input_candidates) {
-    if (in_tv->nDims() < 2) {
-      continue;
-    }
-    if (in_tv->hasBroadcast()) {
-      continue;
-    }
-    for (const auto in_domain : in_tv->getLeafDomain()) {
-      if (ca_map.areMapped(m, in_domain, IdMappingMode::EXACT)) {
-        deps_map[in_tv].push_back(MmaDomains::M);
-        continue;
-      }
-      if (ca_map.areMapped(n, in_domain, IdMappingMode::EXACT)) {
-        deps_map[in_tv].push_back(MmaDomains::N);
-        continue;
-      }
-      if (ca_map.areMapped(k, in_domain, IdMappingMode::EXACT)) {
-        deps_map[in_tv].push_back(MmaDomains::K);
-        continue;
-      }
-    }
-  }
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
 
   bool mk_found = false;
   bool km_found = false;
   bool nk_found = false;
   bool kn_found = false;
-  const static DomainsDesc mk_desc = {MmaDomains::M, MmaDomains::K};
-  const static DomainsDesc km_desc = {MmaDomains::K, MmaDomains::M};
-  const static DomainsDesc nk_desc = {MmaDomains::N, MmaDomains::K};
-  const static DomainsDesc kn_desc = {MmaDomains::K, MmaDomains::N};
+  const static DomainsDesc mk_desc = {MatmulDomain::M, MatmulDomain::K};
+  const static DomainsDesc km_desc = {MatmulDomain::K, MatmulDomain::M};
+  const static DomainsDesc nk_desc = {MatmulDomain::N, MatmulDomain::K};
+  const static DomainsDesc kn_desc = {MatmulDomain::K, MatmulDomain::N};
 
   for (const auto& item : deps_map) {
     if (item.second == mk_desc) {
@@ -1395,6 +1398,88 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
   }
 
   return {"Failed to decide fusion inputs' data layout."};
+}
+
+RolesMapOpt getTensorsRoles(Fusion* fusion) {
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+  const auto mma_output_candidates =
+      ir_utils::filterByType<TensorView>(fusion->outputs()).vector();
+  if (mma_output_candidates.empty()) {
+    return {"Failed to find any TV that is fusion output"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
+                                     RolesMap& roles_map,
+                                     const bool processing_output) {
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto end = domains.end();
+
+      bool has_m =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::M))
+          ? true
+          : false;
+      bool has_n =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::N))
+          ? true
+          : false;
+      bool has_k =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::K))
+          ? true
+          : false;
+
+      if (has_m && has_k && !has_n && !processing_output) {
+        roles_map[MatmulRole::MMA_INPUT_A] = entry.first;
+        continue;
+      }
+      if (has_n && has_k && !has_m && !processing_output) {
+        roles_map[MatmulRole::MMA_INPUT_B] = entry.first;
+        continue;
+      }
+      // NOTE: depending on fusion definition k domain may appear in the output:
+      //  - for mma_output == fusion output k domain is present
+      //  - for mma_output != fusion output (fusion with epilogue) k domain
+      //    is not present
+      if (has_m && has_n && processing_output) {
+        roles_map[MatmulRole::MMA_OUTPUT] = entry.first;
+        continue;
+      }
+    }
+  };
+
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
+
+  DependenciesMap deps_map;
+  RolesMap roles_map;
+
+  // Handle fusion input TensorView objects
+  bool handling_output = false;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  deps_map.clear();
+
+  // Handle fusion output TensorView objects
+  handling_output = true;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_output_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  return roles_map;
 }
 
 } // namespace mma_utils
