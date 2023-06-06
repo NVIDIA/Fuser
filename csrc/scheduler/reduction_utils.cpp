@@ -460,9 +460,11 @@ void propagateParallelization(
     // Find all tensor views that should have unroll or vectorization
     std::unordered_set<TensorView*> are_unrolled;
 
+    auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+
     // Grab all tensor views that should be vectorized
     auto vectorizable_inputs_outputs =
-        scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
     auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
