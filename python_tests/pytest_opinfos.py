@@ -1,6 +1,5 @@
 import torch
 import jax
-import math
 from pytest_core import (
     elementwise_unary_generator,
     _elementwise_unary_torch,
@@ -9,8 +8,6 @@ from pytest_core import (
     slice_sample_generator,
     slice_error_sample_generator,
 )
-from functools import partial
-from make_tensor import int_float_dtypes
 
 eps = 1e-2
 
