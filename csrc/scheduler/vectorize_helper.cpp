@@ -399,6 +399,13 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
   };
 
+  // If `from` is [I1, I2, I3, I4], `to` is [I1, I5, I6, I7], where I2 =
+  // merge(I5, I6) and I7 = merge(I3, I4), `from` is on both side of `to`. We
+  // traverse the forward side and backward side separately. For this example,
+  // we will have backward exprs {I2 = merge(I5, I6)} and forward exprs {I7 =
+  // merge(I3, I4)}. If from is on the forward side only, then we will have
+  // empty backward exprs, vice versa.
+
   auto backward_exprs = StmtSort::getExprsBetween(
       frontier.front()->fusion(),
       {to.begin(), to.end()},
