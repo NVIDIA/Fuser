@@ -75,6 +75,11 @@ void MmaBuilder::configureMma(TensorView* mma_output) const {
   mma->configureOptions(option_);
 }
 
+void MmaBuilder::configureMma(MmaOp* mma) const {
+  TORCH_CHECK(mma, "configureMma: invalid op object ", mma);
+  mma->configureOptions(option_);
+}
+
 void MmaBuilder::accumulatorTv(TensorView* tv) {
   TORCH_CHECK(
       tv->getMemoryType() == MemoryType::Local, "Mma only outputs to register");
