@@ -116,7 +116,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     return static_reshape_output;
   }
 
-  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+  auto root_domain = ops::newOutputDomain({inp_tv});
 
   // Create placeholder rfactor domain. Note it's not connected with the root
   // domain.
@@ -632,7 +632,20 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
   }
 
   // Now all of resized_inputs have the same shape as the out tensor
-  auto out = ops::newOutputTV(resized_inputs, dtype);
+  // NOTE: ops::newOutputTV would not necessarily be able to infer that the
+  // padded dimensions are all of the same size. However, we know that they are
+  // constructed such that that is the case, so we can use
+  auto out_domain = ops::newOutputDomain(resized_inputs);
+  // Override the concatenated dimension and insert an IterDomain with the true
+  // extent, if needed
+  if (!out_domain.at(cat_dim)->extent()->sameAs(concat_ext)) {
+    out_domain[cat_dim] =
+        IterDomainBuilder(out_domain.at(cat_dim)).extent(concat_ext).build();
+  }
+  auto out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype);
 
   IrBuilder::create<CatOp>(out, resized_inputs, cat_dim);
 
