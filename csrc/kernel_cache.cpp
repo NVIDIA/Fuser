@@ -621,6 +621,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+      std::cout << "Fusion Before Concretization:" << std::endl;
+      fusion->printMath();
+    }
     FusionGuard fg(fusion.get());
     if (initial_info.isDynamic()) {
       const auto& cloned_conc_info =
@@ -640,7 +644,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       fusion->stopManaging("initial_info");
     }
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-      std::cout << "Concretized Fusion:" << std::endl;
+      std::cout << "\nConcretized Fusion:" << std::endl;
       fusion->printMath();
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
