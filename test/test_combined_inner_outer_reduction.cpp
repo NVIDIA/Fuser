@@ -165,7 +165,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
-      fkr->setMeasureKernelTime(true);
+      fkr->enableKernelTimeMeasurement();
 
       constexpr int nwarm = 5;
       constexpr int niter = 10;

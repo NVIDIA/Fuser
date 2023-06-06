@@ -8043,6 +8043,372 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   ASSERT_EQ(kernel->getManaged<T2>("data2").magic_number, 0x123456789abcdef);
 }
 
+// Repro of issue #2125, 1.45e+03 GB/s on A100-80G
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({2, 512});
+  std::vector<int64_t> shape1({2, 64, 512, 512});
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tvb = broadcast(tv0, {false, true, true, false});
+  auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = softmax(tv3, -1);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::ones(shape0, options);
+  at::Tensor t1 = at::ones(shape1, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+  // check thread_pred and write_stride
+  const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted,
+          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+      break;
+    }
+  }
+
+  auto ref_1 = t0.unsqueeze(1).unsqueeze(1) + 1.0;
+  auto ref_2 = at::_softmax(ref_1 + t1, -1, false);
+  testValidate(
+      fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
+  auto runTest = [](const std::vector<bool>& is_broadcast) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    std::vector<int64_t> shape0;
+    std::vector<int64_t> shape1({2, 64, 128, 2048});
+    const size_t ndim = shape1.size();
+    for (size_t i = 0; i < ndim; i++) {
+      if (!is_broadcast[i]) {
+        shape0.push_back(shape1[i]);
+      }
+    }
+
+    auto tv0 = makeSymbolicTensor(shape0.size());
+    auto tv1 = makeSymbolicTensor(4);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tvb = broadcast(tv0, is_broadcast);
+    auto tv2 = add(tvb, IrBuilder::create<Double>(1.0));
+    auto tv3 = add(tv1, tv2);
+    auto tv4 = sum(tv3, {-1});
+    fusion.addOutput(tv2);
+    fusion.addOutput(tv4);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn(shape0, options);
+    at::Tensor t1 = at::randn(shape1, options);
+    std::vector<c10::IValue> inputs = {t0, t1};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+    // check thread_pred and write_stride
+    const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
+    auto kernel = fe.kernel();
+    const auto& thread_pred_map = fe.threadPredMap();
+
+    for (const auto expr : kernel->exprs()) {
+      auto tv = ir_utils::getTvOutput(expr);
+      if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
+        const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+            thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+        TORCH_CHECK(
+            predicted,
+            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+        break;
+      }
+    }
+
+    at::Tensor tb = t0;
+    for (size_t i = 0; i < ndim; i++) {
+      if (is_broadcast[i]) {
+        tb = tb.unsqueeze(i);
+      }
+    }
+    auto ref_1 = tb + 1.0;
+    auto ref_2 = (ref_1 + t1).sum({-1});
+    testValidate(
+        fec.fusion(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+  };
+
+  // Test case where [B1,I2,I3] is merged to [B1I2I3]
+  runTest({true, false, false, false});
+
+  // Test case where [I1,B2,I3] is merged to [I1B2I3]
+  runTest({false, true, false, false});
+
+  // Test case where [I1,I2,B3] is merged to [I1I2B3]
+  runTest({false, false, true, false});
+
+  // Test case where [I1,B2,B3] is merged to [I1B2B3]
+  runTest({false, true, true, false});
+
+  // Test case where [B1,I2,B3] is merged to [B1I2B3]
+  runTest({true, false, true, false});
+
+  // Test case where [B1,B2,I3] is merged to [B1B2I3]
+  runTest({true, true, false, false});
+
+  // Test case where [B1,B2,B3] is merged to [B1B2B3]
+  runTest({true, true, true, false});
+}
+
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
+  // if the broadcasted tensor is concretized to different shapes
+  // the fusion will be segmented.
+  auto runTest = [](const bool direct_lowering) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    const std::vector<bool> is_broadcast = {true, false, true, false};
+    std::vector<int64_t> shape0;
+    std::vector<int64_t> shape1({2, 64, 128, 2048});
+    std::vector<int64_t> shape2({4, 64, 256, 2048});
+    const size_t ndim = shape1.size();
+    for (size_t i = 0; i < ndim; i++) {
+      if (!is_broadcast[i]) {
+        shape0.push_back(shape1[i]);
+      }
+    }
+
+    auto tv0 = makeSymbolicTensor(shape0.size());
+    auto tv1 = makeSymbolicTensor(4);
+    auto tv2 = makeSymbolicTensor(4);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+
+    auto tv3 = broadcast(tv0, is_broadcast);
+    auto tv4 = add(tv3, IrBuilder::create<Double>(1.0));
+    // concretized to shape1
+    auto tv5 = add(tv4, tv1);
+    // concretized to shape2
+    auto tv6 = add(tv4, tv2);
+    auto tv7 = sum(tv5, {-1});
+    auto tv8 = sum(tv6, {-1});
+    fusion.addOutput(tv4);
+    fusion.addOutput(tv7);
+    fusion.addOutput(tv8);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn(shape0, options);
+    at::Tensor t1 = at::randn(shape1, options);
+    at::Tensor t2 = at::randn(shape2, options);
+    std::vector<c10::IValue> inputs = {t0, t1, t2};
+
+    if (direct_lowering) {
+      auto heuristics_params = getReductionHeuristics(&fusion, inputs);
+      TORCH_CHECK(heuristics_params, "Reduction schedule was not generated!");
+      scheduleReduction(&fusion, *heuristics_params);
+      // it should be segmented, if directly lowered, it should throw an error
+      EXPECT_THAT(
+          [&]() { GpuLower gpulw(&fusion); },
+          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+              "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
+    } else {
+      FusionExecutorCache fec(std::move(fusion_ptr));
+      auto cg_outputs = fec.runFusionWithInputs(inputs);
+
+      auto optimized_fusion = fec.getMostRecentKernelRuntime();
+      TORCH_CHECK(
+          optimized_fusion->isSegmented(), "segmentation didn't happen!");
+
+      at::Tensor tb = t0;
+      for (size_t i = 0; i < ndim; i++) {
+        if (is_broadcast[i]) {
+          tb = tb.unsqueeze(i);
+        }
+      }
+      auto ref_1 = tb + 1.0;
+      auto ref_2 = (ref_1 + t1).sum({-1});
+      auto ref_3 = (ref_1 + t2).sum({-1});
+      testValidate(
+          fec.fusion(),
+          cg_outputs,
+          inputs,
+          {ref_1, ref_2, ref_3},
+          __LINE__,
+          __FILE__);
+    }
+  };
+  runTest(true);
+  runTest(false);
+}
+
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = add(tv3, IrBuilder::create<Double>(1));
+  tv5->setMemoryType(MemoryType::Global);
+  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  fusion.addOutput(tv6);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->merge(0);
+  }
+
+  tv2->inlineAt(1);
+  tv3->inlineAt(1);
+  tv5->inlineAt(1);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({32}, options);
+  at::Tensor t1 = at::randn({32, 64}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  // check thread_pred
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->name() == 5 || tv->name() == 6) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted,
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+    }
+  }
+
+  // validate outputs
+  at::Tensor tb = t0.unsqueeze(1);
+  auto ref_1 = tb + t1;
+  auto ref_2 = tb + 2.0;
+  testValidate(
+      fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+}
+
+// Test case where the merge order is random
+TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int ndim = 5;
+  const std::vector<bool> is_broadcast = {false, true, false, false, true};
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(ndim);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, is_broadcast);
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = add(tv3, IrBuilder::create<Double>(1));
+  tv5->setMemoryType(MemoryType::Global);
+  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  fusion.addOutput(tv6);
+
+  // merge first and last domain
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->merge(0, -1);
+  }
+
+  tv2->inlineAt(-1);
+  tv3->inlineAt(-1);
+  tv5->inlineAt(-1);
+
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({8, 10, 12}, options);
+  at::Tensor t1 = at::randn({8, 7, 10, 12, 9}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  // check thread_pred
+  auto kernel = fe.kernel();
+  const auto& thread_pred_map = fe.threadPredMap();
+
+  for (const auto expr : kernel->exprs()) {
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->name() == 5 || tv->name() == 6) {
+      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+      TORCH_CHECK(
+          predicted,
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+    }
+  }
+
+  // validate outputs
+  at::Tensor tb = t0;
+  for (int i = 0; i < ndim; i++) {
+    if (is_broadcast[i]) {
+      tb = tb.unsqueeze(i);
+    }
+  }
+  auto ref_1 = tb + t1;
+  auto ref_2 = tb + 2.0;
+  testValidate(
+      fusion_ptr.get(), cg_outputs, inputs, {ref_1, ref_2}, __LINE__, __FILE__);
+}
+
 // Test for ir_utils::validateDomainEquivalence. We could consider
 // it well tested as it's always used when TensorDomain is created, but
 // here's some corner cases.
@@ -8652,6 +9018,71 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
 
     testValidate(
         fusion, output, {input}, {at::isfinite(input)}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(NVFuserTest, Repro413_CUDA) {
+  int64_t n = 10240;
+
+  for (int64_t m : {3, 6, 12, 24}) {
+    for (int64_t k : {10, 20, 40}) {
+      std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+      Fusion& fusion = *fusion_ptr.get();
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeContigConcreteTensor({n, m}, DataType::Half);
+      fusion.addInput(tv0);
+      auto tv1 = broadcast(tv0, {false, true, false});
+      auto tv2 = expand(
+          tv1,
+          {IrBuilder::create<Int>(n),
+           IrBuilder::create<Int>(k),
+           IrBuilder::create<Int>(m)});
+      auto tv3 = reshape(tv2, {n, k, m}, {n, k * m});
+      auto tv4 = reshape(tv3, {n, k * m}, {n, m, k});
+      auto tv5 = transpose(tv4, 0, 1);
+      auto tv6 = reshape(tv5, {m, n, k}, {m * n, k});
+      fusion.addOutput(tv6);
+
+      auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+      auto t0 = at::randn({n, m}, options);
+
+      auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
+
+      auto expect_vec_factor = std::gcd(m, k);
+
+      auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
+        for (auto i : tv->getLeafDomain()) {
+          if (i->getParallelType() == ParallelType::Vectorize) {
+            return i->extent()->evaluateInt();
+          }
+        }
+        return 1;
+      };
+
+      for (auto o : fusion.outputs()) {
+        EXPECT_EQ(
+            getVectorizationFactor(o->as<TensorView>()), expect_vec_factor);
+      }
+      for (auto i : fusion.inputs()) {
+        for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+          EXPECT_EQ(getVectorizationFactor(c), expect_vec_factor);
+        }
+      }
+
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, {t0}, lparams);
+      auto cg_outputs = fe.runFusion({t0}, lparams);
+
+      auto ref = t0.unsqueeze(1)
+                     .expand({-1, k, -1})
+                     .reshape({n, m, k})
+                     .transpose(0, 1)
+                     .reshape({m * n, k});
+
+      testValidate(
+          fusion_ptr.get(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    }
   }
 }
 

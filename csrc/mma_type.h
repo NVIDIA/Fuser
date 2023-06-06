@@ -11,6 +11,15 @@
 
 namespace nvfuser {
 
+//! Named descriptors of domains in matmul
+enum class MatmulDomain { M = 0, N, K };
+
+//! Named descriptors of TensorView roles in fusion
+enum class MatmulRole { MMA_INPUT_A = 0, MMA_INPUT_B, MMA_OUTPUT };
+
+//! The expected number of occurances of core TensorView roles in fusion
+static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
+
 //! Utility data structure for recording gemm tiles
 struct GemmTile {
   int m, n, k;
@@ -81,9 +90,6 @@ struct MmaOptions {
   //! NN : K,M X N,K -> M,N
   //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
   enum class MmaLayout { NT = 0, TT, TN, NN };
-
-  //! Named descriptors of domains in matmul
-  enum class MmaDomains { M = 0, N, K };
 
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };
