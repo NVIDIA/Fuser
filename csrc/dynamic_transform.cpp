@@ -129,6 +129,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       auto extent_opt = info_.expr_eval_.evaluate(id->extent());
       if (!extent_opt.has_value() || extent_opt.value().as<int64_t>() == 0) {
         info_.has_possible_empty_tensor_ = true;
+        leaf_dynamic_vals_.push_back(id->extent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
@@ -883,7 +884,8 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
       for (auto j : c10::irange(dom.size())) {
         auto size_j = targ->getSize((int64_t)j);
         // Input can be expanded. See test FusionExpandRepro1860_CUDA
-        auto ext = dom[j]->hasExpandedExtent() ? dom[j]->expandedExtent() : dom[j]->extent();
+        auto ext = dom[j]->hasExpandedExtent() ? dom[j]->expandedExtent()
+                                               : dom[j]->extent();
         // Extents can be concrete, in which case we should just check that the
         // input size matches, but not try to bind them.
         if (ext->isConstInt()) {
