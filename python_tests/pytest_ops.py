@@ -32,6 +32,35 @@ def is_pre_volta():
     return prop.major < 7
 
 
+def snippet_definition_op_in_schedule_error(nvf_op, sample):
+    inputs = [
+        torch.randn(8, 8, 8, device="cuda"),
+    ]
+
+    class SchedError(FusionDefinition):
+        def definition(self):
+            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
+            self.t1 = fd.ops.tanh(fd.t0)
+            self.add_output(fd.t1)
+
+        def schedule(self):
+            nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
+            nvf_op(self)(*nvf_inputs, **sample.kwargs)
+
+    exception = None
+    try:
+        fd = SchedError()
+        _ = fd.execute(inputs)
+    except Exception as e:
+        exception = e
+
+    assert exception is not None, "Expected an exception"
+    exception_str = "Attempting to add to a completed definition!"
+    assert exception_str in str(
+        exception
+    ), "Failed to find correct expection error message"
+
+
 def fusion_func(fd: FusionDefinition, operation, inputs, **kwargs):
     nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
     t1 = operation(fd)(*nvf_inputs, **kwargs)
@@ -119,6 +148,21 @@ def test_consistency(op: OpInfo, dtype: torch.dtype):
             dtype,
             op.op,
             op.reference,
+            sample,
+        )
+        if result is not None:
+            return result
+
+
+# TODO Maybe only test a single dtype
+@ops(tuple(op for op in opinfos if op.reference is not None))
+def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
+    for sample in op.sample_inputs(torch.float32):
+        result = run_snippet(
+            snippet_definition_op_in_schedule_error,
+            op,
+            dtype,
+            op.op,
             sample,
         )
         if result is not None:
