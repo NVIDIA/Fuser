@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <benchmark/utils.h>
-#include <cuda_utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <cuda_utils.h>
 #include <scheduler/all_schedulers.h>
 #include <test/utils.h>
 
@@ -142,8 +142,7 @@ void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
-  // c10::cuda::CUDACachingAllocator::emptyCache();
-
+  c10::cuda::CUDACachingAllocator::emptyCache();
   fusion_executor_cache->enableKernelTimeMeasurement();
   fusion_executor_cache->profile(true);
 
@@ -172,11 +171,21 @@ void runBenchmarkIterations(
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    benchmark_state.SetIterationTime(
-        fusion_executor_cache->getMostRecentKernelTimeMs() / 1000.0);
+  if (!segmented) {
+    for (auto _ : benchmark_state) {
+      clearL2Cache();
+      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+      benchmark_state.SetIterationTime(
+          executor_instance->kernelTimeMs() / 1000.0);
+    }
+  } else {
+    CudaKernelTimer timer;
+    for (auto _ : benchmark_state) {
+      clearL2Cache();
+      timer.restart();
+      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+      benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
+    }
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the
@@ -190,23 +199,20 @@ void runBenchmarkIterations(
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  // c10::cuda::CUDACachingAllocator::emptyCache();
-
   fusion_executor->runFusion(aten_inputs);
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
+  fusion_executor->setMeasureKernelTimeFlag(true);
+
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
-
-  fusion_executor->setMeasureKernelTimeFlag(true);
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
     auto cg_outputs = fusion_executor->runFusion(
         aten_inputs, launch_constraints, compile_params);
-    benchmark_state.SetIterationTime(
-        fusion_executor->kernelTimeMs() / 1000.0);
+    benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
   }
 
   // Sync everything up before we're finished, don't want to run ahead on the

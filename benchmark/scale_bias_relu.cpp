@@ -123,8 +123,6 @@ static void NvFuserScheduler_SBR(
       benchmark_state.range(2)};
   std::vector<int64_t> bcast_shape{1, 1, 1, -1};
 
-  // c10::cuda::CUDACachingAllocator::emptyCache();
-
   // inputs
   at::manual_seed(0);
   std::vector<int64_t> static_bcast_shape{1, 1, 1, benchmark_state.range(2)};
