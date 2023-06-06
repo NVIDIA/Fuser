@@ -691,12 +691,18 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_root_id = inp_root_id->cloneWithoutRFactor();
       out_rf_id = out_root_id;
     } else {
+      // Clip the start and stop values to the extent of the input
+      auto clipped_start =
+          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.start);
+      auto clipped_stop =
+          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.stop);
+
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
-          SimplifyingIrBuilder::negExpr(range.start),
-          sub(range.stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::negExpr(clipped_start),
+          sub(clipped_stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }

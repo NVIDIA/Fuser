@@ -1122,6 +1122,63 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
+// Slice with end beyond size of input. This should clip to input, not pad.
+TEST_F(NVFuserTest, FusionResizeSlice6_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {{fusion.zeroVal(), IrBuilder::create<Int>(11)}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(0, 11)});
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// Slice with start beyond size of input. This should produce zero-size tensor.
+TEST_F(NVFuserTest, FusionResizeSlice7_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      slice(tv0, {{IrBuilder::create<Int>(11), IrBuilder::create<Int>(13)}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(11, 13)});
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Auto scheduled version of Slice1
 TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
