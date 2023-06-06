@@ -590,38 +590,36 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Utility function to emit a cp.async intrinsic
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
+
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
-    if (is_cg) {
-      indent() << "Ampere::cpAsyncCg";
-    } else {
-      indent() << "Ampere::cpAsyncCa";
+    ArgumentBuilder template_args;
+    template_args.arg(dtype);
+    template_args.arg(vec_size);
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    if (ldst->predicate() != nullptr) {
+      func_args.arg(genInline(ldst->predicate()));
     }
 
-    if (ldst->predicate() == nullptr) {
-      // Out of line predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ");\n";
-    } else {
-      // Inline predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->predicate()) << ");\n";
-    }
+    indent() << genCall(name, template_args, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
-    indent() << "Turing::ldMatrix";
-    if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
-      code_ << "T";
-    }
-    code_ << " (";
-    code_ << "*" << genVectorPointer(ldst->out(), dtype, vector_word_size)
-          << "," << genInline(ldst->in()->as<kir::TensorIndex>()->index())
-          << ");\n";
+
+    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
+    std::string name = (is_transpose ? "Turing::ldMatrixT"
+                                     : "Turing::ldMatrix");
+
+    ArgumentBuilder func_args;
+    func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall(name, func_args) << ";\n";
   }
 
   void handle(const kir::BaseAddress* sop) final {
