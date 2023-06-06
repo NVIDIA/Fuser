@@ -14,6 +14,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <tma.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -133,6 +134,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
+    // TMA descriptors
+    std::vector<tma::TensorMap> tensor_maps;
     uint64_t rand_offset = 0;
   };
 

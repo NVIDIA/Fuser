@@ -12,6 +12,7 @@
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
+#include <tma.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <array>
@@ -23,6 +24,7 @@ namespace nvfuser {
 // TODO: macro this and the printer below
 enum class ArgType {
   PhiloxCudaState,
+  TMATensorMap,
   Long,
   Double,
   ComplexDouble,
@@ -36,6 +38,9 @@ inline std::string argTypeToString(ArgType type) {
   switch (type) {
     case ArgType::PhiloxCudaState:
       ret = "PhiloxCudaState";
+      break;
+    case ArgType::TMATensorMap:
+      ret = "TMATensorMap";
       break;
     case ArgType::Long:
       ret = "Long";
@@ -155,6 +160,12 @@ struct PhiloxCudaStateArg : public ArgAbstract {
   at::PhiloxCudaState val_;
   PhiloxCudaStateArg(at::PhiloxCudaState _val) : val_(_val){};
   DEF_HELPEE_FUNC(PhiloxCudaState, val_)
+};
+
+struct TMATensorMapArg : public ArgAbstract {
+  tma::TensorMap val_;
+  TMATensorMapArg(tma::TensorMap _val) : val_(_val){};
+  DEF_HELPEE_FUNC(TMATensorMap, val_)
 };
 
 struct LongArg : public ArgAbstract {
@@ -434,8 +445,9 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   void swap(int i, const ArgAbstract* arg);
 
-  // push int64
   void push(int64_t val);
+
+  void push(tma::TensorMap tensor_map);
 
   const ArgAbstract* back() const {
     return arguments_.back().get();

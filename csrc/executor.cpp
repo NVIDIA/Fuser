@@ -1707,6 +1707,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     args.appendPhiloxRNGSeed(executor_entry->rand_offset);
   }
 
+  // push back TMA TensorMap
+  for (const auto& tensor_map : executor_entry->tensor_maps) {
+    args.push(tensor_map);
+  }
+
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
   }

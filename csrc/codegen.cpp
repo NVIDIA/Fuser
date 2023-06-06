@@ -296,6 +296,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << ", at::PhiloxCudaState philox_args";
     }
 
+    // TensorMaps for global tensors accessed by TMA
+    for (const auto& tensor_map : kernel_summary.tma_tensor_maps) {
+      code_ << ", TensorMap " << tensor_map.name;
+    }
+
     code_ << ") ";
   }
 

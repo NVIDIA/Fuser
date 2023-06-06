@@ -532,6 +532,8 @@ enum class LoadStoreOpType {
   CpAsyncBulkTensorTile
 };
 
+enum class TensorMapSwizzleType { NoSwizzle, B32, B64, B128 };
+
 // Used to label what part of the double buffered iterdomain
 //  a for loop is materializing.
 enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };

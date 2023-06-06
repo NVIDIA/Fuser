@@ -535,6 +535,10 @@ void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
   arguments_.push_back(std::make_unique<PhiloxCudaStateArg>(val));
 }
 
+void KernelArgumentHolder::push(tma::TensorMap tensor_map) {
+  arguments_.push_back(std::make_unique<TMATensorMapArg>(tensor_map));
+}
+
 // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
 // in the buffer
 void** KernelArgumentHolder::getBuffer(

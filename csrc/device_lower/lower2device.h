@@ -166,6 +166,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
     return fused_reduction_info_;
   }
 
+  const auto& tmaTensorMaps() const {
+    return tma_tensor_maps_;
+  }
+
+  auto& tmaTensorMaps() {
+    return tma_tensor_maps_;
+  }
+
   std::shared_ptr<const SyncMap> syncMap() const {
     return sync_map_;
   }
@@ -230,6 +238,7 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   std::shared_ptr<const SyncMap> sync_map_;
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
+  std::vector<tma::TensorMapInfo> tma_tensor_maps_;
   CompileParams cparams_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation

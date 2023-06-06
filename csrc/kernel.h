@@ -15,6 +15,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
+#include <tma.h>
 #include <utils.h>
 #include <vectorization_info.h>
 
@@ -40,6 +41,9 @@ struct KernelSummary {
 
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
+
+  //! List of inputs/outputs and global buffers that is accessed by TMA
+  std::vector<tma::TensorMapInfo> tma_tensor_maps;
 
   //! Indicate the need to generate random numbers
   int max_rng_offsets = -1;
