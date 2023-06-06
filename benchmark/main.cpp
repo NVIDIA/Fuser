@@ -31,10 +31,10 @@ std::string getHostName() {
 
 std::string getDeviceName() {
   int dev_idx;
-  CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
 
   cudaDeviceProp prop;
-  CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
 
   return std::string(prop.name);
 }
