@@ -12,11 +12,25 @@ from pytest_core import (
     ReferenceType,
     slice_sample_generator,
     slice_error_sample_generator,
+    define_tensor_error_sample_generator,
 )
 
 eps = 1e-2
 
 opinfos = []
+
+""" Start Fusion Input Operations """
+fusion_input_ops = []
+
+define_tensor_opinfo = OpInfo(
+    lambda fd: fd.define_tensor,
+    "define_tensor",
+    error_input_generator=define_tensor_error_sample_generator,
+    is_fusion_input_op=True,
+)
+fusion_input_ops.append(define_tensor_opinfo)
+
+""" End Fusion Input Operations """
 
 """ Start Unary-Float Operations """
 elementwise_unary_ops = []
@@ -51,3 +65,4 @@ shape_ops.append(slice_opinfo)
 # Puts all opinfos into the "opinfos" list
 opinfos.extend(elementwise_unary_ops)
 opinfos.extend(shape_ops)
+opinfos.extend(fusion_input_ops)

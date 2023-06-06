@@ -8,26 +8,15 @@ import numpy as np
 
 from torch.testing import assert_close
 from pytest_framework import ops, run_snippet
-from pytest_core import ReferenceType, OpInfo
+from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from typing import Optional
+from typing import Optional, Callable
+from functools import partial
 
-from torch.testing._internal.common_utils import TEST_WITH_ROCM
-from torch.testing._internal.jit_utils import RUN_CUDA
-
-
-# Will only create the nvfuser module if CUDA is available
-try:
-    from nvfuser import FusionDefinition
-except ImportError:
-    pass
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
+from nvfuser import FusionDefinition
 
 
 def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
 
@@ -61,20 +50,32 @@ def snippet_definition_op_in_schedule_error(nvf_op, sample):
     ), "Failed to find correct expection error message"
 
 
-def fusion_func(fd: FusionDefinition, operation, inputs, **kwargs):
+def opinfo_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
     nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
     t1 = operation(fd)(*nvf_inputs, **kwargs)
     fd.add_output(t1)
 
 
+def input_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
+    nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
+    this_inputs = operation(fd)(**kwargs)
+    t1 = fd.ops.add(nvf_inputs[0], this_inputs)
+    fd.add_output(t1)
+
+
 def snippet_errors(
-    nvf_op, sample, exception_type: Exception, exception_str: Optional[str]
+    fusion_func,
+    nvf_op: Callable,
+    sample: SampleInput,
+    exception_type: Exception,
+    exception_str: Optional[str],
 ):
     exception = None
     try:
         with FusionDefinition() as fd:
             fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
         fd.execute(*sample.args)
+        print(fd)
     except Exception as e:
         exception = e
 
@@ -87,7 +88,9 @@ def snippet_errors(
     ), "Failed to find correct expection error message"
 
 
-def snippet_torch_consistency(nvf_op, torch_op, sample):
+def snippet_torch_consistency(
+    fusion_func, nvf_op: Callable, torch_op, sample: SampleInput
+):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, sample.args)
     nvfuser_result = fd.execute(sample.args, **sample.kwargs)
@@ -99,7 +102,7 @@ def snippet_torch_consistency(nvf_op, torch_op, sample):
     assert_close(nvfuser_result[0], torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
-def snippet_jax_consistency(nvf_op, jax_op, sample):
+def snippet_jax_consistency(fusion_func, nvf_op: Callable, jax_op, sample: SampleInput):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
     nvfuser_result = fd.execute(sample.args, **sample.kwargs)
@@ -120,20 +123,29 @@ def snippet_jax_consistency(nvf_op, jax_op, sample):
     assert_close(nvfuser_result[0], jax_result, equal_nan=True, check_dtype=False)
 
 
-def snippet_consistency(reference_type):
+def snippet_consistency(reference_type: ReferenceType, is_fusion_input_op: bool):
+    fusion_func = input_fusion_func if is_fusion_input_op else opinfo_fusion_func
     if reference_type == ReferenceType.Pytorch:
-        return snippet_torch_consistency
+        return partial(snippet_torch_consistency, fusion_func)
     elif reference_type == ReferenceType.Jax:
-        return snippet_jax_consistency
+        return partial(snippet_jax_consistency, fusion_func)
     else:
         return None
 
 
 @ops(tuple(op for op in opinfos if op.error_input_generator is not None))
-def test_errors(op, dtype: torch.dtype):
+def test_errors(op: OpInfo, dtype: torch.dtype):
+    fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
+    print(op.is_fusion_input_op)
     for sample, ex_type, ex_regex in op.error_inputs(dtype):
         result = run_snippet(
-            snippet_errors, op, dtype, op.op, sample, ex_type, ex_regex
+            partial(snippet_errors, fusion_func),
+            op,
+            dtype,
+            op.op,
+            sample,
+            ex_type,
+            ex_regex,
         )
         if result is not None:
             return result
@@ -143,7 +155,7 @@ def test_errors(op, dtype: torch.dtype):
 def test_consistency(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
         result = run_snippet(
-            snippet_consistency(op.refernce_fn_type),
+            snippet_consistency(op.refernce_fn_type, op.is_fusion_input_op),
             op,
             dtype,
             op.op,

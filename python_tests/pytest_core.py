@@ -11,6 +11,8 @@ from typing import Callable
 import torch
 import itertools
 from enum import Enum
+from nvfuser import DataType
+from dataclasses import dataclass
 
 
 class ReferenceType(Enum):
@@ -20,7 +22,12 @@ class ReferenceType(Enum):
     Python = 4
 
 
-ErrorSample = namedtuple("ErrorSample", ["kwargs", "ex_str"])
+@dataclass
+class ErrorSample:
+    kwargs: dict
+    ex_str: str
+    ex_type: Exception = RuntimeError
+
 
 _torch_to_jax_dtype_map = None
 import jax.numpy as jnp
@@ -81,11 +88,12 @@ class OpInfo:
         name: str,
         *,
         dtypes=None,
-        sample_input_generator,
+        sample_input_generator=None,
         error_input_generator=None,
         reference=None,
         reference_type=ReferenceType.Pytorch,
         domain=(None, None),
+        is_fusion_input_op: bool = False,
     ):
         self.op = op
         self.name = name
@@ -95,6 +103,7 @@ class OpInfo:
         self.reference = reference
         self.refernce_fn_type = reference_type
         self.domain = OpInfo.Domain(*domain)
+        self.is_fusion_input_op = is_fusion_input_op
 
     def __call__(self, *args, **kwargs):
         """Calls the function variant of the operator."""
@@ -258,4 +267,68 @@ def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
 
     for shape, es in itertools.product(cases, error_cases):
         input_tensor = make_arg(shape)
-        yield SampleInput(input_tensor, **es.kwargs), RuntimeError, es.ex_str
+        yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+
+def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
+    """
+    "define_tensor",
+    [](FusionDefinition& self,
+        std::vector<int64_t>& sizes,
+        std::vector<int64_t>& strides,
+        PrimDataType dtype = DataType::Float,
+        bool static_sizes = false,
+        bool is_cpu = false) -> Tensor {
+    """
+
+    MINIMUM_SYMBOLIC_SIZE = -1
+    INT64_MAX = 9223372036854775807
+    MAX_TENSOR_DIMS = 8
+
+    check_size_contiguity_match = ErrorSample(
+        {
+            "symbolic_sizes": [-1, -1],
+            "contiguity": [True, True, True],
+            "dtype": DataType.Float,
+        },
+        "The size of contiguity must equal to the number of non-broadcasting IterDomains",
+    )
+
+    check_empty_tensor_size = ErrorSample(
+        {"symbolic_sizes": [], "contiguity": []},
+        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    )
+
+    check_max_tensor_size = ErrorSample(
+        {
+            "symbolic_sizes": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
+            "contiguity": [True for _ in range(MAX_TENSOR_DIMS + 1)],
+        },
+        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    )
+
+    check_above_size_range = ErrorSample(
+        {"symbolic_sizes": [INT64_MAX + 1], "contiguity": [True]},
+        "define_tensor(): incompatible function arguments",
+        TypeError,
+    )
+
+    check_below_size_range = ErrorSample(
+        {"symbolic_sizes": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
+        "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
+    )
+
+    # TODO: Fix empty and maximum tensor dimensionality error checks.
+    error_cases = [
+        check_size_contiguity_match,
+        # check_empty_tensor_size,
+        # check_max_tensor_size,
+        check_above_size_range,
+        check_below_size_range,
+    ]
+
+    input_tensor = make_tensor(
+        (10, 10), device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    for es in error_cases:
+        yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
