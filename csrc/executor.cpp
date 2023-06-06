@@ -1718,15 +1718,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::cout << "Index type: " << kernel()->indexType() << std::endl;
   }
 
-  cudaEvent_t start_event = {};
-  cudaEvent_t finish_event = {};
-
-  if (measure_kernel_time_ ||
+  const bool measure_kernel_time = measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
-    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
-    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+
+  executor_utils::CudaKernelTimer timer(stream);
+
+  if (measure_kernel_time) {
+    timer.init();
   }
 
   if (execute_kernel_) {
@@ -1758,6 +1757,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
                 << ", occupancy= " << oss.str() << std::endl;
     }
 
+    if (measure_kernel_time) {
+      timer.start();
+    }
+
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1786,39 +1789,31 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           stream,
           arg_buffer));
     }
-  }
 
-  if (measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));
-    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
-    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
-    CUDA_RT_SAFE_CALL(
-        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
-    CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-    CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+    if (measure_kernel_time) {
+      kernel_time_ms_ = timer.elapsed();
 
-    bytes_processed_ = 0;
-    // Figure how many bytes are inputs, outputs, and temporary buffers
-    for (auto i : c10::irange(num_inputs)) {
-      if (auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(args[i])) {
-        bytes_processed_ += tensor_arg_abstract->numel() *
-            (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
+      bytes_processed_ = 0;
+      // Figure how many bytes are inputs, outputs, and temporary buffers
+      for (auto i : c10::irange(num_inputs)) {
+        if (auto tensor_arg_abstract =
+                dynamic_cast<const TensorArgAbstract*>(args[i])) {
+          bytes_processed_ += tensor_arg_abstract->numel() *
+              (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
+        }
       }
-    }
-    for (const auto& output : outputs) {
-      bytes_processed_ += output.numel() *
-          (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
-    }
+      for (const auto& output : outputs) {
+        bytes_processed_ += output.numel() *
+            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
+      }
 
-    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
-      double gb_per_s =
-          ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
-          (double)1.0e9;
-      std::cout << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
-                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
+      if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
+        double gb_per_s =
+            ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
+            (double)1.0e9;
+        std::cout << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
+                  << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
+      }
     }
   }
 

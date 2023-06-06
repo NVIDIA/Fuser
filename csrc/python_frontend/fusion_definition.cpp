@@ -291,6 +291,13 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   return out;
 }
 
+Vector FusionDefinition::defineVector(size_t size) {
+  FUSER_PERF_SCOPE("FusionDefinition::defineVector");
+  Vector out(recording_state_.size(), size, this);
+  recording_state_.emplace_back(out(), serde::StateType_Vector);
+  return out;
+}
+
 void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
   TORCH_CHECK(

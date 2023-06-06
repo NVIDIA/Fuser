@@ -119,8 +119,19 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     profiling_ = to_profile;
   }
 
-  void setMeasureKernelTime(bool val = true) {
-    measure_kernel_time_ = val;
+  //! Enable kernel time measurement. Only the device time is
+  //! inclued.
+  void enableKernelTimeMeasurement() {
+    measure_kernel_time_ = true;
+  }
+
+  void disableKernelTimeMeasurement() {
+    measure_kernel_time_ = false;
+  }
+
+  //! Return the total kernel time of all segments
+  float kernelTimeMs() const {
+    return kernel_time_ms_;
   }
 
   //! Internal knob for profiling shape inference
@@ -240,7 +251,14 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   // States for profiling support
   bool profiling_ = false;
+
+  //! Flag to indicate kernel timing measurement. Should be disabled
+  //! unless benchmarking the kernel timing only as the measurement
+  //! itself incurs an overhead.
   bool measure_kernel_time_ = false;
+
+  //! The sum of the last kernel execution times
+  float kernel_time_ms_ = 0;
 
   std::mutex mutex_;
 
@@ -467,7 +485,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     fusion_->printMath();
   }
 
-  FusionKernelRuntime* getMostRecentKernelRuntime() {
+  FusionKernelRuntime* getMostRecentKernelRuntime() const {
     return most_recent_runtime_;
   }
 
@@ -532,6 +550,24 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     }
   }
 
+  //! Enable kernel time measurement through FusionKernelRuntime. See
+  //! FusionKernelRuntime::enableKernelTimeMeasurement() as well
+  void enableKernelTimeMeasurement() {
+    measure_kernel_time_ = true;
+  }
+
+  void disableKernelTimeMeasurement() {
+    measure_kernel_time_ = false;
+  }
+
+  //! Return the kernel time of the most recent fusion execution. Can
+  //! be zero if the measurement is not enabled
+  float getMostRecentKernelTimeMs() const {
+    auto rt = getMostRecentKernelRuntime();
+    TORCH_INTERNAL_ASSERT(rt != nullptr);
+    return rt->kernelTimeMs();
+  }
+
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `FusionExecutor`
@@ -572,6 +608,9 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
+
+  //! Flag to indicate kernel time measurement
+  bool measure_kernel_time_ = false;
 
   //! Logging state for most recent compilation
   ExecutorLog most_recent_executor_log_;

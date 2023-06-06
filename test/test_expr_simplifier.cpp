@@ -7,7 +7,6 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <assume.h>
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
@@ -1011,21 +1010,8 @@ TEST_F(ExprSimplifierTest, MinMax_CUDA) {
 
   auto expr =
       "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
-  EXPECT_TRUE(simplify(expr, assume::tensorsAreNotEmpty(expr))
+  EXPECT_TRUE(simplify(expr, "T0.size[0] > 0"_b)
                   ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
-}
-
-TEST_F(ExprSimplifierTest, Assume_CUDA) {
-  auto expr =
-      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[1] , 128 ) ) , 4 )"_;
-  EXPECT_EQ(
-      simplifyExpr(IrBuilder::eqExpr(
-                       assume::tensorsAreNotEmpty(expr),
-                       "T0.size[0] > 0 && T0.size[1] > 0"_))
-          ->getBool(),
-      true);
-  expr = "ceilDiv( T0.size[0] , T0.size[0] ) * T0.size[0]"_;
-  EXPECT_TRUE(assume::tensorsAreNotEmpty(expr)->sameAs("T0.size[0] > 0"_));
 }
 
 TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
