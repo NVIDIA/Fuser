@@ -230,54 +230,58 @@ void ContiguousInnerDimensionsMapper::distributePE(
 }
 
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
-    std::vector<IterDomain*> from,
+    const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to) {
   if (from.empty()) {
     return {};
   }
 
-  // "combine" is a merge in forward propagation, and a split in backward
-  auto propagateCombine = [&](auto* merge_or_split) {
+  std::vector<IterDomain*> frontier = from;
+
+  // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
+  // be an expr that combines two IDs into one. For forward propagation, it must
+  // be a merge, and for backward propagation, it must be a split.
+  auto propagateCombine = [&frontier, this](auto* merge_or_split) {
     // Initialize state
-    auto find_outer_it = from.begin();
-    auto outer_pos = from.size();
-    auto find_inner_it = from.begin();
-    auto inner_pos = from.size();
+    auto find_outer_it = frontier.begin();
+    auto outer_pos = frontier.size();
+    auto find_inner_it = frontier.begin();
+    auto inner_pos = frontier.size();
 
     // Removes all entries to the left of provided `it`, if `it` is not
-    // from.begin(). Updates all state of finding outer and inner in the
-    // from vector after erasing.
+    // frontier.begin(). Updates all state of finding outer and inner in the
+    // frontier vector after erasing.
     auto clear_left_of = [&find_outer_it,
                           &outer_pos,
                           &find_inner_it,
                           &inner_pos,
-                          &from,
+                          &frontier,
                           &merge_or_split](decltype(find_outer_it) it) {
-      if (it != from.begin()) {
-        from.erase(from.begin(), it);
+      if (it != frontier.begin()) {
+        frontier.erase(frontier.begin(), it);
       }
 
       // Set outer it and position
       find_outer_it =
-          std::find(from.begin(), from.end(), merge_or_split->outer());
-      outer_pos = std::distance(from.begin(), find_outer_it);
+          std::find(frontier.begin(), frontier.end(), merge_or_split->outer());
+      outer_pos = std::distance(frontier.begin(), find_outer_it);
 
       // Set inner it and position
       find_inner_it =
-          std::find(from.begin(), from.end(), merge_or_split->inner());
-      inner_pos = std::distance(from.begin(), find_inner_it);
+          std::find(frontier.begin(), frontier.end(), merge_or_split->inner());
+      inner_pos = std::distance(frontier.begin(), find_inner_it);
     };
 
     // Dry run to fill state
-    clear_left_of(from.begin());
+    clear_left_of(frontier.begin());
 
     // Cannot map through non-divisible split
     if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
       if (divisible_splits_.find(merge_or_split) == divisible_splits_.end()) {
-        if (find_inner_it != from.end()) {
+        if (find_inner_it != frontier.end()) {
           clear_left_of(find_inner_it + 1);
         }
-        if (find_outer_it != from.end()) {
+        if (find_outer_it != frontier.end()) {
           clear_left_of(find_outer_it + 1);
         }
         return;
@@ -286,25 +290,27 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
     // Check if the domains out of the split are contiguous in the mapped
     // domain.
-    if (find_outer_it == from.end() && find_inner_it != from.end()) {
+    if (find_outer_it == frontier.end() && find_inner_it != frontier.end()) {
       // Outer dimension was not found, but inner dimension was. Must assume
       // everything to the left of inner is not contiguously merged.
       //
       // Clear left of inner
       clear_left_of(find_inner_it);
-    } else if (find_outer_it != from.end() && find_inner_it == from.end()) {
+    } else if (
+        find_outer_it != frontier.end() && find_inner_it == frontier.end()) {
       // Inner dimension was not found, outer and anything left of outer are
       // definitely not contiguous.
       //
       // Clear outer and left of outer
       clear_left_of(find_outer_it + 1);
       return;
-    } else if (find_outer_it == from.end() && find_inner_it == from.end()) {
+    } else if (
+        find_outer_it == frontier.end() && find_inner_it == frontier.end()) {
       // Nothing mapped, just continue
       return;
     }
 
-    if (find_outer_it != from.end() && find_inner_it != from.end()) {
+    if (find_outer_it != frontier.end() && find_inner_it != frontier.end()) {
       // Both outer and inner mapped.
       if (outer_pos >= inner_pos) {
         // Make sure outer is outside inner, otherwise neither could be part
@@ -325,8 +331,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       // Find the position inner would have to have to be considered ordered
       // relative to outer
       auto pos_after_outer = outer_pos + 1;
-      for (; pos_after_outer < from.size(); pos_after_outer++) {
-        if (from[pos_after_outer]->isBroadcast() &&
+      for (; pos_after_outer < frontier.size(); pos_after_outer++) {
+        if (frontier[pos_after_outer]->isBroadcast() &&
             pos_after_outer != inner_pos) {
           // Skip broadcast axes as they must not have been concretized in
           // the reference. We remove dimensions that underwent a
@@ -346,25 +352,27 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
-      from[inner_pos] = merge_or_split->in();
+      frontier[inner_pos] = merge_or_split->in();
     } else {
       static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
-      from[inner_pos] = merge_or_split->out();
+      frontier[inner_pos] = merge_or_split->out();
     }
-    bool outer_mapped = find_outer_it != from.end();
+    bool outer_mapped = find_outer_it != frontier.end();
     if (outer_mapped) {
       // Remove outer
-      from.erase(find_outer_it);
+      frontier.erase(find_outer_it);
     } else {
       // Clear to the left of inner in since only inner maps
-      from.erase(from.begin(), from.begin() + (int64_t)inner_pos);
+      frontier.erase(frontier.begin(), frontier.begin() + (int64_t)inner_pos);
     }
 
     combinePE(merge_or_split, outer_mapped);
   };
 
-  // "distribute" is a split in forward propagation and a merge in backward
-  auto propagateDistribute = [&](auto* merge_or_split) {
+  // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
+  // be an expr that unflatten one ID into two IDs. For forward propagation, it
+  // must be a split, and for backward propagation, it must be a merge
+  auto propagateDistribute = [&frontier, this](auto* merge_or_split) {
     Val* combined = nullptr;
     if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
       combined = merge_or_split->in();
@@ -372,29 +380,29 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
       combined = merge_or_split->out();
     }
-    auto find_out_it = std::find(from.begin(), from.end(), combined);
-    if (find_out_it == from.end()) {
+    auto find_out_it = std::find(frontier.begin(), frontier.end(), combined);
+    if (find_out_it == frontier.end()) {
       return;
     }
 
-    auto out_pos = std::distance(from.begin(), find_out_it);
-    from[out_pos] = merge_or_split->outer();
-    from.insert(from.begin() + out_pos + 1, merge_or_split->inner());
+    auto out_pos = std::distance(frontier.begin(), find_out_it);
+    frontier[out_pos] = merge_or_split->outer();
+    frontier.insert(frontier.begin() + out_pos + 1, merge_or_split->inner());
 
     distributePE(merge_or_split);
   };
 
-  auto clear_left_of = [&](IterDomain* id) {
-    auto it = std::find(from.begin(), from.end(), id);
-    if (it != from.end()) {
-      from.erase(from.begin(), it + 1);
+  auto clear_left_of = [&frontier](IterDomain* id) {
+    auto it = std::find(frontier.begin(), frontier.end(), id);
+    if (it != frontier.end()) {
+      frontier.erase(frontier.begin(), it + 1);
     }
   };
 
   auto backward_exprs = StmtSort::getExprsBetween(
-      from.front()->fusion(),
+      frontier.front()->fusion(),
       {to.begin(), to.end()},
-      {from.begin(), from.end()});
+      {frontier.begin(), frontier.end()});
 
   // Mapping from rfactor to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
@@ -417,13 +425,13 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } // switch on expr type
   } // For loop on the transform expressions
 
-  if (from.empty()) {
+  if (frontier.empty()) {
     return {};
   }
 
   auto forward_exprs = StmtSort::getExprsBetween(
-      from.front()->fusion(),
-      {from.begin(), from.end()},
+      frontier.front()->fusion(),
+      {frontier.begin(), frontier.end()},
       {to.begin(), to.end()});
 
   // Map forward through transforms since we're going from root to rfactor
@@ -445,7 +453,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } // switch on expr type
   } // For loop on the transform expressions
 
-  return from;
+  return frontier;
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>

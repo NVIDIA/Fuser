@@ -269,7 +269,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   // Projection from root<->rfactor domains
   std::vector<IterDomain*> projectId(
-      std::vector<IterDomain*> from,
+      const std::vector<IterDomain*>& from,
       const std::vector<IterDomain*>& to);
 
   // Propagator functions
