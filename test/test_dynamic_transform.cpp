@@ -1046,7 +1046,6 @@ TEST_F(NVFuserTest, DynamicRewriteEmptyTensors1_CUDA) {
   auto tv_output = runtime_outputs.at(0);
   auto def = tv_output->definition();
   EXPECT_NE(def, nullptr);
-  std::cout << def->toString() << std::endl;
   EXPECT_EQ(def->isA<FullOp>(), true);
 }
 

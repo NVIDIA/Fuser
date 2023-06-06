@@ -879,10 +879,29 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
           i,
           " but found ",
           argTypeToString(argi->type()));
-      const TensorArgAbstract* targ =
-          reinterpret_cast<const TensorArgAbstract*>(argi);
+      const auto* targ = reinterpret_cast<const TensorArgAbstract*>(argi);
       for (auto j : c10::irange(dom.size())) {
-        expr_eval.bind(dom[j]->extent(), targ->getSize((int64_t)j));
+        auto size_j = targ->getSize((int64_t)j);
+        // Input can be expanded. See test FusionExpandRepro1860_CUDA
+        auto ext = dom[j]->hasExpandedExtent() ? dom[j]->expandedExtent() : dom[j]->extent();
+        // Extents can be concrete, in which case we should just check that the
+        // input size matches, but not try to bind them.
+        if (ext->isConstInt()) {
+          TORCH_INTERNAL_ASSERT(
+              ext->getInt().value() == size_j,
+              "Provided argument ",
+              targ->toString(),
+              " for input ",
+              i,
+              " (",
+              inpi->toString(),
+              ") does not match constant extent of IterDomain ",
+              dom[j]->toString(),
+              " at position ",
+              j);
+        } else {
+          expr_eval.bind(ext, size_j);
+        }
       }
     }
   }
