@@ -462,6 +462,7 @@ enum class ParallelType {
   Unswitch,
   Mma,
   Group,
+  Bulk,
   Serial
 };
 

@@ -206,102 +206,112 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 
 namespace Hopper {
 
+DEVICE_INLINE void cpAsyncBulkCommit() {
+  asm volatile("cp.async.bulk.commit_group;");
+}
+
+template <int keep_stages>
+DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
+  asm volatile("cp.async.bulk.wait_group.read %0;"
+               :
+               : "n"(keep_stages)
+               : "memory");
+}
+
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
-    int32_t crd0) {
+    Array<int32_t, 1> crds) {
   // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
       :
-      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0)
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crds[0])
       : "memory");
+  // TODO: this is not correct, and is only a temporary solution for the
+  // build-out stage
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
 }
-
-// TODO: Right now, only 1D case is tested, the functions below may or may not
-// work. Supports for higher dimensions will be added gradually.
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
-    int32_t crd0,
-    int32_t crd1) {
+    Array<int32_t, 2> crds) {
+  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
       :
-      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0), "r"(crd1)
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crds[0]), "r"(crds[1])
       : "memory");
+  // TODO: this is not correct, and is only a temporary solution for the
+  // build-out stage
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
-    int32_t crd0,
-    int32_t crd1,
-    int32_t crd2) {
+    Array<int32_t, 3> crds) {
+  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
       :
-      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crd0), "r"(crd1), "r"(crd2)
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crds[0]), "r"(crds[1]), "r"(crds[2])
       : "memory");
+  // TODO: this is not correct, and is only a temporary solution for the
+  // build-out stage
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
-    int32_t crd0,
-    int32_t crd1,
-    int32_t crd2,
-    int32_t crd3) {
+    Array<int32_t, 4> crds) {
+  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
       :
       : "l"(gmem_int_desc),
         "r"(smem_addr),
-        "r"(crd0),
-        "r"(crd1),
-        "r"(crd2),
-        "r"(crd3)
+        "r"(crds[0]),
+        "r"(crds[1]),
+        "r"(crds[2]),
+        "r"(crds[3])
       : "memory");
+  // TODO: this is not correct, and is only a temporary solution for the
+  // build-out stage
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
-    int32_t crd0,
-    int32_t crd1,
-    int32_t crd2,
-    int32_t crd3,
-    int32_t crd4) {
+    Array<int32_t, 5> crds) {
+  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
       :
       : "l"(gmem_int_desc),
         "r"(smem_addr),
-        "r"(crd0),
-        "r"(crd1),
-        "r"(crd2),
-        "r"(crd3),
-        "r"(crd4)
+        "r"(crds[0]),
+        "r"(crds[1]),
+        "r"(crds[2]),
+        "r"(crds[3]),
+        "r"(crds[4])
       : "memory");
-}
-
-DEVICE_INLINE void cpAsyncBulkCommit() {
-  asm volatile("cp.async.bulk.commit_group;");
-}
-
-// Wait on prior N (Count) TMA_STORE instructions to complete
-template <int keep_stages>
-DEVICE_INLINE void cpAsyncBulkPartialBarrier() {
-  asm volatile("cp.async.bulk.wait_group.read %0;"
-               :
-               : "n"(keep_stages)
-               : "memory");
+  // TODO: this is not correct, and is only a temporary solution for the
+  // build-out stage
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
 }
 
 } // namespace Hopper

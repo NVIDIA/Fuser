@@ -612,6 +612,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+    auto in = ldst->in()->as<kir::TensorIndex>();
+    auto out = ldst->out()->as<kir::TensorIndex>();
+  }
+
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
     indent() << "Turing::ldMatrix";
@@ -1297,6 +1302,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               "cp.async.cg only support vectorize 8");
         }
         genCpAsync(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch cp.async.bulk.tensor.tile
+      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkTensorTile(ldst);
         return;
       }
 

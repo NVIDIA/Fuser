@@ -24,10 +24,13 @@ class TMATest : public NVFuserTest {
 // Example usage of TMA
 // https://github.com/NVIDIA/cutlass/blob/87349d349605c1e24366fcbe8f04d0141dcb617b/include/cutlass/gemm/collective/sm90_mma_tma_gmma_rs_warpspecialized.hpp#L311-L414
 // https://github.com/NVIDIA/cutlass/blob/87349d349605c1e24366fcbe8f04d0141dcb617b/include/cutlass/epilogue/collective/sm90_epilogue_tma_warpspecialized.hpp#L516-L545
+// https://github.com/NVIDIA/cutlass/blob/87349d349605c1e24366fcbe8f04d0141dcb617b/include/cutlass/gemm/collective/sm90_mma_tma_gmma_ss.hpp
 
 // TODO: smem fence?
 
 // https://developer.nvidia.com/blog/controlling-data-movement-to-boost-performance-on-ampere-architecture/
+
+// https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma.hpp
 
 
 TEST_F(TMATest, Store1DNoSwizzle_CUDA) {
@@ -44,6 +47,14 @@ TEST_F(TMATest, Store1DNoSwizzle_CUDA) {
   tv2->setMemoryType(MemoryType::Shared);
   tv3->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 32);
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024 * 1024}, options);
