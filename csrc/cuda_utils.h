@@ -10,8 +10,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-namespace nvfuser {
-
 #define NVFUSER_NVRTC_SAFE_CALL(x)               \
   do {                                           \
     nvrtcResult _result = x;                     \
@@ -48,5 +46,3 @@ namespace nvfuser {
         " failed with error ",        \
         cudaGetErrorString(_result)); \
   } while (0)
-
-} // namespace nvfuser

@@ -143,7 +143,6 @@ void runBenchmarkIterations(
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
-  fusion_executor_cache->enableKernelTimeMeasurement();
   fusion_executor_cache->profile(true);
 
   // Segment and compile the fusion
@@ -172,6 +171,8 @@ void runBenchmarkIterations(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   if (!segmented) {
+    auto executor_instance = compile_log.fusion_executor;
+    executor_instance->setMeasureKernelTimeFlag(true);
     for (auto _ : benchmark_state) {
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
