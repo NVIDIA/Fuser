@@ -555,11 +555,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIrDynamic)) {
-    std::cout << "Dynamic Fusion (before concretization):" << std::endl;
-    fusion()->printMath();
-  }
-
   // Compute or get cached initial concretization info
   auto& initial_info = initialInfo();
 
@@ -616,7 +611,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
   } else {
     // cache miss, need to re-build an optimized graph for this case
-
+    if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+      std::cout << "Fusion Before Concretization:" << std::endl;
+      fusion()->printMath();
+    }
     // concretize fusion_ for use in this runtime
     auto fusion = std::make_unique<Fusion>(*fusion_);
     FusionGuard fg(fusion.get());
