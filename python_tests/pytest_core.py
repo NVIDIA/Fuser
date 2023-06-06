@@ -1,5 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# Owner(s): ["module: nvfuser"]
+
 from collections import namedtuple
-from make_tensor import make_tensor, all_dtypes
+from pytest_utils import all_dtypes
+from torch.testing import make_tensor
 from functools import partial, wraps
 from typing import Callable
 import torch

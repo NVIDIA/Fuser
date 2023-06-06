@@ -1,9 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# Owner(s): ["module: nvfuser"]
+
 import inspect
 import os
 import sys
 import torch
 from typing import Callable
-from make_tensor import map_dtype_to_str
+from pytest_utils import map_dtype_to_str
 
 
 def _instantiate_opinfo_test_template(
