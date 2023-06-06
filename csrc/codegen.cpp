@@ -615,6 +615,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
+    auto out_tv = out->view();
+    TORCH_INTERNAL_ASSERT(
+        in->view()->getMemoryType() == MemoryType::Shared &&
+            out_tv->getMemoryType() == MemoryType::Global,
+        "Expected shared to global copy");
+    indent() << "cpAsyncBulkTensorTileS2G";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
