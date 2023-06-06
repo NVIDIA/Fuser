@@ -2653,7 +2653,8 @@ void HeuristicSummary::validate() const {
             entry_type_map_.count(EntryType::REFERENCE_TENSORS));
         TORCH_INTERNAL_ASSERT(
             entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-        TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::VECTORIZE_MAPS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
         TORCH_INTERNAL_ASSERT(
             entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
         TORCH_INTERNAL_ASSERT(
@@ -2681,7 +2682,8 @@ void HeuristicSummary::validate() const {
       TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
       TORCH_INTERNAL_ASSERT(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::VECTORIZE_MAPS));
+      TORCH_INTERNAL_ASSERT(
+          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
       TORCH_INTERNAL_ASSERT(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       break;
@@ -2690,7 +2692,8 @@ void HeuristicSummary::validate() const {
       TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
       TORCH_INTERNAL_ASSERT(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::VECTORIZE_MAPS));
+      TORCH_INTERNAL_ASSERT(
+          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
       TORCH_INTERNAL_ASSERT(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       TORCH_INTERNAL_ASSERT(
@@ -2752,7 +2755,8 @@ template class HeuristicSummaryEntry<
     HeuristicCompileTime::ReferenceTensorsForGroups>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::VectorizableInputsAndOutputs>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>;
+template class HeuristicSummaryEntry<
+    HeuristicCompileTime::TvToContigInnerSizeMaps>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
 template class HeuristicSummaryEntry<
