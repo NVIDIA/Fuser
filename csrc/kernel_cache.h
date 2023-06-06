@@ -119,6 +119,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     profiling_ = to_profile;
   }
 
+  //! Enable kernel time measurement. Only the device time is
+  //! inclued.
   void enableKernelTimeMeasurement() {
     measure_kernel_time_ = true;
   }
@@ -249,7 +251,14 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 
   // States for profiling support
   bool profiling_ = false;
+
+  //! Flag to indicate kernel timing measurement. Should be disabled
+  //! unless benchmarking the kernel timing only as the measurement
+  //! itself incurs an overhead.
   bool measure_kernel_time_ = false;
+  float kernel_time_ms_ = 0;
+
+  //! The sum of the last kernel execution times
   float kernel_time_ms_ = 0;
 
   std::mutex mutex_;
@@ -542,6 +551,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     }
   }
 
+  //! Enable kernel time measurement through FusionKernelRuntime. See
+  //! FusionKernelRuntime::enableKernelTimeMeasurement() as well
   void enableKernelTimeMeasurement() {
     measure_kernel_time_ = true;
   }
@@ -550,6 +561,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     measure_kernel_time_ = false;
   }
 
+  //! Return the kernel time of the most recent fusion execution. Can
+  //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const {
     auto rt = getMostRecentKernelRuntime();
     TORCH_INTERNAL_ASSERT(rt != nullptr);

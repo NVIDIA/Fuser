@@ -17,6 +17,7 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
+#include <cuda_utils.h>
 #include <device_lower/lower2device.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
@@ -26,45 +27,6 @@
 
 #include <string>
 #include <vector>
-
-namespace nvfuser {
-
-#define NVRTC_SAFE_CALL(x)                       \
-  do {                                           \
-    nvrtcResult _result = x;                     \
-    TORCH_INTERNAL_ASSERT(                       \
-        _result == NVRTC_SUCCESS,                \
-        "NVRTC error: " #x "failed with error ", \
-        nvrtcGetErrorString(_result));           \
-  } while (0)
-
-#define CUDA_SAFE_CALL(x)              \
-  do {                                 \
-    CUresult _result = x;              \
-    if (_result != CUDA_SUCCESS) {     \
-      const char* msg;                 \
-      const char* name;                \
-      cuGetErrorName(_result, &name);  \
-      cuGetErrorString(_result, &msg); \
-      TORCH_INTERNAL_ASSERT(           \
-          _result == CUDA_SUCCESS,     \
-          "CUDA error: ",              \
-          name,                        \
-          " failed with error ",       \
-          msg);                        \
-    }                                  \
-  } while (0)
-
-#define NVFUSER_CUDA_RT_SAFE_CALL(x)  \
-  do {                                \
-    cudaError_t _result = x;          \
-    TORCH_INTERNAL_ASSERT(            \
-        _result == cudaSuccess,       \
-        "CUDA error: ",               \
-        cudaGetErrorName(_result),    \
-        " failed with error ",        \
-        cudaGetErrorString(_result)); \
-  } while (0)
 
 namespace executor_utils {
 
@@ -300,6 +262,15 @@ void validateVectorizedTensors(
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 
+//! Kernel timing utility
+//!
+//! Usage example:
+//!
+//!   CudaKernelTimer timer(stream);
+//!   timer.init();
+//!   kernel<<<..., stream>>>(...);
+//!   auto elapsed_ms = timer.elapsed();
+//!
 class CudaKernelTimer {
  public:
   CudaKernelTimer(cudaStream_t s) : stream_(s) {}
@@ -308,6 +279,8 @@ class CudaKernelTimer {
     if (initialized_) {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
     }
   }
 
@@ -321,7 +294,6 @@ class CudaKernelTimer {
   }
 
   float elapsed() {
-    // Record
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
@@ -331,7 +303,6 @@ class CudaKernelTimer {
   }
 
  private:
-  // Create
   cudaStream_t stream_;
   cudaEvent_t start_event = {};
   cudaEvent_t finish_event = {};

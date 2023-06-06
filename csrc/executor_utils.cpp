@@ -115,7 +115,7 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -954,7 +954,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
   const auto getSize = nvrtcGetPTXSize;
 #endif
   size_t size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &size));
+  NVFUSER_NVRTC_SAFE_CALL(getSize(program, &size));
   return size;
 }
 
@@ -973,7 +973,7 @@ std::vector<char> nvrtcGetCode(
 #endif
 
   std::vector<char> code(size);
-  NVRTC_SAFE_CALL(getCode(program, code.data()));
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -1059,9 +1059,9 @@ class NvrtcCompileDriver {
         program, static_cast<int>(opts.size()), opts.data());
 
     size_t logsize = 0;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
     std::string log(logsize, 0);
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
     if (result != NVRTC_SUCCESS) {
       TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
     }
@@ -1321,7 +1321,7 @@ void createNvrtcProgram(
   ss << "__tmp_kernel" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-  NVRTC_SAFE_CALL(nvrtcCreateProgram(
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
@@ -1338,16 +1338,16 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
   createNvrtcProgram(program, id, full_src_code);
 
-  NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   const char* lowered_kernel_name = nullptr;
-  NVRTC_SAFE_CALL(
+  NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
