@@ -612,8 +612,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto dtype = ldst->in()->getDataType().value();
 
     bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
-    std::string name = (is_transpose ? "Turing::ldMatrixT"
-                                     : "Turing::ldMatrix");
+    std::string name =
+        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
 
     ArgumentBuilder func_args;
     func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
