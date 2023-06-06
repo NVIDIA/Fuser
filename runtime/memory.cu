@@ -219,6 +219,9 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
       : "memory");
 }
 
+// TODO: Right now, only 1D case is tested, the functions below may or may not
+// work. Supports for higher dimensions will be added gradually.
+
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     void const* const desc_ptr,
     uint32_t smem_addr,
