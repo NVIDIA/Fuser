@@ -12,6 +12,7 @@ from pytest_core import (
     ReferenceType,
     slice_sample_generator,
     slice_error_sample_generator,
+    define_tensor_sample_generator,
     define_tensor_error_sample_generator,
 )
 
@@ -25,6 +26,7 @@ fusion_input_ops = []
 define_tensor_opinfo = OpInfo(
     lambda fd: fd.define_tensor,
     "define_tensor",
+    sample_input_generator=define_tensor_sample_generator,
     error_input_generator=define_tensor_error_sample_generator,
     is_fusion_input_op=True,
 )

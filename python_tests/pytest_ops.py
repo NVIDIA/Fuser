@@ -167,7 +167,7 @@ def test_consistency(op: OpInfo, dtype: torch.dtype):
 
 
 # TODO Maybe only test a single dtype
-@ops(tuple(op for op in opinfos if op.reference is not None))
+@ops(tuple(op for op in opinfos))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(torch.float32):
         result = run_snippet(

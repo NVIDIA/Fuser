@@ -270,6 +270,10 @@ def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
+def define_tensor_sample_generator(op, dtype, requires_grad, **kwargs):
+    yield SampleInput(None, symbolic_sizes=[-1], contiguity=[True])
+
+
 def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
     """
     "define_tensor",
