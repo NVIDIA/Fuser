@@ -36,7 +36,6 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
   return cloned_info;
 }
 
@@ -104,19 +103,11 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       const auto& inp_dom =
           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
       for (const auto id : inp_dom) {
-        // Try and evaluate the extent so that intermediate expressions are
-        // cached in expr_eval_
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+        leaf_dynamic_vals_.push_back(id->extent());
       }
       const auto& out_dom = out_tv->getMaybeRFactorDomain();
       for (const auto id : out_dom) {
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+        leaf_dynamic_vals_.push_back(id->extent());
       }
     }
   }
@@ -132,8 +123,6 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         info_.dynamic_resizes_.push_back(op);
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
-        // warm up extent evaluation
-        info_.expr_eval_.evaluate(id->extent());
       }
     }
   }
@@ -705,45 +694,18 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
     const DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
-  // Copy the expression evaluator that has some values precomputed
-  auto expr_eval = info->getExpressionEvaluator();
+  // Create an ExpressionEvaluator that will live only as long as the current
+  // function. This should be the only one used on this Fusion.
+  PrecomputedValues pv(fusion);
+  pv.bindInputs(*args);
+  pv.evaluate();
 
-  // Bind input scalars and tensor metadata to symbolic scalars
-  TORCH_CHECK(
-      args->size() == fusion->inputs().size(),
-      "Received ",
-      args->size(),
-      " inputs but expected ",
-      fusion->inputs().size());
-  for (auto i : c10::irange(args->size())) {
-    const auto& inpi = fusion->inputs()[i];
-    const auto argi = (*args)[i];
-    if (inpi->isIntegralScalar()) {
-      TORCH_CHECK(
-          argi->isType(ArgType::Long),
-          "Expected integer input at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
+  ExpressionEvaluator expr_eval;
+  expr_eval.precomputedValues() = &pv;
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval.propagateBoundValuesThroughExactMaps(fusion);
 
-      const int64_t arg_val = *reinterpret_cast<const int64_t*>(argi->arg());
-      expr_eval.bind(inpi, arg_val);
-    } else if (inpi->isA<TensorView>()) {
-      const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->maybeRFactor();
-      TORCH_CHECK(
-          argi->isType(ArgType::Tensor),
-          "Expected CUDA tensor at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
-      const TensorArgAbstract* targ =
-          reinterpret_cast<const TensorArgAbstract*>(argi);
-      for (auto j : c10::irange(dom.size())) {
-        expr_eval.bind(dom[j]->extent(), targ->getSize((int64_t)j));
-      }
-    }
-  }
   return DynamicTransformConcretizationInfo(fusion, info, &expr_eval);
 }
 

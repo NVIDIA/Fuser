@@ -565,26 +565,29 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // Compute or get cached initial concretization info
   auto& initial_info = initialInfo();
 
+  // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
+  // the purposes of computing the concretization info.
+  auto conc_fusion = std::make_unique<Fusion>(*fusion_);
+
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
-  size_t conc_info_index = 0;
   if (initial_info.hasDynamicTransforms()) {
+    // When fusion_ is cloned, initial info will also be cloned. It's important
+    // that we use the cloned initial_info when using the cloned Fusion.
+    auto cloned_initial_info_opt =
+        conc_fusion->getManagedSafe<DynamicTransformInitialInfo>(
+            "initial_info");
+    TORCH_CHECK(
+        cloned_initial_info_opt.has_value(),
+        "Could not retrieve managed initial concretization info");
     conc_info = DynamicTransform::getConcretizationInfo(
-        fusion_.get(), &initial_info, &args);
+        conc_fusion.get(), &cloned_initial_info_opt.value(), &args);
     TORCH_CHECK(
         conc_info.has_value(),
         "Unable to get concretization info for dynamic Fusion");
-    // We use the Fusion-managed data facility to allow conc_info to survive
-    // cloning fusion_.
-    // See note [Fusion managed data] in fusion.h for more information.
-    conc_info_index = fusion_->manage(
-        conc_info.value(), [](IrCloner& ir_cloner, std::any data) -> std::any {
-          auto orig_conc_info =
-              std::any_cast<DynamicTransformConcretizationInfo>(data);
-          return orig_conc_info.clone(ir_cloner);
-        });
+    conc_fusion->stopManaging("initial_info");
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
@@ -620,43 +623,28 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // cache miss, need to re-build an optimized graph for this case
 
     // concretize fusion_ for use in this runtime
-    auto fusion = std::make_unique<Fusion>(*fusion_);
-    FusionGuard fg(fusion.get());
+    FusionGuard fg(conc_fusion.get());
     if (initial_info.hasDynamicTransforms()) {
-      const auto& cloned_conc_info =
-          fusion->getManagedSafe<DynamicTransformConcretizationInfo>(
-              conc_info_index);
-      TORCH_INTERNAL_ASSERT(
-          cloned_conc_info.has_value(),
-          "Copied Fusion is missing managed concretization info");
-      DynamicTransform::concretizeFusion(
-          fusion.get(), cloned_conc_info.value());
-      // The information in initial_info and cloned_conc_info refers to
-      // variables in the copied symbolic fusion which get replaced during
-      // concretization. Keeping these around during a subsequent fusion copy
-      // would lead to an attempt to clone them, ending in a segfault. Instead,
-      // we reset the object here, effectively as if it now describes a
-      // non-dynamic Fusion.
-      fusion->stopManaging(conc_info_index);
-      fusion->stopManaging("initial_info");
-    }
-    if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-      std::cout << "Concretized Fusion:" << std::endl;
-      fusion->printMath();
+      if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+        std::cout << "Fusion before concretization:" << std::endl;
+        conc_fusion->printMath();
+      }
+
+      TORCH_INTERNAL_ASSERT(conc_info.has_value());
+
+      DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info.value());
+
+      if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
+        std::cout << "Concretized Fusion:" << std::endl;
+        conc_fusion->printMath();
+      }
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
-        std::move(fusion), args, forced_index_type));
+        std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
     if (profiling_) {
       kernel_runtime->profile(true);
     }
-  }
-
-  if (initial_info.hasDynamicTransforms()) {
-    // In the case of cache hits, we tend to accumulate managed data in
-    // fusion_. Here we release the concretization info we created to avoid
-    // cloning more and more entries.
-    fusion_->stopManaging(conc_info_index);
   }
 
   id_to_kernel_runtime_[unique_id] = kernel_runtime;
