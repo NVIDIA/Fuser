@@ -598,18 +598,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
            batches_per_block_inner_reduction_max ||
        batches_per_block_outer_reduction >= 2)) {
     // Try to decrease per thread register allocation persistence size on inner
-    // reduction by reducing buffer size by half. In most cases,
-    // inner_most_dimension_numel is evenly divisible by
-    // batches_per_block_inner_reduction, thus bdimx will be doubled in each
-    // iteration. In nondivisible boundary cases, the difference between reduce
-    // by half and directly set to batches_per_block_inner_reduction_max is less
-    // than five percent.
+    // reduction by double bdimx.
     if (batches_per_block_inner_reduction >
         batches_per_block_inner_reduction_max) {
-      batches_per_block_inner_reduction /= 2;
-      bdimx = ceilDiv(
-          inner_most_dimension_numel,
-          inner_reduction_unroll_factor * batches_per_block_inner_reduction);
+      bdimx *= 2;
+      batches_per_block_inner_reduction = ceilDiv(
+          inner_most_dimension_numel, inner_reduction_unroll_factor * bdimx);
       continue;
     }
 
@@ -700,7 +694,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t blocks_per_sm_estimated =
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
-
     // only allow adjust to 90% of estimated_register_count to avoid too much
     // spills. initially we used 80%, however, the drop from 160 to 128 leads to
     // too much spills in Layer Norm with fused ops, see
