@@ -115,7 +115,8 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -1119,7 +1120,7 @@ class CuModuleLoadDataDriver {
 
     auto [opts, opt_vals] = getOptions();
 
-    CUDA_SAFE_CALL(cuModuleLoadDataEx(
+    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
@@ -1473,7 +1474,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     warnRegisterSpill(log.str());
   }
 
-  CUDA_SAFE_CALL(cuModuleGetFunction(
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
       lowered_kernel_name_str.c_str()));

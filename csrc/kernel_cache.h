@@ -256,7 +256,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! unless benchmarking the kernel timing only as the measurement
   //! itself incurs an overhead.
   bool measure_kernel_time_ = false;
-  float kernel_time_ms_ = 0;
 
   //! The sum of the last kernel execution times
   float kernel_time_ms_ = 0;

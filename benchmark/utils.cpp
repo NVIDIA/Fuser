@@ -168,7 +168,7 @@ void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
-  //c10::cuda::CUDACachingAllocator::emptyCache();
+  // c10::cuda::CUDACachingAllocator::emptyCache();
 
   fusion_executor_cache->enableKernelTimeMeasurement();
   fusion_executor_cache->profile(true);
@@ -195,10 +195,8 @@ void runBenchmarkIterations(
 
   fusion_executor_cache->profile(false);
 
-  
-
   // Sync everything up before we start
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_CALL(cudaDeviceSynchronize());
 
   // Optionally run benchmark 2 times more to excluce min and max
   if (excludeOutliers()) {
@@ -221,7 +219,7 @@ void runBenchmarkIterations(
 
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_CALL(cudaDeviceSynchronize());
 }
 
 void runBenchmarkIterations(
@@ -230,14 +228,14 @@ void runBenchmarkIterations(
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  //c10::cuda::CUDACachingAllocator::emptyCache();
+  // c10::cuda::CUDACachingAllocator::emptyCache();
 
   fusion_executor->runFusion(aten_inputs);
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
   // Sync everything up before we start
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_CALL(cudaDeviceSynchronize());
 
   fusion_executor->setMeasureKernelTimeFlag(true);
 
@@ -263,7 +261,7 @@ void runBenchmarkIterations(
 
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_CALL(cudaDeviceSynchronize());
 }
 
 namespace executorCache {

@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+namespace nvfuser {
 namespace executor_utils {
 
 // Include all the functions we might need in generated code
@@ -279,8 +280,6 @@ class CudaKernelTimer {
     if (initialized_) {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
-      CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-      CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
     }
   }
 

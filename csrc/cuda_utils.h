@@ -12,7 +12,7 @@
 
 namespace nvfuser {
 
-#define NVFUSER_NVRTC_SAFE_CALL(x)                       \
+#define NVFUSER_NVRTC_SAFE_CALL(x)               \
   do {                                           \
     nvrtcResult _result = x;                     \
     TORCH_INTERNAL_ASSERT(                       \
@@ -21,7 +21,7 @@ namespace nvfuser {
         nvrtcGetErrorString(_result));           \
   } while (0)
 
-#define NVFUSER_CUDA_SAFE_CALL(x)              \
+#define NVFUSER_CUDA_SAFE_CALL(x)      \
   do {                                 \
     CUresult _result = x;              \
     if (_result != CUDA_SUCCESS) {     \
@@ -48,3 +48,5 @@ namespace nvfuser {
         " failed with error ",        \
         cudaGetErrorString(_result)); \
   } while (0)
+
+} // namespace nvfuser
