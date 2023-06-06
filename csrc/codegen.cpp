@@ -622,7 +622,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         "Expected shared to global copy");
 
     ArgumentBuilder func_args;
-    func_args.arg("tensormap" + out_tv->name());
+    func_args.arg(std::string("tensormap") + std::to_string(out_tv->name()));
     func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
     func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
 
