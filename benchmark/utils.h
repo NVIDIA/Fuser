@@ -32,13 +32,19 @@ std::string toString(const TransposeParams& params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
-// Run benchmark iterations with provided inputs. Report kernel time
-// from the runtime, as well as heuristic parameters if not segmented.
+//! Run benchmark iterations with a fusion executor cache and
+//! inputs. The kernel time from the executor cache, which
+//! aggregates the kernel times of all segments, is added to
+//! benchmark_state. Heuristic parameters are also recorded but only
+//! if not segmented.
 void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
 
+//! Run benchmark iterations with a fusion executor and
+//! inputs. The fusion is assumed to have already been compiled. The
+//! kernel time is added to benchmark_state.
 void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutor* fusion_executor,
