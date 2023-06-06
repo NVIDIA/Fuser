@@ -13,6 +13,7 @@
 #include <c10/util/Exception.h>
 
 #include <cuda.h>
+#include <cuda_runtime.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -298,6 +299,52 @@ void validateVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
+
+//! Kernel timing utility
+//!
+//! Usage example:
+//!
+//!   CudaKernelTimer timer(stream);
+//!   timer.init();
+//!   kernel<<<..., stream>>>(...);
+//!   auto elapsed_ms = timer.elapsed();
+//!
+class CudaKernelTimer {
+ public:
+  CudaKernelTimer(cudaStream_t s) : stream_(s) {}
+
+  ~CudaKernelTimer() {
+    if (initialized_) {
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+      CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+    }
+  }
+
+  void init() {
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+  }
+
+  void start() {
+    CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
+  }
+
+  float elapsed() {
+    CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    CUDA_RT_SAFE_CALL(
+        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
+    return kernel_time_ms_;
+  }
+
+ private:
+  cudaStream_t stream_;
+  cudaEvent_t start_event = {};
+  cudaEvent_t finish_event = {};
+  bool initialized_ = false;
+  float kernel_time_ms_ = 0;
+};
 
 } // namespace executor_utils
 } // namespace nvfuser

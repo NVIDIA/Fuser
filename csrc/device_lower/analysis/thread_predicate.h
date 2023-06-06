@@ -50,6 +50,16 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
     ParallelTypeBitmap limited_types;
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
+
+    // when a leaf domain of a Tensor stored in global memory
+    // is merged from concretized broadcast root domain, the broadcasted
+    // root domains should be skipped when writing to global memory.
+    // broadcast_rd_indices_map maps a parallel type to a list of indices
+    // of the broadcasted root domains. The write to global memory is needed
+    // only when the index equals to 0.
+    std::unordered_map<ParallelType, std::vector<Val*>>
+        broadcast_rd_indices_map;
+
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]
     //  a parallel type is a `redundant_consumer_type` only
@@ -118,7 +128,7 @@ class TORCH_CUDA_CU_API ThreadPredicateMap {
  private:
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
-
+  void avoidConcretizedBroadcastRedundantWrite(const TensorView* out_tv);
   const_iterator find(const TensorView* tv) const;
   const_iterator end() const;
 
