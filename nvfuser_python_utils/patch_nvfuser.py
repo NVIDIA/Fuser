@@ -30,9 +30,9 @@ def patch_installation():
     torch_dir = os.path.dirname(util.find_spec("torch").origin)
     torch_lib = os.path.join(torch_dir, "lib")
 
-    installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
+    installed_nvfuser_dir = '/home/mmigdal/nvFuser/pytorch/torch/lib'
 
-    patch_pytorch_nvfuser_binaries(torch_lib)
+    patch_pytorch_nvfuser_binaries(installed_nvfuser_dir)
     if os.path.exists(installed_nvfuser_dir):
         remove_nvfuser_python_module(installed_nvfuser_dir)
 

@@ -1673,14 +1673,14 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
       ptx = nvcc_driver.compile(full_src_code);
       kernel_entry_point_name = nvcc_driver.getLastGlobalName();
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown compiler");
+      TORCH_INTERNAL_ASSERT(false, "Compiled using offline compiler. No log.", "Unknown compiler");
     }
 
     if (!compile_to_sass) {
-      return {ptx, kernel_entry_point_name};
+      return {ptx,  "Compiled using offline compiler. No log.", kernel_entry_point_name};
     } else {
       auto ptxas_driver = CudaCompiler::ptxas(80, cuda_path);
-      return {ptxas_driver.compile(ptx), kernel_entry_point_name};
+      return {ptxas_driver.compile(ptx),  "Compiled using offline compiler. No log.", kernel_entry_point_name};
     }
   }
 #endif
