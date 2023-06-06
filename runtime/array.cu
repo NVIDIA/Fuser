@@ -6,7 +6,7 @@
  */
 // clang-format on
 // aligned register array for vectorized load/store
-template <typename scalar_t, int size, int align_size>
+template <typename scalar_t, int size, int align_size=1>
 struct alignas(sizeof(scalar_t) * align_size) Array {
   scalar_t array[size];
 

@@ -620,7 +620,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         in->view()->getMemoryType() == MemoryType::Shared &&
             out_tv->getMemoryType() == MemoryType::Global,
         "Expected shared to global copy");
-    indent() << "cpAsyncBulkTensorTileS2G";
+
+    ArgumentBuilder func_args;
+    func_args.arg("tensormap" + out_tv->name());
+    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall("cpAsyncBulkTensorTileS2G", func_args)<< ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {

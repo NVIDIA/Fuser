@@ -219,11 +219,11 @@ DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    void const* const desc_ptr,
-    uint32_t smem_addr,
-    Array<int32_t, 1> crds) {
+    const TensorMap& dest,
+    Array<int32_t, 1> crds,
+    uint32_t smem_addr) {
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
       :
@@ -236,11 +236,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    void const* const desc_ptr,
-    uint32_t smem_addr,
-    Array<int32_t, 2> crds) {
+    const TensorMap& dest,
+    Array<int32_t, 2> crds,
+    uint32_t smem_addr) {
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
       :
@@ -253,15 +253,19 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    void const* const desc_ptr,
-    uint32_t smem_addr,
-    Array<int32_t, 3> crds) {
+    const TensorMap& dest,
+    Array<int32_t, 3> crds,
+    uint32_t smem_addr) {
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
       :
-      : "l"(gmem_int_desc), "r"(smem_addr), "r"(crds[0]), "r"(crds[1]), "r"(crds[2])
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(crds[0]),
+        "r"(crds[1]),
+        "r"(crds[2])
       : "memory");
   // TODO: this is not correct, and is only a temporary solution for the
   // build-out stage
@@ -270,11 +274,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    void const* const desc_ptr,
-    uint32_t smem_addr,
-    Array<int32_t, 4> crds) {
+    const TensorMap& dest,
+    Array<int32_t, 4> crds,
+    uint32_t smem_addr) {
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
       :
@@ -292,11 +296,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    void const* const desc_ptr,
-    uint32_t smem_addr,
-    Array<int32_t, 5> crds) {
+    const TensorMap& dest,
+    Array<int32_t, 5> crds,
+    uint32_t smem_addr) {
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
   asm volatile(
       "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
       :
