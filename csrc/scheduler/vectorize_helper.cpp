@@ -65,80 +65,49 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
-  // found either in the root domain, or the rfactor domain**.
-  bool reference_is_rfactor = reference->hasRFactor() &&
-      std::all_of(reference_ids.begin(),
-                  reference_ids.end(),
-                  [reference](IterDomain* id) {
-                    return (
-                        std::find(
-                            reference->getMaybeRFactorDomain().begin(),
-                            reference->getMaybeRFactorDomain().end(),
-                            id) != reference->getMaybeRFactorDomain().end());
-                  });
-
-  if (!reference_is_rfactor) {
-    TORCH_INTERNAL_ASSERT(
-        std::all_of(
-            reference_ids.begin(),
-            reference_ids.end(),
-            [reference](IterDomain* id) {
-              return (
-                  std::find(
-                      reference->getRootDomain().begin(),
-                      reference->getRootDomain().end(),
-                      id) != reference->getRootDomain().end());
-            }),
-        "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-        "ContiguousInnerDimensionsMapper must either all exist in the root domain, or all exist ",
-        "in the rfactor domain.\nReference: ",
-        reference->toString());
-  }
+  // found in the the rfactor domain.
+  TORCH_INTERNAL_ASSERT(
+      std::all_of(
+          reference_ids.begin(),
+          reference_ids.end(),
+          [reference](IterDomain* id) {
+            return (
+                std::find(
+                    reference->getMaybeRFactorDomain().begin(),
+                    reference->getMaybeRFactorDomain().end(),
+                    id) != reference->getMaybeRFactorDomain().end());
+          }),
+      "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
+      "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
+      "Reference: ",
+      reference->toString());
 
   // Record while processing reference's information
   recording_ = true;
   std::shared_ptr<Information> reference_information;
+
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  if (reference_is_rfactor) {
-    std::vector<IterDomain*> reordered_rfactor;
-    for (auto id : reference->getMaybeRFactorDomain()) {
-      if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-          reference_ids.end()) {
-        reordered_rfactor.push_back(id);
-        // Initiailze the extent for the mapped iter domain
-        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-      } else if (!id->isBroadcast()) {
-        // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-        // IDs in the reference tensor as this is the contiguous mapper.
-        reordered_rfactor.clear();
-      }
+  std::vector<IterDomain*> reordered_rfactor;
+  for (auto id : reference->getMaybeRFactorDomain()) {
+    if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
+        reference_ids.end()) {
+      reordered_rfactor.push_back(id);
+      // Initiailze the extent for the mapped iter domain
+      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+    } else if (!id->isBroadcast()) {
+      // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
+      // IDs in the reference tensor as this is the contiguous mapper.
+      reordered_rfactor.clear();
     }
-
-    reference_information = MappedDomain::build(
-        projectIdToRoot(reference, reordered_rfactor),
-        reordered_rfactor,
-        true /*shouldn't matter how we initialize this*/);
-  } else {
-    std::vector<IterDomain*> reordered_root;
-    for (auto id : reference->getRootDomain()) {
-      if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-          reference_ids.end()) {
-        reordered_root.push_back(id);
-        // Initiailze the extent for the mapped iter domain
-        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-      } else if (!id->isBroadcast()) {
-        // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-        // IDs in the reference tensor as this is the contiguous mapper.
-        reordered_root.clear();
-      }
-    }
-    reference_information = MappedDomain::build(
-        reordered_root,
-        projectIdToRFactor(reference, reordered_root),
-        false /*shouldn't matter how we initialize this*/);
   }
+
+  reference_information = MappedDomain::build(
+      projectId(reordered_rfactor, reference->getRootDomain()),
+      reordered_rfactor,
+      reference->hasRFactor() /*shouldn't matter how we initialize this*/);
+
   // Stop recording before traversal
   recording_ = false;
 
@@ -229,148 +198,199 @@ void ContiguousInnerDimensionsMapper::distributePE(
   addProjectedExtent(merge_or_split->outer(), projected_outer_extent);
 }
 
-std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
-    TensorView* ref,
-    std::vector<IterDomain*> ids) {
-  auto transform_exprs = StmtSort::getExprs(
-      ref->fusion(),
-      {ref->getRFactorDomain().begin(), ref->getRFactorDomain().end()});
+std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
+    const std::vector<IterDomain*>& from,
+    const std::vector<IterDomain*>& to) {
+  if (from.empty()) {
+    return {};
+  }
 
-  // Mapping from rfactor to root, reverse expressions
-  std::reverse(transform_exprs.begin(), transform_exprs.end());
+  std::vector<IterDomain*> frontier = from;
 
-  for (auto* expr : transform_exprs) {
-    if (Split* split = dynamic_cast<Split*>(expr)) {
-      // Initialize state
-      auto find_outer_it = ids.begin();
-      auto outer_pos = ids.size();
-      auto find_inner_it = ids.begin();
-      auto inner_pos = ids.size();
+  // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
+  // be an expr that combines two IDs into one. For forward propagation, it must
+  // be a merge, and for backward propagation, it must be a split.
+  auto propagateCombine = [&frontier, this](auto* merge_or_split) {
+    // Initialize state
+    auto find_outer_it = frontier.begin();
+    auto outer_pos = frontier.size();
+    auto find_inner_it = frontier.begin();
+    auto inner_pos = frontier.size();
 
-      // Removes all entries to the left of provided `it`, if `it` is not
-      // ids.begin(). Updates all state of finding outer and inner in the ids
-      // vector after erasing.
-      auto clear_left_of = [&find_outer_it,
-                            &outer_pos,
-                            &find_inner_it,
-                            &inner_pos,
-                            &ids,
-                            &split](decltype(find_outer_it) it) {
-        if (it != ids.begin()) {
-          ids.erase(ids.begin(), it);
-        }
+    // Removes all entries to the left of provided `it`, if `it` is not
+    // frontier.begin(). Updates all state of finding outer and inner in the
+    // frontier vector after erasing.
+    auto clear_left_of = [&find_outer_it,
+                          &outer_pos,
+                          &find_inner_it,
+                          &inner_pos,
+                          &frontier,
+                          &merge_or_split](decltype(find_outer_it) it) {
+      if (it != frontier.begin()) {
+        frontier.erase(frontier.begin(), it);
+      }
 
-        // Set outer it and position
-        find_outer_it = std::find(ids.begin(), ids.end(), split->outer());
-        outer_pos = std::distance(ids.begin(), find_outer_it);
+      // Set outer it and position
+      find_outer_it =
+          std::find(frontier.begin(), frontier.end(), merge_or_split->outer());
+      outer_pos = std::distance(frontier.begin(), find_outer_it);
 
-        // Set inner it and position
-        find_inner_it = std::find(ids.begin(), ids.end(), split->inner());
-        inner_pos = std::distance(ids.begin(), find_inner_it);
-      };
+      // Set inner it and position
+      find_inner_it =
+          std::find(frontier.begin(), frontier.end(), merge_or_split->inner());
+      inner_pos = std::distance(frontier.begin(), find_inner_it);
+    };
 
-      // Dry run to fill state
-      clear_left_of(ids.begin());
+    // Dry run to fill state
+    clear_left_of(frontier.begin());
 
-      // Cannot map through non-divisible split
-      if (divisible_splits_.find(split) == divisible_splits_.end()) {
-        if (find_inner_it != ids.end()) {
+    // Cannot map through non-divisible split
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      if (divisible_splits_.find(merge_or_split) == divisible_splits_.end()) {
+        if (find_inner_it != frontier.end()) {
           clear_left_of(find_inner_it + 1);
         }
-        if (find_outer_it != ids.end()) {
+        if (find_outer_it != frontier.end()) {
           clear_left_of(find_outer_it + 1);
         }
-        continue;
+        return;
       }
+    }
 
-      // Check if the domains out of the split are contiguous in the mapped
-      // domain.
-      if (find_outer_it == ids.end() && find_inner_it != ids.end()) {
-        // Outer dimension was not found, but inner dimension was. Must assume
-        // everything to the left of inner is not contiguously merged.
-        //
-        // Clear left of inner
-        clear_left_of(find_inner_it);
-      } else if (find_outer_it != ids.end() && find_inner_it == ids.end()) {
-        // Inner dimension was not found, outer and anything left of outer are
-        // definitely not contiguous.
+    // Check if the domains out of the split are contiguous in the mapped
+    // domain.
+    if (find_outer_it == frontier.end() && find_inner_it != frontier.end()) {
+      // Outer dimension was not found, but inner dimension was. Must assume
+      // everything to the left of inner is not contiguously merged.
+      //
+      // Clear left of inner
+      clear_left_of(find_inner_it);
+    } else if (
+        find_outer_it != frontier.end() && find_inner_it == frontier.end()) {
+      // Inner dimension was not found, outer and anything left of outer are
+      // definitely not contiguous.
+      //
+      // Clear outer and left of outer
+      clear_left_of(find_outer_it + 1);
+      return;
+    } else if (
+        find_outer_it == frontier.end() && find_inner_it == frontier.end()) {
+      // Nothing mapped, just continue
+      return;
+    }
+
+    if (find_outer_it != frontier.end() && find_inner_it != frontier.end()) {
+      // Both outer and inner mapped.
+      if (outer_pos >= inner_pos) {
+        // Make sure outer is outside inner, otherwise neither could be part
+        // of a continuous mapping. There are cases where we could have
+        // reversible operations e.g.:
+        //    [id{3} id{5} id{6}] -> merge(1, 0)
+        // -> [id{5*3} id{6}] -> split(0, 3)
+        // -> [id{5} id{3} id{6}] -> transpose(0, 1)
+        // -> [id{3} id{5} id{6}]
+        // However we don't try and capture cases like this correcly, we'd
+        // just reduce this down to only the iter domain of size 6 mapping.
         //
         // Clear outer and left of outer
         clear_left_of(find_outer_it + 1);
-        continue;
-      } else if (find_outer_it == ids.end() && find_inner_it == ids.end()) {
-        // Nothing mapped, just continue
-        continue;
+        return;
       }
 
-      if (find_outer_it != ids.end() && find_inner_it != ids.end()) {
-        // Both outer and inner mapped.
-        if (outer_pos >= inner_pos) {
-          // Make sure outer is outside inner, otherwise neither could be part
-          // of a continuous mapping. There are cases where we could have
-          // reversible operations e.g.:
-          //    [id{3} id{5} id{6}] -> merge(1, 0)
-          // -> [id{5*3} id{6}] -> split(0, 3)
-          // -> [id{5} id{3} id{6}] -> transpose(0, 1)
-          // -> [id{3} id{5} id{6}]
-          // However we don't try and capture cases like this correcly, we'd
-          // just reduce this down to only the iter domain of size 6 mapping.
-          //
-          // Clear outer and left of outer
-          clear_left_of(find_outer_it + 1);
-          continue;
+      // Find the position inner would have to have to be considered ordered
+      // relative to outer
+      auto pos_after_outer = outer_pos + 1;
+      for (; pos_after_outer < frontier.size(); pos_after_outer++) {
+        if (frontier[pos_after_outer]->isBroadcast() &&
+            pos_after_outer != inner_pos) {
+          // Skip broadcast axes as they must not have been concretized in
+          // the reference. We remove dimensions that underwent a
+          // concretization as well as the dimensions to the left of that in
+          // propagateC2P.
+          return;
         }
-
-        // Find the position inner would have to have to be considered ordered
-        // relative to outer
-        auto pos_after_outer = outer_pos + 1;
-        for (; pos_after_outer < ids.size(); pos_after_outer++) {
-          if (ids[pos_after_outer]->isBroadcast() &&
-              pos_after_outer != inner_pos) {
-            // Skip broadcast axes as they must not have been concretized in the
-            // reference. We remove dimensions that underwent a concretization
-            // as well as the dimensions to the left of that in propagateC2P.
-            continue;
-          }
-          break;
-        }
-
-        if (inner_pos != pos_after_outer) {
-          // Nothing to the left of inner could be continuous.
-          //
-          // Clear left of inner
-          clear_left_of(find_inner_it);
-        }
+        break;
       }
 
-      ids[inner_pos] = split->in();
-      bool outer_mapped = find_outer_it != ids.end();
-      if (outer_mapped) {
-        // Remove outer
-        ids.erase(find_outer_it);
-      } else {
-        // Clear to the left of inner in since only inner maps
-        ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
+      if (inner_pos != pos_after_outer) {
+        // Nothing to the left of inner could be continuous.
+        //
+        // Clear left of inner
+        clear_left_of(find_inner_it);
       }
+    }
 
-      combinePE(split, outer_mapped);
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_out_it = std::find(ids.begin(), ids.end(), merge->out());
-      if (find_out_it == ids.end()) {
-        continue;
-      }
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      frontier[inner_pos] = merge_or_split->in();
+    } else {
+      static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
+      frontier[inner_pos] = merge_or_split->out();
+    }
+    bool outer_mapped = find_outer_it != frontier.end();
+    if (outer_mapped) {
+      // Remove outer
+      frontier.erase(find_outer_it);
+    } else {
+      // Clear to the left of inner in since only inner maps
+      frontier.erase(frontier.begin(), frontier.begin() + (int64_t)inner_pos);
+    }
 
-      auto out_pos = std::distance(ids.begin(), find_out_it);
-      ids[out_pos] = merge->outer();
-      ids.insert(ids.begin() + out_pos + 1, merge->inner());
+    combinePE(merge_or_split, outer_mapped);
+  };
 
-      distributePE(merge);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+  // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
+  // be an expr that unflatten one ID into two IDs. For forward propagation, it
+  // must be a split, and for backward propagation, it must be a merge
+  auto propagateDistribute = [&frontier, this](auto* merge_or_split) {
+    Val* combined = nullptr;
+    if constexpr (std::is_same_v<decltype(merge_or_split), Split*>) {
+      combined = merge_or_split->in();
+    } else {
+      static_assert(std::is_same_v<decltype(merge_or_split), Merge*>);
+      combined = merge_or_split->out();
+    }
+    auto find_out_it = std::find(frontier.begin(), frontier.end(), combined);
+    if (find_out_it == frontier.end()) {
+      return;
+    }
+
+    auto out_pos = std::distance(frontier.begin(), find_out_it);
+    frontier[out_pos] = merge_or_split->outer();
+    frontier.insert(frontier.begin() + out_pos + 1, merge_or_split->inner());
+
+    distributePE(merge_or_split);
+  };
+
+  auto clear_left_of = [&frontier](IterDomain* id) {
+    auto it = std::find(frontier.begin(), frontier.end(), id);
+    if (it != frontier.end()) {
+      frontier.erase(frontier.begin(), it + 1);
+    }
+  };
+
+  // If `from` is [I1, I2, I3, I4], `to` is [I1, I5, I6, I7], where I2 =
+  // merge(I5, I6) and I7 = merge(I3, I4), `from` is on both side of `to`. We
+  // traverse the forward side and backward side separately. For this example,
+  // we will have backward exprs {I2 = merge(I5, I6)} and forward exprs {I7 =
+  // merge(I3, I4)}. If from is on the forward side only, then we will have
+  // empty backward exprs, vice versa.
+
+  auto backward_exprs = StmtSort::getExprsBetween(
+      frontier.front()->fusion(),
+      {to.begin(), to.end()},
+      {frontier.begin(), frontier.end()});
+
+  // Mapping from rfactor to root, reverse expressions
+  std::reverse(backward_exprs.begin(), backward_exprs.end());
+
+  for (auto* expr : backward_exprs) {
+    if (Split* split = dynamic_cast<Split*>(expr)) {
+      propagateCombine(split);
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      propagateDistribute(merge);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      auto find_out_it = std::find(ids.begin(), ids.end(), resize->out());
-      if (find_out_it != ids.end()) {
-        ids.erase(ids.begin(), find_out_it + 1);
-      }
+      clear_left_of(resize->out());
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -381,153 +401,24 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRoot(
     } // switch on expr type
   } // For loop on the transform expressions
 
-  return ids;
-}
+  if (frontier.empty()) {
+    return {};
+  }
 
-// This function is very similar to projectIdToRoot, we just generally swap the
-// logic of split and merge as the reverse mapping of merge looks a lot like
-// split and vice versa.
-std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
-    TensorView* ref,
-    std::vector<IterDomain*> ids) {
-  auto transform_exprs = StmtSort::getExprs(
-      ref->fusion(),
-      {ref->getRFactorDomain().begin(), ref->getRFactorDomain().end()});
+  auto forward_exprs = StmtSort::getExprsBetween(
+      frontier.front()->fusion(),
+      {frontier.begin(), frontier.end()},
+      {to.begin(), to.end()});
 
   // Map forward through transforms since we're going from root to rfactor
-  for (auto* expr : transform_exprs) {
-    if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      // Initialize state
-      auto find_outer_it = ids.begin();
-      auto outer_pos = ids.size();
-      auto find_inner_it = ids.begin();
-      auto inner_pos = ids.size();
-
-      // Removes all entries to the left of provided `it`, if `it` is not
-      // ids.begin(). Updates all state of finding outer and inner in the ids
-      // vector after erasing.
-      auto clear_left_of = [&find_outer_it,
-                            &outer_pos,
-                            &find_inner_it,
-                            &inner_pos,
-                            &ids,
-                            &merge](decltype(find_outer_it) it) {
-        if (it != ids.begin()) {
-          ids.erase(ids.begin(), it);
-        }
-        find_outer_it = std::find(ids.begin(), ids.end(), merge->outer());
-        outer_pos = find_outer_it == ids.end()
-            ? ids.size()
-            : std::distance(ids.begin(), find_outer_it);
-
-        find_inner_it = std::find(ids.begin(), ids.end(), merge->inner());
-        inner_pos = find_inner_it == ids.end()
-            ? ids.size()
-            : std::distance(ids.begin(), find_inner_it);
-      };
-
-      // Dry run to fill state
-      clear_left_of(ids.begin());
-
-      // Check if the input domains of the merge are contiguous in the mapped
-      // domain.
-      if (find_outer_it == ids.end() && find_inner_it != ids.end()) {
-        // Outer dimension was not found, but inner dimension was. Must assume
-        // everything to the left of inner is not contiguously merged.
-        //
-        // Clear left of inner
-        clear_left_of(find_inner_it);
-      } else if (find_outer_it != ids.end() && find_inner_it == ids.end()) {
-        // Inner dimension was not found, outer and anything left of outer are
-        // definitely not contiguous.
-        //
-        // Clear outer and left of outer
-        clear_left_of(find_outer_it + 1);
-        continue;
-      } else if (find_outer_it == ids.end() && find_inner_it == ids.end()) {
-        // Nothing mapped, just continue
-        continue;
-      }
-
-      if (find_outer_it != ids.end() && find_inner_it != ids.end()) {
-        // Both outer and inner mapped.
-        if (outer_pos >= inner_pos) {
-          // Make sure outer is outside inner, otherwise neither could be part
-          // of a continuous mapping. There are cases where we could have
-          // reversible operations e.g.:
-          //    [id{3} id{5} id{6}] -> merge(1, 0)
-          // -> [id{5*3} id{6}] -> split(0, 5)
-          // -> [id{5} id{3} id{6}] -> transpose(0, 1)
-          // -> [id{3} id{5} id{6}]
-          // However we don't try and capture cases like this correcly, we'd
-          // just reduce this down to only the iter domain of size 6 mapping.
-          //
-          // Clear outer and left of outer
-          clear_left_of(find_outer_it + 1);
-          continue;
-        }
-
-        // Find the position inner would have to have to be considered ordered
-        // relative to outer
-        auto pos_after_outer = outer_pos + 1;
-        for (; pos_after_outer < ids.size(); pos_after_outer++) {
-          if (ids[pos_after_outer]->isBroadcast() &&
-              pos_after_outer != inner_pos) {
-            // Skip broadcast axes as they must not have been concretized in the
-            // reference. We remove dimensions that underwent a concretization
-            // as well as the dimensions to the left of that.
-            continue;
-          }
-          break;
-        }
-
-        if (inner_pos != pos_after_outer) {
-          // Nothing to the left of inner could be continuous.
-          //
-          // Clear left of inner
-          clear_left_of(find_inner_it);
-        }
-      }
-
-      ids[inner_pos] = merge->out();
-      bool outer_mapped = find_outer_it != ids.end();
-      if (outer_mapped) {
-        // Remove outer
-        ids.erase(find_outer_it);
-      } else {
-        // Clear to the left of inner in since only inner maps
-        ids.erase(ids.begin(), ids.begin() + (int64_t)inner_pos);
-      }
-
-      combinePE(merge, outer_mapped);
+  for (auto* expr : forward_exprs) {
+    if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      propagateCombine(merge);
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
-      auto find_in_it = std::find(ids.begin(), ids.end(), split->in());
-      if (find_in_it == ids.end()) {
-        continue;
-      }
-
-      auto in_pos = std::distance(ids.begin(), find_in_it);
-
-      // Map inner and outer dimensions. If outer doesn't map fully this will be
-      // found during evaluation. Don't have to worry about it here.
-      ids[in_pos] = split->outer();
-      ids.insert(ids.begin() + in_pos + 1, split->inner());
-
-      // Cannot map through non-divisible split
-      if (divisible_splits_.find(split) == divisible_splits_.end()) {
-        if (find_in_it != ids.end()) {
-          ids.erase(ids.begin(), ids.begin() + in_pos + 1);
-        }
-        continue;
-      }
-
-      distributePE(split);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+      propagateDistribute(split);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      auto find_in_it = std::find(ids.begin(), ids.end(), resize->in());
-      if (find_in_it != ids.end()) {
-        ids.erase(ids.begin(), find_in_it + 1);
-      }
+      clear_left_of(resize->in());
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -537,7 +428,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectIdToRFactor(
           expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
-  return ids;
+
+  return frontier;
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
@@ -610,7 +502,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectIdToRoot(to, producer_rfactor_ids), producer_rfactor_ids, true);
+      projectId(producer_rfactor_ids, to->getRootDomain()),
+      producer_rfactor_ids,
+      true);
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
@@ -672,7 +566,9 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     }
   }
   return MappedDomain::build(
-      consumer_root_ids, projectIdToRFactor(to, consumer_root_ids), false);
+      consumer_root_ids,
+      projectId(consumer_root_ids, to->getMaybeRFactorDomain()),
+      false);
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
@@ -792,16 +688,11 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
-  // Logic copied to get root according to
-  // SchedulerRuntimeInfo::getMaxVectorizableWidth
-  bool use_root_dom = of_tv->hasReduction() && of_tv->hasRFactor();
-  auto of_tv_root =
-      use_root_dom ? of_tv->getRootDomain() : of_tv->getMaybeRFactorDomain();
+  auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
   TORCH_INTERNAL_ASSERT(hasMappedDims(of_tv));
 
-  const std::vector<IterDomain*>& projected_dims =
-      use_root_dom ? mappedRootIds(of_tv) : mappedRFactorIds(of_tv);
+  const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
   auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
 
   auto contiguity = of_tv->domain()->contiguity();
@@ -889,9 +780,7 @@ namespace {
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->hasReduction() && ref->hasRFactor()
-      ? ref->getRootDomain()
-      : ref->getMaybeRFactorDomain();
+  auto root_dom = ref->getMaybeRFactorDomain();
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
                           .getTvToContigMergeOfInnerSizeMap());
