@@ -106,9 +106,7 @@ enum RecordType : int {
     TensorSizes,
     VarianceOp,
     VarianceMeanOp,
-    VectorFromState,
-    VectorInput,
-    VectorLong,
+    Vector,
 }
 
 // =====================================================================================
@@ -138,9 +136,7 @@ union RecordData {
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
-  VectorFromState,
-  VectorInput,
-  VectorLong,
+  Vector,
 }
 
 // =====================================================================================
@@ -296,21 +292,8 @@ table TensorCreationSymbolic {
   dtype: DataType;
 }
 
-// Data for Vector from State
-table VectorFromState {
-  dtype: DataType;
-}
-
-// Data for Input Vector
-table VectorInput {
-  size: long;
-  dtype: DataType;
-}
-
-// Data for Vector of Constant Int or Long
-table VectorLong {
-  value: [long];
-  size: long;
+// Data for Vector
+table Vector {
   dtype: DataType;
 }
 

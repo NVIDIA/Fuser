@@ -30,30 +30,8 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_fn(
-    FusionDefinition& fd,
-    std::optional<std::vector<int64_t>> value,
-    size_t size,
-    PrimDataType dtype = DataType::Int) {
-  FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");
-  if (value.has_value()) {
-    TORCH_CHECK(
-        value.value().size() == size,
-        "value size and input size do not match!");
-  }
-  Vector out = fd.defineVector(size);
-  auto rtype = value.has_value() ? serde::RecordType_VectorLong
-                                 : serde::RecordType_VectorInput;
-  fd.defineRecord(new VectorRecord<int64_t>(
-      {fd.recordingState(out())}, rtype, value, size, dtype));
-  return out;
-}
-
-Vector define_vector_from_scalars_fn(
-    FusionDefinition& fd,
-    std::vector<Scalar>& args,
-    PrimDataType dtype = DataType::Int) {
-  FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalar State)");
+Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+  FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalars)");
   TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
   inputs.reserve(args.size());
@@ -62,10 +40,9 @@ Vector define_vector_from_scalars_fn(
   }
   Vector out = fd.defineVector(inputs.size());
   fd.defineRecord(
-      new VectorFromStateRecord(inputs, {fd.recordingState(out())}, dtype));
+      new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
   return out;
 }
-
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -593,47 +570,47 @@ void initNvFuserPythonBindings(PyObject* module) {
   // This is the input version of define_vector
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self,
-         size_t size,
-         PrimDataType dtype = DataType::Int) -> Vector {
-        return define_vector_fn(self, std::nullopt, size, dtype);
+      [](FusionDefinition& self, size_t size) -> Vector {
+        std::vector<Scalar> args;
+        args.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+          Scalar out = self.defineScalar();
+          self.defineRecord(new ScalarRecord<int64_t>(
+              {self.recordingState(out())},
+              serde::RecordType_ScalarInput,
+              std::nullopt,
+              DataType::Int));
+          args.emplace_back(out);
+        }
+        return define_vector_fn(self, args);
       },
       py::arg("size"),
-      py::arg("dtype") = DataType::Int,
-      py::return_value_policy::reference);
-  // This is the canonical version of define_vector that accepts either a
-  // nullptr or a vector of values to indicate either an input or a constant
-  // for use when printing out the associated Fusion Record.
-  fusion_def.def(
-      "define_vector",
-      [](FusionDefinition& self,
-         std::optional<std::vector<int64_t>> value,
-         size_t size,
-         PrimDataType dtype) -> Vector {
-        return define_vector_fn(self, value, size, dtype);
-      },
-      py::arg("value").none(true),
-      py::arg("size"),
-      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
   // This is the constant version of define_vector when given a vector
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self,
-         std::vector<int64_t> value,
-         PrimDataType dtype) -> Vector {
-        return define_vector_fn(self, value, value.size(), dtype);
+      [](FusionDefinition& self, std::vector<int64_t>& value) -> Vector {
+        std::vector<Scalar> args;
+        args.reserve(value.size());
+        for (const auto& v : value) {
+          Scalar out = self.defineScalar();
+          self.defineRecord(new ScalarRecord<int64_t>(
+              {self.recordingState(out())},
+              serde::RecordType_ScalarLong,
+              v,
+              DataType::Int));
+          args.emplace_back(out);
+        }
+        return define_vector_fn(self, args);
       },
       py::arg("value"),
-      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
   // Creates a Vector from exiting Scalars
   fusion_def.def(
       "define_vector",
-      define_vector_from_scalars_fn,
+      define_vector_fn,
       py::arg("args"),
-      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
