@@ -89,11 +89,11 @@ TensorMap TensorMapInfo::operator()(
         opt.has_value(),
         "Failed to inference TMA tensor map. Unknown gmem_strides value: ",
         v->toInlineString());
-    evaluated_gmem_strides.push_back(opt->as<int64_t>()*dtype_size);
+    evaluated_gmem_strides.push_back(opt->as<int64_t>() * dtype_size);
   }
   TORCH_INTERNAL_ASSERT(
-      evaluated_gmem_strides.at(0) == 1,
-      "The stride of the starting dimension must be 1");
+      evaluated_gmem_strides.at(0) == dtype_size,
+      "The stride of the starting dimension must be 1 item");
 
   std::vector<uint32_t> evaluated_box_shape;
   evaluated_box_shape.reserve(dim);
@@ -114,7 +114,7 @@ TensorMap TensorMapInfo::operator()(
         opt.has_value(),
         "Failed to inference TMA tensor map. Unknown box_strides value: ",
         v->toInlineString());
-    evaluated_box_strides.push_back(opt->as<int64_t>()*dtype_size);
+    evaluated_box_strides.push_back(opt->as<int64_t>() * dtype_size);
   }
 
   // TODO: check all requirements for TMA tensor map as described in driver API

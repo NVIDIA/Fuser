@@ -1601,6 +1601,9 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
   if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
     tvs.emplace_back(nullptr);
   }
+  for (auto _ : lowered_->kernel()->summary().tma_tensor_maps) {
+    tvs.emplace_back(nullptr);
+  }
   return tvs;
 }
 

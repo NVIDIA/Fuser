@@ -48,11 +48,11 @@ TEST_F(TMATest, Store1D_CUDA) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   for (auto tv : {tv1, tv2, tv3}) {
-    tv->split(0, 4);
+    tv->split(0, 32);
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
   tv3->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Vectorize);
+  // tv2->axis(1)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024}, options);
