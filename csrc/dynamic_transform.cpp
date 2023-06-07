@@ -310,15 +310,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::string indent = "  ";
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
-    // auto tv = initial_info_->getDynamicReshapes().at(tv_index);
-    ss << indent //<< indent << tv->toString()
-       << " (index=" << tv_index << "), " << analyze_result.toString() << "\n";
+    auto tv = initial_info_->getDynamicReshapes().at(tv_index);
+    ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
+       << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
   for (const auto& [id_index, iter_type] : resize_transforms_) {
-    // auto id = initial_info_->getDynamicResizes().at(id_index);
-    ss << indent << indent //<< id->toString()
-       << " (index=" << id_index << "), " << iter_type << "\n";
+    auto id = initial_info_->getDynamicResizes().at(id_index);
+    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
+       << iter_type << "\n";
   }
   return ss.str();
 }
