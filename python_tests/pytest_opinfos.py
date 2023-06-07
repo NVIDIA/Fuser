@@ -6,10 +6,12 @@
 import torch
 import jax
 from pytest_core import (
-    elementwise_unary_generator,
-    _elementwise_unary_torch,
     OpInfo,
     ReferenceType,
+)
+from pytest_input_generators import (
+    elementwise_unary_generator,
+    _elementwise_unary_torch,
     define_tensor_sample_generator,
     define_tensor_error_sample_generator,
     slice_sample_generator,
