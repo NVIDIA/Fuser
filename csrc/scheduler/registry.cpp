@@ -1063,11 +1063,8 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
   }
 
   // If we don't have an record, either it is a tv with innermost broadcast,
-  // or it is an intermediate tensor allocated by fuser. Logic copied to get
-  // root according to scheduler_utils::innerMostRootDim.
-  auto tv_alloc = tv->hasReduction() && tv->hasRFactor()
-      ? tv->getRootDomain()
-      : tv->getMaybeAllocationDomain();
+  // or it is an intermediate tensor allocated by fuser.
+  auto tv_alloc = tv->getMaybeAllocationDomain();
 
   auto tv_alloc_no_reductions = TensorDomain::noReductions(tv_alloc);
 
@@ -1939,8 +1936,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
         ? first_inner_reduction_tv
         : reduction_tvs[0];
 
-    auto properties =
-        scheduler_utils::getProperties(fusion, runtime_info, reference_tv);
+    auto properties = scheduler_utils::getReductionProperties(
+        fusion, runtime_info, reference_tv);
 
     if (!properties.fastest_dim_reduction) {
       return canScheduleRunTimeOuter(
@@ -2179,7 +2176,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache,
       const std::vector<TensorView*>& reduction_tvs,
-      const scheduler_utils::TvProperties& properties) {
+      const scheduler_utils::ReductionTvProperties& properties) {
     FUSER_PERF_SCOPE("PersistentKernelScheduler::canScheduleRuntimeOuter");
     FusionGuard fg(fusion);
 
@@ -2221,12 +2218,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
+    auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tvs.at(0));
+
     const int64_t vectorization_factor =
         (int64_t)vectorize_helper::getVectorizationFactor(
             runtime_info,
-            reduction_tvs.at(0),
+            reduced_tv,
             data_cache,
-            (int)reduction_tvs.at(0)->nDims() -
+            (int)reduced_tv->nDims() -
                 (int)properties.inner_most_dimension_ndims);
 
     // Minimum required multi reduction factor.
