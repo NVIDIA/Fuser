@@ -110,30 +110,9 @@ static void NvFuserScheduler_GeluBackwardReduction(
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
 
-  fusion_executor_cache->profile(true);
-  fusion_executor_cache->runFusionWithInputs({aten_input_grad, aten_input_x});
+  std::vector<c10::IValue> aten_inputs = {aten_input_grad, aten_input_x};
 
-  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-  auto executor_instance = compile_log.fusion_executor;
-  auto rparams = toString(compile_log.params);
-  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
-
-  benchmark_state.SetLabel(rparams + lparams);
-
-  fusion_executor_cache->profile(false);
-  executor_instance->setMeasureKernelTimeFlag(true);
-  // Sync everything up before we start
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(
-        {aten_input_grad, aten_input_x});
-    benchmark_state.SetIterationTime(
-        executor_instance->kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

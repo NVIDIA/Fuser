@@ -7,6 +7,7 @@
 // clang-format on
 #include <benchmark/utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <cuda_utils.h>
 #include <scheduler/all_schedulers.h>
 #include <test/utils.h>
 
@@ -142,7 +143,11 @@ void runBenchmarkIterations(
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
+  fusion_executor_cache->profile(true);
+
+  // Segment and compile the fusion
   fusion_executor_cache->runFusionWithInputs(aten_inputs);
+
   bool segmented =
       fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
       fusion_executor_cache->getMostRecentKernelRuntime()
@@ -150,37 +155,31 @@ void runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
+  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  auto params = toString(compile_log.params);
+  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+  // Only set if not segmented. In the case of segmented fusions,
+  // this could be confusing as the log would refect only the last
+  // segment. Revisit if necessary.
   if (!segmented) {
-    fusion_executor_cache->profile(true);
-    fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-    auto executor_instance = compile_log.fusion_executor;
-
-    auto params = toString(compile_log.params);
-    auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
     benchmark_state.SetLabel(params + lparams);
+  }
 
+  fusion_executor_cache->profile(false);
+
+  // Sync everything up before we start
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  if (!segmented) {
+    auto executor_instance = compile_log.fusion_executor;
     executor_instance->setMeasureKernelTimeFlag(true);
-
-    // Sync everything up before we start
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
     for (auto _ : benchmark_state) {
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
       benchmark_state.SetIterationTime(
           executor_instance->kernelTimeMs() / 1000.0);
     }
-    // Sync everything up before we're finished, don't want to run ahead on the
-    // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
   } else {
-    // Segmented
-    // Sync everything up before we start
-    {
-      // Compile/warmup
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    }
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
     CudaKernelTimer timer;
     for (auto _ : benchmark_state) {
       clearL2Cache();
@@ -188,10 +187,38 @@ void runBenchmarkIterations(
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
       benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
     }
-    // Sync everything up before we're finished, don't want to run ahead on the
-    // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
+
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+}
+
+void runBenchmarkIterations(
+    benchmark::State& benchmark_state,
+    FusionExecutor* fusion_executor,
+    std::vector<c10::IValue>& aten_inputs,
+    const LaunchParams& launch_constraints,
+    CompileParams compile_params) {
+  fusion_executor->runFusion(aten_inputs);
+  auto lparams = toString(fusion_executor->lastLaunchParams());
+  benchmark_state.SetLabel(lparams);
+
+  fusion_executor->setMeasureKernelTimeFlag(true);
+
+  // Sync everything up before we start
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor->runFusion(
+        aten_inputs, launch_constraints, compile_params);
+    benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
+  }
+
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 }
 
 namespace executorCache {
