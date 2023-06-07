@@ -374,6 +374,9 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
 
+  // Disable magic zero for matmul kernels
+  params->cparams.enable_magic_zero = false;
+
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
     printMsg(params->toString());
   }
