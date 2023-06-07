@@ -185,6 +185,13 @@ bool isCpAsyncOp(const Expr* expr) {
   return false;
 }
 
+bool isCpAsyncBulk(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+  }
+  return false;
+}
+
 bool isTensorScalarFillOp(const Expr* expr) {
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {
@@ -738,6 +745,13 @@ bool supportInlinePredicate(Expr* expr) {
     return true;
   }
   // TODO: build out support.
+  return false;
+}
+
+bool noNeedToPredicate(Expr* expr) {
+  if (ir_utils::isCpAsyncBulk(expr)) {
+    return true;
+  }
   return false;
 }
 

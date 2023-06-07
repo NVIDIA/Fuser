@@ -347,6 +347,11 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
     return parallel_type_ == ParallelType::Mma;
   }
 
+  //! Marks that this id represents an instruction loop, cp.async.bulk use only.
+  bool isBulk() const {
+    return parallel_type_ == ParallelType::Bulk;
+  }
+
   //! Applies 2D swizzle on a rectangular tile defined by
   //!  a pair of iterdomains.
   static std::pair<IterDomain*, IterDomain*> swizzle(

@@ -1296,7 +1296,7 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+  if (ir_utils::isCpAsyncBulk(ldst)) {
     temporarilyHandleTMA(ldst);
     return;
   }

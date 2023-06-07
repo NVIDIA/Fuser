@@ -132,8 +132,8 @@ bool isLdMatrixOp(const Expr* expr);
 bool isCpAsyncOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
-//!  a cp.async.bulk.tensor (a.k.a. TMA) intrinsic.
-bool isCpAsyncBulkTensorTileOp(const Expr* expr);
+//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+bool isCpAsyncBulk(const Expr* expr);
 
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
@@ -280,6 +280,10 @@ BasicAllocInfo getAllocInformation(
 //! Returns true if the expression has a variant that takes a predicate
 //!  as an inline argument.
 bool supportInlinePredicate(Expr* expr);
+
+//! Returns true if the expression handles predicates internally and there is no
+//! need for nvFuser to generate the predicate.
+bool noNeedToPredicate(Expr* expr);
 
 //! Test if an expression is a scalar expression.
 bool isScalarExpr(Expr* expr);
