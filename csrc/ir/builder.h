@@ -84,6 +84,8 @@ class TORCH_CUDA_CU_API IrBuilder {
   // Ternary operations
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 
+  static Val* arrayExpr(std::vector<Val*> members);
+
   static Val* newScalar(DataType dtype);
 
   template <typename T>

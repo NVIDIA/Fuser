@@ -474,6 +474,11 @@ class Index {
       DataType dtype);
 };
 
+// Get base address of a tensor. For smem tensor, apply toSmem to convert
+// address as DataType::SMemAddress(i.e. unsigned int). For global tensor,
+// the result dtype is PointerOf[tv->dtype()]
+Val* getTensorBaseAddress(TensorView* tv);
+
 // Used for local and shared index mapping. Returns a map from loops
 // to loop indices as well as a set of loops that do not contribute to
 // indexing.

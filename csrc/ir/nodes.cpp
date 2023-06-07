@@ -697,6 +697,55 @@ std::string TernaryOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TernaryOp)
 
+ArrayOp::ArrayOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      !inputs.empty(), "Cannot create an array with no members.");
+  addOutput(output);
+  DataType input_dtype = DataType::Null;
+  for (auto in : inputs) {
+    addInput(in);
+    auto in_dtype_opt = in->getDataType();
+    TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+    if (input_dtype == DataType::Null) {
+      input_dtype = *in_dtype_opt;
+    } else {
+      TORCH_CHECK(
+          input_dtype == *in_dtype_opt,
+          "All inputs to ArrayOp must have the same data type");
+    }
+  }
+  TORCH_CHECK(
+      output->getDataType() == ArrayOf{std::make_shared<DataType>(input_dtype)},
+      "Output of ArrayOp must be an array of the same data type as the inputs");
+}
+
+std::string ArrayOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = {"
+                          << toDelimitedString(inputs()) << "}\n";
+  return ss.str();
+}
+
+std::string ArrayOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "{";
+  bool first = true;
+  for (auto v : inputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << v->toInlineString();
+  }
+  ss << "}";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayOp)
+
 RNGOp::RNGOp(
     IrBuilderPasskey passkey,
     RNGOpType type,

@@ -89,7 +89,8 @@ TensorIndex::TensorIndex(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      isIntegralOrPointerType(index->dtype()),
+      isIntegralOrPointerType(index->dtype()) ||
+          std::holds_alternative<ArrayOf>(index->dtype().type),
       "Cannot index with a value other than an int.");
 }
 

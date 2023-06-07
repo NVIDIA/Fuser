@@ -323,6 +323,8 @@ Val* getProducerIndexWithPartialSplit(
       producer_index, SimplifyingIrBuilder::create<Int>(diff->evaluateInt()));
 }
 
+} // namespace
+
 Val* getTensorBaseAddress(TensorView* tv) {
   Val* output = nullptr;
   switch (auto memtype = tv->getMemoryType()) {
@@ -339,8 +341,6 @@ Val* getTensorBaseAddress(TensorView* tv) {
   IrBuilder::create<kir::BaseAddress>(output, tv);
   return output;
 }
-
-} // namespace
 
 void IndexCompute::handle(Split* split) {
   auto in_id = maybeGetExactMapConcreteID(split->in()->as<IterDomain>());

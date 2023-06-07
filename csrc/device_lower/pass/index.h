@@ -75,6 +75,14 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
   void handle(const kir::CpAsyncWait*) final;
   void handle(const kir::CpAsyncCommit*) final;
 
+  // This is a very temporary and hacky solution to index TMA. The only
+  // supported schedule patterns are the one as in TMATest. It is not intended
+  // to be evolved into production. Instead, the only reason why this method
+  // exist is because I don't want the initial implementation PR of TMA to be
+  // large. This function should be removed as a whole, and replaced with a read
+  // indexing function.
+  void temporarilyHandleTMA(const LoadStoreOp*);
+
   void generate(const std::vector<Expr*>& exprs);
 
   // Get the loop in which the currently visiting expr is a rotated expr.

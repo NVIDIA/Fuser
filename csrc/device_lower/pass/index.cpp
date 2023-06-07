@@ -1239,7 +1239,67 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
+Val* getTensorBaseAddress(TensorView* tv);
+
+// This is a super hacky function to just feed the right index into to make the
+// test pass. The main purpose of this function is to make the initial bring-up
+// PR small, but still able to test the infrastructure built in this PR. This
+// function will be removed and replaced with a real implementation in a
+// follow-up PR.
+void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
+  // Assuming the following schedule:
+  // [crd0, bulk, crd1, bulk, crd2, bulk, ...]
+  // where crd0 and the bulk next to it is split from a single ID in allocation
+  // domain, same for other crds and bulks. Tensors are assumed to be
+  // contiguous. There is no check for the assumptions above.
+  auto in_tv = ldst->in()->as<TensorView>();
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto dim = in_tv->getMaybeAllocationDomain().size();
+
+  Val* in_index = getTensorBaseAddress(in_tv);
+
+  std::vector<Val*> out_coordinates(dim, nullptr);
+  for (int64_t i : c10::irange(dim)) {
+    auto out_coord_id = out_tv->getLeafDomain().at(2 * i);
+    auto &current_coord = out_coordinates.at(dim - i - 1);
+    for (auto loop : for_loops_) {
+      if (loop->iter_domain() == out_coord_id) {
+        // coordinates are column major
+        current_coord = loop->indexOrStartIfTrivial();
+        break;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(current_coord != nullptr, "not found!");
+    if (isParallelTypeThreadDim(out_coord_id->getParallelType())) {
+      Val* stride = ldst->container()->oneVal();
+      for (int64_t j : c10::irange(i + 1, dim)) {
+        stride = SimplifyingIrBuilder::mulExpr(
+            stride, in_tv->getMaybeAllocationDomain().at(j)->extent());
+      }
+      in_index = SimplifyingIrBuilder::addExpr(
+          in_index,
+          SimplifyingIrBuilder::mulExpr(current_coord, stride));
+    }
+  }
+
+  auto out_index = IrBuilder::arrayExpr(out_coordinates);
+  TORCH_INTERNAL_ASSERT(in_index != nullptr, "in not found!");
+  TORCH_INTERNAL_ASSERT(out_index != nullptr, "not found!");
+  auto out = IrBuilder::create<kir::TensorIndex>(out_tv, out_index);
+  auto in = IrBuilder::create<kir::TensorIndex>(in_tv, in_index);
+
+  auto new_ldst = IrBuilder::create<LoadStoreOp>(
+                      LoadStoreOpType::CpAsyncBulkTensorTile, out, in)
+                      ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+}
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
+  if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+    temporarilyHandleTMA(ldst);
+    return;
+  }
   const auto in = lowerSrcIndex(
       ldst->in(),
       ldst->out(),

@@ -9,4 +9,4 @@
 
 #include <ir/all_nodes.h>
 
-void insertAllocations(const std::vector<Expr*>& exprs);
+void collectTMATensorMapInfo(const std::vector<Expr*>& exprs);

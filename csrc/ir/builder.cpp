@@ -21,6 +21,9 @@ Val* IrBuilder::newScalar(DataType dtype) {
   if (isPointerType(dtype)) {
     return IrBuilder::create<Int>(dtype);
   }
+  if (!std::holds_alternative<PrimDataType>(dtype.type)) {
+    return IrBuilder::create<Val>(ValType::Scalar, dtype);
+  }
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::Bool:
       return IrBuilder::create<Bool>();
@@ -198,6 +201,17 @@ Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
+}
+
+Val* IrBuilder::arrayExpr(std::vector<Val*> members) {
+  TORCH_INTERNAL_ASSERT(
+      !members.empty(), "Cannot create an array with no members.");
+  auto in_dtype_opt = members.at(0)->getDataType();
+  TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+  auto out_dtype = ArrayOf{std::make_shared<DataType>(*in_dtype_opt)};
+  auto out = newScalar(out_dtype);
+  create<ArrayOp>(out, members);
+  return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

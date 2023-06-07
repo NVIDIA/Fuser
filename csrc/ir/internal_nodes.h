@@ -419,6 +419,29 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
       std::string in3) const;
 };
 
+class TORCH_CUDA_CU_API ArrayOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArrayOp(
+      IrBuilderPasskey,
+      Val* output,
+      std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArrayOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+};
+
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class TORCH_CUDA_CU_API RNGOp : public Expr {
