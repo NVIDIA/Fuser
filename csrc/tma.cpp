@@ -66,6 +66,10 @@ TensorMap TensorMapInfo::operator()(
       "Tensor dimensionality mismatch");
   TORCH_INTERNAL_ASSERT(dim <= 5, "TMA only supports up to 5 dimensions");
 
+  // TensorMap stride is in the form of bytes, but what we have in TensorMapInfo
+  // in in the form of items.
+  auto dtype_size = dataTypeSize(dtype);
+
   std::vector<uint64_t> evaluated_gmem_shape;
   evaluated_gmem_shape.reserve(dim);
   for (auto v : gmem_shape) {
@@ -85,7 +89,7 @@ TensorMap TensorMapInfo::operator()(
         opt.has_value(),
         "Failed to inference TMA tensor map. Unknown gmem_strides value: ",
         v->toInlineString());
-    evaluated_gmem_strides.push_back(opt->as<int64_t>());
+    evaluated_gmem_strides.push_back(opt->as<int64_t>()*dtype_size);
   }
   TORCH_INTERNAL_ASSERT(
       evaluated_gmem_strides.at(0) == 1,
@@ -110,7 +114,7 @@ TensorMap TensorMapInfo::operator()(
         opt.has_value(),
         "Failed to inference TMA tensor map. Unknown box_strides value: ",
         v->toInlineString());
-    evaluated_box_strides.push_back(opt->as<int64_t>());
+    evaluated_box_strides.push_back(opt->as<int64_t>()*dtype_size);
   }
 
   // TODO: check all requirements for TMA tensor map as described in driver API
