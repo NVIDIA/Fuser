@@ -175,7 +175,7 @@ struct PersistentBufferInfo {
 // can simply be read multiple times from GMEM in the same kernel.
 TORCH_CUDA_CU_API PersistentBufferInfo persistentBuffers(Fusion* fusion);
 
-struct TvProperties {
+struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
   int64_t total_reduction_numel = 1;
 
@@ -199,8 +199,8 @@ struct TvProperties {
   int64_t dimensionality = 1;
 };
 
-// Fill TvProperties structure about tv
-TvProperties getProperties(
+// Fill ReductionTvProperties structure about tv
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv);
@@ -255,14 +255,7 @@ TORCH_CUDA_CU_API std::vector<std::pair<TensorView*, TensorView*>>
 cacheAndForkOutputs(Fusion* fusion, bool unroll);
 
 // Ignores broadcast and reduction, returns iter domain in root domain that's
-// "inner most". If this is an rfactored reduction domain, actually check the
-// root domain, this is because the rfactored reduction tensorview has the
-// vectorized dimension, but that means the rfactor domain could have reordered
-// what we consider the "inner most" allocated position on it if we consider the
-// rfactor dimension.
-//
-// If reduction tv and has rfactor return root domain, otherwise return rfactor
-// domain.
+// "inner most".
 IterDomain* innerMostRootDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
