@@ -169,7 +169,7 @@ void runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
-  //c10::cuda::CUDACachingAllocator::emptyCache();
+  // c10::cuda::CUDACachingAllocator::emptyCache();
 
   fusion_executor_cache->enableKernelTimeMeasurement();
   fusion_executor_cache->profile(true);
@@ -229,7 +229,7 @@ void runBenchmarkIterations(
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  //c10::cuda::CUDACachingAllocator::emptyCache();
+  // c10::cuda::CUDACachingAllocator::emptyCache();
 
   fusion_executor->runFusion(aten_inputs);
   auto lparams = toString(fusion_executor->lastLaunchParams());
