@@ -19,10 +19,22 @@
 #include <benchmark/benchmark.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/torch.h>
 
 #include <cuda_runtime.h>
+
+#define CUDA_RT_SAFE_CALL(x)                                           \
+  do {                                                                 \
+    cudaError_t result = x;                                            \
+    if (result != cudaSuccess) {                                       \
+      std::cerr << "CUDA error: " << cudaGetErrorName(result)          \
+                << " failed with error " << cudaGetErrorString(result) \
+                << std::endl;                                          \
+      std::abort();                                                    \
+    }                                                                  \
+  } while (0)
 
 using namespace nvfuser;
 
@@ -122,6 +134,8 @@ class BenchmarkGraph : public benchmark::Fixture {
       getExecutorCacheMap()[graphName()] =
           std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
     }
+
+    c10::cuda::CUDACachingAllocator::emptyCache();
   }
 
   void TearDown(const ::benchmark::State& state) override {}
