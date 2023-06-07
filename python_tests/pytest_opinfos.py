@@ -63,6 +63,7 @@ var_mean_opinfo = OpInfo(
     sample_input_generator=var_mean_generator,
     error_input_generator=reduction_error_sample_generator,
     reference=torch.var_mean,
+    symbolic_parameter_list=(True, False),
 )
 normalization_ops.append(var_mean_opinfo)
 

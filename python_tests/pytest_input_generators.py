@@ -292,7 +292,7 @@ def reduction_error_sample_generator(op, dtype, requires_grad, **kwargs):
     for shape, es in itertools.product(cases, error_cases):
         input_tensor = make_arg(shape)
         axis_fn, ex_type, ex_str = es
-        yield SampleInput(input_tensor, axes=axis_fn(len(shape))), ex_type, ex_str
+        yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
 
 
 def var_mean_generator(op, dtype: torch.dtype, requires_grad: bool):

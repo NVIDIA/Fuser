@@ -4,18 +4,11 @@
 # Owner(s): ["module: nvfuser"]
 
 from pytest_utils import all_dtypes
-from typing import Callable
+from typing import Callable, Optional
 import torch
 import jax.numpy as jnp
 from enum import Enum
 from dataclasses import dataclass
-
-
-class ParameterType(Enum):
-    Tensor = 0
-    Vector = 1
-    Scalar = 2
-    Constant = 3
 
 
 class ReferenceType(Enum):
@@ -98,7 +91,7 @@ class OpInfo:
         reference_type=ReferenceType.Pytorch,
         domain=(None, None),
         is_fusion_input_op: bool = False,
-        parameter_signatures: list[ParameterType] = None,
+        symbolic_parameter_list: Optional[list[bool]] = None,
     ):
         self.op = op
         self.name = name
@@ -109,7 +102,11 @@ class OpInfo:
         self.refernce_fn_type = reference_type
         self.domain = Domain(*domain)
         self.is_fusion_input_op = is_fusion_input_op
-        self.parameter_signatures = parameter_signatures
+        # Nvfuser requires reduction axes to be constant values.
+        # symbolic_parameter_list specifies whether an operation's parameters are symbolic.
+        # All keyword arguments are considered constant.
+        # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
+        self.symbolic_parameter_list = symbolic_parameter_list
 
     def __call__(self, *args, **kwargs):
         """Calls the function variant of the operator."""
