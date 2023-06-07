@@ -87,7 +87,13 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
 
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TT);
-  mma_builder.configureMma(tv2);
+
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   // Write A to smem
   auto tv0cw = tv0b->cacheAfter();
@@ -184,7 +190,12 @@ TEST_F(NVFuserTest, FusionVoltaMMATN_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter();
@@ -248,7 +259,12 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::NT);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter();
@@ -321,7 +337,12 @@ TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::NN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter();
@@ -490,7 +511,12 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -562,7 +588,12 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TT);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -638,7 +669,12 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NT);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -714,7 +750,12 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -1146,8 +1187,13 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder1.configureMma(tv3);
-  mma_builder2.configureMma(tv4);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      2 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
+      mma_ops.size());
+  mma_builder1.configureMma(mma_ops[0]);
+  mma_builder2.configureMma(mma_ops[1]);
 
   // Global read for gemm 1
   auto tv0r = tv0->cacheAfter();
@@ -1441,8 +1487,13 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder1.configureMma(tv3);
-  mma_builder2.configureMma(tv4);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      2 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
+      mma_ops.size());
+  mma_builder1.configureMma(mma_ops[0]);
+  mma_builder2.configureMma(mma_ops[1]);
 
   // Global read for gemm 1
   auto tv0r = inp->cacheAfter();
@@ -1762,7 +1813,12 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1833,7 +1889,12 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TT);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1906,7 +1967,12 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NT);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -1981,7 +2047,12 @@ TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -2095,7 +2166,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -2233,7 +2309,12 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -2410,7 +2491,12 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -2565,7 +2651,12 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -2721,7 +2812,12 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -2889,7 +2985,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   fusion.addOutput(tv2);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -3893,7 +3994,12 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  mma_builder.configureMma(tv2);
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr =
