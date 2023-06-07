@@ -137,4 +137,38 @@ TensorMap TensorMapInfo::operator()(
 #endif
 }
 
+std::ostream& operator<<(std::ostream& os, TensorMapSwizzleType swizzle) {
+  switch (swizzle) {
+    case TensorMapSwizzleType::NoSwizzle:
+      os << "NoSwizzle";
+      break;
+    case TensorMapSwizzleType::B32:
+      os << "B32";
+      break;
+    case TensorMapSwizzleType::B64:
+      os << "B64";
+      break;
+    case TensorMapSwizzleType::B128:
+      os << "B128";
+      break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const TensorMapInfo& tmap_info) {
+  os << "TensorMapInfo(" << std::endl;
+  os << "  dtype: " << tmap_info.dtype << std::endl;
+  os << "  swizzle: " << tmap_info.swizzle << std::endl;
+  os << "  gmem_shape: [" << toDelimitedInlineString(tmap_info.gmem_shape)
+     << "]" << std::endl;
+  os << "  gmem_strides: [" << toDelimitedInlineString(tmap_info.gmem_strides)
+     << "]" << std::endl;
+  os << "  box_shape: [" << toDelimitedInlineString(tmap_info.box_shape) << "]"
+     << std::endl;
+  os << "  box_strides: [" << toDelimitedInlineString(tmap_info.box_strides)
+     << "]" << std::endl;
+  os << ")";
+  return os;
+}
+
 } // namespace nvfuser::tma

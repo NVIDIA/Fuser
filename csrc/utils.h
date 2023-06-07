@@ -460,6 +460,22 @@ std::string toDelimitedString(
   return ss.str();
 }
 
+template <typename ContainerOfStatement>
+std::string toDelimitedInlineString(
+    const ContainerOfStatement& container,
+    std::string delim = ", ") {
+  std::stringstream ss;
+  bool first_val = true;
+  for (const auto& item : container) {
+    if (!first_val) {
+      ss << delim;
+    }
+    ss << item->toInlineString();
+    first_val = false;
+  }
+  return ss.str();
+}
+
 template <typename... Args>
 class DebugPrintScope {
  public:

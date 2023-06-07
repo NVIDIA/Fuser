@@ -11,6 +11,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include <ostream>
+
 #include <type.h>
 
 // Note: [TMA support in nvFuser]
@@ -59,6 +61,9 @@ struct TensorMapInfo {
   // ExpressionEvaluator to "evaluate" it.
   TensorMap operator()(void* gmem_base_ptr, ExpressionEvaluator& ee) const;
 };
+
+std::ostream& operator<<(std::ostream& os, const TensorMapInfo& tmap_info);
+std::ostream& operator<<(std::ostream& os, TensorMapSwizzleType swizzle);
 
 } // namespace tma
 } // namespace nvfuser
