@@ -20,6 +20,9 @@
 #include <typeinfo>
 #include <vector>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
@@ -515,4 +518,5 @@ class KernelIndexTypeCompute {
   int64_t tensor_most_positive_index_ = 0;
 };
 
+std::string getErrorMsg(CUresult error);
 } // namespace nvfuser

@@ -12,6 +12,7 @@
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
+#include <utils.h>
 
 namespace nvfuser::tma {
 
@@ -129,7 +130,7 @@ TensorMap TensorMapInfo::operator()(
       CU_TENSOR_MAP_L2_PROMOTION_NONE,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE); // TODO: what is this?
 
-  TORCH_INTERNAL_ASSERT(result == CUDA_SUCCESS, "Failed to create tensor map!");
+  TORCH_INTERNAL_ASSERT(result == CUDA_SUCCESS, getErrorMsg(result));
   return tmap;
 #else
   TORCH_INTERNAL_ASSERT(false, "TMA is only supported on CUDA 12 and above!");

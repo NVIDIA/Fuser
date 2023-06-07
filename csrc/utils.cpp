@@ -410,4 +410,12 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   int num_warps = warps_per_sm_partition * num_partition;
   return num_warps * static_cast<int64_t>(warp_size);
 }
+
+std::string getErrorMsg(CUresult error) {
+  const char *error_name, *error_string;
+  cuGetErrorName(error, &error_name);
+  cuGetErrorString(error, &error_string);
+  return std::string(error_name) + ": " + error_string;
+}
+
 } // namespace nvfuser
