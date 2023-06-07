@@ -590,28 +590,38 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self, std::vector<int64_t>& value) -> Vector {
+      [](FusionDefinition& self, py::list& list) -> Vector {
         std::vector<Scalar> args;
-        args.reserve(value.size());
-        for (const auto& v : value) {
-          Scalar out = self.defineScalar();
-          self.defineRecord(new ScalarRecord<int64_t>(
-              {self.recordingState(out())},
-              serde::RecordType_ScalarLong,
-              v,
-              DataType::Int));
-          args.emplace_back(out);
+        size_t idx = 0;
+        for (const auto& item : list) {
+          if (py::isinstance<py::int_>(item)) {
+            Scalar out = self.defineScalar();
+            self.defineRecord(new ScalarRecord<int64_t>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarLong,
+                py::cast<int64_t>(item),
+                DataType::Int));
+            args.emplace_back(out);
+          } else if (py::isinstance<Scalar>(item)) {
+            args.emplace_back(py::cast<Scalar>(item));
+          } else {
+            TORCH_CHECK(
+                false,
+                "Unsupported iterable object type for define_vector! Index:",
+                idx);
+          }
+          ++idx;
         }
         return define_vector_fn(self, args);
       },
       py::arg("value"),
       py::return_value_policy::reference);
   // Creates a Vector from exiting Scalars
-  fusion_def.def(
-      "define_vector",
-      define_vector_fn,
-      py::arg("args"),
-      py::return_value_policy::reference);
+  // fusion_def.def(
+  //    "define_vector",
+  //    define_vector_fn,
+  //    py::arg("args"),
+  //    py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.

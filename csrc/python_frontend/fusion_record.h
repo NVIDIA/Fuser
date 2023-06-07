@@ -2877,7 +2877,7 @@ struct VectorRecord : RecordFunctor {
       }
       os << output;
     }
-    os << "fd." << name_ << "([";
+    os << " = fd." << name_ << "([";
     bool first_arg = true;
     for (auto& arg : args_) {
       if (first_arg) {
