@@ -232,7 +232,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&dest);
   asm volatile(
       "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
       :
@@ -253,7 +253,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&dest);
   asm volatile(
       "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
       :
@@ -274,7 +274,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&dest);
   asm volatile(
       "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
       :
@@ -299,7 +299,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&dest);
   asm volatile(
       "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
       :
@@ -325,7 +325,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(&dest);
   asm volatile(
       "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
       :
