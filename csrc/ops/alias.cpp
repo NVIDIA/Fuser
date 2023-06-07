@@ -656,9 +656,21 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
     if (range.start == nullptr) {
       range.start = FusionGuard::getCurFusion()->zeroVal();
+    } else {
+      // Negative start and stop values are relative to end of axis
+      range.start = where(
+          lt(range.start, FusionGuard::getCurFusion()->zeroVal()),
+          add(range.start, extent),
+          range.start);
     }
     if (range.stop == nullptr) {
       range.stop = extent;
+    } else {
+      // Negative start and stop values are relative to end of axis
+      range.stop = where(
+          lt(range.stop, FusionGuard::getCurFusion()->zeroVal()),
+          add(range.stop, extent),
+          range.stop);
     }
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal();
