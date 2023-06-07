@@ -1,0 +1,3 @@
+# Installs the wheel compatible with CUDA 12 and cuDNN 8.9 or newer.
+# Note: wheels only available on linux.
+jax[cuda12_local]
