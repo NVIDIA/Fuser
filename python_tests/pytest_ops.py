@@ -52,6 +52,7 @@ def snippet_definition_op_in_schedule_error(nvf_op, sample):
 
 def opinfo_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
     nvf_inputs = []
+    # TODO parse tensors, vectors, scalars, and constant values
     for x in inputs:
         if type(x) is torch.Tensor:
             nvf_inputs.append(fd.from_pytorch(x))
