@@ -36,6 +36,12 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
     }
   }
+  cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
+  for (const auto v : root_dynamic_vals_) {
+    if (v) {
+      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
+    }
+  }
   return cloned_info;
 }
 
