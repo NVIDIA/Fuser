@@ -148,6 +148,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return initial_info_;
   }
 
+  void setInitialInfo(const DynamicTransformInitialInfo* initial_info) {
+    initial_info_ = initial_info;
+  }
+
   Fusion* fusion() const {
     return initial_info_->fusion();
   }

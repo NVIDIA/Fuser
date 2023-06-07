@@ -571,32 +571,17 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   }
 
   // Compute or get cached initial concretization info
-  auto& initial_info = initialInfo();
+  const auto& initial_info = initialInfo();
 
-  // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
-  // the purposes of computing the concretization info.
-  auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-  // This should be the only ExpressionEvaluator used on this Fusion.
-  auto expr_eval = executor_utils::bindInputs(args, conc_fusion.get());
-
-  // Compute concretization info given inputs. This object points to Vals in
-  // the unconcretized Fusion, so we will not use it directly, but rather it
-  // will be used only as a cache key.
-  DynamicTransformInitialInfo* cloned_initial_info = nullptr;
+  // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
   if (initial_info.hasDynamicTransforms()) {
-    // When fusion_ is cloned, initial info will also be cloned. It's important
-    // that we use the cloned initial_info when using the cloned Fusion.
-    cached_initial_info_.emplace_back(
-        std::make_unique<DynamicTransformInitialInfo>(
-            conc_fusion->getManaged<DynamicTransformInitialInfo>(
-                "initial_info")));
-    cloned_initial_info = cached_initial_info_.back().get();
-
+    // This class needs to own conc_info so it can be compared in subsequent
+    // invocations.
+    auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
     cached_conc_info_.emplace_back(
         std::make_unique<DynamicTransformConcretizationInfo>(
-            cloned_initial_info, expr_eval));
+            &initial_info, expr_eval));
     conc_info = cached_conc_info_.back().get();
   }
 
@@ -632,15 +617,22 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   } else {
     // cache miss, need to re-build an optimized graph for this case
 
+    // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
+    // the purposes of computing the concretization info.
+    auto conc_fusion = std::make_unique<Fusion>(*fusion_);
+
     // concretize fusion_ for use in this runtime
     FusionGuard fg(conc_fusion.get());
     if (initial_info.hasDynamicTransforms()) {
+      const auto& conc_initial_info =
+          conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
+      TORCH_INTERNAL_ASSERT(conc_info);
+      conc_info->setInitialInfo(&conc_initial_info);
+
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
         std::cout << "Fusion before concretization:" << std::endl;
         conc_fusion->printMath();
       }
-
-      TORCH_INTERNAL_ASSERT(conc_info);
 
       DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
       // Initial info is used during concretization and is owned by conc_fusion.
@@ -683,11 +675,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Run segmentation on the copied fusion
   SchedulerRuntimeInfo runtime_info(
-      fusion.get(),
-      args,
-      nullptr,
-      all_tvs_,
-      forced_index_type);
+      fusion.get(), args, nullptr, all_tvs_, forced_index_type);
 
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
