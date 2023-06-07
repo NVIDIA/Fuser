@@ -40,6 +40,7 @@ class CollectTMATensorMapInfo : public kir::IrVisitor {
         auto out_tv = out->view();
         tensor_map.dtype = std::get<PrimDataType>(out_tv->dtype().type);
         tensor_map.swizzle = tma::TensorMapSwizzleType::NoSwizzle;
+        tensor_map.tv = out_tv;
         auto dim = (int64_t)out_tv->getMaybeAllocationDomain().size();
         for (int64_t i = 0; i < dim; ++i) {
           auto ii = dim - i - 1;

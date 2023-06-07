@@ -1708,8 +1708,15 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   // push back TMA TensorMap
-  for (const auto& tensor_map : executor_entry->tensor_maps) {
-    args.push(tensor_map);
+  if (!kernel()->summary().tma_tensor_maps.empty()) {
+    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
+    for (auto tensor_map : kernel()->summary().tma_tensor_maps) {
+      TORCH_INTERNAL_ASSERT(
+          tensor_map.tv->isFusionOutput() && kernel()->outputs().size() == 1,
+          "We are supporting this in a hacky way, ",
+          "unfortunately this is not the case we supported.");
+      args.push(tensor_map(outputs.at(0).data_ptr(), expr_eval));
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {

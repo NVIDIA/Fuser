@@ -134,8 +134,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
-    // TMA descriptors
-    std::vector<tma::TensorMap> tensor_maps;
     uint64_t rand_offset = 0;
   };
 

@@ -20,6 +20,9 @@ namespace nvfuser {
 class Val;
 class ExpressionEvaluator;
 
+// TODO: remove this forward declaration
+class TensorView;
+
 namespace tma {
 
 // TensorMap is the descriptor for a tensor for TMA.
@@ -44,12 +47,16 @@ struct TensorMap {
 enum class TensorMapSwizzleType { NoSwizzle, B32, B64, B128 };
 
 struct TensorMapInfo {
+  TensorView* tv; // TODO: remove this field
   PrimDataType dtype;
   TensorMapSwizzleType swizzle;
   std::vector<Val*> gmem_shape;
   std::vector<Val*> gmem_strides; // column major
   std::vector<Val*> box_shape;
   std::vector<Val*> box_strides; // column major
+
+  // TODO: remove `gmem_base_ptr` from this function, and let
+  // ExpressionEvaluator to "evaluate" it.
   TensorMap operator()(void* gmem_base_ptr, ExpressionEvaluator& ee) const;
 };
 
