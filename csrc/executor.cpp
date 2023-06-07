@@ -68,12 +68,12 @@ using uint32_t = unsigned int;
 using int64_t = long long int;
 using uint64_t = unsigned long long int;
 
-// https://github.com/NVIDIA/cutlass/blob/87349d349605c1e24366fcbe8f04d0141dcb617b/include/cute/arch/copy_sm90_desc.hpp#L171-L175
-#if (__CUDACC_VER_MAJOR__ >= 12) && !defined(__CUDACC_RTC__)
-using TensorMap = CUtensorMap;
-#else
-using TensorMap = struct { char bytes[128]; };
-#endif
+// Modified from cuda.h
+#define CU_TENSOR_MAP_NUM_QWORDS 16
+struct TensorMap {
+  alignas(64)
+  uint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+};
 )";
 }
 
