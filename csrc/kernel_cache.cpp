@@ -581,7 +581,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
     cached_conc_info_.emplace_back(
         std::make_unique<DynamicTransformConcretizationInfo>(
-            &initial_info, expr_eval));
+            &initial_info, &expr_eval));
     conc_info = cached_conc_info_.back().get();
   }
 

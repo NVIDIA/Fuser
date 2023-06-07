@@ -155,7 +155,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 };
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator* expr_eval) {
   auto reshape_tvs = initial_info_->getDynamicReshapes();
   for (const auto tv_index : c10::irange(reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
@@ -185,7 +185,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
-      auto extent_val = expr_eval.evaluate(inp_id->extent());
+      auto extent_val = expr_eval->evaluate(inp_id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_val.has_value(),
           "Cannot evaluate the extent of an input domain to reshape: ",
@@ -209,7 +209,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     bool extent_m1_found = false;
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
-      auto extent_val = expr_eval.evaluate(out_id->extent());
+      auto extent_val = expr_eval->evaluate(out_id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_val.has_value(),
           "Cannot evaluate the extent of an output domain to reshape: ",
@@ -239,7 +239,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 }
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator* expr_eval) {
   auto resize_ids = initial_info_->getDynamicResizes();
   for (const auto id_index : c10::irange(resize_ids.size())) {
     auto out_id = resize_ids.at(id_index);
@@ -250,7 +250,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval.evaluate(out_id->extent());
+    auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
         "Cannot evaluate the extent of a resized domain: ",

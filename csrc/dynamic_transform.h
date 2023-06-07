@@ -105,7 +105,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
-      ExpressionEvaluator& expr_eval)
+      ExpressionEvaluator* expr_eval)
       : initial_info_(initial_info) {
     TORCH_INTERNAL_ASSERT(
         !fusion()->isA<kir::Kernel>(),
@@ -113,7 +113,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
     // Make sure all exactly mapped IDs have the same value in the
     // evaluator when any one of the IDs has a known value
-    expr_eval.propagateBoundValuesThroughExactMaps(initial_info->fusion());
+    expr_eval->propagateBoundValuesThroughExactMaps(initial_info->fusion());
 
     analyzeReshapes(expr_eval);
 
@@ -140,9 +140,9 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return !(*this == other);
   }
 
-  void analyzeReshapes(ExpressionEvaluator& expr_eval);
+  void analyzeReshapes(ExpressionEvaluator* expr_eval);
 
-  void analyzeResizes(ExpressionEvaluator& expr_eval);
+  void analyzeResizes(ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
