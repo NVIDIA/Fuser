@@ -64,8 +64,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape1, 4);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -83,8 +83,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape1, -1);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -105,10 +105,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     EXPECT_THAT(
         [&]() {
           auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-          auto info = DynamicTransform::getConcretizationInfo(
-              &fusion, &initial_info, &expr_eval);
-          DynamicTransform::getConcretizationInfo(
-              &fusion, &initial_info, &expr_eval);
+          auto info = DynamicTransformConcretizationInfo(
+              &fusion, initial_info, expr_eval);
         },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Cannot infer")));
@@ -147,8 +145,8 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     expr_eval.bind(tv2->axis(1)->extent(), 4);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
@@ -189,8 +187,8 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info = DynamicTransform::getConcretizationInfo(
-      &fusion, &initial_info, &expr_eval);
+  auto info =
+      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
   TORCH_CHECK(
@@ -255,8 +253,8 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -304,8 +302,8 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     expr_eval.bind(tv1->axis(1)->extent(), before_after.second.at(1));
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -358,8 +356,8 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransform::getConcretizationInfo(
-        &fusion, &initial_info, &expr_eval);
+    auto info =
+        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
     DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -439,8 +437,8 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     }
 
     auto ref_initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto ref_info = DynamicTransform::getConcretizationInfo(
-        &fusion, &ref_initial_info, &ref_expr_eval);
+    auto ref_info = DynamicTransformConcretizationInfo(
+        &fusion, ref_initial_info, ref_expr_eval);
 
     for (const auto& transform : pattern.equal_transforms) {
       TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
@@ -454,8 +452,8 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
 
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-      auto info = DynamicTransform::getConcretizationInfo(
-          &fusion, &initial_info, &expr_eval);
+      auto info =
+          DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
       TORCH_CHECK(
           ref_info == info,
@@ -477,8 +475,8 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
 
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-      auto info = DynamicTransform::getConcretizationInfo(
-          &fusion, &initial_info, &expr_eval);
+      auto info =
+          DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
       TORCH_CHECK(
           ref_info != info,
@@ -543,8 +541,8 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   expr_eval.bind(reshape_shape0, 12);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info = DynamicTransform::getConcretizationInfo(
-      &fusion, &initial_info, &expr_eval);
+  auto info =
+      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
@@ -583,8 +581,8 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   expr_eval.bind(tv1->axis(1)->extent(), 3);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info = DynamicTransform::getConcretizationInfo(
-      &fusion, &initial_info, &expr_eval);
+  auto info =
+      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, info);
 
@@ -619,8 +617,8 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval1.bind(tv1->axis(2)->extent(), 3);
 
   auto initial_info1 = DynamicTransform::getInitialInfo(&fusion);
-  auto info1 = DynamicTransform::getConcretizationInfo(
-      &fusion, &initial_info1, &expr_eval1);
+  auto info1 =
+      DynamicTransformConcretizationInfo(&fusion, initial_info1, expr_eval1);
 
   ExpressionEvaluator expr_eval2;
   ;
@@ -633,8 +631,8 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval2.bind(tv1->axis(2)->extent(), 2);
 
   auto initial_info2 = DynamicTransform::getInitialInfo(&fusion);
-  auto info2 = DynamicTransform::getConcretizationInfo(
-      &fusion, &initial_info2, &expr_eval2);
+  auto info2 =
+      DynamicTransformConcretizationInfo(&fusion, initial_info2, expr_eval2);
 
   // Generally different concretizations doesn't always mean different
   // hashes, but in this case they should be different

@@ -154,9 +154,9 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 };
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
-    const DynamicTransformInitialInfo* info,
-    ExpressionEvaluator* expr_eval) {
-  for (const auto op : info->getDynamicReshapes()) {
+    const DynamicTransformInitialInfo& initial_info,
+    ExpressionEvaluator& expr_eval) {
+  for (const auto op : initial_info.getDynamicReshapes()) {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
 
@@ -183,7 +183,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
-      auto extent_val = expr_eval->evaluate(inp_id->extent());
+      auto extent_val = expr_eval.evaluate(inp_id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_val.has_value(),
           "Cannot evaluate the extent of an input domain to reshape: ",
@@ -207,7 +207,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     bool extent_m1_found = false;
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
-      auto extent_val = expr_eval->evaluate(out_id->extent());
+      auto extent_val = expr_eval.evaluate(out_id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_val.has_value(),
           "Cannot evaluate the extent of an output domain to reshape: ",
@@ -237,9 +237,9 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 }
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
-    const DynamicTransformInitialInfo* info,
-    ExpressionEvaluator* expr_eval) {
-  for (const auto op : info->getDynamicResizes()) {
+    const DynamicTransformInitialInfo& initial_info,
+    ExpressionEvaluator& expr_eval) {
+  for (const auto op : initial_info.getDynamicResizes()) {
     auto out_id = op->out()->as<IterDomain>();
 
     TORCH_CHECK(
@@ -247,7 +247,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->extent());
+    auto extent_val = expr_eval.evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
         "Cannot evaluate the extent of a resized domain: ",
@@ -687,32 +687,6 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
   DynamicTransformInitialInfoBuilder builder(fusion);
   return builder.getInfo();
-}
-
-DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
-    Fusion* fusion,
-    const DynamicTransformInitialInfo* info,
-    ExpressionEvaluator* expr_eval) {
-  return DynamicTransformConcretizationInfo(fusion, info, expr_eval);
-}
-
-DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
-    Fusion* fusion,
-    const DynamicTransformInitialInfo* info,
-    const KernelArgumentHolder* args) {
-  // Create an ExpressionEvaluator that will live only as long as the current
-  // function. This should be the only one used on this Fusion.
-  PrecomputedValues pv(fusion);
-  pv.bindInputs(*args);
-  pv.evaluate();
-
-  ExpressionEvaluator expr_eval;
-  expr_eval.precomputedValues() = &pv;
-  // Make sure all exactly mapped IDs have the same value in the
-  // evaluator when any one of the IDs has a known value
-  expr_eval.propagateBoundValuesThroughExactMaps(fusion);
-
-  return DynamicTransformConcretizationInfo(fusion, info, &expr_eval);
 }
 
 void DynamicTransform::concretizeFusion(

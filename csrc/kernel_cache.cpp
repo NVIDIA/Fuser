@@ -539,6 +539,13 @@ void FusionExecutorCache::evictCache(size_t cache_id) {
 DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
   if (!initial_info_.has_value()) {
     initial_info_ = DynamicTransform::getInitialInfo(fusion());
+    fusion()->manage(
+        "initial_info",
+        initial_info_.value(),
+        [](IrCloner& ir_cloner, std::any data) -> std::any {
+          return std::any_cast<DynamicTransformInitialInfo>(data).clone(
+              ir_cloner);
+        });
   }
   return initial_info_.value();
 }
@@ -569,6 +576,17 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // the purposes of computing the concretization info.
   auto conc_fusion = std::make_unique<Fusion>(*fusion_);
 
+  // Create an ExpressionEvaluator that will live only as long as the current
+  // function. This should be the only one used on this Fusion.
+  PrecomputedValues precomputed_values(conc_fusion.get());
+  precomputed_values.bindInputs(args);
+  precomputed_values.evaluate();
+  ExpressionEvaluator expr_eval;
+  expr_eval.bindPrecomputedValues(&precomputed_values);
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval.propagateBoundValuesThroughExactMaps(conc_fusion.get());
+
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
@@ -582,8 +600,14 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     TORCH_CHECK(
         cloned_initial_info_opt.has_value(),
         "Could not retrieve managed initial concretization info");
-    conc_info = DynamicTransform::getConcretizationInfo(
-        conc_fusion.get(), &cloned_initial_info_opt.value(), &args);
+    std::cout << std::to_string(conc_fusion->inputs()
+                                    .at(0)
+                                    ->as<TensorView>()
+                                    ->axis(0)
+                                    ->evaluatorIndex())
+              << std::endl;
+    conc_info = DynamicTransformConcretizationInfo(
+        conc_fusion.get(), cloned_initial_info_opt.value(), expr_eval);
     TORCH_CHECK(
         conc_info.has_value(),
         "Unable to get concretization info for dynamic Fusion");
@@ -594,7 +618,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // each pair of device ID and
   auto& kernel_runtimes =
       kernel_runtimes_
-          .try_emplace(std::make_pair(args.getDeviceIndex(), conc_info), 0)
+          .try_emplace(std::make_pair(args.getDeviceIndex(), conc_info))
           .first->second;
 
   // Check for re-use hit case
@@ -642,6 +666,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
+
     if (profiling_) {
       kernel_runtime->profile(true);
     }
