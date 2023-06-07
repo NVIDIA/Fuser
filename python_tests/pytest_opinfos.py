@@ -12,11 +12,11 @@ from pytest_core import (
 from pytest_input_generators import (
     elementwise_unary_generator,
     _elementwise_unary_torch,
-    define_tensor_sample_generator,
-    define_tensor_error_sample_generator,
-    slice_sample_generator,
-    slice_error_sample_generator,
-    reduction_error_sample_generator,
+    define_tensor_generator,
+    define_tensor_error_generator,
+    slice_generator,
+    slice_error_generator,
+    reduction_error_generator,
     var_mean_generator,
 )
 from pytest_utils import float_complex_dtypes
@@ -31,8 +31,8 @@ fusion_input_ops = []
 define_tensor_opinfo = OpInfo(
     lambda fd: fd.define_tensor,
     "define_tensor",
-    sample_input_generator=define_tensor_sample_generator,
-    error_input_generator=define_tensor_error_sample_generator,
+    sample_input_generator=define_tensor_generator,
+    error_input_generator=define_tensor_error_generator,
     is_fusion_input_op=True,
 )
 fusion_input_ops.append(define_tensor_opinfo)
@@ -61,7 +61,7 @@ var_mean_opinfo = OpInfo(
     "var_mean",
     dtypes=float_complex_dtypes,
     sample_input_generator=var_mean_generator,
-    error_input_generator=reduction_error_sample_generator,
+    error_input_generator=reduction_error_generator,
     reference=torch.var_mean,
     symbolic_parameter_list=(True, False),
 )
@@ -76,8 +76,8 @@ shape_ops = []
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
     "slice",
-    sample_input_generator=slice_sample_generator,
-    error_input_generator=slice_error_sample_generator,
+    sample_input_generator=slice_generator,
+    error_input_generator=slice_error_generator,
     reference=jax.lax.slice,
     reference_type=ReferenceType.Jax,
 )

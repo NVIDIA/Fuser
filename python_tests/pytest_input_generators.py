@@ -80,11 +80,11 @@ def _elementwise_unary_torch(op):
     return _fn
 
 
-def define_tensor_sample_generator(op, dtype, requires_grad, **kwargs):
+def define_tensor_generator(op, dtype, requires_grad, **kwargs):
     yield SampleInput(symbolic_sizes=[-1], contiguity=[True])
 
 
-def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
+def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
     """
     "define_tensor",
     [](FusionDefinition& self,
@@ -149,7 +149,7 @@ def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
 
 
 # TODO: add stride testing
-def slice_sample_generator(op, dtype, requires_grad, **kwargs):
+def slice_generator(op, dtype, requires_grad, **kwargs):
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -165,7 +165,7 @@ def slice_sample_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(a, start_indices=start_indices, end_indices=end_indices)
 
 
-def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
+def slice_error_generator(op, dtype, requires_grad, **kwargs):
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -223,7 +223,7 @@ def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
-def reduction_sample_generator(op, dtype, requires_grad, **kwargs):
+def reduction_generator(op, dtype, requires_grad, **kwargs):
     make_arg = partial(
         make_tensor,
         device="cuda",
@@ -250,7 +250,7 @@ def reduction_sample_generator(op, dtype, requires_grad, **kwargs):
         yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
 
 
-def reduction_error_sample_generator(op, dtype, requires_grad, **kwargs):
+def reduction_error_generator(op, dtype, requires_grad, **kwargs):
     make_arg = partial(
         make_tensor,
         device="cuda",
@@ -298,7 +298,7 @@ def reduction_error_sample_generator(op, dtype, requires_grad, **kwargs):
 def var_mean_generator(op, dtype: torch.dtype, requires_grad: bool):
     """torch.var_mean(input, dim=None, *, correction=1, keepdim=False)"""
     correction = (0, 1)
-    samples = reduction_sample_generator(op, dtype, requires_grad)
+    samples = reduction_generator(op, dtype, requires_grad)
     for c, sample in itertools.product(correction, samples):
         a = sample.args[0]
         dim = (

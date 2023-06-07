@@ -44,6 +44,9 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
 
 
 def parse_args_fusion_execution(fd: FusionDefinition, opinfo: OpInfo, *args):
+    if len(args) == 0:
+        return []
+
     return [
         a for is_symbolic, a in zip(opinfo.symbolic_parameter_list, args) if is_symbolic
     ]
@@ -170,23 +173,6 @@ def snippet_consistency(reference_type: ReferenceType, is_fusion_input_op: bool)
         return None
 
 
-@ops(tuple(op for op in opinfos if op.error_input_generator is not None))
-def test_errors(op: OpInfo, dtype: torch.dtype):
-    fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
-    for sample, ex_type, ex_regex in op.error_inputs(dtype):
-        result = run_snippet(
-            partial(snippet_errors, fusion_func),
-            op,
-            dtype,
-            op,
-            sample,
-            ex_type,
-            ex_regex,
-        )
-        if result is not None:
-            return result
-
-
 @ops(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
@@ -212,6 +198,23 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
             dtype,
             op,
             sample,
+        )
+        if result is not None:
+            return result
+
+
+@ops(tuple(op for op in opinfos if op.error_input_generator is not None))
+def test_errors(op: OpInfo, dtype: torch.dtype):
+    fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
+    for sample, ex_type, ex_regex in op.error_inputs(dtype):
+        result = run_snippet(
+            partial(snippet_errors, fusion_func),
+            op,
+            dtype,
+            op,
+            sample,
+            ex_type,
+            ex_regex,
         )
         if result is not None:
             return result
