@@ -34,7 +34,7 @@ class Scope;
 // Expr list
 class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
  public:
-  std::vector<Expr*> handle(const std::vector<Expr*>& expr);
+  std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
 
  protected:
   using OptOutDispatch::handle;
@@ -52,7 +52,7 @@ class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
 // Const version of IrVisitor
 class TORCH_CUDA_CU_API ConstIrVisitor : public OptOutConstDispatch {
  public:
-  std::vector<const Expr*> handle(const std::vector<const Expr*>& expr);
+  std::vector<const Expr*> handle(const std::vector<const Expr*>& exprs);
 
  protected:
   using OptOutConstDispatch::handle;

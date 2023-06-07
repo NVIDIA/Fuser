@@ -141,6 +141,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<TernaryOp>());
     return;
   }
+  if (expr->isStrictlyA<ArrayOp>()) {
+    ptr(handler)->handle(expr->as<ArrayOp>());
+    return;
+  }
   if (expr->isStrictlyA<SelectOp>()) {
     ptr(handler)->handle(expr->as<SelectOp>());
     return;
@@ -425,6 +429,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<TernaryOp>()) {
     ptr(handler)->handle(expr->as<TernaryOp>());
+    return;
+  }
+  if (expr->isStrictlyA<ArrayOp>()) {
+    ptr(handler)->handle(expr->as<ArrayOp>());
     return;
   }
   if (expr->isStrictlyA<SelectOp>()) {
@@ -852,6 +860,9 @@ void OptOutConstDispatch::handle(const BinaryOp* stmt) {
 void OptOutConstDispatch::handle(const TernaryOp* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const ArrayOp* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const SelectOp* stmt) {
   unhandled(stmt);
 }
@@ -1043,7 +1054,7 @@ void OptOutDispatch::handle(UnaryOp* stmt) {
 void OptOutDispatch::handle(BinaryOp* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(TernaryOp* stmt) {
+void OptOutDispatch::handle(ArrayOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(SelectOp* stmt) {

@@ -1260,8 +1260,9 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
 
   std::vector<Val*> out_coordinates(dim, nullptr);
   for (int64_t i : c10::irange(dim)) {
-    auto out_coord_id = out_tv->getLeafDomain().at(2 * i);
-    auto &current_coord = out_coordinates.at(dim - i - 1);
+    auto ii = dim - i - 1;
+    auto out_coord_id = out_tv->getLeafDomain().at(2 * ii);
+    auto& current_coord = out_coordinates.at(ii);
     for (auto loop : for_loops_) {
       if (loop->iter_domain() == out_coord_id) {
         // coordinates are column major
@@ -1272,13 +1273,12 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
     TORCH_INTERNAL_ASSERT(current_coord != nullptr, "not found!");
     if (isParallelTypeThreadDim(out_coord_id->getParallelType())) {
       Val* stride = ldst->container()->oneVal();
-      for (int64_t j : c10::irange(i + 1, dim)) {
+      for (int64_t j : c10::irange(ii + 1, dim)) {
         stride = SimplifyingIrBuilder::mulExpr(
             stride, in_tv->getMaybeAllocationDomain().at(j)->extent());
       }
       in_index = SimplifyingIrBuilder::addExpr(
-          in_index,
-          SimplifyingIrBuilder::mulExpr(current_coord, stride));
+          in_index, SimplifyingIrBuilder::mulExpr(current_coord, stride));
     }
   }
 

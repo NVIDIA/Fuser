@@ -10,6 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/analysis/shift.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
@@ -492,6 +493,8 @@ void GpuLower::lower(Fusion* fusion) {
 
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
+
+  collectTMATensorMapInfo(exprs_instrumented);
 
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from

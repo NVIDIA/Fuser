@@ -9,4 +9,8 @@
 
 #include <ir/all_nodes.h>
 
+namespace nvfuser {
+
 void collectTMATensorMapInfo(const std::vector<Expr*>& exprs);
+
+} // namespace nvfuser
