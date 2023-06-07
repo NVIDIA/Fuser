@@ -576,20 +576,13 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // the purposes of computing the concretization info.
   auto conc_fusion = std::make_unique<Fusion>(*fusion_);
 
-  // Create an ExpressionEvaluator that will live only as long as the current
-  // function. This should be the only one used on this Fusion.
-  auto precomputed_values =
-      std::make_unique<PrecomputedValues>(conc_fusion.get());
-  precomputed_values->bindInputs(args);
-  precomputed_values->evaluate();
-  ExpressionEvaluator expr_eval;
-  expr_eval.bindPrecomputedValues(precomputed_values.get());
-
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   DynamicTransformInitialInfo* cloned_initial_info = nullptr;
   DynamicTransformConcretizationInfo* conc_info = nullptr;
+  // This should be the only ExpressionEvaluator used on this Fusion.
+  ExpressionEvaluator expr_eval;
   if (initial_info.hasDynamicTransforms()) {
     // When fusion_ is cloned, initial info will also be cloned. It's important
     // that we use the cloned initial_info when using the cloned Fusion.
@@ -659,10 +652,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       }
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
-        std::move(conc_fusion),
-        args,
-        forced_index_type,
-        std::move(precomputed_values)));
+        std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
