@@ -52,6 +52,10 @@ void Val::dispatch(T handler, Val* val) {
         ptr(handler)->handle(val->as<Int>());
         return;
       }
+      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
+        ptr(handler)->handleUntypedVal(val);
+        return;
+      }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
         case DataType::Bool:
           ptr(handler)->handle(val->as<Bool>());
@@ -340,6 +344,10 @@ void Val::constDispatch(T handler, const Val* val) {
     case ValType::Scalar:
       if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
         ptr(handler)->handle(val->as<Int>());
+        return;
+      }
+      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
+        ptr(handler)->handleUntypedVal(val);
         return;
       }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
@@ -643,6 +651,10 @@ void Val::mutatorDispatch(T mutator, Val* val) {
         ptr(mutator)->mutate(val->as<Int>());
         return;
       }
+      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
+        ptr(mutator)->mutateUntypedVal(val);
+        return;
+      }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
         case DataType::Bool:
           ptr(mutator)->mutate(val->as<Bool>());
@@ -838,6 +850,10 @@ void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
 }
 
 void OptOutConstDispatch::handle(const AggregateVal* stmt) {
+  unhandled(stmt);
+}
+
+void OptOutConstDispatch::handleUntypedVal(const Val* stmt) {
   unhandled(stmt);
 }
 
@@ -1038,6 +1054,10 @@ void OptOutDispatch::handle(AggregateVal* stmt) {
   unhandled(stmt);
 }
 
+void OptOutDispatch::handleUntypedVal(Val* stmt) {
+  unhandled(stmt);
+}
+
 // Exprs
 void OptOutDispatch::handle(FullOp* stmt) {
   unhandled(stmt);
@@ -1052,6 +1072,9 @@ void OptOutDispatch::handle(UnaryOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(BinaryOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(TernaryOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(ArrayOp* stmt) {

@@ -166,6 +166,8 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const AggregateVal*);
 
+  virtual void handleUntypedVal(const Val*);
+
   // Exprs
   virtual void handle(const FullOp* stmt);
   virtual void handle(const IotaOp* stmt);
@@ -247,6 +249,8 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::TensorIndex*);
 
   virtual void handle(AggregateVal*);
+
+  virtual void handleUntypedVal(Val*);
 
   // Exprs
   virtual void handle(FullOp* stmt);
@@ -368,6 +372,8 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
+
+  virtual void mutateUntypedVal(Val*);
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;

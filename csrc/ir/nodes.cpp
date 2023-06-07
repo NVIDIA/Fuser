@@ -739,6 +739,7 @@ std::string ArrayOp::toInlineString(int indent_size) const {
       ss << ", ";
     }
     ss << v->toInlineString();
+    first = false;
   }
   ss << "}";
   return ss.str();

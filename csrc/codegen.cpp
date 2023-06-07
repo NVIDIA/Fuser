@@ -541,6 +541,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handleUntypedVal(const Val* v) final {
+    const auto def = v->definition();
+    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
+    if (def != nullptr && !has_alloc) {
+      code_ << "(" << genInline(def) << ")";
+    } else {
+      code_ << genVariableName(v);
+    }
+  }
+
   void handle(const NamedScalar* ns) final {
     if (ns->definition() != nullptr &&
         alloc_map_.find(ns) == alloc_map_.end()) {
@@ -628,7 +638,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
     func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
 
-    indent() << genCall("cpAsyncBulkTensorTileS2G", func_args) << ";\n";
+    indent() << genCall("Hopper::cpAsyncBulkTensorTileS2G", func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
@@ -982,6 +992,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << top->getTernaryOpType() << "(" << gen(top->in1()) << ", "
             << gen(top->in2()) << ", " << gen(top->in3()) << ")";
     }
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const ArrayOp* aop) final {
+    if (!print_inline_) {
+      indent() << gen(aop->out()) << " = ";
+    }
+
+    code_ << "{";
+    bool first = true;
+    for (auto in : aop->inputs()) {
+      if (!first) {
+        code_ << ", ";
+      }
+      first = false;
+      code_ << gen(in);
+    }
+    code_ << "}";
 
     if (!print_inline_) {
       code_ << ";\n";
