@@ -9,6 +9,7 @@
 
 #include <dynamic_transform.h>
 #include <executor_params.h>
+#include <executor_utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
@@ -576,13 +577,14 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // the purposes of computing the concretization info.
   auto conc_fusion = std::make_unique<Fusion>(*fusion_);
 
+  // This should be the only ExpressionEvaluator used on this Fusion.
+  auto expr_eval = executor_utils::bindInputs(args, conc_fusion.get());
+
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
   DynamicTransformInitialInfo* cloned_initial_info = nullptr;
   DynamicTransformConcretizationInfo* conc_info = nullptr;
-  // This should be the only ExpressionEvaluator used on this Fusion.
-  ExpressionEvaluator expr_eval;
   if (initial_info.hasDynamicTransforms()) {
     // When fusion_ is cloned, initial info will also be cloned. It's important
     // that we use the cloned initial_info when using the cloned Fusion.
@@ -667,9 +669,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type,
-    std::unique_ptr<PrecomputedValues> precomputed_values)
-    : precomputed_values_(std::move(precomputed_values)) {
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   TORCH_INTERNAL_ASSERT(
@@ -685,12 +685,12 @@ FusionKernelRuntime::FusionKernelRuntime(
   SchedulerRuntimeInfo runtime_info(
       fusion.get(),
       args,
-      (precomputed_values_ ? precomputed_values_.get() : nullptr),
+      nullptr,
       all_tvs_,
       forced_index_type);
 
   // Initialize the evaluator simplifer
-  // precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
+  precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
   segmented_fusion_ =
       SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);

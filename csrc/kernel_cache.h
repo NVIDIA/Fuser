@@ -90,8 +90,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt,
-      std::unique_ptr<PrecomputedValues> precomputed_values = nullptr);
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
