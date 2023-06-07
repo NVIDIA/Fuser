@@ -50,13 +50,15 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return root_dynamic_vals_;
   }
 
-  //! Return a vector of ViewOp expressions that have dynamic output shapes
-  const std::vector<ViewOp*>& getDynamicReshapes() const {
+  //! Return a vector of outputs of ViewOp expressions that have dynamic output
+  //! shapes
+  const std::vector<TensorView*>& getDynamicReshapes() const {
     return dynamic_reshapes_;
   }
 
-  //! Return a vector of Resize expressions that have symbolic output IterTypes
-  const std::vector<Resize*>& getDynamicResizes() const {
+  //! Return a vector of outputs of Resize expressions that have symbolic output
+  //! IterTypes
+  const std::vector<IterDomain*>& getDynamicResizes() const {
     return dynamic_resizes_;
   }
 
@@ -81,9 +83,15 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
  private:
   Fusion* fusion_ = nullptr;
 
-  std::vector<ViewOp*> dynamic_reshapes_;
+  // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
+  // the ops themselves is that during concretization, the ops will actually be
+  // removed by ir_utils::replaceValInExpr. The outputs will not: their
+  // definitions will merely be altered. When the ops are replaced, if we had
+  // referred to them directly here, we would run into segfaults. Referring only
+  // to the outputs avoids this issue.
+  std::vector<TensorView*> dynamic_reshapes_;
 
-  std::vector<Resize*> dynamic_resizes_;
+  std::vector<IterDomain*> dynamic_resizes_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
@@ -96,66 +104,73 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
-      Fusion* fusion,
-      const DynamicTransformInitialInfo& initial_info,
+      const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator& expr_eval)
-      : fusion_(fusion) {
+      : initial_info_(initial_info) {
     TORCH_INTERNAL_ASSERT(
-        !fusion->isA<kir::Kernel>(),
+        !fusion()->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    analyzeReshapes(initial_info, expr_eval);
+    // Make sure all exactly mapped IDs have the same value in the
+    // evaluator when any one of the IDs has a known value
+    expr_eval.propagateBoundValuesThroughExactMaps(initial_info->fusion());
 
-    analyzeResizes(initial_info, expr_eval);
+    analyzeReshapes(expr_eval);
+
+    analyzeResizes(expr_eval);
   }
 
-  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
-  getReshapeTransforms() const {
+  const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
+      const {
     return reshape_transforms_;
   }
 
-  const std::vector<std::pair<IterDomain*, IterType>>& getResizeTransforms()
-      const {
+  const std::vector<std::pair<size_t, IterType>>& getResizeTransforms() const {
     return resize_transforms_;
   }
 
+  //! Comparison operator for the purposes of determining cache hits. This does
+  //! not guarantee equality of all members. Instead, it returns equal if the
+  //! resulting concretizations would be structurally equivalent. Note that
+  //! pointers to Statements may differ between equivalent concretizations due
+  //! to cloning before concretization.
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
   }
 
-  void analyzeReshapes(
-      const DynamicTransformInitialInfo& initial_info,
-      ExpressionEvaluator& expr_eval);
+  void analyzeReshapes(ExpressionEvaluator& expr_eval);
 
-  void analyzeResizes(
-      const DynamicTransformInitialInfo& initial_info,
-      ExpressionEvaluator& expr_eval);
+  void analyzeResizes(ExpressionEvaluator& expr_eval);
+
+  const DynamicTransformInitialInfo* initialInfo() const {
+    return initial_info_;
+  }
 
   Fusion* fusion() const {
-    return fusion_;
+    return initial_info_->fusion();
   }
 
   std::string toString() const;
 
   size_t hash() const;
 
-  DynamicTransformConcretizationInfo clone(IrCloner& ir_cloner) const;
+ private:
+  DynamicTransformConcretizationInfo(
+      const DynamicTransformInitialInfo* initial_info)
+      : initial_info_(initial_info) {}
 
  private:
-  DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}
-
- private:
-  Fusion* fusion_ = nullptr;
+  const DynamicTransformInitialInfo* initial_info_ = nullptr;
 
   // Holds, for each dynamic reshape, the output TensorView, and the result of
   // analyzeView
-  std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
+  std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
   // Holds the resized IterDomain (output of the Resize op) along with the
   // TensorView where it appears, and its concretized IterType
-  std::vector<std::pair<IterDomain*, IterType>> resize_transforms_;
+  std::vector<std::pair<size_t, IterType>> resize_transforms_;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {
@@ -176,7 +191,7 @@ class TORCH_CUDA_CU_API DynamicTransform {
   //! in-place and the given fusion is modified.
   static void concretizeFusion(
       Fusion*,
-      const DynamicTransformConcretizationInfo& info);
+      const DynamicTransformConcretizationInfo* info);
 };
 
 } // namespace nvfuser

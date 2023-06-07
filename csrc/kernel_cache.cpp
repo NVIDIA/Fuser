@@ -578,40 +578,31 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Create an ExpressionEvaluator that will live only as long as the current
   // function. This should be the only one used on this Fusion.
-  PrecomputedValues precomputed_values(conc_fusion.get());
-  precomputed_values.bindInputs(args);
-  precomputed_values.evaluate();
+  auto precomputed_values =
+      std::make_unique<PrecomputedValues>(conc_fusion.get());
+  precomputed_values->bindInputs(args);
+  precomputed_values->evaluate();
   ExpressionEvaluator expr_eval;
-  expr_eval.bindPrecomputedValues(&precomputed_values);
-  // Make sure all exactly mapped IDs have the same value in the
-  // evaluator when any one of the IDs has a known value
-  expr_eval.propagateBoundValuesThroughExactMaps(conc_fusion.get());
+  expr_eval.bindPrecomputedValues(precomputed_values.get());
 
   // Compute concretization info given inputs. This object points to Vals in
   // the unconcretized Fusion, so we will not use it directly, but rather it
   // will be used only as a cache key.
-  std::optional<DynamicTransformConcretizationInfo> conc_info = std::nullopt;
+  DynamicTransformInitialInfo* cloned_initial_info = nullptr;
+  DynamicTransformConcretizationInfo* conc_info = nullptr;
   if (initial_info.hasDynamicTransforms()) {
     // When fusion_ is cloned, initial info will also be cloned. It's important
     // that we use the cloned initial_info when using the cloned Fusion.
-    auto cloned_initial_info_opt =
-        conc_fusion->getManagedSafe<DynamicTransformInitialInfo>(
-            "initial_info");
-    TORCH_CHECK(
-        cloned_initial_info_opt.has_value(),
-        "Could not retrieve managed initial concretization info");
-    std::cout << std::to_string(conc_fusion->inputs()
-                                    .at(0)
-                                    ->as<TensorView>()
-                                    ->axis(0)
-                                    ->evaluatorIndex())
-              << std::endl;
-    conc_info = DynamicTransformConcretizationInfo(
-        conc_fusion.get(), cloned_initial_info_opt.value(), expr_eval);
-    TORCH_CHECK(
-        conc_info.has_value(),
-        "Unable to get concretization info for dynamic Fusion");
-    conc_fusion->stopManaging("initial_info");
+    cached_initial_info_.emplace_back(
+        std::make_unique<DynamicTransformInitialInfo>(
+            conc_fusion->getManaged<DynamicTransformInitialInfo>(
+                "initial_info")));
+    cloned_initial_info = cached_initial_info_.back().get();
+
+    cached_conc_info_.emplace_back(
+        std::make_unique<DynamicTransformConcretizationInfo>(
+            cloned_initial_info, expr_eval));
+    conc_info = cached_conc_info_.back().get();
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
@@ -654,9 +645,13 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->printMath();
       }
 
-      TORCH_INTERNAL_ASSERT(conc_info.has_value());
+      TORCH_INTERNAL_ASSERT(conc_info);
 
-      DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info.value());
+      DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
+      // Initial info is used during concretization and is owned by conc_fusion.
+      // After concretization, we stop managing it so that we won't keep cloning
+      // it for every subsequent Fusion copy.
+      conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
         std::cout << "Concretized Fusion:" << std::endl;
@@ -664,7 +659,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       }
     }
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
-        std::move(conc_fusion), args, forced_index_type));
+        std::move(conc_fusion),
+        args,
+        forced_index_type,
+        std::move(precomputed_values)));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -679,7 +677,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type,
+    std::unique_ptr<PrecomputedValues> precomputed_values)
+    : precomputed_values_(std::move(precomputed_values)) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   TORCH_INTERNAL_ASSERT(
@@ -693,10 +693,14 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Run segmentation on the copied fusion
   SchedulerRuntimeInfo runtime_info(
-      fusion.get(), args, nullptr, all_tvs_, forced_index_type);
+      fusion.get(),
+      args,
+      (precomputed_values_ ? precomputed_values_.get() : nullptr),
+      all_tvs_,
+      forced_index_type);
 
   // Initialize the evaluator simplifer
-  precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
+  // precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
   segmented_fusion_ =
       SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);

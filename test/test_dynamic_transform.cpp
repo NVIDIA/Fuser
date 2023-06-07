@@ -64,8 +64,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape1, 4);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -83,8 +82,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape1, -1);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
         "Expected to have one reshape transform: ",
@@ -105,8 +103,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     EXPECT_THAT(
         [&]() {
           auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-          auto info = DynamicTransformConcretizationInfo(
-              &fusion, initial_info, expr_eval);
+          auto info =
+              DynamicTransformConcretizationInfo(&initial_info, expr_eval);
         },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Cannot infer")));
@@ -145,8 +143,7 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     expr_eval.bind(tv2->axis(1)->extent(), 4);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
     TORCH_CHECK(
         info.getReshapeTransforms().size() == 1,
@@ -187,10 +184,9 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info =
-      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
-  DynamicTransform::concretizeFusion(&fusion, info);
+  DynamicTransform::concretizeFusion(&fusion, &info);
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
 
@@ -253,10 +249,9 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, &info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -302,10 +297,9 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     expr_eval.bind(tv1->axis(1)->extent(), before_after.second.at(1));
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, &info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -356,10 +350,9 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info =
-        DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
-    DynamicTransform::concretizeFusion(&fusion, info);
+    DynamicTransform::concretizeFusion(&fusion, &info);
 
     TORCH_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -437,8 +430,8 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     }
 
     auto ref_initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto ref_info = DynamicTransformConcretizationInfo(
-        &fusion, ref_initial_info, ref_expr_eval);
+    auto ref_info =
+        DynamicTransformConcretizationInfo(&ref_initial_info, ref_expr_eval);
 
     for (const auto& transform : pattern.equal_transforms) {
       TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
@@ -452,8 +445,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
 
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-      auto info =
-          DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+      auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
       TORCH_CHECK(
           ref_info == info,
@@ -475,8 +467,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       }
 
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-      auto info =
-          DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+      auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
       TORCH_CHECK(
           ref_info != info,
@@ -541,14 +532,13 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   expr_eval.bind(reshape_shape0, 12);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info =
-      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
   TORCH_CHECK(
       info.getReshapeTransforms().size() == 1,
-      info.getReshapeTransforms().at(0).first == tv2,
+      info.getReshapeTransforms().at(0).first == 0, // first and only reshape
       "Unexpected dynamic transform info:",
       info.toString());
 }
@@ -581,10 +571,9 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   expr_eval.bind(tv1->axis(1)->extent(), 3);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-  auto info =
-      DynamicTransformConcretizationInfo(&fusion, initial_info, expr_eval);
+  auto info = DynamicTransformConcretizationInfo(&initial_info, expr_eval);
 
-  DynamicTransform::concretizeFusion(&fusion, info);
+  DynamicTransform::concretizeFusion(&fusion, &info);
 
   TORCH_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
@@ -617,8 +606,7 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval1.bind(tv1->axis(2)->extent(), 3);
 
   auto initial_info1 = DynamicTransform::getInitialInfo(&fusion);
-  auto info1 =
-      DynamicTransformConcretizationInfo(&fusion, initial_info1, expr_eval1);
+  auto info1 = DynamicTransformConcretizationInfo(&initial_info1, expr_eval1);
 
   ExpressionEvaluator expr_eval2;
   ;
@@ -631,8 +619,7 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   expr_eval2.bind(tv1->axis(2)->extent(), 2);
 
   auto initial_info2 = DynamicTransform::getInitialInfo(&fusion);
-  auto info2 =
-      DynamicTransformConcretizationInfo(&fusion, initial_info2, expr_eval2);
+  auto info2 = DynamicTransformConcretizationInfo(&initial_info2, expr_eval2);
 
   // Generally different concretizations doesn't always mean different
   // hashes, but in this case they should be different
@@ -678,21 +665,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  // Return pair of: number of concretizations & total number of kernel runtimes
-  auto countRuntimes = [&executor_cache]() {
-    std::unordered_set<const std::pair<
-        size_t,
-        std::optional<DynamicTransformConcretizationInfo>>*>
-        concs;
-    size_t runtime_count = 0;
-    for (auto& it : executor_cache.getKernelRuntimes()) {
-      concs.insert(&it.first);
-      runtime_count += it.second.size();
-    }
-    return std::make_pair(concs.size(), runtime_count);
-  };
-
-  TORCH_CHECK(countRuntimes().second == 0, "Expect to start with no runtimes");
+  TORCH_CHECK(
+      executor_cache.countRuntimes() == 0, "Expect to start with no runtimes");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   { // trivial reshape
@@ -704,7 +678,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
     TORCH_CHECK(
-        countRuntimes().second == 1, "Expect to create a single runtime");
+        executor_cache.countRuntimes() == 1,
+        "Expect to create a single runtime");
   }
   { // non-trivial reshape: merge and split
     auto t0 = at::randn({3, 4}, options);
@@ -714,11 +689,11 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto ref = t0.view({4, 3}) + t1;
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-    auto num_rts = countRuntimes();
+    auto num_rts = executor_cache.countRuntimes();
+    auto num_concs = executor_cache.countConcretizations();
+    TORCH_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
     TORCH_CHECK(
-        num_rts.second == 2, "Non-trivial reshape should create new runtime");
-    TORCH_CHECK(
-        num_rts.first == 2,
+        num_concs == 2,
         "Non-trivial reshape should create new concretization cache level");
   }
   { // different non-trivial reshape
@@ -729,12 +704,13 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto ref = t0.view({4, 3}) + t1;
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-    auto num_rts = countRuntimes();
+    auto num_rts = executor_cache.countRuntimes();
+    auto num_concs = executor_cache.countConcretizations();
     TORCH_CHECK(
-        num_rts.second == 2,
+        num_rts == 2,
         "Second non-trivial reshape should not create new runtime");
     TORCH_CHECK(
-        num_rts.first == 2,
+        num_concs == 2,
         "Second non-trivial reshape should not create new concretization cache level");
   }
 }
@@ -787,23 +763,11 @@ void reductionDynamicViewAddFusion(
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
 
-  // Return pair of: number of concretizations & total number of kernel runtimes
-  auto countConcretizations = [&fusion_executor_cache]() {
-    std::unordered_set<const std::pair<
-        size_t,
-        std::optional<DynamicTransformConcretizationInfo>>*>
-        concs;
-    for (auto& it : fusion_executor_cache.getKernelRuntimes()) {
-      concs.insert(&it.first);
-    }
-    return concs.size();
-  };
-  size_t num_concretizations = countConcretizations();
+  size_t num_concretizations = fusion_executor_cache.countConcretizations();
   // Check that concretizations and runtimes are cache misses only when they
   // should be
-  auto checkCache = [&countConcretizations,
-                     &num_concretizations](bool expect_miss) {
-    auto current = countConcretizations();
+  auto checkCache = [&](bool expect_miss) {
+    auto current = fusion_executor_cache.countConcretizations();
     ASSERT_EQ(current, num_concretizations + (size_t)expect_miss);
     num_concretizations = current;
   };

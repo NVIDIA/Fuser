@@ -41,16 +41,38 @@ struct RuntimeWorkSpace {
   //! Pre-determined order to bind tensor input meta data
   std::vector<Val*> group_extent_binding_order;
 };
-//! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
-//! there are a lot of options how to combine hashes. In a case where one
+//! Simple hasher for pair<T, const U*>. There is no default hasher for pairs,
+//! since there are a lot of options how to combine hashes. In a case where one
 //! element of the pair is unlikely to change much, the following hash is fast
 //! and effective.
-struct SimplePairHash {
+struct PairPointerHash {
   template <typename T, typename U>
-  size_t operator()(const std::pair<T, U>& p) const {
+  size_t operator()(const std::pair<T, const U*>& p) const {
     auto hT = std::hash<T>{}(p.first);
-    auto hU = std::hash<U>{}(p.second);
+    // Using pointer as an optional
+    auto hU =
+        p.second ? std::hash<U>{}(*(p.second)) : std::hash<void*>{}(nullptr);
     return hT ^ hU;
+  }
+};
+
+struct PairPointerEquals {
+  template <typename T, typename U>
+  bool operator()(
+      const std::pair<T, const U*>& lhs,
+      const std::pair<T, const U*>& rhs) const {
+    if (lhs.first != rhs.first) {
+      return false;
+    }
+    if (lhs.second == rhs.second) {
+      return true;
+    }
+    // Compare by dereference, but only if both pointers are non-null
+    if (!lhs.second || !rhs.second) {
+      // We've already compared pointers, so if either is null, they're not both
+      return false;
+    }
+    return *(lhs.second) == *(rhs.second);
   }
 };
 
@@ -68,7 +90,8 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      std::unique_ptr<PrecomputedValues> precomputed_values = nullptr);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -523,6 +546,34 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return kernel_runtimes_;
   }
 
+  //! Count concretizations. Note that each might have multiple
+  //! FusionKernelRuntimes. If device is given, count only concretizations on
+  //! the given device; otherwise count concretizations on all devices.
+  size_t countConcretizations(int8_t device = -1) const {
+    size_t concs = 0;
+    for (auto& it : kernel_runtimes_) {
+      if (device >= 0 && it.first.first != device) {
+        continue;
+      }
+      concs++;
+    }
+    return concs;
+  }
+
+  //! Count kernel runtimes across all concretizations. If device is given,
+  //! count only runtimes on the given device; otherwise count
+  //! runtimes on all devices.
+  size_t countRuntimes(int8_t device = -1) const {
+    size_t runtimes = 0;
+    for (auto& it : kernel_runtimes_) {
+      if (device >= 0 && it.first.first != device) {
+        continue;
+      }
+      runtimes += it.second.size();
+    }
+    return runtimes;
+  }
+
   void profile(bool to_profile) {
     profiling_ = to_profile;
     for (auto& it : kernel_runtimes_) {
@@ -601,10 +652,18 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
-      SimplePairHash>
+      PairPointerHash,
+      PairPointerEquals>
       kernel_runtimes_;
+
+  //! This class owns the initial info and concretization info associated to
+  //! each vector of kernel runtimes
+  std::vector<std::unique_ptr<DynamicTransformInitialInfo>>
+      cached_initial_info_;
+  std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
+      cached_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
