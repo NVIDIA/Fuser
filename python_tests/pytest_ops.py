@@ -51,9 +51,18 @@ def snippet_definition_op_in_schedule_error(nvf_op, sample):
 
 
 def opinfo_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
-    nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
-    t1 = operation(fd)(*nvf_inputs, **kwargs)
-    fd.add_output(t1)
+    nvf_inputs = []
+    for x in inputs:
+        if type(x) is torch.Tensor:
+            nvf_inputs.append(fd.from_pytorch(x))
+        else:
+            nvf_inputs.append(x)
+    result = operation(fd)(*nvf_inputs, **kwargs)
+    if type(result) is tuple:
+        for a in result:
+            fd.add_output(a)
+    else:
+        fd.add_output(result)
 
 
 def input_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
@@ -74,8 +83,8 @@ def snippet_errors(
     try:
         with FusionDefinition() as fd:
             fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
-        fd.execute(*sample.args)
-        print(fd)
+        nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
+        fd.execute(nvf_inputs)
     except Exception as e:
         exception = e
 
@@ -92,20 +101,25 @@ def snippet_torch_consistency(
     fusion_func, nvf_op: Callable, torch_op, sample: SampleInput
 ):
     with FusionDefinition() as fd:
-        fusion_func(fd, nvf_op, sample.args)
-    nvfuser_result = fd.execute(sample.args, **sample.kwargs)
+        fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+    nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
+    nvfuser_result = fd.execute(nvf_inputs)
     torch_result = torch_op(*sample.args, **sample.kwargs)
 
     if isinstance(nvfuser_result, Exception):
         raise nvfuser_result
 
-    assert_close(nvfuser_result[0], torch_result, equal_nan=True, atol=1e-3, rtol=0)
+    if len(nvfuser_result) == 1:
+        nvfuser_result = nvfuser_result[0]
+
+    assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
 def snippet_jax_consistency(fusion_func, nvf_op: Callable, jax_op, sample: SampleInput):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
-    nvfuser_result = fd.execute(sample.args, **sample.kwargs)
+    nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
+    nvfuser_result = fd.execute(nvf_inputs)
 
     jax_sample = sample.jax()
     jax_result = jax_op(*jax_sample.args, **jax_sample.kwargs)
@@ -119,8 +133,11 @@ def snippet_jax_consistency(fusion_func, nvf_op: Callable, jax_op, sample: Sampl
     else:
         jax_result = torch.asarray(np_array, device=nvfuser_result[0].device)
 
+    if len(nvfuser_result) == 1:
+        nvfuser_result = nvfuser_result[0]
+
     # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
-    assert_close(nvfuser_result[0], jax_result, equal_nan=True, check_dtype=False)
+    assert_close(nvfuser_result, jax_result, equal_nan=True, check_dtype=False)
 
 
 def snippet_consistency(reference_type: ReferenceType, is_fusion_input_op: bool):

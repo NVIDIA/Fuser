@@ -32,6 +32,13 @@ int_float_dtypes = [
     torch.float64,
 ]
 
+float_complex_dtypes = [
+    torch.float32,
+    torch.float64,
+    torch.complex64,
+    torch.complex128,
+]
+
 map_dtype_to_str = {
     torch.bool: "bool",
     torch.uint8: "uint8",

@@ -10,11 +10,14 @@ from pytest_core import (
     _elementwise_unary_torch,
     OpInfo,
     ReferenceType,
-    slice_sample_generator,
-    slice_error_sample_generator,
     define_tensor_sample_generator,
     define_tensor_error_sample_generator,
+    slice_sample_generator,
+    slice_error_sample_generator,
+    reduction_error_sample_generator,
+    var_mean_generator,
 )
+from pytest_utils import float_complex_dtypes
 
 eps = 1e-2
 
@@ -48,6 +51,21 @@ elementwise_unary_ops.append(acos_opinfo)
 
 """ End Unary-Float Operations """
 
+""" Start Normalization Operations """
+normalization_ops = []
+
+var_mean_opinfo = OpInfo(
+    lambda fd: fd.ops.var_mean,
+    "var_mean",
+    dtypes=float_complex_dtypes,
+    sample_input_generator=var_mean_generator,
+    error_input_generator=reduction_error_sample_generator,
+    reference=torch.var_mean,
+)
+normalization_ops.append(var_mean_opinfo)
+
+""" End Normalization Operations """
+
 """ Start Shape Operations """
 
 shape_ops = []
@@ -66,5 +84,6 @@ shape_ops.append(slice_opinfo)
 
 # Puts all opinfos into the "opinfos" list
 opinfos.extend(elementwise_unary_ops)
-opinfos.extend(shape_ops)
 opinfos.extend(fusion_input_ops)
+opinfos.extend(normalization_ops)
+opinfos.extend(shape_ops)

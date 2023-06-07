@@ -191,6 +191,74 @@ def _elementwise_unary_torch(op):
     return _fn
 
 
+def define_tensor_sample_generator(op, dtype, requires_grad, **kwargs):
+    yield SampleInput(None, symbolic_sizes=[-1], contiguity=[True])
+
+
+def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
+    """
+    "define_tensor",
+    [](FusionDefinition& self,
+        std::vector<int64_t>& sizes,
+        std::vector<int64_t>& strides,
+        PrimDataType dtype = DataType::Float,
+        bool static_sizes = false,
+        bool is_cpu = false) -> Tensor {
+    """
+
+    MINIMUM_SYMBOLIC_SIZE = -1
+    INT64_MAX = 9223372036854775807
+    MAX_TENSOR_DIMS = 8
+
+    check_size_contiguity_match = ErrorSample(
+        {
+            "symbolic_sizes": [-1, -1],
+            "contiguity": [True, True, True],
+            "dtype": DataType.Float,
+        },
+        "The size of contiguity must equal to the number of non-broadcasting IterDomains",
+    )
+
+    check_empty_tensor_size = ErrorSample(
+        {"symbolic_sizes": [], "contiguity": []},
+        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    )
+
+    check_max_tensor_size = ErrorSample(
+        {
+            "symbolic_sizes": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
+            "contiguity": [True for _ in range(MAX_TENSOR_DIMS + 1)],
+        },
+        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    )
+
+    check_above_size_range = ErrorSample(
+        {"symbolic_sizes": [INT64_MAX + 1], "contiguity": [True]},
+        "define_tensor(): incompatible function arguments",
+        TypeError,
+    )
+
+    check_below_size_range = ErrorSample(
+        {"symbolic_sizes": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
+        "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
+    )
+
+    # TODO: Fix empty and maximum tensor dimensionality error checks.
+    error_cases = [
+        check_size_contiguity_match,
+        # check_empty_tensor_size,
+        # check_max_tensor_size,
+        check_above_size_range,
+        check_below_size_range,
+    ]
+
+    input_tensor = make_tensor(
+        (10, 10), device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    for es in error_cases:
+        yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+
 # TODO: add stride testing
 def slice_sample_generator(op, dtype, requires_grad, **kwargs):
     make_arg = partial(
@@ -270,69 +338,88 @@ def slice_error_sample_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
-def define_tensor_sample_generator(op, dtype, requires_grad, **kwargs):
-    yield SampleInput(None, symbolic_sizes=[-1], contiguity=[True])
-
-
-def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
-    """
-    "define_tensor",
-    [](FusionDefinition& self,
-        std::vector<int64_t>& sizes,
-        std::vector<int64_t>& strides,
-        PrimDataType dtype = DataType::Float,
-        bool static_sizes = false,
-        bool is_cpu = false) -> Tensor {
-    """
-
-    MINIMUM_SYMBOLIC_SIZE = -1
-    INT64_MAX = 9223372036854775807
-    MAX_TENSOR_DIMS = 8
-
-    check_size_contiguity_match = ErrorSample(
-        {
-            "symbolic_sizes": [-1, -1],
-            "contiguity": [True, True, True],
-            "dtype": DataType.Float,
-        },
-        "The size of contiguity must equal to the number of non-broadcasting IterDomains",
+def reduction_sample_generator(op, dtype, requires_grad, **kwargs):
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        # We set low (inclusive) and high (exclusive) here to avoid values
+        # whose products can otherwise become extremely large
+        low=-2,
+        high=3,
     )
 
-    check_empty_tensor_size = ErrorSample(
-        {"symbolic_sizes": [], "contiguity": []},
-        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    # shape, dim, keepdim, dtype
+    cases = (
+        ((4, 4), None, False, None),
+        ((5,), None, True, None),
+        ((5,), (0,), False, None),
+        ((8, 1, 6), (1,), True, None),
+        ((8, 7, 5, 1), (0, 1), True, None),
+        ((8, 7, 5, 1), (1, 3), False, None),
     )
 
-    check_max_tensor_size = ErrorSample(
-        {
-            "symbolic_sizes": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
-            "contiguity": [True for _ in range(MAX_TENSOR_DIMS + 1)],
-        },
-        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+    for c in cases:
+        shape, dim, keepdim, dtype = c
+        yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
+
+
+def reduction_error_sample_generator(op, dtype, requires_grad, **kwargs):
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        # We set low (inclusive) and high (exclusive) here to avoid values
+        # whose products can otherwise become extremely large
+        low=-2,
+        high=3,
     )
 
-    check_above_size_range = ErrorSample(
-        {"symbolic_sizes": [INT64_MAX + 1], "contiguity": [True]},
-        "define_tensor(): incompatible function arguments",
+    # shape
+    cases = (
+        (8, 1, 6),
+        (8, 7, 5, 1),
+    )
+
+    # axes : List[int]
+    # 1) all axis are int --- use float dtype
+    # 2) all axes are unique --- duplicates
+    # 3) after normalization, 0 <= axis[i] <= len(size)
+    # 4) If empty tensor, then axis == 0
+
+    int_dtype_axis = (
+        lambda dims: float(dims),
         TypeError,
+        "var_mean(): incompatible function arguments.",
     )
-
-    check_below_size_range = ErrorSample(
-        {"symbolic_sizes": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
-        "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
+    duplicate_axis = (
+        lambda dims: (0, 0, 0),
+        RuntimeError,
+        "Reduction axes are not unique",
     )
+    lower_bound = (lambda dims: (-dims - 1,), RuntimeError, "Reduction on invalid axis")
+    upper_bound = (lambda dims: (dims,), RuntimeError, "Reduction on invalid axis")
+    # TODO Fix duplicate_axis, lower_bound, upper_bound
+    error_cases = [int_dtype_axis]
 
-    # TODO: Fix empty and maximum tensor dimensionality error checks.
-    error_cases = [
-        check_size_contiguity_match,
-        # check_empty_tensor_size,
-        # check_max_tensor_size,
-        check_above_size_range,
-        check_below_size_range,
-    ]
+    for shape, es in itertools.product(cases, error_cases):
+        input_tensor = make_arg(shape)
+        axis_fn, ex_type, ex_str = es
+        yield SampleInput(input_tensor, axes=axis_fn(len(shape))), ex_type, ex_str
 
-    input_tensor = make_tensor(
-        (10, 10), device="cuda", dtype=dtype, requires_grad=requires_grad
-    )
-    for es in error_cases:
-        yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+def var_mean_generator(op, dtype: torch.dtype, requires_grad: bool):
+    """torch.var_mean(input, dim=None, *, correction=1, keepdim=False)"""
+    correction = (0, 1)
+    samples = reduction_sample_generator(op, dtype, requires_grad)
+    for c, sample in itertools.product(correction, samples):
+        a = sample.args[0]
+        dim = (
+            sample.args[1]
+            if (len(sample.args) > 1 and sample.args[1])
+            else tuple(range(a.ndim))
+        )
+        keepdim = sample.args[2] if len(sample.args) > 2 else False
+        yield SampleInput(a, dim, correction=c, keepdim=keepdim)
