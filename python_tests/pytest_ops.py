@@ -50,15 +50,15 @@ def snippet_definition_op_in_schedule_error(nvf_op, sample):
     ), "Failed to find correct expection error message"
 
 
-def opinfo_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
+def opinfo_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     nvf_inputs = []
     # TODO parse tensors, vectors, scalars, and constant values
-    for x in inputs:
-        if type(x) is torch.Tensor:
-            nvf_inputs.append(fd.from_pytorch(x))
+    for a in args:
+        if type(a) is torch.Tensor:
+            nvf_inputs.append(fd.from_pytorch(a))
         else:
-            nvf_inputs.append(x)
-    result = operation(fd)(*nvf_inputs, **kwargs)
+            nvf_inputs.append(a)
+    result = opinfo.op(fd)(*nvf_inputs, **kwargs)
     if type(result) is tuple:
         for a in result:
             fd.add_output(a)
@@ -66,16 +66,16 @@ def opinfo_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwar
         fd.add_output(result)
 
 
-def input_fusion_func(fd: FusionDefinition, operation: Callable, inputs, **kwargs):
-    nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
-    this_inputs = operation(fd)(**kwargs)
+def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+    nvf_inputs = [fd.from_pytorch(x) for x in args if type(x) is torch.Tensor]
+    this_inputs = opinfo.op(fd)(**kwargs)
     t1 = fd.ops.add(nvf_inputs[0], this_inputs)
     fd.add_output(t1)
 
 
 def snippet_errors(
     fusion_func,
-    nvf_op: Callable,
+    nvf_op: OpInfo,
     sample: SampleInput,
     exception_type: Exception,
     exception_str: Optional[str],
@@ -83,7 +83,7 @@ def snippet_errors(
     exception = None
     try:
         with FusionDefinition() as fd:
-            fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+            fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
         nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
         fd.execute(nvf_inputs)
     except Exception as e:
@@ -99,10 +99,10 @@ def snippet_errors(
 
 
 def snippet_torch_consistency(
-    fusion_func, nvf_op: Callable, torch_op, sample: SampleInput
+    fusion_func, nvf_op: OpInfo, torch_op, sample: SampleInput
 ):
     with FusionDefinition() as fd:
-        fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+        fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
     nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
     nvfuser_result = fd.execute(nvf_inputs)
     torch_result = torch_op(*sample.args, **sample.kwargs)
@@ -116,9 +116,9 @@ def snippet_torch_consistency(
     assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
-def snippet_jax_consistency(fusion_func, nvf_op: Callable, jax_op, sample: SampleInput):
+def snippet_jax_consistency(fusion_func, nvf_op: OpInfo, jax_op, sample: SampleInput):
     with FusionDefinition() as fd:
-        fusion_func(fd, nvf_op, sample.args, **sample.kwargs)
+        fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
     nvf_inputs = [x for x in sample.args if type(x) is torch.Tensor]
     nvfuser_result = fd.execute(nvf_inputs)
 
@@ -160,7 +160,7 @@ def test_errors(op: OpInfo, dtype: torch.dtype):
             partial(snippet_errors, fusion_func),
             op,
             dtype,
-            op.op,
+            op,
             sample,
             ex_type,
             ex_regex,
@@ -176,7 +176,7 @@ def test_consistency(op: OpInfo, dtype: torch.dtype):
             snippet_consistency(op.refernce_fn_type, op.is_fusion_input_op),
             op,
             dtype,
-            op.op,
+            op,
             op.reference,
             sample,
         )
@@ -192,7 +192,7 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
             snippet_definition_op_in_schedule_error,
             op,
             dtype,
-            op.op,
+            op,
             sample,
         )
         if result is not None:

@@ -11,11 +11,18 @@ from enum import Enum
 from dataclasses import dataclass
 
 
+class ParameterType(Enum):
+    Tensor = 0
+    Vector = 1
+    Scalar = 2
+    Constant = 3
+
+
 class ReferenceType(Enum):
-    Pytorch = 1
-    Jax = 2
-    Numpy = 3
-    Python = 4
+    Pytorch = 0
+    Jax = 1
+    Numpy = 2
+    Python = 3
 
 
 @dataclass
@@ -91,6 +98,7 @@ class OpInfo:
         reference_type=ReferenceType.Pytorch,
         domain=(None, None),
         is_fusion_input_op: bool = False,
+        parameter_signatures: list[ParameterType] = None,
     ):
         self.op = op
         self.name = name
@@ -101,6 +109,7 @@ class OpInfo:
         self.refernce_fn_type = reference_type
         self.domain = Domain(*domain)
         self.is_fusion_input_op = is_fusion_input_op
+        self.parameter_signatures = parameter_signatures
 
     def __call__(self, *args, **kwargs):
         """Calls the function variant of the operator."""
