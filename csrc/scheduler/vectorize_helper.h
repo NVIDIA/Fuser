@@ -27,42 +27,6 @@ class HeuristicSummary;
 
 namespace vectorize_helper {
 
-// Basic factorization helpers used to simplify factors with only
-// multiplications and divisions. i.e. can help simplify: 21/3 but not
-// (15-7)/(3+2). This is all that's necessary for current support to partially
-// map dimensions through our compute at DAG.
-namespace factorization_helpers {
-
-// Returns factors of i
-TORCH_CUDA_CU_API std::multiset<int64_t> computeFactors(int64_t i);
-
-TORCH_CUDA_CU_API std::multiset<int64_t> getAllFactors(
-    const std::multiset<int64_t>& in_vals);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<int64_t>, std::multiset<int64_t>>
-removeCommonFactors(
-    const std::multiset<int64_t>& set1,
-    const std::multiset<int64_t>& set2);
-
-// Given factors made up of a product of integers over a product of integers,
-// simplify the factors. Factorization algorithm here could be improved for
-// performance.
-TORCH_CUDA_CU_API std::pair<std::vector<int64_t>, std::vector<int64_t>>
-removeCommonFactors(
-    const std::vector<int64_t>& vec1,
-    const std::vector<int64_t>& vec2);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<Val*>, std::multiset<Val*>>
-removeSameVals(
-    const std::multiset<Val*>& set1,
-    const std::multiset<Val*>& set2);
-
-// Remove all Val*s that are in both vec1 and vec2
-TORCH_CUDA_CU_API std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals(
-    const std::vector<Val*>& vec1,
-    const std::vector<Val*>& vec2);
-} // namespace factorization_helpers
-
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
 // that the iter domains are consecutive and next to eachother in the
@@ -304,13 +268,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<Information> from_info) final;
 
   // Projection from root<->rfactor domains
-  std::vector<IterDomain*> projectIdToRoot(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
-
-  std::vector<IterDomain*> projectIdToRFactor(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
+  std::vector<IterDomain*> projectId(
+      const std::vector<IterDomain*>& from,
+      const std::vector<IterDomain*>& to);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;

@@ -7,6 +7,7 @@
 // clang-format on
 #include <benchmark/utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <cuda_utils.h>
 #include <scheduler/all_schedulers.h>
 #include <test/utils.h>
 
@@ -195,10 +196,8 @@ void runBenchmarkIterations(
 
   fusion_executor_cache->profile(false);
 
-  
-
   // Sync everything up before we start
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   // Optionally run benchmark 2 times more to excluce min and max
   if (excludeOutliers()) {
@@ -263,7 +262,7 @@ void runBenchmarkIterations(
 
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 }
 
 namespace executorCache {

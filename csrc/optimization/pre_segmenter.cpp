@@ -7,6 +7,7 @@
 // clang-format on
 #include <optimization/pre_segmenter.h>
 
+#include <optimization/add_axioms.h>
 #include <optimization/consecutive_cast.h>
 
 namespace nvfuser::optimization {
@@ -14,6 +15,7 @@ namespace nvfuser::optimization {
 void PreSegmenter::runPass(Fusion* fusion) {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
+  OptimizationPass<AddAxiomsPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::optimization
