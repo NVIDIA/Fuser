@@ -188,7 +188,7 @@ def test_errors(op: OpInfo, dtype: torch.dtype):
 
 
 @ops(tuple(op for op in opinfos if op.reference is not None))
-def test_consistency(op: OpInfo, dtype: torch.dtype):
+def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
         result = run_snippet(
             snippet_consistency(op.refernce_fn_type, op.is_fusion_input_op),
