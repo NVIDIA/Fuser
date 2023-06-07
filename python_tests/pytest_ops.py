@@ -22,6 +22,9 @@ def is_pre_volta():
 
 
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
+    if len(args) == 0:
+        return []
+
     nvf_args = []
     if opinfo.symbolic_parameter_list is None:
         opinfo.symbolic_parameter_list = [True] * len(args)
@@ -75,13 +78,13 @@ def snippet_definition_op_in_schedule_error(nvf_op: OpInfo, sample: SampleInput)
             self.add_output(fd.t1)
 
         def schedule(self):
-            nvf_inputs = [fd.from_pytorch(x) for x in inputs if type(x) is torch.Tensor]
+            nvf_inputs = parse_inputs_fusion_definition(fd, nvf_op, *sample.args)
             nvf_op(self)(*nvf_inputs, **sample.kwargs)
 
     exception = None
     try:
         fd = SchedError()
-        _ = fd.execute(inputs)
+        fd.execute(parse_args_fusion_execution(fd, nvf_op, *sample.args))
     except Exception as e:
         exception = e
 

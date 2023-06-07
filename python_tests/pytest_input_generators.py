@@ -81,7 +81,7 @@ def _elementwise_unary_torch(op):
 
 
 def define_tensor_sample_generator(op, dtype, requires_grad, **kwargs):
-    yield SampleInput(None, symbolic_sizes=[-1], contiguity=[True])
+    yield SampleInput(symbolic_sizes=[-1], contiguity=[True])
 
 
 def define_tensor_error_sample_generator(op, dtype, requires_grad, **kwargs):
