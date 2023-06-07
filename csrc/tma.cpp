@@ -10,8 +10,8 @@
 
 #include <cstdint>
 
-#include <ir/all_nodes.h>
 #include <expr_evaluator.h>
+#include <ir/all_nodes.h>
 
 namespace nvfuser::tma {
 
@@ -60,8 +60,8 @@ TensorMap TensorMapInfo::operator()(
 
   auto dim = gmem_shape.size();
   TORCH_INTERNAL_ASSERT(
-      dim == gmem_strides.size() + 1 && // gmem_strides[0] implicitly 1
-          dim == box_shape.size() && dim == box_strides.size(),
+      dim == gmem_strides.size() && dim == box_shape.size() &&
+          dim == box_strides.size(),
       "Tensor dimensionality mismatch");
   TORCH_INTERNAL_ASSERT(dim <= 5, "TMA only supports up to 5 dimensions");
 
