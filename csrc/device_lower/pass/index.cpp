@@ -1266,7 +1266,8 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
     for (auto loop : for_loops_) {
       if (loop->iter_domain() == out_coord_id) {
         // coordinates are column major
-        current_coord = loop->indexOrStartIfTrivial();
+        current_coord =
+            IrBuilder::castExpr(DataType::Int32, loop->indexOrStartIfTrivial());
         break;
       }
     }

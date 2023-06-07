@@ -718,8 +718,10 @@ ArrayOp::ArrayOp(
           "All inputs to ArrayOp must have the same data type");
     }
   }
+  auto expected_output_dtype =
+      ArrayOf{std::make_shared<DataType>(input_dtype), inputs.size()};
   TORCH_CHECK(
-      output->getDataType() == ArrayOf{std::make_shared<DataType>(input_dtype)},
+      output->getDataType() == expected_output_dtype,
       "Output of ArrayOp must be an array of the same data type as the inputs");
 }
 

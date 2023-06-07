@@ -57,7 +57,7 @@ TEST_F(TMATest, Store1D_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1024}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -90,7 +90,7 @@ TEST_F(TMATest, Store2D_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 32}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -126,7 +126,7 @@ TEST_F(TMATest, Store3D_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16, 16}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -165,7 +165,7 @@ TEST_F(TMATest, Store4D_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16, 16, 16}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -207,7 +207,7 @@ TEST_F(TMATest, Store5D_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16, 16, 16, 16}, options);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }

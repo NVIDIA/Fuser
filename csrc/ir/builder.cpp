@@ -121,6 +121,16 @@ Val* IrBuilder::setExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::castExpr(DataType dtype, Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in castExpr.");
+  if (val->dtype() == dtype) {
+    return val;
+  }
+  auto result = newScalar(dtype);
+  IrBuilder::create<UnaryOp>(UnaryOpType::Cast, result, val);
+  return result;
+}
+
 Val* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
@@ -208,7 +218,8 @@ Val* IrBuilder::arrayExpr(std::vector<Val*> members) {
       !members.empty(), "Cannot create an array with no members.");
   auto in_dtype_opt = members.at(0)->getDataType();
   TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
-  auto out_dtype = ArrayOf{std::make_shared<DataType>(*in_dtype_opt)};
+  auto out_dtype =
+      ArrayOf{std::make_shared<DataType>(*in_dtype_opt), members.size()};
   auto out = newScalar(out_dtype);
   create<ArrayOp>(out, members);
   return out;

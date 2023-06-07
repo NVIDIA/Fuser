@@ -545,7 +545,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto def = v->definition();
     const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
+      code_ << v->dtype() << "(" << genInline(def) << ")";
     } else {
       code_ << genVariableName(v);
     }
