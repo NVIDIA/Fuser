@@ -519,7 +519,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     std::vector<Val*> new_shape;
     new_shape.reserve(rfactor.size());
     for (auto id : rfactor) {
-      new_shape.push_back(id->extent());
+      new_shape.push_back(id->getMaybeExpandedExtent());
     }
     for (auto ax : empty_tv_descr.empty_axes) {
       // Hard-code zero extent for empty axes. This lets us detect empty input
@@ -548,7 +548,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
           nored_axes.begin(),
           nored_axes.end(),
           out_shape.begin(),
-          [](IterDomain* id) -> Val* { return id->extent(); });
+          [](IterDomain* id) -> Val* { return id->getMaybeExpandedExtent(); });
       return out_shape;
     };
 
@@ -582,27 +582,46 @@ TensorView* DynamicTransformConcretizer::replaceEmpty(
     TensorView* tv,
     std::vector<Val*>& new_shape,
     Val* fill_value) {
+  TensorView* mut_tv = nullptr;
   if (!tv->definition()) {
+    // No definition. Probably an input.
     TORCH_INTERNAL_ASSERT(
-        tv->isFusionInput(),
-        "Found TensorView ",
-        tv->toString(),
-        " which does not have a definition and is not a Fusion input.");
-    return tv;
+        !tv->hasRFactor(),
+        "Found RFactor in input TensorView ",
+        tv->toString());
+    std::vector<bool> expanded(tv->nDims());
+    for (auto i : c10::irange(tv->nDims())) {
+      expanded[i] = tv->axis(i)->hasExpandedExtent();
+    }
+    mut_tv = TensorViewBuilder()
+                 .ndims(tv->nDims())
+                 .dtype(tv->getDataType().value())
+                 .contiguity(tv->getContiguity())
+                 .shape(new_shape)
+                 .expanded(expanded)
+                 .build();
+    mut_tv->setMemoryType(MemoryType::Global);
+  } else {
+    if (!fill_value) {
+      fill_value = tv->fusion()->zeroVal();
+    }
+    if (fill_value->getDataType().value() != tv->getDataType().value()) {
+      fill_value = castOp(tv->getDataType().value(), fill_value);
+    }
+    mut_tv = full(new_shape, fill_value, tv->getDataType().value());
   }
-  if (!fill_value) {
-    fill_value = tv->fusion()->zeroVal();
-  }
-  if (fill_value->getDataType().value() != tv->getDataType().value()) {
-    fill_value = castOp(tv->getDataType().value(), fill_value);
-  }
-  auto mut_tv = full(new_shape, fill_value, tv->getDataType().value());
+
   registerConcretization(tv, mut_tv);
   OptOutMutator::mutate(tv);
-  // Replace tv in Fusion outputs() if present
+
+  if (tv->isFusionInput()) {
+    tv->fusion()->replaceInput(tv, mut_tv);
+  }
+
   if (tv->isFusionOutput()) {
     tv->fusion()->replaceOutput(tv, mut_tv);
   }
+
   return mut_tv;
 }
 

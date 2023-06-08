@@ -1133,6 +1133,36 @@ TEST_F(NVFuserTest, DynamicRewriteEmptyTensors3_CUDA) {
           " to not be marked empty as it is on a dead branch: ",
           info.toString());
     }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    at::Tensor at_x = at::randn({0, 3}, options);
+    std::vector<c10::IValue> aten_inputs = {at_x};
+
+    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(
+        fusion_executor_cache.fusion(),
+        outputs,
+        aten_inputs,
+        {at_x + at_x + at_x},
+        __LINE__,
+        __FILE__);
+
+    // Expect input and output to have hardcoded zero extent.
+    auto runtime = fusion_executor_cache.getMostRecentKernelRuntime();
+    auto runtime_fusion = runtime->fusionSegments();
+
+    auto input_extent =
+        runtime_fusion->inputs().at(0)->as<TensorView>()->axis(0)->extent();
+    EXPECT_TRUE(input_extent->isConstInt());
+    EXPECT_EQ(input_extent->getInt(), 0);
+
+    auto output_extent =
+        runtime_fusion->outputs().at(0)->as<TensorView>()->axis(0)->extent();
+    EXPECT_TRUE(output_extent->isConstInt());
+    EXPECT_EQ(output_extent->getInt(), 0);
   }
 }
 

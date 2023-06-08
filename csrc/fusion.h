@@ -126,6 +126,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Deregister output as an output of the fusion
   void removeOutput(Val* output);
 
+  //! Replace input with another value
+  void replaceInput(Val* input, Val* replacement);
+
   //! Replace output with another value
   void replaceOutput(Val* output, Val* replacement);
 
