@@ -4,7 +4,6 @@
 # Owner(s): ["module: nvfuser"]
 
 import inspect
-import os
 import sys
 import torch
 from typing import Callable
@@ -24,7 +23,7 @@ def _instantiate_opinfo_test_template(
     return test
 
 
-class ops:
+class create_op_test:
     def __init__(self, opinfos, *, scope=None):
         self.opinfos = opinfos
 
@@ -50,17 +49,10 @@ class ops:
                 self.scope[test.__name__] = test
 
 
-def run_snippet(snippet, opinfo, dtype, *args, **kwargs):
+def run_test_fn(test_fn, opinfo, dtype, *args, **kwargs):
+    print("here")
     try:
-        snippet(*args, **kwargs)
+        test_fn(*args, **kwargs)
     except Exception as e:
-        exc_info = sys.exc_info()
-
-        # Raises exceptions that occur with pytest, and returns debug information when
-        # called otherwise
-        # NOTE: PYTEST_CURRENT_TEST is set by pytest
-        if "PYTEST_CURRENT_TEST" in os.environ:
-            raise e
-        return e, exc_info, snippet, opinfo, dtype, args, kwargs
-
+        return e, sys.exc_info(), test_fn, opinfo, dtype, args, kwargs
     return None

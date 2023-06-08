@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from torch.testing import assert_close
-from pytest_framework import ops, run_snippet
+from pytest_framework import create_op_test, run_test_fn
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from typing import Callable, Optional
@@ -69,7 +69,7 @@ def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     fd.add_output(t1)
 
 
-def snippet_definition_op_in_schedule_error(opinfo: OpInfo, sample: SampleInput):
+def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
     inputs = [
         torch.randn(8, 8, 8, device="cuda"),
     ]
@@ -98,7 +98,7 @@ def snippet_definition_op_in_schedule_error(opinfo: OpInfo, sample: SampleInput)
     ), "Failed to find correct expection error message"
 
 
-def snippet_errors(
+def errors_test_fn(
     fusion_func: Callable,
     nvf_op: OpInfo,
     sample: SampleInput,
@@ -122,7 +122,7 @@ def snippet_errors(
     ), "Failed to find correct expection error message"
 
 
-def snippet_torch_correctness(
+def torch_correctness_test_fn(
     fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput
 ):
     with FusionDefinition() as fd:
@@ -139,7 +139,7 @@ def snippet_torch_correctness(
     assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
-def snippet_jax_correctness(fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput):
+def jax_correctness_test_fn(fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
     nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
@@ -165,21 +165,21 @@ def snippet_jax_correctness(fusion_func: Callable, nvf_op: OpInfo, sample: Sampl
     )
 
 
-def snippet_correctness(reference_type: ReferenceType, is_fusion_input_op: bool):
+def correctness_test_fn(reference_type: ReferenceType, is_fusion_input_op: bool):
     fusion_func = input_fusion_func if is_fusion_input_op else opinfo_fusion_func
     if reference_type == ReferenceType.Pytorch:
-        return partial(snippet_torch_correctness, fusion_func)
+        return partial(torch_correctness_test_fn, fusion_func)
     elif reference_type == ReferenceType.Jax:
-        return partial(snippet_jax_correctness, fusion_func)
+        return partial(jax_correctness_test_fn, fusion_func)
     else:
         return None
 
 
-@ops(tuple(op for op in opinfos if op.reference is not None))
+@create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
-        result = run_snippet(
-            snippet_correctness(op.refernce_fn_type, op.is_fusion_input_op),
+        result = run_test_fn(
+            correctness_test_fn(op.refernce_fn_type, op.is_fusion_input_op),
             op,
             dtype,
             op,
@@ -190,11 +190,11 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 
 
 # TODO Maybe only test a single dtype
-@ops(tuple(op for op in opinfos))
+@create_op_test(tuple(op for op in opinfos))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(torch.float32):
-        result = run_snippet(
-            snippet_definition_op_in_schedule_error,
+        result = run_test_fn(
+            definition_op_in_schedule_error_test_fn,
             op,
             dtype,
             op,
@@ -204,12 +204,12 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
             return result
 
 
-@ops(tuple(op for op in opinfos if op.error_input_generator is not None))
+@create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
     fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
     for sample, ex_type, ex_regex in op.error_inputs(dtype):
-        result = run_snippet(
-            partial(snippet_errors, fusion_func),
+        result = run_test_fn(
+            partial(errors_test_fn, fusion_func),
             op,
             dtype,
             op,
