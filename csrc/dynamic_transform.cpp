@@ -156,7 +156,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     ExpressionEvaluator* expr_eval) {
-  auto reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
+  const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
   for (const auto tv_index : c10::irange(reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
     auto op = out_tv->definition()->as<ViewOp>();
@@ -240,7 +240,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
-  auto resize_ids = initial_info_->getDynamicResizedIterDomains();
+  const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
   for (const auto id_index : c10::irange(resize_ids.size())) {
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
