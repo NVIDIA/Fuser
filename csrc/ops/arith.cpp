@@ -2401,7 +2401,7 @@ TensorView* tensor(Val* val) {
   }
   std::vector<int64_t> sizes;
   while (std::holds_alternative<ArrayOf>(dtype.type)) {
-    sizes.push_back(std::get<ArrayOf>(dtype.type).size);
+    sizes.push_back((int64_t)std::get<ArrayOf>(dtype.type).size);
     dtype = *std::get<ArrayOf>(dtype.type).type;
   }
   TORCH_INTERNAL_ASSERT(
