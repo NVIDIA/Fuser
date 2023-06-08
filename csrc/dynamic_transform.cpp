@@ -365,7 +365,8 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_transforms_.size() != other.resize_transforms_.size()) {
+      resize_transforms_.size() != other.resize_transforms_.size() ||
+      empty_tensors_.size() != other.empty_tensors_.size()) {
     return false;
   }
 
