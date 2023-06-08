@@ -198,13 +198,6 @@ class TORCH_CUDA_CU_API DynamicTransform {
   //! faster concretization once inputs are available.
   static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
-  //! Get concrete transformations for a symbolic fusion with concrete
-  //! input sizes given through kernel arguments
-  static DynamicTransformConcretizationInfo getConcretizationInfo(
-      Fusion* fusion,
-      const DynamicTransformInitialInfo* info,
-      const KernelArgumentHolder* args);
-
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
   static void concretizeFusion(
