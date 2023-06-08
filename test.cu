@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 // struct TensorMap {
@@ -67,6 +68,13 @@ __global__ void kernel(float* output, TensorMap tensormap) {
   cpAsyncBulkTensorTileS2G(tensormap, blockIdx.x, toSmem(numbers));
 }
 
+std::string getErrorMsg(CUresult error) {
+  const char *error_name, *error_string;
+  cuGetErrorName(error, &error_name);
+  cuGetErrorString(error, &error_string);
+  return std::string(error_name) + ": " + error_string;
+}
+
 CUtensorMap getTensorMap(float* ptr, size_t N) {
   CUtensorMap tmap;
   unsigned int dtype_size = sizeof(float);
@@ -91,7 +99,7 @@ CUtensorMap getTensorMap(float* ptr, size_t N) {
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
 
   if (result != CUDA_SUCCESS) {
-    std::cout << "Failed!" << std::endl;
+    std::cout << getErrorMsg(result) << std::endl;
   }
   return tmap;
 }
@@ -103,6 +111,11 @@ int main() {
 
   kernel<<<N, 1>>>(output, getTensorMap(output, N));
   cudaDeviceSynchronize();
+
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    std::cout << cudaGetErrorString(err) << std::endl;
+  }
 
   float result[N * 32];
   cudaMemcpy(result, output, N * 32 * sizeof(float), cudaMemcpyDeviceToHost);
