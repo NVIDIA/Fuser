@@ -679,10 +679,10 @@ void DynamicTransform::concretizeFusion(
 size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
-    hash_combine(hash, view_result.hash());
+    hashCombine(hash, view_result.hash());
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hash_combine(hash, (size_t)iter_type);
+    hashCombine(hash, (size_t)iter_type);
   }
   return hash;
 }
