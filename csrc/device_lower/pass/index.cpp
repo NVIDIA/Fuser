@@ -1272,6 +1272,8 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
       }
     }
     TORCH_INTERNAL_ASSERT(current_coord != nullptr, "not found!");
+    current_coord = SimplifyingIrBuilder::mulExpr(
+        current_coord, out_tv->getLeafDomain().at(2 * ii + 1)->extent());
     if (isParallelTypeThreadDim(out_coord_id->getParallelType())) {
       Val* stride = ldst->container()->oneVal();
       for (int64_t j : c10::irange(ii + 1, dim)) {

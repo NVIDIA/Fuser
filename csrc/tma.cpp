@@ -114,7 +114,7 @@ TensorMap TensorMapInfo::operator()(
         opt.has_value(),
         "Failed to inference TMA tensor map. Unknown box_strides value: ",
         v->toInlineString());
-    evaluated_box_strides.push_back(opt->as<int64_t>() * dtype_size);
+    evaluated_box_strides.push_back(opt->as<int64_t>());
   }
 
   // TODO: check all requirements for TMA tensor map as described in driver API
