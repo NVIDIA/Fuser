@@ -163,22 +163,6 @@ class EmptyBranchFinder : public BackwardVisitor {
     traverseTo(fusion, fusion->outputs(), false);
   }
 
-  bool isTVEmpty(TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      auto extent_opt = expr_eval_->evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_opt.has_value(),
-          "Cannot evaluate extent ",
-          id->extent(),
-          " of ",
-          tv->toString());
-      if (extent_opt.value().as<int64_t>() == 0) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   std::vector<EmptyTensorDescriptor> getEmptyTensors() const {
     return empty_tensors_;
   }
@@ -186,35 +170,34 @@ class EmptyBranchFinder : public BackwardVisitor {
  private:
   using BackwardVisitor::handle;
 
-  void handle(std::vector<Val*> vals) {
-    for (auto v : vals) {
-      handle(v);
-    }
-  }
-
   void handle(TensorView* tv) final {
-    if (isTVEmpty(tv)) {
-      if (tv->definition() && !tv->definition()->isA<FullOp>()) {
-        // Replace with full
-        std::vector<size_t> empty_axes;
-        auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-        for (size_t i : c10::irange(rfactor.size())) {
-          auto id = rfactor.at(i);
-          auto extent_eval = expr_eval_->evaluate(id->extent());
-          TORCH_INTERNAL_ASSERT(
-              extent_eval.has_value(),
-              "When finding empty tensors: could not evaluate extent of ",
-              id->toString());
-          if (extent_eval.value().as<int64_t>() == 0) {
-            empty_axes.push_back(i);
-          }
-        }
+    std::vector<size_t> empty_axes;
+    auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    bool empty = false;
+    for (size_t i : c10::irange(rfactor.size())) {
+      auto id = rfactor.at(i);
+      auto extent_eval = expr_eval_->evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          extent_eval.has_value(),
+          "When finding empty tensors: could not evaluate extent of ",
+          id->toString());
+      if (extent_eval.value().as<int64_t>() == 0) {
+        empty_axes.push_back(i);
+        empty = true;
+      }
+    }
+    if (empty) {
+      if (tv->definition()) {
+        // Replace with full. Note that even if the definition was a FullOp, we
+        // still mark this tensor for replacement, so that we can ensure the
+        // empty axes are marked with constant zeroes
         empty_tensors_.push_back(EmptyTensorDescriptor{tv, empty_axes});
       }
       return;
-    }
-    if (tv->definition()) {
-      handle(tv->definition()->inputs());
+    } else if (tv->definition()) {
+      for (auto v : tv->definition()->inputs()) {
+        handle(v);
+      }
     }
   }
 
@@ -516,6 +499,9 @@ void DynamicTransformConcretizer::concretize() {
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
+  // Concretize empty tensors last.
+  removeEmptyBranches();
+
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
   for (auto stmt : all_stmts) {
@@ -523,9 +509,6 @@ void DynamicTransformConcretizer::concretize() {
       mutate(stmt);
     }
   }
-
-  // Concretize empty tensors last.
-  removeEmptyBranches();
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
@@ -603,8 +586,7 @@ void DynamicTransformConcretizer::replaceByFull(
   registerConcretization(tv, mut_tv);
   OptOutMutator::mutate(tv);
   // Replace tv in Fusion outputs() if present
-  auto outputs = tv->fusion()->outputs();
-  if (std::find(outputs.begin(), outputs.end(), tv) != outputs.end()) {
+  if (tv->isFusionOutput()) {
     tv->fusion()->replaceOutput(tv, mut_tv);
   }
 }
