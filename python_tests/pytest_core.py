@@ -84,20 +84,25 @@ class OpInfo:
 
     name: str
 
-    dtypes: tuple = all_dtypes
-
-    sample_input_generator: Callable = None
-
-    error_input_generator: Callable = None
-
-    reference: Callable = None
-
-    reference_type: ReferenceType = ReferenceType.Pytorch
-
+    # Set of valid inputs for this operation
     domain: Domain = Domain(None, None)
 
-    # operations that define fusion inputs
-    # e.g., define_tensor, define_vector, define_scalar
+    # Set of valid dtypes for this operation
+    dtypes: tuple = all_dtypes
+
+    # Generates valid inputs
+    sample_input_generator: Callable = None
+
+    # Generates error inputs
+    error_input_generator: Callable = None
+
+    # Reference function for operation
+    reference: Callable = None
+
+    # Designate which framework defines the reference
+    reference_type: ReferenceType = ReferenceType.Pytorch
+
+    # Operations that define fusion inputs such as define_tensor, define_vector, define_scalar
     is_fusion_input_op: bool = False
 
     # Nvfuser requires reduction axes to be constant values.
