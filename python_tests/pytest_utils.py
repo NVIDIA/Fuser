@@ -7,7 +7,7 @@ import torch
 
 # uint8, int8, int16, bf16, fp16 are disables because nvfuser upcasts those dtypes to fp32
 # but does not return the original type.
-all_dtypes = [
+all_dtypes = (
     torch.bool,
     # torch.uint8,
     # torch.int8,
@@ -20,24 +20,24 @@ all_dtypes = [
     torch.float64,
     torch.complex64,
     torch.complex128,
-]
+)
 
 # bf16, fp16 are disables because nvfuser upcasts those dtypes to fp32 but does not return the original type.
-int_float_dtypes = [
+int_float_dtypes = (
     torch.int32,
     torch.int64,
     # torch.bfloat16,
     # torch.float16,
     torch.float32,
     torch.float64,
-]
+)
 
-float_complex_dtypes = [
+float_complex_dtypes = (
     torch.float32,
     torch.float64,
     torch.complex64,
     torch.complex128,
-]
+)
 
 map_dtype_to_str = {
     torch.bool: "bool",

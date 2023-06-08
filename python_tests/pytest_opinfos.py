@@ -5,10 +5,7 @@
 
 import torch
 import jax
-from pytest_core import (
-    OpInfo,
-    ReferenceType,
-)
+from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_input_generators import (
     elementwise_unary_generator,
     _elementwise_unary_torch,
@@ -45,7 +42,7 @@ elementwise_unary_ops = []
 acos_opinfo = OpInfo(
     lambda fd: fd.ops.acos,
     "acos",
-    domain=(-1, 1),
+    domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acos),
 )

@@ -177,9 +177,9 @@ def correctness_test_fn(reference_type: ReferenceType, is_fusion_input_op: bool)
 
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
-    for sample in op.sample_inputs(dtype):
+    for sample in op.sample_input_generator(op, dtype):
         result = run_test_fn(
-            correctness_test_fn(op.refernce_fn_type, op.is_fusion_input_op),
+            correctness_test_fn(op.reference_type, op.is_fusion_input_op),
             op,
             dtype,
             op,
@@ -192,7 +192,7 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
-    for sample in op.sample_inputs(torch.float32):
+    for sample in op.sample_input_generator(op, torch.float32):
         result = run_test_fn(
             definition_op_in_schedule_error_test_fn,
             op,
@@ -207,7 +207,7 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
     fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
-    for sample, ex_type, ex_regex in op.error_inputs(dtype):
+    for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
         result = run_test_fn(
             partial(errors_test_fn, fusion_func),
             op,

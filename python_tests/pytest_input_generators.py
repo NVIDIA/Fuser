@@ -16,7 +16,7 @@ from nvfuser import DataType
 def elementwise_unary_generator(
     op: OpInfo,
     dtype: torch.dtype,
-    requires_grad: bool,
+    requires_grad: bool = False,
     *,
     supports_numbers: bool = True,
     **kwargs,
@@ -80,11 +80,15 @@ def _elementwise_unary_torch(op):
     return _fn
 
 
-def define_tensor_generator(op, dtype, requires_grad, **kwargs):
+def define_tensor_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     yield SampleInput(symbolic_sizes=[-1], contiguity=[True])
 
 
-def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
+def define_tensor_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     """
     "define_tensor",
     [](FusionDefinition& self,
@@ -171,7 +175,9 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
 
 
 # TODO: add stride testing
-def slice_generator(op, dtype, requires_grad, **kwargs):
+def slice_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -187,7 +193,9 @@ def slice_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(a, start_indices=start_indices, end_indices=end_indices)
 
 
-def slice_error_generator(op, dtype, requires_grad, **kwargs):
+def slice_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -245,7 +253,9 @@ def slice_error_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
-def reduction_generator(op, dtype, requires_grad, **kwargs):
+def reduction_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor,
         device="cuda",
@@ -272,7 +282,9 @@ def reduction_generator(op, dtype, requires_grad, **kwargs):
         yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
 
 
-def reduction_error_generator(op, dtype, requires_grad, **kwargs):
+def reduction_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor,
         device="cuda",
@@ -317,7 +329,7 @@ def reduction_error_generator(op, dtype, requires_grad, **kwargs):
         yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
 
 
-def var_mean_generator(op, dtype: torch.dtype, requires_grad: bool):
+def var_mean_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False):
     """torch.var_mean(input, dim=None, *, correction=1, keepdim=False)"""
     correction = (0, 1)
     samples = reduction_generator(op, dtype, requires_grad)

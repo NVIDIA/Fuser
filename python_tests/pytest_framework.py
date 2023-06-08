@@ -39,7 +39,7 @@ class create_op_test:
         #   Since Python doesn't natively support one-to-many function decorators, the produced
         #   functions are directly assigned to the requested scope (the caller's global scope by default)
         for opinfo in self.opinfos:
-            for dtype in sorted(opinfo._dtypes, key=lambda t: repr(t)):
+            for dtype in sorted(opinfo.dtypes, key=lambda t: repr(t)):
                 test = _instantiate_opinfo_test_template(
                     test_template,
                     opinfo=opinfo,
@@ -50,7 +50,6 @@ class create_op_test:
 
 
 def run_test_fn(test_fn, opinfo, dtype, *args, **kwargs):
-    print("here")
     try:
         test_fn(*args, **kwargs)
     except Exception as e:

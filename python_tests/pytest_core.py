@@ -76,47 +76,32 @@ class SampleInput:
         return SampleInput(*args, *self.kwargs.values())
 
 
+@dataclass
 class OpInfo:
     """Operator information and helper functions for acquiring it."""
 
-    def __init__(
-        self,
-        op: Callable,
-        name: str,
-        *,
-        dtypes=None,
-        sample_input_generator=None,
-        error_input_generator=None,
-        reference=None,
-        reference_type=ReferenceType.Pytorch,
-        domain=(None, None),
-        is_fusion_input_op: bool = False,
-        symbolic_parameter_list: Optional[list[bool]] = None,
-    ):
-        self.op = op
-        self.name = name
-        self._dtypes = dtypes if dtypes is not None else all_dtypes
-        self.sample_input_generator = sample_input_generator
-        self.error_input_generator = error_input_generator
-        self.reference = reference
-        self.refernce_fn_type = reference_type
-        self.domain = Domain(*domain)
-        self.is_fusion_input_op = is_fusion_input_op
-        # Nvfuser requires reduction axes to be constant values.
-        # symbolic_parameter_list specifies whether an operation's parameters are symbolic.
-        # All keyword arguments are considered constant.
-        # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
-        self.symbolic_parameter_list = symbolic_parameter_list
+    op: Callable
 
-    def sample_inputs(
-        self, torch_dtype: torch.dtype, *, requires_grad: bool = False, **kwargs
-    ):
-        return self.sample_input_generator(self, torch_dtype, requires_grad, **kwargs)
+    name: str
 
-    def error_inputs(
-        self, torch_dtype: torch.dtype, *, requires_grad: bool = False, **kwargs
-    ):
-        return self.error_input_generator(self, torch_dtype, requires_grad, **kwargs)
+    dtypes: tuple = all_dtypes
 
-    def dtypes(self):
-        return self._dtypes
+    sample_input_generator: Callable = None
+
+    error_input_generator: Callable = None
+
+    reference: Callable = None
+
+    reference_type: ReferenceType = ReferenceType.Pytorch
+
+    domain: Domain = Domain(None, None)
+
+    # operations that define fusion inputs
+    # e.g., define_tensor, define_vector, define_scalar
+    is_fusion_input_op: bool = False
+
+    # Nvfuser requires reduction axes to be constant values.
+    # symbolic_parameter_list specifies whether an operation's parameters are symbolic.
+    # All keyword arguments are considered constant.
+    # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
+    symbolic_parameter_list: Optional[list[bool]] = None
