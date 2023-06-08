@@ -79,6 +79,55 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("cycle detected")));
   }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    int M = 64, N = 128;
+
+    auto tv0 = makeSymbolicTensor(2, aten_to_data_type(dtype));
+    fusion->addInput(tv0);
+    auto tvs = variance_mean(tv0, {1}, correction, keepdim);
+    auto tv_var = tvs.var;
+    fusion->addOutput(tv_var);
+    auto tv_mean = tvs.mean;
+    nvfuser::Val* s0 = IrBuilder::create<Double>(1.0, DataType::Double);
+    auto tv1 = add(tv_mean, s0);
+
+    // manually creating a cycle on dead branch!
+    auto expr = tv1->definition();
+    ir_utils::replaceValInExpr(expr, s0, tv1);
+
+    TORCH_CHECK(
+        ir_utils::checkCycle(fusion.get()).empty(),
+        "cycle on dead branch shouldn't be detected");
+
+    // adding dead branch to destination
+    auto to = fusion->outputs();
+    to.push_back(tv1);
+    EXPECT_THAT(
+        [&]() { StmtSort::getStmtsBetween(fusion.get(), {}, to); },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("cycle detected")));
+
+    auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({M, N}, options);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+
+    auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
+    std::vector<at::Tensor> aten_outputs = {std::get<0>(at_var_mean)};
+
+    testValidate(
+        executor_cache.fusion(),
+        outputs,
+        {t0},
+        aten_outputs,
+        __LINE__,
+        __FILE__);
+  }
 }
 
 // Test cast optimization
