@@ -1119,4 +1119,25 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
 }
 
+// Test that 0-dimensional tensors do not break reduction scheduler
+TEST_F(NVFuserTest, FusionReduceZeroElementTensor_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{3, 4, 0, 5};
+  auto tv0 = makeSymbolicTensor(4);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {2});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+  auto t2 = at_x.sum({2});
+
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

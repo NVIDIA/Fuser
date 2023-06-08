@@ -186,17 +186,11 @@ class EmptyBranchFinder : public BackwardVisitor {
       }
     }
     if (empty) {
-      if (tv->definition()) {
-        // Replace with full. Note that even if the definition was a FullOp, we
-        // still mark this tensor for replacement, so that we can ensure the
-        // empty axes are marked with constant zeroes
-        empty_tensors_.push_back(EmptyTensorDescriptor{tv, empty_axes});
-      }
+      // Replace with full. Note that even if the definition was a FullOp, we
+      // still mark this tensor for replacement, so that we can ensure the
+      // empty axes are marked with constant zeroes
+      empty_tensors_.push_back(EmptyTensorDescriptor{tv, empty_axes});
       return;
-    } else if (tv->definition()) {
-      for (auto v : tv->definition()->inputs()) {
-        handle(v);
-      }
     }
   }
 
@@ -464,7 +458,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   //! Modify the Fusion by replacing tv with output of full() expression in
   //! outputs and all uses.
-  void replaceByFull(
+  TensorView* replaceEmpty(
       TensorView* tv,
       std::vector<Val*>& new_shape,
       Val* fill_value = nullptr);
@@ -500,6 +494,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
+  std::cout << "Concretizing with " << info_.toString() << std::endl;
   // Concretize all dynamic reshape ops
   concretizeReshape();
 
@@ -565,7 +560,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         auto out = rop->out()->as<TensorView>();
         if (hasEmptyRootReductionAxis(out)) {
           auto out_shape = reduction_shape(out);
-          replaceByFull(out, out_shape);
+          replaceEmpty(out, out_shape);
         }
       } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
         auto avg = wop->outAvg()->as<TensorView>();
@@ -574,20 +569,28 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         if (hasEmptyRootReductionAxis(avg)) {
           auto out_shape = reduction_shape(avg);
           auto nan = IrBuilder::create<Double>(0.0 / 0.0);
-          replaceByFull(avg, out_shape, nan);
-          replaceByFull(var, out_shape, nan);
-          replaceByFull(N, out_shape);
+          replaceEmpty(avg, out_shape, nan);
+          replaceEmpty(var, out_shape, nan);
+          replaceEmpty(N, out_shape);
         }
       }
     }
-    replaceByFull(tv, new_shape);
+    replaceEmpty(tv, new_shape);
   }
 }
 
-void DynamicTransformConcretizer::replaceByFull(
+TensorView* DynamicTransformConcretizer::replaceEmpty(
     TensorView* tv,
     std::vector<Val*>& new_shape,
     Val* fill_value) {
+  if (!tv->definition()) {
+    TORCH_INTERNAL_ASSERT(
+        tv->isFusionInput(),
+        "Found TensorView ",
+        tv->toString(),
+        " which does not have a definition and is not a Fusion input.");
+    return tv;
+  }
   if (!fill_value) {
     fill_value = tv->fusion()->zeroVal();
   }
@@ -601,6 +604,7 @@ void DynamicTransformConcretizer::replaceByFull(
   if (tv->isFusionOutput()) {
     tv->fusion()->replaceOutput(tv, mut_tv);
   }
+  return mut_tv;
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
