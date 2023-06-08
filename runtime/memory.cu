@@ -77,12 +77,12 @@ DEVICE_INLINE void adjustPartialLdMatrixAddrInTuring(unsigned& addr_in_byte) {
 // warp.
 
 template <typename T>
-DEVICE_INLINE void ldMatrix(Array<T, 4, 4>& out, unsigned addr) {
+DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
-  uint2& val = reinterpret_cast<uint2&>(out);
+  uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
   asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val.x), "=r"(val.y)
+               : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
 }
 
@@ -90,31 +90,31 @@ DEVICE_INLINE void ldMatrix(Array<T, 4, 4>& out, unsigned addr) {
 // transpose) so threads will hold 2 values down a column (instead of the
 // previous instruction that's across a row).
 template <typename T>
-DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>& out, unsigned addr) {
+DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
-  uint2& val = reinterpret_cast<uint2&>(out);
+  uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
   asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val.x), "=r"(val.y)
+               : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
 }
 
 template <typename T>
-DEVICE_INLINE void ldMatrix(Array<T, 8, 8>& out, unsigned addr) {
+DEVICE_INLINE void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
-  uint4& val = reinterpret_cast<uint4&>(out);
+  uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-               : "=r"(val.x), "=r"(val.y), "=r"(val.z), "=r"(val.w)
+               : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
                : "r"(addr));
 }
 
 template <typename T>
-DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>& out, unsigned addr) {
+DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
-  uint4& val = reinterpret_cast<uint4&>(out);
+  uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile(
       "ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-      : "=r"(val.x), "=r"(val.y), "=r"(val.z), "=r"(val.w)
+      : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
       : "r"(addr));
 }
 

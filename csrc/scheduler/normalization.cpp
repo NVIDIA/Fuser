@@ -1297,8 +1297,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
-  auto properties =
-      scheduler_utils::getProperties(fusion, runtime_info, first_red_tv);
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, first_red_tv);
 
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
@@ -1370,21 +1370,23 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     }
   }
 
+  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
+
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&first_red_tv]() {
+          data_cache, [&reduced_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
-                    first_red_tv, false, false));
+                    reduced_tv, false, false));
           });
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      first_red_tv,
+      reduced_tv,
       data_cache,
-      (int)(first_red_tv->nDims() - properties.inner_most_dimension_ndims));
+      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
