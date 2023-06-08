@@ -117,7 +117,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->extent()->isConstScalar() ||
-          id->extent()->getInt().value() == 0) {
+          id->extent()->evaluateInt() == 0) {
         info_.dynamic_extent_vals_.insert(id->extent());
         leaf_dynamic_vals_.push_back(id->extent());
       }
