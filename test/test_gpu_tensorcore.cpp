@@ -4072,7 +4072,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
     params.tile_sizes = gemm_tile;
     params.has_smem_epilogue = true;
     params.async_gmem_load_operands = true;
-    // intentionally set to false to make the generated code simple
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;

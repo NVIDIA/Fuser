@@ -437,11 +437,11 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
 }
 
 //! swizzle the shared mem data layout using a same method in prologSwizzle.
-//! The shift parameter is added for the transform of MMA results to skip the 
-//! K axis and will skip the actual swizzle. This is to ensure a same transform history
-//! between the MMA result tensor and the epilogue shared memory tensor so the corresponding
-//! domains of these two tensors can be mapped. This function may be merged with prologSwizzle
-//! as they are using a same method.
+//! The shift parameter is added for the transform of MMA results to skip the
+//! K axis and will skip the actual swizzle. This is to ensure a same transform
+//! history between the MMA result tensor and the epilogue shared memory tensor
+//! so the corresponding domains of these two tensors can be mapped. This
+//! function may be merged with prologSwizzle as they are using a same method.
 int epilogSwizzle(
     TensorView* shared_mem_tv,
     const MatmulParams& params,
@@ -517,7 +517,10 @@ int epilogSwizzle(
   return repeated_pattern_size;
 }
 
-void schedule_output_tensor(TensorView* c, int warp_tile_m, int instruction_tile_m){
+void schedule_output_tensor(
+    TensorView* c,
+    int warp_tile_m,
+    int instruction_tile_m) {
   // [a,b,128,128]
   // Distribute warp tile:
   c->split(-2, warp_tile_m);
@@ -544,7 +547,9 @@ void schedule_output_tensor(TensorView* c, int warp_tile_m, int instruction_tile
   c->axis(axis++)->parallelize(ParallelType::Vectorize);
 }
 
-void schedule_epilogue_tensor(TensorView* c_smem, const MatMulTileOptions& gemm_tile){
+void schedule_epilogue_tensor(
+    TensorView* c_smem,
+    const MatMulTileOptions& gemm_tile) {
   auto warp_tile = gemm_tile.warp_tile;
   auto instruction_tile = gemm_tile.instruction_tile;
   // transform to its producer, mma results
@@ -923,7 +928,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.has_smem_epilogue) {
     scheduleEpilog(c_smem, mma_result, params, gemm_tile);
-    schedule_output_tensor(c, gemm_tile.warp_tile.m, gemm_tile.instruction_tile.m);
+    schedule_output_tensor(
+        c, gemm_tile.warp_tile.m, gemm_tile.instruction_tile.m);
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
