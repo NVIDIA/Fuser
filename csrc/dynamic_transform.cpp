@@ -151,31 +151,36 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   std::vector<Val*> leaf_dynamic_vals_;
 };
 
-class EmptyBranchFinder : public BackwardVisitor {
- public:
-  EmptyBranchFinder(Fusion* fusion, ExpressionEvaluator* expr_eval)
-      : expr_eval_(expr_eval) {
-    // We do not require the traversal to cover all outputs, because if we
-    // replace some outputs with calls to full() then any unused outputs will be
-    // ignored entirely.
-    must_cover_all_expr_outputs_ = false;
-    traverseTo(fusion, fusion->outputs(), false);
-  }
+//! This performs a depth-first search from outputs toward inputs for empty
+//! tensors. It does not traverse past any zero tensors it finds; this is why
+//! this is implemented as a single function instead of with BackwardVisitor.
+//! Additionally, we check inputs since they might actually be disconnected from
+//! outputs.
+std::vector<EmptyTensorDescriptor> findEmptyTensors(
+    Fusion* fusion,
+    ExpressionEvaluator* expr_eval) {
+  std::vector<EmptyTensorDescriptor> empty_tensors;
+  std::vector<Val*> vals(fusion->inputs());
+  vals.insert(vals.end(), fusion->outputs().begin(), fusion->outputs().end());
+  std::unordered_set<TensorView*> visited;
 
-  std::vector<EmptyTensorDescriptor> getEmptyTensors() const {
-    return empty_tensors_;
-  }
+  while (!vals.empty()) {
+    auto val = vals.back();
+    vals.pop_back();
+    if (!val->isA<TensorView>()) {
+      continue;
+    }
+    auto tv = val->as<TensorView>();
+    if (visited.find(tv) != visited.end()) {
+      continue;
+    }
 
- private:
-  using BackwardVisitor::handle;
-
-  void handle(TensorView* tv) final {
     std::vector<size_t> empty_axes;
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     bool empty = false;
     for (size_t i : c10::irange(rfactor.size())) {
       auto id = rfactor.at(i);
-      auto extent_eval = expr_eval_->evaluate(id->extent());
+      auto extent_eval = expr_eval->evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
           extent_eval.has_value(),
           "When finding empty tensors: could not evaluate extent of ",
@@ -189,15 +194,17 @@ class EmptyBranchFinder : public BackwardVisitor {
       // Replace with full. Note that even if the definition was a FullOp, we
       // still mark this tensor for replacement, so that we can ensure the
       // empty axes are marked with constant zeroes
-      empty_tensors_.push_back(EmptyTensorDescriptor{tv, empty_axes});
-      return;
+      empty_tensors.push_back(EmptyTensorDescriptor{tv, empty_axes});
+      continue;
+    }
+    if (tv->definition()) {
+      for (auto inp : tv->definition()->inputs()) {
+        vals.push_back(inp);
+      }
     }
   }
-
- private:
-  ExpressionEvaluator* expr_eval_;
-  std::vector<EmptyTensorDescriptor> empty_tensors_;
-};
+  return empty_tensors;
+}
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     Fusion* fusion,
@@ -225,8 +232,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   // Find a minimal set of empty tensors to replace with full() calls
   // NOTE: this does a backward traversal from outputs.
   if (has_empty_tensor) {
-    empty_tensors_ =
-        EmptyBranchFinder(info->fusion(), expr_eval).getEmptyTensors();
+    empty_tensors_ = findEmptyTensors(info->fusion(), expr_eval);
   }
 }
 
