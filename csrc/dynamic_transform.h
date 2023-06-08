@@ -40,7 +40,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return !dynamic_reshapes_.empty() || !dynamic_resizes_.empty();
+    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -52,14 +52,14 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return a vector of outputs of ViewOp expressions that have dynamic output
   //! shapes
-  const std::vector<TensorView*>& getDynamicReshapes() const {
-    return dynamic_reshapes_;
+  const std::vector<TensorView*>& getDynamicReshapedTensorViews() const {
+    return dynamic_reshaped_tvs_;
   }
 
   //! Return a vector of outputs of Resize expressions that have symbolic output
   //! IterTypes
-  const std::vector<IterDomain*>& getDynamicResizes() const {
-    return dynamic_resizes_;
+  const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
+    return dynamic_resized_ids_;
   }
 
   std::string toString() const;
@@ -89,9 +89,9 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   // definitions will merely be altered. When the ops are replaced, if we had
   // referred to them directly here, we would run into segfaults. Referring only
   // to the outputs avoids this issue.
-  std::vector<TensorView*> dynamic_reshapes_;
+  std::vector<TensorView*> dynamic_reshaped_tvs_;
 
-  std::vector<IterDomain*> dynamic_resizes_;
+  std::vector<IterDomain*> dynamic_resized_ids_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
@@ -120,13 +120,20 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     analyzeResizes(expr_eval);
   }
 
+  //! Return a vector of pairs holding the index of each reshaped TensorView in
+  //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
+  //! along with an AnalyzeViewResult describing how that reshape operation
+  //! should be decomposed into split, merge, squeeze, and broadcast transforms.
   const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
       const {
     return reshape_transforms_;
   }
 
-  const std::vector<std::pair<size_t, IterType>>& getResizeTransforms() const {
-    return resize_transforms_;
+  //! Return a vector of pairs holding the index of each resized IterDomain in
+  //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
+  //! along with the IterType it should be concretized to.
+  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
+    return resize_itertypes_;
   }
 
   //! Comparison operator for the purposes of determining cache hits. This does
@@ -140,8 +147,13 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return !(*this == other);
   }
 
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the decomposition of each dynamic reshape operation to use
+  //! during concretization.
   void analyzeReshapes(ExpressionEvaluator* expr_eval);
 
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the concrete IterType of each resized IterDomain.
   void analyzeResizes(ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
@@ -168,13 +180,15 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  private:
   const DynamicTransformInitialInfo* initial_info_ = nullptr;
 
-  // Holds, for each dynamic reshape, the output TensorView, and the result of
-  // analyzeView
+  //! Holds the index of the output TensorView in the vector returned by
+  //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
+  //! result of analyzeView
   std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
-  // Holds the resized IterDomain (output of the Resize op) along with the
-  // TensorView where it appears, and its concretized IterType
-  std::vector<std::pair<size_t, IterType>> resize_transforms_;
+  //! Holds the index of the resized IterDomain (output of the Resize op) in the
+  //! vector returned by initial_info_->getDynamicResizedIterDomains() along
+  //! with its concretized IterType
+  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {

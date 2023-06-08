@@ -25,16 +25,16 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
-  cloned_info.dynamic_reshapes_.reserve(dynamic_reshapes_.size());
-  for (const auto op : dynamic_reshapes_) {
+  cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
+  for (const auto op : dynamic_reshaped_tvs_) {
     if (op) {
-      cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(op));
+      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.dynamic_resizes_.reserve(dynamic_resizes_.size());
-  for (const auto op : dynamic_resizes_) {
+  cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
+  for (const auto op : dynamic_resized_ids_) {
     if (op) {
-      cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
+      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
@@ -51,11 +51,11 @@ std::string DynamicTransformInitialInfo::toString() const {
   ss << "DynamicTransformInitialInfo\n";
   std::string indent = "  ";
   ss << indent << "Dynamic reshaped TensorViews:\n";
-  for (const auto& op : dynamic_reshapes_) {
+  for (const auto& op : dynamic_reshaped_tvs_) {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Dynamic resized IterDomains:\n";
-  for (const auto& op : dynamic_resizes_) {
+  for (const auto& op : dynamic_resized_ids_) {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Root dynamic Vals:\n";
@@ -92,7 +92,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshapes_.push_back(out_tv);
+      info_.dynamic_reshaped_tvs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
       const auto& inp_dom =
@@ -115,7 +115,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         continue;
       }
       if (id->definition()->isA<Resize>()) {
-        info_.dynamic_resizes_.push_back(id);
+        info_.dynamic_resized_ids_.push_back(id);
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
       }
@@ -156,7 +156,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     ExpressionEvaluator* expr_eval) {
-  auto reshape_tvs = initial_info_->getDynamicReshapes();
+  auto reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
   for (const auto tv_index : c10::irange(reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
     auto op = out_tv->definition()->as<ViewOp>();
@@ -240,7 +240,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
-  auto resize_ids = initial_info_->getDynamicResizes();
+  auto resize_ids = initial_info_->getDynamicResizedIterDomains();
   for (const auto id_index : c10::irange(resize_ids.size())) {
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
@@ -270,7 +270,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
     auto iter_type =
         extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
 
-    resize_transforms_.emplace_back(id_index, iter_type);
+    resize_itertypes_.emplace_back(id_index, iter_type);
   }
 }
 
@@ -281,22 +281,22 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_transforms_.size() != other.resize_transforms_.size()) {
+      resize_itertypes_.size() != other.resize_itertypes_.size()) {
     return false;
   }
 
   for (const auto i : c10::irange(reshape_transforms_.size())) {
-    const auto& transform = reshape_transforms_.at(i);
-    const auto& other_transform = other.reshape_transforms_.at(i);
-    if (transform != other_transform) {
+    const auto& analysis = reshape_transforms_.at(i);
+    const auto& other_analysis = other.reshape_transforms_.at(i);
+    if (analysis != other_analysis) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(resize_transforms_.size())) {
-    const auto& transform = resize_transforms_.at(i);
-    const auto& other_transform = other.resize_transforms_.at(i);
-    if (transform != other_transform) {
+  for (const auto i : c10::irange(resize_itertypes_.size())) {
+    const auto& itertype = resize_itertypes_.at(i);
+    const auto& other_itertype = other.resize_itertypes_.at(i);
+    if (itertype != other_itertype) {
       return false;
     }
   }
@@ -310,13 +310,13 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::string indent = "  ";
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
-    auto tv = initial_info_->getDynamicReshapes().at(tv_index);
+    auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
     ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
        << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
-  for (const auto& [id_index, iter_type] : resize_transforms_) {
-    auto id = initial_info_->getDynamicResizes().at(id_index);
+  for (const auto& [id_index, iter_type] : resize_itertypes_) {
+    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
        << iter_type << "\n";
   }
@@ -389,7 +389,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
   for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
-        info_->initialInfo()->getDynamicReshapes().at(tv_index);
+        info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
     auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
@@ -416,8 +416,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& [id_index, iter_type] : info_->getResizeTransforms()) {
-    auto id = info_->initialInfo()->getDynamicResizes().at(id_index);
+  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
+    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
     TORCH_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
@@ -681,7 +681,7 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
     hash_combine(hash, view_result.hash());
   }
-  for (const auto& [id, iter_type] : getResizeTransforms()) {
+  for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hash_combine(hash, (size_t)iter_type);
   }
   return hash;
