@@ -590,7 +590,7 @@ TensorView* DynamicTransformConcretizer::replaceEmpty(
         "Found RFactor in input TensorView ",
         tv->toString());
     std::vector<bool> expanded(tv->nDims());
-    for (auto i : c10::irange(tv->nDims())) {
+    for (int i : c10::irange((int)tv->nDims())) {
       expanded[i] = tv->axis(i)->hasExpandedExtent();
     }
     mut_tv = TensorViewBuilder()
