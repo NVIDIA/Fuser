@@ -108,10 +108,6 @@ class OpInfo:
         # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
         self.symbolic_parameter_list = symbolic_parameter_list
 
-    def __call__(self, *args, **kwargs):
-        """Calls the function variant of the operator."""
-        return self.op(*args, **kwargs)
-
     def sample_inputs(
         self, torch_dtype: torch.dtype, *, requires_grad: bool = False, **kwargs
     ):

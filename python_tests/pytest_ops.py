@@ -10,7 +10,7 @@ from torch.testing import assert_close
 from pytest_framework import ops, run_snippet
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from typing import Optional
+from typing import Callable, Optional
 from functools import partial
 
 from nvfuser import FusionDefinition
@@ -43,7 +43,7 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
     return nvf_args
 
 
-def parse_args_fusion_execution(fd: FusionDefinition, opinfo: OpInfo, *args):
+def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
@@ -69,7 +69,7 @@ def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     fd.add_output(t1)
 
 
-def snippet_definition_op_in_schedule_error(nvf_op: OpInfo, sample: SampleInput):
+def snippet_definition_op_in_schedule_error(opinfo: OpInfo, sample: SampleInput):
     inputs = [
         torch.randn(8, 8, 8, device="cuda"),
     ]
@@ -81,13 +81,13 @@ def snippet_definition_op_in_schedule_error(nvf_op: OpInfo, sample: SampleInput)
             self.add_output(fd.t1)
 
         def schedule(self):
-            nvf_inputs = parse_inputs_fusion_definition(fd, nvf_op, *sample.args)
-            nvf_op(self)(*nvf_inputs, **sample.kwargs)
+            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
+            opinfo.op(self)(*nvf_inputs, **sample.kwargs)
 
     exception = None
     try:
         fd = SchedError()
-        fd.execute(parse_args_fusion_execution(fd, nvf_op, *sample.args))
+        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
     except Exception as e:
         exception = e
 
@@ -99,7 +99,7 @@ def snippet_definition_op_in_schedule_error(nvf_op: OpInfo, sample: SampleInput)
 
 
 def snippet_errors(
-    fusion_func,
+    fusion_func: Callable,
     nvf_op: OpInfo,
     sample: SampleInput,
     exception_type: Exception,
@@ -109,7 +109,7 @@ def snippet_errors(
     try:
         with FusionDefinition() as fd:
             fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
-        fd.execute(parse_args_fusion_execution(fd, nvf_op, *sample.args))
+        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
     except Exception as e:
         exception = e
 
@@ -122,13 +122,13 @@ def snippet_errors(
     ), "Failed to find correct expection error message"
 
 
-def snippet_torch_consistency(
-    fusion_func, nvf_op: OpInfo, torch_op, sample: SampleInput
+def snippet_torch_correctness(
+    fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput
 ):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
-    nvfuser_result = fd.execute(parse_args_fusion_execution(fd, nvf_op, *sample.args))
-    torch_result = torch_op(*sample.args, **sample.kwargs)
+    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+    torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
     if isinstance(nvfuser_result, Exception):
         raise nvfuser_result
@@ -139,36 +139,38 @@ def snippet_torch_consistency(
     assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
-def snippet_jax_consistency(fusion_func, nvf_op: OpInfo, jax_op, sample: SampleInput):
+def snippet_jax_correctness(fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
-    nvfuser_result = fd.execute(parse_args_fusion_execution(fd, nvf_op, *sample.args))
+    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
     jax_sample = sample.jax()
-    jax_result = jax_op(*jax_sample.args, **jax_sample.kwargs)
+    jax_result = nvf_op.reference(*jax_sample.args, **jax_sample.kwargs)
 
     # NOTE: this strange unpacking is to handle NumPy's and JAX's sometimes odd
     #   number vs. array representation. In particular, NumPy can mimic
     #   Python numbers, but `asarray` doesn't understand this mimicry
     np_array = np.array(jax_result)
     if np_array.shape == ():
-        jax_result = torch.tensor(np_array.item(), device=nvfuser_result[0].device)
+        jax_result = torch.tensor(np_array.item(), device="cuda")
     else:
-        jax_result = torch.asarray(np_array, device=nvfuser_result[0].device)
+        jax_result = torch.asarray(np_array, device="cuda")
 
     if len(nvfuser_result) == 1:
         nvfuser_result = nvfuser_result[0]
 
     # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
-    assert_close(nvfuser_result, jax_result, equal_nan=True, check_dtype=False)
+    assert_close(
+        nvfuser_result, jax_result, equal_nan=True, atol=1e-3, rtol=0, check_dtype=False
+    )
 
 
-def snippet_consistency(reference_type: ReferenceType, is_fusion_input_op: bool):
+def snippet_correctness(reference_type: ReferenceType, is_fusion_input_op: bool):
     fusion_func = input_fusion_func if is_fusion_input_op else opinfo_fusion_func
     if reference_type == ReferenceType.Pytorch:
-        return partial(snippet_torch_consistency, fusion_func)
+        return partial(snippet_torch_correctness, fusion_func)
     elif reference_type == ReferenceType.Jax:
-        return partial(snippet_jax_consistency, fusion_func)
+        return partial(snippet_jax_correctness, fusion_func)
     else:
         return None
 
@@ -177,11 +179,10 @@ def snippet_consistency(reference_type: ReferenceType, is_fusion_input_op: bool)
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_inputs(dtype):
         result = run_snippet(
-            snippet_consistency(op.refernce_fn_type, op.is_fusion_input_op),
+            snippet_correctness(op.refernce_fn_type, op.is_fusion_input_op),
             op,
             dtype,
             op,
-            op.reference,
             sample,
         )
         if result is not None:

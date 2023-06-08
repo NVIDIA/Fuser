@@ -93,6 +93,13 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
         PrimDataType dtype = DataType::Float,
         bool static_sizes = false,
         bool is_cpu = false) -> Tensor {
+    ---
+    "define_tensor",
+    [](FusionDefinition& self,
+        std::vector<int64_t>& symbolic_sizes,
+        std::vector<std::optional<bool>>& contiguity,
+        PrimDataType dtype = DataType::Float,
+        bool is_cpu = false) -> Tensor {
     """
 
     MINIMUM_SYMBOLIC_SIZE = -1
@@ -110,7 +117,7 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
 
     check_empty_tensor_size = ErrorSample(
         {"symbolic_sizes": [], "contiguity": []},
-        "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
+        "Empty tensor is unsupported.",
     )
 
     check_max_tensor_size = ErrorSample(
@@ -132,15 +139,28 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
 
+    check_contiguity_unknown_values = ErrorSample(
+        {"symbolic_sizes": [10], "contiguity": [-1]},
+        "define_tensor(): incompatible function arguments.",
+        TypeError,
+    )
+
+    check_symbolic_sizes_unknown_dtypes = ErrorSample(
+        {"symbolic_sizes": [10.0], "contiguity": [True]},
+        "define_tensor(): incompatible function arguments.",
+        TypeError,
+    )
+
     # TODO: Fix empty and maximum tensor dimensionality error checks.
-    # TODO: symbolic_sizes should check that non-zeros trigger errors
-    # TODO: contiguity should be checked for values that are not None, True, or False.
+    # TODO: Add invalid argument checks for contiguity.
     error_cases = [
         check_size_contiguity_match,
         # check_empty_tensor_size,
         # check_max_tensor_size,
         check_above_size_range,
         check_below_size_range,
+        # check_contiguity_unknown_values,
+        check_symbolic_sizes_unknown_dtypes,
     ]
 
     input_tensor = make_tensor(
