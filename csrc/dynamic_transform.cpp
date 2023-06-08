@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <dynamic_transform.h>
 #include <executor_kernel_arg.h>
+#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
@@ -37,7 +38,6 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
   return cloned_info;
 }
 
@@ -102,22 +102,12 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       info_.dynamic_reshapes_.push_back(op);
 
       // Input and output extent expressions both affect concretization
-      const auto& inp_dom =
-          TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-      for (const auto id : inp_dom) {
-        // Try and evaluate the extent so that intermediate expressions are
-        // cached in expr_eval_
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+      for (const auto id :
+           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain())) {
+        leaf_dynamic_vals_.push_back(id->extent());
       }
-      const auto& out_dom = out_tv->getMaybeRFactorDomain();
-      for (const auto id : out_dom) {
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+      for (const auto id : out_tv->getMaybeRFactorDomain()) {
+        leaf_dynamic_vals_.push_back(id->extent());
       }
     }
   }
@@ -126,9 +116,9 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
-      auto extent_opt = info_.expr_eval_.evaluate(id->extent());
-      if (!extent_opt.has_value() || extent_opt.value().as<int64_t>() == 0) {
-        info_.has_possible_empty_tensor_ = true;
+      if (!id->extent()->isConstScalar() ||
+          id->extent()->getInt().value() == 0) {
+        info_.dynamic_extent_vals_.insert(id->extent());
         leaf_dynamic_vals_.push_back(id->extent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
@@ -242,18 +232,23 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
       !fusion->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
-  // Make sure all exactly mapped IDs have the same value in the
-  // evaluator when any one of the IDs has a known value
-  expr_eval->propagateBoundValuesThroughExactMaps(fusion);
-
   analyzeReshapes(info, expr_eval);
 
   analyzeResizes(info, expr_eval);
 
+  bool has_empty_tensor = false;
+  for (auto ext : info->getDynamicExtentVals()) {
+    if (expr_eval->evaluate(ext).value().as<int64_t>() == 0) {
+      has_empty_tensor = true;
+      break;
+    }
+  }
   // Find a minimal set of empty tensors to replace with full() calls
   // NOTE: this does a backward traversal from outputs.
-  empty_tensors_ =
-      EmptyBranchFinder(info->fusion(), expr_eval).getEmptyTensors();
+  if (has_empty_tensor) {
+    empty_tensors_ =
+        EmptyBranchFinder(info->fusion(), expr_eval).getEmptyTensors();
+  }
 }
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
@@ -478,8 +473,11 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   void concretize();
 
-  //! Set definitions of empty tensors to full() calls.
+  //! Set definitions of empty tensors to full() calls, replace reductions over
+  //! empty axes with full calls.
   void removeEmptyBranches();
+
+  void replaceByFull(TensorView* tv, std::vector<Val*>& new_shape);
 
   void concretizeReshape();
 
@@ -512,9 +510,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  removeEmptyBranches();
-
-  // First, concretize all dynamic reshape ops
+  // Concretize all dynamic reshape ops
   concretizeReshape();
 
   // Set output IterTypes for dynamic resize ops
@@ -527,6 +523,9 @@ void DynamicTransformConcretizer::concretize() {
       mutate(stmt);
     }
   }
+
+  // Concretize empty tensors last.
+  removeEmptyBranches();
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
@@ -539,17 +538,74 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       new_shape.push_back(id->extent());
     }
     for (auto ax : empty_tv_descr.empty_axes) {
+      // Hard-code zero extent for empty axes. This lets us detect empty input
+      // and output tensors during scheduling/execution.
       new_shape[ax] = tv->fusion()->zeroVal();
     }
-    auto mut_tv =
-        full(new_shape, tv->fusion()->zeroVal(), tv->getDataType().value());
-    registerConcretization(tv, mut_tv);
-    OptOutMutator::mutate(tv);
-    // Replace tv in Fusion outputs() if present
-    auto outputs = tv->fusion()->outputs();
-    if (std::find(outputs.begin(), outputs.end(), tv) != outputs.end()) {
-      tv->fusion()->replaceOutput(tv, mut_tv);
+
+    // If expr is a ReductionOp or WelfordOp over some empty axes, replace it
+    // with a call to full().
+    for (auto use : tv->uses()) {
+      if (auto rop = dynamic_cast<ReductionOp*>(use)) {
+        auto out = rop->out()->as<TensorView>();
+        if (std::any_of(
+                empty_tv_descr.empty_axes.begin(),
+                empty_tv_descr.empty_axes.end(),
+                [&out](size_t ax) {
+                  return out->getRootDomain().at(ax)->isReduction();
+                })) {
+          auto nored_axes =
+              TensorDomain::noReductions(out->getMaybeRFactorDomain());
+          // Output shape is simply the same as the original reduction. If there
+          // were zeros in the non-Reduction axes, it would be replaced by
+          // full() directly.
+          std::vector<Val*> out_shape(nored_axes.size());
+          std::transform(
+              nored_axes.begin(),
+              nored_axes.end(),
+              out_shape.begin(),
+              [](IterDomain* id) -> Val* { return id->extent(); });
+          replaceByFull(out, out_shape);
+        }
+      } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
+        auto avg = wop->outAvg()->as<TensorView>();
+        auto var = wop->outVar()->as<TensorView>();
+        auto N = wop->outN()->as<TensorView>();
+        if (std::any_of(
+                empty_tv_descr.empty_axes.begin(),
+                empty_tv_descr.empty_axes.end(),
+                [&avg](size_t ax) {
+                  return avg->getRootDomain().at(ax)->isReduction();
+                })) {
+          auto nored_axes =
+              TensorDomain::noReductions(avg->getMaybeRFactorDomain());
+          std::vector<Val*> out_shape(nored_axes.size());
+          std::transform(
+              nored_axes.begin(),
+              nored_axes.end(),
+              out_shape.begin(),
+              [](IterDomain* id) -> Val* { return id->extent(); });
+          replaceByFull(avg, out_shape);
+          replaceByFull(var, out_shape);
+          replaceByFull(N, out_shape);
+        }
+      }
     }
+    replaceByFull(tv, new_shape);
+  }
+}
+
+void DynamicTransformConcretizer::replaceByFull(
+    TensorView* tv,
+    std::vector<Val*>& new_shape) {
+  auto mut_tv =
+      full(new_shape, tv->fusion()->zeroVal(), tv->getDataType().value());
+  registerConcretization(tv, mut_tv);
+  OptOutMutator::mutate(tv);
+  // Replace tv in Fusion outputs() if present
+  auto outputs = tv->fusion()->outputs();
+  if (std::find(outputs.begin(), outputs.end(), tv) != outputs.end()) {
+    tv->fusion()->replaceOutput(tv, mut_tv);
   }
 }
 
@@ -848,65 +904,10 @@ DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
     Fusion* fusion,
     const DynamicTransformInitialInfo* info,
     const KernelArgumentHolder* args) {
-  // Copy the expression evaluator that has some values precomputed
-  auto expr_eval = info->getExpressionEvaluator();
-
-  // Bind input scalars and tensor metadata to symbolic scalars
-  TORCH_CHECK(
-      args->size() == fusion->inputs().size(),
-      "Received ",
-      args->size(),
-      " inputs but expected ",
-      fusion->inputs().size());
-  for (auto i : c10::irange(args->size())) {
-    const auto& inpi = fusion->inputs()[i];
-    const auto argi = (*args)[i];
-    if (inpi->isIntegralScalar()) {
-      TORCH_CHECK(
-          argi->isType(ArgType::Long),
-          "Expected integer input at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
-
-      const int64_t arg_val = *reinterpret_cast<const int64_t*>(argi->arg());
-      expr_eval.bind(inpi, arg_val);
-    } else if (inpi->isA<TensorView>()) {
-      const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->maybeRFactor();
-      TORCH_CHECK(
-          argi->isType(ArgType::Tensor),
-          "Expected CUDA tensor at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
-      const auto* targ = reinterpret_cast<const TensorArgAbstract*>(argi);
-      for (auto j : c10::irange(dom.size())) {
-        auto size_j = targ->getSize((int64_t)j);
-        // Input can be expanded. See test FusionExpandRepro1860_CUDA
-        auto ext = dom[j]->hasExpandedExtent() ? dom[j]->expandedExtent()
-                                               : dom[j]->extent();
-        // Extents can be concrete, in which case we should just check that the
-        // input size matches, but not try to bind them.
-        if (ext->isConstInt()) {
-          TORCH_INTERNAL_ASSERT(
-              ext->getInt().value() == size_j,
-              "Provided argument ",
-              targ->toString(),
-              " for input ",
-              i,
-              " (",
-              inpi->toString(),
-              ") does not match constant extent of IterDomain ",
-              dom[j]->toString(),
-              " at position ",
-              j);
-        } else {
-          expr_eval.bind(ext, size_j);
-        }
-      }
-    }
-  }
+  ExpressionEvaluator expr_eval = executor_utils::bindInputs(*args, fusion);
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval.propagateBoundValuesThroughExactMaps(fusion);
   return DynamicTransformConcretizationInfo(fusion, info, &expr_eval);
 }
 

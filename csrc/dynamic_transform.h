@@ -14,6 +14,7 @@
 #include <ir/cloner.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
+#include <utils.h>
 
 #include <functional>
 #include <memory>
@@ -43,21 +44,28 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! given some user input. In either of these cases, concretization may change
   //! the structure of the Fusion.
   bool isDynamic() const {
-    return has_possible_empty_tensor_ || !dynamic_reshapes_.empty() ||
+    return hasPossibleEmptyTensor() || !dynamic_reshapes_.empty() ||
         !dynamic_resizes_.empty();
   }
 
   //! Return whether there are any tensors with unknown extent in some
   //! dimension, so that they might be empty
   bool hasPossibleEmptyTensor() const {
-    return has_possible_empty_tensor_;
+    return !dynamic_extent_vals_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
   //! and that appear in inputs to dynamic expressions. Any Vals not in this
   //! list do not affect concretization.
-  const std::unordered_set<Val*> getRootDynamicVals() const {
+  const std::unordered_set<Val*>& getRootDynamicVals() const {
     return root_dynamic_vals_;
+  }
+
+  //! Return a set of scalars that appear as extents in TensorViews in the
+  //! Fusion. If any of these evaluate to zero, there is at least one empty
+  //! TensorView present.
+  const std::unordered_set<Val*>& getDynamicExtentVals() const {
+    return dynamic_extent_vals_;
   }
 
   //! Return a vector of ViewOp expressions that have dynamic output shapes
@@ -68,10 +76,6 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! Return a vector of Resize expressions that have symbolic output IterTypes
   const std::vector<Resize*>& getDynamicResizes() const {
     return dynamic_resizes_;
-  }
-
-  const ExpressionEvaluator& getExpressionEvaluator() const {
-    return expr_eval_;
   }
 
   std::string toString() const;
@@ -99,13 +103,12 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   std::vector<Resize*> dynamic_resizes_;
 
-  bool has_possible_empty_tensor_ = false;
+  // This is a minimal set of scalars to check for empty tensors. If any are
+  // zero, we should traverse to find empty tensors.
+  std::unordered_set<Val*> dynamic_extent_vals_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
-
-  // ExpressionEvaluator that we use to pre-compute as much as possible
-  ExpressionEvaluator expr_eval_;
 
   friend class DynamicTransformInitialInfoBuilder;
 };
@@ -121,6 +124,18 @@ struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
 
   bool operator!=(const EmptyTensorDescriptor& other) const {
     return !operator==(other);
+  }
+
+  size_t hash() const {
+    size_t hash = 0;
+    for (auto ax : empty_axes) {
+      hash <<= 3;
+      hash ^= ax;
+    }
+    // We need to hash the tv address here, since we could conceivably find two
+    // different tensors that are empty in the same axes.
+    hash ^= std::hash<TensorView*>()(tv);
+    return hash;
   }
 };
 
@@ -160,7 +175,6 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   void analyzeResizes(
       const DynamicTransformInitialInfo* info,
       ExpressionEvaluator* expr_eval);
-
   Fusion* fusion() const {
     return fusion_;
   }
