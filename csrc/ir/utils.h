@@ -445,6 +445,12 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
   return producers[0];
 }
 
+//! Check and return a cycle found in fusion, search starts from `to` and ends at `from`
+std::vector<Statement*> checkCycle(
+    Fusion* fusion,
+    const std::unordered_set<Statement*>& from,
+    const std::vector<Val*>& to);
+
 //! Check and return a cycle found in fusion
 std::vector<Statement*> checkCycle(Fusion* fusion);
 

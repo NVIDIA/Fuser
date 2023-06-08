@@ -85,6 +85,9 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     FusionGuard fg(fusion.get());
 
     int M = 64, N = 128;
+    bool keepdim = false;
+    int correction = 1;
+    at::ScalarType dtype = at::kFloat;
 
     auto tv0 = makeSymbolicTensor(2, aten_to_data_type(dtype));
     fusion->addInput(tv0);

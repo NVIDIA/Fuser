@@ -239,7 +239,7 @@ void IterVisitor::traverseBetween(
                 [&nodes_on_path](Statement* next_stmt) {
                   return nodes_on_path.count(next_stmt) > 0;
                 })) {
-          auto cycle = ir_utils::checkCycle(fusion);
+          auto cycle = ir_utils::checkCycle(fusion, from, to);
           std::stringstream ss;
           ss << "cycle detected in fusion: " << std::endl;
           for (auto expr :
