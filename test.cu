@@ -1,6 +1,13 @@
-struct TensorMap {
-  alignas(64) uint64_t opaque[16];
-};
+#include <cuda.h>
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <vector>
+
+// struct TensorMap {
+//   alignas(64) uint64_t opaque[16];
+// };
+using TensorMap = CUtensorMap;
 
 __device__ inline unsigned toSmem(const void* raw_ptr) {
   unsigned smem_ptr_uint;
@@ -57,12 +64,12 @@ __global__ void kernel(float* output, TensorMap tensormap) {
     numbers[i] = blockIdx.x * 32 + i;
   }
 
-  Hopper::cpAsyncBulkTensorTileS2G(tensormap, blockIdx.x, toSmem(numbers));
+  cpAsyncBulkTensorTileS2G(tensormap, blockIdx.x, toSmem(numbers));
 }
 
-CUtensorMap getTensorMap(float* ptr, int N) {
+CUtensorMap getTensorMap(float* ptr, size_t N) {
   CUtensorMap tmap;
-  auto dtype_size = dataTypeSize(float);
+  unsigned int dtype_size = sizeof(float);
 
   std::vector<uint64_t> evaluated_gmem_shape{N};
   std::vector<uint64_t> evaluated_gmem_strides{dtype_size};
@@ -90,9 +97,8 @@ CUtensorMap getTensorMap(float* ptr, int N) {
 }
 
 int main() {
-  TensorMap tensormap;
   float* output;
-  int N = 32;
+  size_t N = 32;
   cudaMalloc(&output, N * 32 * sizeof(float));
 
   kernel<<<N, 1>>>(output, getTensorMap(output, N));
