@@ -2168,6 +2168,7 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
           "must concretize to IterType::Broadcast but found")));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/365
 TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

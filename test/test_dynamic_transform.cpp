@@ -1079,13 +1079,61 @@ TEST_F(NVFuserTest, DynamicRewriteEmptyTensors2_CUDA) {
       __FILE__);
 
   auto runtime = fusion_executor_cache.getMostRecentKernelRuntime();
-  auto runtime_outputs = runtime->fusionSegments()->outputs();
+  auto runtime_fusion = runtime->fusionSegments();
+  auto runtime_outputs = runtime_fusion->outputs();
   EXPECT_EQ(runtime_outputs.size(), 1);
 
-  auto tv_output = runtime_outputs.at(0);
+  auto tv_output = runtime_outputs.at(0)->as<TensorView>();
   auto def = tv_output->definition();
   EXPECT_NE(def, nullptr);
   EXPECT_EQ(def->isA<FullOp>(), true);
+
+  // Fusion output should have hardcoded zero extent after concretization
+  auto output_extent = tv_output->axis(0)->extent();
+  EXPECT_TRUE(output_extent->isConstInt());
+  EXPECT_EQ(output_extent->getInt(), 0);
+
+  // Fusion input should have hardcoded zero extent after concretization
+  auto input_extent =
+      runtime_fusion->inputs().at(0)->as<TensorView>()->axis(0)->extent();
+  EXPECT_TRUE(input_extent->isConstInt());
+  EXPECT_EQ(input_extent->getInt(), 0);
+}
+
+// Test that the vector of empty tensors is minimal
+TEST_F(NVFuserTest, DynamicRewriteEmptyTensors3_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto x = makeSymbolicTensor({-1, -1});
+  fusion.addInput(x);
+
+  // Each of x, y, and z should be empty, but only z (and possibly x) needs to
+  // be marked empty.
+  auto y = add(x, x);
+  auto z = add(y, y);
+  fusion.addOutput(z);
+
+  {
+    ExpressionEvaluator expr_eval;
+
+    // input: 0, 2
+    expr_eval.bind(x->axis(0)->extent(), 0);
+    expr_eval.bind(x->axis(1)->extent(), 2);
+
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransform::getConcretizationInfo(
+        &fusion, &initial_info, &expr_eval);
+    for (const auto& empty_desc : info.getEmptyTensors()) {
+      TORCH_CHECK(
+          y != empty_desc.tv,
+          "Expected ",
+          y->toString(),
+          " to not be marked empty as it is on a dead branch: ",
+          info.toString());
+    }
+  }
 }
 
 // Test that a Symbolic root/Broadcast rfactor is not  concretized to
@@ -1120,6 +1168,7 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
 }
 
 // Test that 0-dimensional tensors can be used in reductions
+// See https://github.com/NVIDIA/Fuser/issues/264
 TEST_F(NVFuserTest, FusionReduceZeroElementTensor_CUDA) {
   for (int reduction_dim : {1, 2}) {
     auto fusion = std::make_unique<Fusion>();
