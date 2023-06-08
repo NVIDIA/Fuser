@@ -494,7 +494,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  std::cout << "Concretizing with " << info_.toString() << std::endl;
   // Concretize all dynamic reshape ops
   concretizeReshape();
 
