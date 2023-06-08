@@ -55,20 +55,8 @@ class CollectTMATensorMapInfo : public kir::IrVisitor {
                 stride, out_tv->getMaybeAllocationDomain().at(j)->extent());
           }
           tensor_map.gmem_strides.emplace_back(stride);
-
-          Val* box_stride = ldst->container()->oneVal();
-          for (int64_t j : c10::irange(ii + 1, dim)) {
-            if (isParallelTypeThreadDim(
-                    out_tv->getLeafDomain().at(2 * j)->getParallelType())) {
-              box_stride = SimplifyingIrBuilder::mulExpr(
-                  box_stride,
-                  out_tv->getMaybeAllocationDomain().at(j)->extent());
-            } else {
-              box_stride = SimplifyingIrBuilder::mulExpr(
-                  box_stride, out_tv->getLeafDomain().at(2 * j + 1)->extent());
-            }
-          }
-          tensor_map.box_strides.emplace_back(box_stride);
+          // TODO: support discontig
+          tensor_map.box_strides.emplace_back(expr->container()->oneVal());
         }
         GpuLower::current()->tmaTensorMapsMap()[ldst] =
             GpuLower::current()->tmaTensorMaps().size() - 1;
