@@ -53,9 +53,9 @@ struct TensorMapInfo {
   PrimDataType dtype;
   TensorMapSwizzleType swizzle;
   std::vector<Val*> gmem_shape;
-  std::vector<Val*> gmem_strides; // column major
+  std::vector<Val*> gmem_strides; // in number if items, column major
   std::vector<Val*> box_shape;
-  std::vector<Val*> box_strides; // column major
+  std::vector<Val*> box_strides; // in number if items, column major
 
   // TODO: remove `gmem_base_ptr` from this function, and let
   // ExpressionEvaluator to "evaluate" it.
