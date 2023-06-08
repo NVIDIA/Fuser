@@ -1262,7 +1262,7 @@ void IndexLowering::temporarilyHandleTMA(const LoadStoreOp* ldst) {
   for (int64_t i : c10::irange(dim)) {
     auto ii = dim - i - 1;
     auto out_coord_id = out_tv->getLeafDomain().at(2 * ii);
-    auto& current_coord = out_coordinates.at(ii);
+    auto& current_coord = out_coordinates.at(i);
     for (auto loop : for_loops_) {
       if (loop->iter_domain() == out_coord_id) {
         // coordinates are column major
