@@ -116,8 +116,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
-      if (!id->extent()->isConstScalar() ||
-          id->extent()->evaluateInt() == 0) {
+      if (!id->extent()->isConstScalar() || id->extent()->evaluateInt() == 0) {
         info_.dynamic_extent_vals_.insert(id->extent());
         leaf_dynamic_vals_.push_back(id->extent());
       }

@@ -2168,4 +2168,49 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
           "must concretize to IterType::Broadcast but found")));
 }
 
+TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({9});
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  // Perform a size-1 slice and a size-0 slice on tv0. The size-1 slice
+  // could be size >1 with no change in the error. The order does not
+  // matter. Performing only one of these slices does not trigger the
+  // error and the output is correct in that case. If there are
+  // multiple size-0 slices the error is not triggered. It only seems
+  // to appear when there are both size-0 and size non-zero slices of
+  // the same tensor.
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(1),
+        IrBuilder::create<Int>(1)}});
+  fusion->addOutput(tv1);
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(0),
+        IrBuilder::create<Int>(1)}});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref0 = t0.index({at::indexing::Slice(0, 1)});
+  auto ref1 = t0.index({at::indexing::Slice(0, 0)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  TORCH_CHECK(ref1.equal(cg_outputs[1]));
+}
+
 } // namespace nvfuser
