@@ -70,8 +70,8 @@ class SampleInput:
                 return _torch_to_jax_dtype_map[t]
             return t
 
-        # Thunder uses tree_map here. We assume arguments have flat hierarchy.
-        # TODO add support for kwargs
+        # Note: We assume arguments have flat hierarchy.
+        # TODO Add support for kwargs
         args = map(to_jax, self.args)
         return SampleInput(*args, *self.kwargs.values())
 

@@ -133,6 +133,8 @@ def define_tensor_error_generator(op, dtype, requires_grad, **kwargs):
     )
 
     # TODO: Fix empty and maximum tensor dimensionality error checks.
+    # TODO: symbolic_sizes should check that non-zeros trigger errors
+    # TODO: contiguity should be checked for values that are not None, True, or False.
     error_cases = [
         check_size_contiguity_match,
         # check_empty_tensor_size,
