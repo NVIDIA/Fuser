@@ -136,11 +136,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
+  int64_t threads_per_block = dev_prop->warpSize / 4;
   iop.inner_vect = (int64_t)vectorize_factor;
-  int64_t after_vectorization = inner_dim_numel / iop.inner_vect;
-  int64_t threads_per_block =
-      std::min((int64_t)dev_prop->warpSize / 4l, after_vectorization);
-  iop.inner_batch = after_vectorization / threads_per_block;
+  iop.inner_batch = inner_dim_numel / iop.inner_vect / threads_per_block;
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block == inner_dim_numel,
       " inner_dim_numel must be dividable by the multiplication of a quarter warp and vectorize_factor");
