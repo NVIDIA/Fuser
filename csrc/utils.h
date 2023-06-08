@@ -301,9 +301,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -457,6 +456,22 @@ std::string toDelimitedString(
   return ss.str();
 }
 
+template <typename ContainerOfStatement>
+std::string toDelimitedInlineString(
+    const ContainerOfStatement& container,
+    std::string delim = ", ") {
+  std::stringstream ss;
+  bool first_val = true;
+  for (const auto& item : container) {
+    if (!first_val) {
+      ss << delim;
+    }
+    ss << item->toInlineString();
+    first_val = false;
+  }
+  return ss.str();
+}
+
 template <typename... Args>
 class DebugPrintScope {
  public:
@@ -514,5 +529,14 @@ class KernelIndexTypeCompute {
  private:
   int64_t tensor_most_positive_index_ = 0;
 };
+
+template <typename>
+struct is_std_vector : std::false_type {};
+
+template <typename T, typename A>
+struct is_std_vector<std::vector<T, A>> : std::true_type {};
+
+template <typename T>
+constexpr auto is_std_vector_v = is_std_vector<T>::value;
 
 } // namespace nvfuser

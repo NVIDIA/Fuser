@@ -2393,4 +2393,39 @@ TensorView* fusedMultiplySum(
   return out;
 }
 
+TensorView* tensor(Val* val) {
+  auto dtype = val->dtype();
+  if (std::holds_alternative<PrimDataType>(dtype.type)) {
+    // scalar tensor
+    return full({}, val, dtype);
+  }
+  std::vector<int64_t> sizes;
+  while (std::holds_alternative<ArrayOf>(dtype.type)) {
+    sizes.push_back(std::get<ArrayOf>(dtype.type).size);
+    dtype = *std::get<ArrayOf>(dtype.type).type;
+  }
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<PrimDataType>(dtype.type),
+      "Expected an array of scalar or nested array of scalar");
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(sizes.size());
+  for (auto size : sizes) {
+    IterDomain* id =
+        IterDomainBuilder(
+            val->container()->zeroVal(), IrBuilder::create<Int>(size))
+            .build();
+    out_domain.push_back(id);
+  }
+
+  auto out = IrBuilder::create<TensorView>(
+      val->container(),
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype);
+
+  IrBuilder::create<TensorConstruct>(val->container(), out, val);
+  return out;
+}
+
 } // namespace nvfuser

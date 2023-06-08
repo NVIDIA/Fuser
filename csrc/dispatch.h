@@ -83,6 +83,9 @@ class EyeOp;
 class UnaryOp;
 class BinaryOp;
 class TernaryOp;
+class ArrayConstruct;
+class GetItem;
+class TensorConstruct;
 class SelectOp;
 class IndexSelectOp;
 class TorchGatherOp;
@@ -165,6 +168,8 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const AggregateVal*);
 
+  virtual void handleUntypedVal(const Val*);
+
   // Exprs
   virtual void handle(const FullOp* stmt);
   virtual void handle(const IotaOp* stmt);
@@ -172,6 +177,9 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const UnaryOp* stmt);
   virtual void handle(const BinaryOp* stmt);
   virtual void handle(const TernaryOp* stmt);
+  virtual void handle(const ArrayConstruct* stmt);
+  virtual void handle(const GetItem* stmt);
+  virtual void handle(const TensorConstruct* stmt);
   virtual void handle(const SelectOp* stmt);
   virtual void handle(const IndexSelectOp* stmt);
   virtual void handle(const TorchGatherOp* stmt);
@@ -246,6 +254,8 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(AggregateVal*);
 
+  virtual void handleUntypedVal(Val*);
+
   // Exprs
   virtual void handle(FullOp* stmt);
   virtual void handle(IotaOp* stmt);
@@ -253,6 +263,9 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(UnaryOp* stmt);
   virtual void handle(BinaryOp* stmt);
   virtual void handle(TernaryOp* stmt);
+  virtual void handle(ArrayConstruct* stmt);
+  virtual void handle(GetItem* stmt);
+  virtual void handle(TensorConstruct* stmt);
   virtual void handle(SelectOp* stmt);
   virtual void handle(IndexSelectOp* stmt);
   virtual void handle(TorchGatherOp* stmt);
@@ -365,6 +378,8 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
+
+  virtual void mutateUntypedVal(Val*);
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;

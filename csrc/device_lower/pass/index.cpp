@@ -238,6 +238,37 @@ void IndexLowering::handle(const TernaryOp* top) {
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
+void IndexLowering::handle(const ArrayConstruct* aop) {
+  std::vector<Val*> lowered_inputs;
+  for (auto input : aop->inputs()) {
+    lowered_inputs.push_back(lowerSrcIndex(input, aop->out()));
+  }
+  const auto out = lowerDstIndex(aop->out());
+  pushBack(IrBuilder::create<ArrayConstruct>(out, lowered_inputs));
+  GpuLower::current()->propagateExprInfo(aop, back());
+}
+
+void IndexLowering::handle(const GetItem* gop) {
+  const auto array = lowerSrcIndex(gop->array(), gop->out());
+  const auto index = lowerSrcIndex(gop->index(), gop->out());
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const TensorConstruct* cop) {
+  const auto out = lowerDstIndex(cop->out());
+  auto indices = Index::getConsumerPerDimLogicalIndex(
+      cop->out(), for_loops_, getRotatedLoop());
+  auto in = cop->in();
+  for (auto index : indices) {
+    in = IrBuilder::getItemExpr(in, index);
+  }
+  in = GpuLower::current()->commonScalarMap().hoistScalar(in, for_loops_);
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
+  GpuLower::current()->propagateExprInfo(cop, back());
+}
+
 void IndexLowering::handle(const IndexSelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;
