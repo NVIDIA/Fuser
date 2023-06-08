@@ -59,7 +59,7 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
 #endif
 }
 
-__global__ void kernel(float* output, TensorMap tensormap) {
+__global__ void kernel(float* output, const __grid_constant__ TensorMap tensormap) {
   __shared__ float numbers[32];
   for (int i = 0; i < 32; ++i) {
     numbers[i] = blockIdx.x * 32 + i;
@@ -79,10 +79,10 @@ CUtensorMap getTensorMap(float* ptr, size_t N) {
   CUtensorMap tmap;
   unsigned int dtype_size = sizeof(float);
 
-  std::vector<uint64_t> evaluated_gmem_shape{N};
+  std::vector<uint64_t> evaluated_gmem_shape{N * 32};
   std::vector<uint64_t> evaluated_gmem_strides{dtype_size};
   std::vector<uint32_t> evaluated_box_shape{32};
-  std::vector<uint32_t> evaluated_box_strides{dtype_size};
+  std::vector<uint32_t> evaluated_box_strides{1};
 
   CUresult result = cuTensorMapEncodeTiled(
       &tmap,

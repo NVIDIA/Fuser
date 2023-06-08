@@ -298,7 +298,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // TensorMaps for global tensors accessed by TMA
     for (auto i : c10::irange(kernel_summary.tma_tensor_maps.size())) {
-      code_ << ", TensorMap tensormap" << i;
+      code_ << ", const __grid_constant__ TensorMap tensormap" << i;
     }
 
     code_ << ") ";
