@@ -215,6 +215,9 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
       !fusion->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
+  // Ensure we have propagated known values before evaluating extents
+  expr_eval->propagateBoundValuesThroughExactMaps(fusion);
+
   analyzeReshapes(info, expr_eval);
 
   analyzeResizes(info, expr_eval);
@@ -460,7 +463,12 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! empty axes with full calls.
   void removeEmptyBranches();
 
-  void replaceByFull(TensorView* tv, std::vector<Val*>& new_shape);
+  //! Modify the Fusion by replacing tv with output of full() expression in
+  //! outputs and all uses.
+  void replaceByFull(
+      TensorView* tv,
+      std::vector<Val*>& new_shape,
+      Val* fill_value = nullptr);
 
   void concretizeReshape();
 
@@ -526,50 +534,49 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       new_shape[ax] = tv->fusion()->zeroVal();
     }
 
+    auto hasEmptyRootReductionAxis = [&empty_tv_descr](TensorView* out_tv) {
+      return std::any_of(
+          empty_tv_descr.empty_axes.begin(),
+          empty_tv_descr.empty_axes.end(),
+          [&out_tv](size_t ax) {
+            return out_tv->getRootDomain().at(ax)->isReduction();
+          });
+    };
+
+    // Given a TensorView, get a shape with hard-coded zeroes
+    auto reduction_shape = [](TensorView* out_tv) -> std::vector<Val*> {
+      auto nored_axes =
+          TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
+      // Output shape is simply the same as the original reduction. If there
+      // were zeros in the non-Reduction axes, it would be replaced by
+      // full() directly.
+      std::vector<Val*> out_shape(nored_axes.size());
+      std::transform(
+          nored_axes.begin(),
+          nored_axes.end(),
+          out_shape.begin(),
+          [](IterDomain* id) -> Val* { return id->extent(); });
+      return out_shape;
+    };
+
     // If expr is a ReductionOp or WelfordOp over some empty axes, replace it
     // with a call to full().
     for (auto use : tv->uses()) {
       if (auto rop = dynamic_cast<ReductionOp*>(use)) {
         auto out = rop->out()->as<TensorView>();
-        if (std::any_of(
-                empty_tv_descr.empty_axes.begin(),
-                empty_tv_descr.empty_axes.end(),
-                [&out](size_t ax) {
-                  return out->getRootDomain().at(ax)->isReduction();
-                })) {
-          auto nored_axes =
-              TensorDomain::noReductions(out->getMaybeRFactorDomain());
-          // Output shape is simply the same as the original reduction. If there
-          // were zeros in the non-Reduction axes, it would be replaced by
-          // full() directly.
-          std::vector<Val*> out_shape(nored_axes.size());
-          std::transform(
-              nored_axes.begin(),
-              nored_axes.end(),
-              out_shape.begin(),
-              [](IterDomain* id) -> Val* { return id->extent(); });
+        if (hasEmptyRootReductionAxis(out)) {
+          auto out_shape = reduction_shape(out);
           replaceByFull(out, out_shape);
         }
       } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
         auto avg = wop->outAvg()->as<TensorView>();
         auto var = wop->outVar()->as<TensorView>();
         auto N = wop->outN()->as<TensorView>();
-        if (std::any_of(
-                empty_tv_descr.empty_axes.begin(),
-                empty_tv_descr.empty_axes.end(),
-                [&avg](size_t ax) {
-                  return avg->getRootDomain().at(ax)->isReduction();
-                })) {
-          auto nored_axes =
-              TensorDomain::noReductions(avg->getMaybeRFactorDomain());
-          std::vector<Val*> out_shape(nored_axes.size());
-          std::transform(
-              nored_axes.begin(),
-              nored_axes.end(),
-              out_shape.begin(),
-              [](IterDomain* id) -> Val* { return id->extent(); });
-          replaceByFull(avg, out_shape);
-          replaceByFull(var, out_shape);
+        if (hasEmptyRootReductionAxis(avg)) {
+          auto out_shape = reduction_shape(avg);
+          auto nan = IrBuilder::create<Double>(0.0 / 0.0);
+          replaceByFull(avg, out_shape, nan);
+          replaceByFull(var, out_shape, nan);
           replaceByFull(N, out_shape);
         }
       }
@@ -580,9 +587,15 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
 
 void DynamicTransformConcretizer::replaceByFull(
     TensorView* tv,
-    std::vector<Val*>& new_shape) {
-  auto mut_tv =
-      full(new_shape, tv->fusion()->zeroVal(), tv->getDataType().value());
+    std::vector<Val*>& new_shape,
+    Val* fill_value) {
+  if (!fill_value) {
+    fill_value = tv->fusion()->zeroVal();
+  }
+  if (fill_value->getDataType().value() != tv->getDataType().value()) {
+    fill_value = castOp(tv->getDataType().value(), fill_value);
+  }
+  auto mut_tv = full(new_shape, fill_value, tv->getDataType().value());
   registerConcretization(tv, mut_tv);
   OptOutMutator::mutate(tv);
   // Replace tv in Fusion outputs() if present
