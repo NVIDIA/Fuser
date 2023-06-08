@@ -1932,7 +1932,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
           data_cache,
           (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
       if (!checkCombinedReductionShape(
-              runtime_info, reduction_tvs, vectorize_factor)) {
+              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
