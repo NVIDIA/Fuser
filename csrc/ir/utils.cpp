@@ -1020,6 +1020,8 @@ std::vector<Statement*> next(Statement* stmt) {
   }
 }
 
+} // namespace
+
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
     const std::unordered_set<Statement*>& from,
@@ -1076,8 +1078,6 @@ std::vector<Statement*> checkCycle(
   // no cycle detected, return empty
   return {};
 }
-
-} // namespace
 
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
