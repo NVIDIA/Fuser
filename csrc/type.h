@@ -86,7 +86,7 @@ struct DataType;
 
 struct ArrayOf {
   std::shared_ptr<DataType> type;
-  size_t size;
+  int64_t size;
   inline bool operator==(const ArrayOf& other) const;
 };
 
