@@ -7465,43 +7465,67 @@ TEST_F(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  const int kReductionAxis = 3;
-  std::vector<int64_t> input_shape{10, 10, 10, 67};
-  TensorView* input = makeSymbolicTensor(input_shape.size());
-  fusion.addInput(input);
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeSymbolicTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
 
-  auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
 
-  fusion.addOutput(output);
+    auto output = softmax(input, kReductionAxis);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-  auto aten_output =
-      at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
 
-  auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+    fusion.addOutput(output);
 
-  schedulePersistentKernel(&fusion, *reduction_params);
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
-  auto lparams = reduction_params->lparams;
+    auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  nvfuser::FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+    schedulePersistentKernel(&fusion, *reduction_params);
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {aten_output},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
+    auto lparams = reduction_params->lparams;
+
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int batch = dev_prop->multiProcessorCount;
+  // test small values, values can't be vectorized, regular pupular values,
+  // prime numbers with or without vectorization, and large values
+  std::vector<int> features = {8, 9, 128, 256, 2753, 11012, 22024, 32768};
+  std::vector<DataType> test_dtypes = {DataType::Float, DataType::Half};
+  for (auto dtype : test_dtypes) {
+    for (auto feature : features) {
+      test_softmax(batch, feature, dtype);
+    }
+  }
 }
 
 TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {

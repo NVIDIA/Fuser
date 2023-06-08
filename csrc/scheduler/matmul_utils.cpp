@@ -21,6 +21,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -194,7 +195,7 @@ std::string isMatmulFusionDefinitionSupported(
   const auto fusion_outputs_tvs =
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
-  constexpr size_t expected_number_of_inputs = 2;
+  constexpr size_t minimal_number_of_inputs = 2;
   constexpr size_t expected_number_of_outputs = 1;
 
   // Quick checks - MmaOp
@@ -215,12 +216,15 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks - Fusion
   {
-    // Fusion can only have two TV inputs
-    if (fusion_inputs.size() != fusion_inputs_tvs.size()) {
+    // Fusion should contain at least two inputs (for now)
+    if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
     }
-    if (expected_number_of_inputs != fusion_inputs.size()) {
-      return "Fusion inputs contain at least one non-TensorView object";
+    if (minimal_number_of_inputs != fusion_inputs_tvs.size()) {
+      std::stringstream ss;
+      ss << "Fusion inputs must contain at least " << minimal_number_of_inputs
+         << " TensorView objects";
+      return ss.str();
     }
 
     // Fusion has only TVs as outputs, and we expect only one object in the list
@@ -282,11 +286,6 @@ std::string isMatmulFusionDefinitionSupported(
       if (!areMmaOpInputDependeciesValid(mma_in)) {
         return "MmaOp input has unsupported dependency";
       }
-    }
-
-    // MmaOp output must be a fusion output
-    if (!mma_output->isFusionOutput()) {
-      return "Mma op output does not belong to fusion outputs";
     }
   }
 
@@ -374,6 +373,9 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
+
+  // Disable magic zero for matmul kernels
+  params->cparams.enable_magic_zero = false;
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
     printMsg(params->toString());

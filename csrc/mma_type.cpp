@@ -65,13 +65,8 @@ MmaOptions MmaBuilder::build() const {
   return option_;
 }
 
-void MmaBuilder::configureMma(TensorView* mma_output) const {
-  TORCH_CHECK(
-      mma_output->definition(),
-      "configureMma: invalid for input tensor ",
-      mma_output);
-  auto mma = dynamic_cast<MmaOp*>(mma_output->definition());
-  TORCH_CHECK(mma, "configureMma: invalid for non-mma output: ", mma_output);
+void MmaBuilder::configureMma(MmaOp* mma) const {
+  TORCH_CHECK(mma, "configureMma: invalid op object ", mma);
   mma->configureOptions(option_);
 }
 

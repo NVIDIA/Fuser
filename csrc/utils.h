@@ -515,4 +515,11 @@ class KernelIndexTypeCompute {
   int64_t tensor_most_positive_index_ = 0;
 };
 
+//! Alter an existing hash in order to combine it with a new hash in a way that
+//! is order-dependent and spreads bits over the entire range of a size_t.
+//! Inspired by boost::hash_combine. See https://stackoverflow.com/q/35985960
+inline void hashCombine(size_t& hash, size_t new_hash) {
+  hash ^= new_hash + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+}
+
 } // namespace nvfuser
