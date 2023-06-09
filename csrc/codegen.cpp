@@ -572,7 +572,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handleUntypedVal(const Val* v) final {
+  void handleArrayType(const Val* v) final {
     const auto def = v->definition();
     const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {

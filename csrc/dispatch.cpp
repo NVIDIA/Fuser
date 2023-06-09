@@ -52,8 +52,8 @@ void Val::dispatch(T handler, Val* val) {
         ptr(handler)->handle(val->as<Int>());
         return;
       }
-      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
-        ptr(handler)->handleUntypedVal(val);
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(handler)->handleArrayType(val);
         return;
       }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
@@ -354,8 +354,8 @@ void Val::constDispatch(T handler, const Val* val) {
         ptr(handler)->handle(val->as<Int>());
         return;
       }
-      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
-        ptr(handler)->handleUntypedVal(val);
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(handler)->handleArrayType(val);
         return;
       }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
@@ -869,7 +869,7 @@ void OptOutConstDispatch::handle(const AggregateVal* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handleUntypedVal(const Val* stmt) {
+void OptOutConstDispatch::handleArrayType(const Val* stmt) {
   unhandled(stmt);
 }
 
@@ -1076,7 +1076,7 @@ void OptOutDispatch::handle(AggregateVal* stmt) {
   unhandled(stmt);
 }
 
-void OptOutDispatch::handleUntypedVal(Val* stmt) {
+void OptOutDispatch::handleArrayType(Val* stmt) {
   unhandled(stmt);
 }
 

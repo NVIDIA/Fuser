@@ -168,7 +168,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const AggregateVal*);
 
-  virtual void handleUntypedVal(const Val*);
+  virtual void handleArrayType(const Val*);
 
   // Exprs
   virtual void handle(const FullOp* stmt);
@@ -254,7 +254,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(AggregateVal*);
 
-  virtual void handleUntypedVal(Val*);
+  virtual void handleArrayType(Val*);
 
   // Exprs
   virtual void handle(FullOp* stmt);
