@@ -1,3 +1,2 @@
 pybind11[global]
 ninja
-pytest
