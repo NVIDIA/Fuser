@@ -12,6 +12,8 @@
 
 namespace nvfuser {
 
+// See note [Operator checker] below
+
 namespace opcheck_impl {
 
 struct OperatorCheckerHelper {};
@@ -245,8 +247,32 @@ constexpr bool operator,(OperatorCheckerHelper, OperatorCheckerHelper) {
 
 } // namespace opcheck_impl
 
-// reference: https://en.cppreference.com/w/cpp/language/operators
 template <typename T>
 constexpr opcheck_impl::OperatorChecker<T> opcheck;
+
+// Note [Operator checker]
+//
+// "opcheck" is a utility to check if an operator for certain type is defined.
+// For example, if you want to check if int > float is defined, you can do:
+constexpr bool int_gt_float_is_defined = (opcheck<int> > opcheck<float>);
+static_assert(int_gt_float_is_defined);
+// This will return true because int > float is defined. However, if you do
+constexpr bool int_gt_pair_is_defined =
+    (opcheck<int> > opcheck<std::pair<int, int>>);
+static_assert(!int_gt_pair_is_defined);
+// This will return false because int > pair is not defined.
+//
+// This utility works for all overloadable operators in C++. Just use these ops
+// on opcheck and you will know if it is defined for the underlying type.
+//
+// Due to the limitiation of C++'s operator overloading, some operators'
+// interface might not be as clean as others. For example, the arrow operator ->
+// is a special one. If you want to check if int has ->, you need to do:
+constexpr bool int_has_arrow = (opcheck<int>->value());
+static_assert(!int_has_arrow);
+//
+// For more examples, see test_dynamic_type.cpp namespace opcheck_tests
+//
+// reference: https://en.cppreference.com/w/cpp/language/operators
 
 } // namespace nvfuser
