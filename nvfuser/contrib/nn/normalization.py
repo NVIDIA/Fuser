@@ -107,19 +107,21 @@ def norm_fusion_forward(
     channel_dim = num_dims - 1 if channels_last else 1
     num_channels = dyn_shape[channel_dim]
 
-    stat_dims = []
     # Running stats will be kept possibly for channel but never by instance, so
     # we will reduce along batch_dim before updating running stats.
-    stat_dims_nobatch = []
+    # These are used to broadcast in spatial dims
+    is_spatial_dim = [True] * num_dims
+    is_spatial_or_batch_dim = [True] * num_dims
+
     num_stats = fd.define_scalar(1)
     if NamedAxis.BATCH in stat_axes:
-        stat_dims.append(batch_dim)
+        is_spatial_dim[batch_dim] = False
         num_stats = fd.ops.mul(num_stats, batch_size)
     if NamedAxis.CHANNEL in stat_axes:
-        stat_dims.append(channel_dim)
-        stat_dims_nobatch.append(channel_dim)
+        is_spatial_dim[channel_dim] = False
+        is_spatial_or_batch_dim[channel_dim] = False
         num_stats = fd.ops.mul(num_stats, num_channels)
-    x_reduction_axes = [ax for ax in range(num_dims) if ax not in stat_dims]
+    x_reduction_axes = [ax for ax, flag in enumerate(is_spatial_dim) if flag]
     num_features = fd.define_scalar(1)
     for ax in x_reduction_axes:
         num_features = fd.ops.mul(num_features, dyn_shape[ax])
@@ -176,34 +178,32 @@ def norm_fusion_forward(
             fd.add_output(new_var_channels_only, alias_input=running_var)
 
         mean = x_mean
-        mean_bcast = fd.ops.broadcast_in_dim(mean, dyn_shape, stat_dims)
+        mean_bcast = fd.ops.broadcast(mean, is_spatial_dim)
         x_sub_mean = fd.ops.sub(x, mean_bcast)
 
         var_eps = fd.ops.add(x_var, eps)
         invstd = fd.ops.rsqrt(var_eps)
-        invstd_bcast = fd.ops.broadcast_in_dim(invstd, dyn_shape, stat_dims)
+        invstd_bcast = fd.ops.broadcast(invstd, is_spatial_dim)
 
         x_normed = fd.ops.mul(x_sub_mean, invstd_bcast)
 
     else:  # This is inference mode with running stats
         assert running_mean is not None
-        r_mean_bcast = fd.ops.broadcast_in_dim(
-            running_mean, dyn_shape, stat_dims_nobatch
-        )
+        r_mean_bcast = fd.ops.broadcast(running_mean, is_spatial_or_batch_dim)
         x_sub_mean = fd.ops.sub(x, r_mean_bcast)
 
         var_eps = fd.ops.add(running_var, eps)
         invstd = fd.ops.rsqrt(var_eps)
-        invstd_bcast = fd.ops.broadcast_in_dim(invstd, dyn_shape, stat_dims_nobatch)
+        invstd_bcast = fd.ops.broadcast(invstd, is_spatial_or_batch_dim)
 
         mean = running_mean
         x_normed = fd.ops.mul(x_sub_mean, invstd_bcast)
 
     if weight is not None:
-        weight_bcast = fd.ops.broadcast_in_dim(weight, dyn_shape, stat_dims_nobatch)
+        weight_bcast = fd.ops.broadcast(weight, is_spatial_or_batch_dim)
         x_normed = fd.ops.mul(x_normed, weight_bcast)
     if bias is not None:
-        bias_bcast = fd.ops.broadcast_in_dim(bias, dyn_shape, stat_dims_nobatch)
+        bias_bcast = fd.ops.broadcast(bias, is_spatial_or_batch_dim)
         x_normed = fd.ops.add(x_normed, bias_bcast)
 
     return x_normed, mean, invstd
@@ -278,24 +278,26 @@ def norm_fusion_backward(
     channel_dim = num_dims - 1 if channels_last else 1
     num_channels = dyn_shape[channel_dim]
 
-    stat_dims = []
     # Running stats will be kept possibly for channel but never by instance, so
     # we will reduce along batch_dim before updating running stats.
-    stat_dims_nobatch = []
+    # These are used to broadcast in spatial dims
+    is_spatial_dim = [True] * num_dims
+    is_spatial_or_batch_dim = [True] * num_dims
+
     num_stats = fd.define_scalar(1)
     if NamedAxis.BATCH in stat_axes:
-        stat_dims.append(batch_dim)
+        is_spatial_dim[batch_dim] = False
         num_stats = fd.ops.mul(num_stats, batch_size)
     if NamedAxis.CHANNEL in stat_axes:
-        stat_dims.append(channel_dim)
-        stat_dims_nobatch.append(channel_dim)
+        is_spatial_dim[channel_dim] = False
+        is_spatial_or_batch_dim[channel_dim] = False
         num_stats = fd.ops.mul(num_stats, num_channels)
-    x_reduction_axes = [ax for ax in range(num_dims) if ax not in stat_dims]
+    x_reduction_axes = [ax for ax, flag in enumerate(is_spatial_dim) if flag]
     num_features = fd.define_scalar(1)
     for ax in x_reduction_axes:
         num_features = fd.ops.mul(num_features, dyn_shape[ax])
 
-    mean = fd.ops.broadcast_in_dim(mean, dyn_shape, [batch_dim, channel_dim])
+    mean = fd.ops.broadcast(mean, is_spatial_dim)
 
     norm = fd.ops.reciprocal(num_features)
     grad_output_sum = fd.ops.sum(grad_output, x_reduction_axes)
@@ -306,31 +308,22 @@ def norm_fusion_backward(
         ),
         x_reduction_axes,
     )
-    grad_mean = fd.ops.broadcast_in_dim(
-        fd.ops.mul(grad_output_sum, norm),
-        dyn_shape,
-        [batch_dim, channel_dim],
-    )
-    proj_scale = fd.ops.broadcast_in_dim(
+    grad_mean = fd.ops.broadcast(fd.ops.mul(grad_output_sum, norm), is_spatial_dim)
+    proj_scale = fd.ops.broadcast(
         fd.ops.mul(
             fd.ops.mul(dot_p, norm),
             fd.ops.mul(invstd, invstd),
         ),
-        dyn_shape,
-        [batch_dim, channel_dim],
+        is_spatial_dim,
     )
 
-    invstd_bcast = fd.ops.broadcast_in_dim(
-        invstd,
-        dyn_shape,
-        [batch_dim, channel_dim],
-    )
+    invstd_bcast = fd.ops.broadcast(invstd, is_spatial_dim)
     grad_scale = (
         invstd_bcast
         if weight is None
         else fd.ops.mul(
             invstd_bcast,
-            fd.ops.broadcast_in_dim(weight, dyn_shape, stat_dims_nobatch),
+            fd.ops.broadcast(weight, is_spatial_or_batch_dim),
         )
     )
     if use_input_stats:
