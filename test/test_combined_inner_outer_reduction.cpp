@@ -160,8 +160,30 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
+    // In combined_inner_outer_reduction, the inner dim should be a
+    // multiplication of a quarter warp and vectorization factor. Otherwise,
+    // will use segregated version, see checkCombinedReductionShape.
+    int64_t feature_size = 1;
+    for (auto s : norm_shape) {
+      feature_size *= s;
+    }
+    int64_t vectorization_factor = 16l / dataTypeSize(dtype);
+    // try 8, 4, 2, 1
+    while (feature_size % vectorization_factor) {
+      vectorization_factor /= 2;
+    }
+    const int64_t quarter_warp =
+        at::cuda::getCurrentDeviceProperties()->warpSize / 4;
+    const int64_t n_elements_factor = quarter_warp * vectorization_factor;
+    bool expect_segmentation = feature_size % n_elements_factor;
+
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    TORCH_CHECK(!is_segmented, "Fusion is segmented");
+    TORCH_CHECK(
+        expect_segmentation == is_segmented,
+        "Fusion segmentation is different from expected!, expected: ",
+        expect_segmentation,
+        ", actual: ",
+        is_segmented);
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -233,7 +255,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {576}, {768}, {1024}, {1280}, {1600}};
+      {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}};
 
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
