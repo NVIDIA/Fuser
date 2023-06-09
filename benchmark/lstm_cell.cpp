@@ -211,14 +211,9 @@ static void LstmCell_RunFusion_GpuOnly(
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.setMeasureKernelTimeFlag(true);
   executor.compileFusion(&fusion, inputs);
 
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);
-    benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
-  }
+  runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
 }
 
 BENCHMARK_CAPTURE(LstmCell_RunFusion_GpuOnly, Small, 512, 64)

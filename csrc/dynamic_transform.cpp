@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
+#include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ops/utils.h>
@@ -24,19 +25,24 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
-  cloned_info.dynamic_reshapes_.reserve(dynamic_reshapes_.size());
-  for (const auto op : dynamic_reshapes_) {
+  cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
+  for (const auto op : dynamic_reshaped_tvs_) {
     if (op) {
-      cloned_info.dynamic_reshapes_.push_back(ir_cloner.clone(op));
+      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.dynamic_resizes_.reserve(dynamic_resizes_.size());
-  for (const auto op : dynamic_resizes_) {
+  cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
+  for (const auto op : dynamic_resized_ids_) {
     if (op) {
-      cloned_info.dynamic_resizes_.push_back(ir_cloner.clone(op));
+      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.expr_eval_ = expr_eval_.clone(ir_cloner);
+  cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
+  for (const auto v : root_dynamic_vals_) {
+    if (v) {
+      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
+    }
+  }
   return cloned_info;
 }
 
@@ -44,12 +50,12 @@ std::string DynamicTransformInitialInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformInitialInfo\n";
   std::string indent = "  ";
-  ss << indent << "Dynamic reshapes:\n";
-  for (const auto& op : dynamic_reshapes_) {
+  ss << indent << "Dynamic reshaped TensorViews:\n";
+  for (const auto& op : dynamic_reshaped_tvs_) {
     ss << indent << indent << op->toString() << "\n";
   }
-  ss << indent << "Dynamic resizes:\n";
-  for (const auto& op : dynamic_resizes_) {
+  ss << indent << "Dynamic resized IterDomains:\n";
+  for (const auto& op : dynamic_resized_ids_) {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Root dynamic Vals:\n";
@@ -71,18 +77,6 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
-
-    // initial_info_ provides a set of Vals that are used for concretization.
-    // Here we check which scalar inputs, if any, correspond to any of those
-    // Vals. These will be the inputs that are explicitly used in the cache ID
-    // for KernelArgumentHolder.
-    auto dyn_vals = info_.getRootDynamicVals();
-    for (const auto i : c10::irange(fusion->inputs().size())) {
-      auto input = fusion->inputs().at(i);
-      if (dyn_vals.find(input) != dyn_vals.end()) {
-        info_.scalar_inputs_affecting_concretization_.insert(i);
-      }
-    }
   }
 
   const auto& getInfo() const {
@@ -98,25 +92,17 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshapes_.push_back(op);
+      info_.dynamic_reshaped_tvs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
       const auto& inp_dom =
           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
       for (const auto id : inp_dom) {
-        // Try and evaluate the extent so that intermediate expressions are
-        // cached in expr_eval_
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+        leaf_dynamic_vals_.push_back(id->extent());
       }
       const auto& out_dom = out_tv->getMaybeRFactorDomain();
       for (const auto id : out_dom) {
-        auto ext = info_.expr_eval_.evaluate(id->extent());
-        if (!ext.has_value()) {
-          leaf_dynamic_vals_.push_back(id->extent());
-        }
+        leaf_dynamic_vals_.push_back(id->extent());
       }
     }
   }
@@ -128,12 +114,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
       }
-      if (auto op = dynamic_cast<Resize*>(id->definition())) {
-        info_.dynamic_resizes_.push_back(op);
+      if (id->definition()->isA<Resize>()) {
+        info_.dynamic_resized_ids_.push_back(id);
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
-        // warm up extent evaluation
-        info_.expr_eval_.evaluate(id->extent());
       }
     }
   }
@@ -143,6 +127,18 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void finalizeDynamicVals() {
     const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
+
+    // initial_info_ provides a set of Vals that are used for concretization.
+    // Here we check which scalar inputs, if any, correspond to any of those
+    // Vals. These will be the inputs that are explicitly used in the cache ID
+    // for KernelArgumentHolder.
+    auto dyn_vals = info_.getRootDynamicVals();
+    for (const auto i : c10::irange(info_.fusion()->inputs().size())) {
+      auto input = info_.fusion()->inputs().at(i);
+      if (dyn_vals.find(input) != dyn_vals.end()) {
+        info_.scalar_inputs_affecting_concretization_.insert(i);
+      }
+    }
   }
 
  private:
@@ -159,11 +155,12 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 };
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
-    const DynamicTransformInitialInfo* info,
     ExpressionEvaluator* expr_eval) {
-  for (const auto op : info->getDynamicReshapes()) {
+  const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
+  for (const auto tv_index : c10::irange(reshape_tvs.size())) {
+    auto out_tv = reshape_tvs.at(tv_index);
+    auto op = out_tv->definition()->as<ViewOp>();
     auto inp_tv = op->in()->as<TensorView>();
-    auto out_tv = op->out()->as<TensorView>();
 
     // If there's no symblic axis, this is a static reshape op
     if (!out_tv->domain()->hasSymbolicAxis()) {
@@ -237,15 +234,16 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
 
-    reshape_transforms_.emplace_back(out_tv, view_result);
+    reshape_transforms_.emplace_back(tv_index, view_result);
   }
 }
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
-    const DynamicTransformInitialInfo* info,
     ExpressionEvaluator* expr_eval) {
-  for (const auto op : info->getDynamicResizes()) {
-    auto out_id = op->out()->as<IterDomain>();
+  const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
+  for (const auto id_index : c10::irange(resize_ids.size())) {
+    auto out_id = resize_ids.at(id_index);
+    auto op = out_id->definition()->as<Resize>();
 
     TORCH_CHECK(
         out_id->getIterType() == IterType::Symbolic,
@@ -272,7 +270,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
     auto iter_type =
         extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
 
-    resize_transforms_.emplace_back(out_id, iter_type);
+    resize_itertypes_.emplace_back(id_index, iter_type);
   }
 }
 
@@ -282,27 +280,23 @@ bool DynamicTransformConcretizationInfo::operator==(
     return true;
   }
 
-  if (fusion_ != other.fusion_) {
-    return false;
-  }
-
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_transforms_.size() != other.resize_transforms_.size()) {
+      resize_itertypes_.size() != other.resize_itertypes_.size()) {
     return false;
   }
 
   for (const auto i : c10::irange(reshape_transforms_.size())) {
-    const auto& transform = reshape_transforms_.at(i);
-    const auto& other_transform = other.reshape_transforms_.at(i);
-    if (transform != other_transform) {
+    const auto& analysis = reshape_transforms_.at(i);
+    const auto& other_analysis = other.reshape_transforms_.at(i);
+    if (analysis != other_analysis) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(resize_transforms_.size())) {
-    const auto& transform = resize_transforms_.at(i);
-    const auto& other_transform = other.resize_transforms_.at(i);
-    if (transform != other_transform) {
+  for (const auto i : c10::irange(resize_itertypes_.size())) {
+    const auto& itertype = resize_itertypes_.at(i);
+    const auto& other_itertype = other.resize_itertypes_.at(i);
+    if (itertype != other_itertype) {
       return false;
     }
   }
@@ -310,40 +304,21 @@ bool DynamicTransformConcretizationInfo::operator==(
   return true;
 }
 
-DynamicTransformConcretizationInfo DynamicTransformConcretizationInfo::clone(
-    IrCloner& ir_cloner) const {
-  DynamicTransformConcretizationInfo cloned_info(
-      static_cast<Fusion*>(ir_cloner.container()));
-  for (const auto& [tv, analyze_result] : reshape_transforms_) {
-    cloned_info.reshape_transforms_.emplace_back(
-        ir_cloner.clone(tv),
-        // reshape_transforms_ holds pairs of TensorView* and AnalyzeViewResult
-        // AnalyzeViewResult can be copied directly as it holds no references to
-        // Statements that would need cloning, only integer indices of axes.
-        analyze_result);
-  }
-  for (const auto& [id, iter_type] : resize_transforms_) {
-    cloned_info.resize_transforms_.emplace_back(
-        ir_cloner.clone(id),
-        // Similar to reshape_transforms_, we only clone the IterDomains in
-        // resize_transforms_
-        iter_type);
-  }
-  return cloned_info;
-}
-
 std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
   ss << indent << "Reshape:\n";
-  for (const auto& kv : reshape_transforms_) {
-    ss << indent << indent << kv.first->toString() << ", "
-       << kv.second.toString() << "\n";
+  for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
+    auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
+    ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
+       << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
-  for (const auto& [id, iter_type] : resize_transforms_) {
-    ss << indent << indent << id->toString() << ", " << iter_type << "\n";
+  for (const auto& [id_index, iter_type] : resize_itertypes_) {
+    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
+    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
+       << iter_type << "\n";
   }
   return ss.str();
 }
@@ -353,10 +328,10 @@ class DynamicTransformConcretizer : public OptOutMutator {
  public:
   DynamicTransformConcretizer(
       Fusion* fusion,
-      const DynamicTransformConcretizationInfo& info)
+      const DynamicTransformConcretizationInfo* info)
       : info_(info) {
     TORCH_INTERNAL_ASSERT(
-        fusion == info.fusion(),
+        fusion == info->fusion(),
         "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
     concretize();
   }
@@ -391,7 +366,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
  private:
-  const DynamicTransformConcretizationInfo& info_;
+  const DynamicTransformConcretizationInfo* info_;
 };
 
 void DynamicTransformConcretizer::concretize() {
@@ -402,7 +377,7 @@ void DynamicTransformConcretizer::concretize() {
   concretizeResize();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_.fusion(), true);
+  auto all_stmts = StmtSort::getStmts(info_->fusion(), true);
   for (auto stmt : all_stmts) {
     if (stmt->isA<Val>()) {
       mutate(stmt);
@@ -412,11 +387,11 @@ void DynamicTransformConcretizer::concretize() {
 
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
-  for (const auto& kv : info_.getReshapeTransforms()) {
-    auto incomplete_out_tv = kv.first;
-    const auto view_analysis = kv.second;
-
-    auto inp_tv = ir_utils::producerTvsOf(incomplete_out_tv).at(0);
+  for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
+    auto incomplete_out_tv =
+        info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
+    auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
+    auto inp_tv = view_op->in()->as<TensorView>();
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
@@ -435,13 +410,14 @@ void DynamicTransformConcretizer::concretizeReshape() {
           incomplete_out_tv, concrete_reshape_out_tv);
     }
 
-    incomplete_out_tv->fusion()->removeVal(incomplete_out_tv);
+    info_->fusion()->removeVal(incomplete_out_tv);
   }
 }
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& [id, iter_type] : info_.getResizeTransforms()) {
+  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
+    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
     TORCH_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
@@ -694,69 +670,19 @@ DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
   return builder.getInfo();
 }
 
-DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
-    Fusion* fusion,
-    const DynamicTransformInitialInfo* info,
-    ExpressionEvaluator* expr_eval) {
-  return DynamicTransformConcretizationInfo(fusion, info, expr_eval);
-}
-
-DynamicTransformConcretizationInfo DynamicTransform::getConcretizationInfo(
-    Fusion* fusion,
-    const DynamicTransformInitialInfo* info,
-    const KernelArgumentHolder* args) {
-  // Copy the expression evaluator that has some values precomputed
-  auto expr_eval = info->getExpressionEvaluator();
-
-  // Bind input scalars and tensor metadata to symbolic scalars
-  TORCH_CHECK(
-      args->size() == fusion->inputs().size(),
-      "Received ",
-      args->size(),
-      " inputs but expected ",
-      fusion->inputs().size());
-  for (auto i : c10::irange(args->size())) {
-    const auto& inpi = fusion->inputs()[i];
-    const auto argi = (*args)[i];
-    if (inpi->isIntegralScalar()) {
-      TORCH_CHECK(
-          argi->isType(ArgType::Long),
-          "Expected integer input at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
-
-      const int64_t arg_val = *reinterpret_cast<const int64_t*>(argi->arg());
-      expr_eval.bind(inpi, arg_val);
-    } else if (inpi->isA<TensorView>()) {
-      const auto& tv = inpi->as<TensorView>();
-      const auto& dom = tv->domain()->maybeRFactor();
-      TORCH_CHECK(
-          argi->isType(ArgType::Tensor),
-          "Expected CUDA tensor at position ",
-          i,
-          " but found ",
-          argTypeToString(argi->type()));
-      const TensorArgAbstract* targ =
-          reinterpret_cast<const TensorArgAbstract*>(argi);
-      for (auto j : c10::irange(dom.size())) {
-        expr_eval.bind(dom[j]->extent(), targ->getSize((int64_t)j));
-      }
-    }
-  }
-  return DynamicTransformConcretizationInfo(fusion, info, &expr_eval);
-}
-
 void DynamicTransform::concretizeFusion(
     Fusion* fusion,
-    const DynamicTransformConcretizationInfo& info) {
+    const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
-    hash += view_result.hash();
+    hashCombine(hash, view_result.hash());
+  }
+  for (const auto& [id, iter_type] : getResizeIterTypes()) {
+    hashCombine(hash, (size_t)iter_type);
   }
   return hash;
 }
