@@ -242,6 +242,9 @@ static_assert(
         std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
     std::make_tuple(1, 2, 3));
 
+static_assert(belongs_to<int, float, double, int>);
+static_assert(!belongs_to<int, float, double, long>);
+
 } // namespace util_tests
 
 } // namespace nvfuser

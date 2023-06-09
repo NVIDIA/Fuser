@@ -384,12 +384,33 @@ constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
         },
         t);
     auto proccessed_others = remove_void_from_tuple(others);
-    if constexpr (std::is_same_v<std::tuple_element_t<0, decltype(head)>, Void>) {
+    if constexpr (std::is_same_v<
+                      std::tuple_element_t<0, decltype(head)>,
+                      Void>) {
       return proccessed_others;
     } else {
       return std::tuple_cat(head, proccessed_others);
     }
   }
 }
+
+// check if T belongs to the given type list Ts
+
+template <typename T, typename... Ts>
+auto belongs_to_helper() {
+  auto true_or_void = [](auto* x) {
+    using U = std::remove_pointer_t<decltype(x)>;
+    if constexpr (std::is_same_v<T, U>) {
+      return true;
+    } else {
+      return;
+    }
+  };
+  return ForAllTypes<Ts...>{}(true_or_void);
+}
+
+template <typename T, typename... Ts>
+constexpr bool belongs_to = (std::tuple_size_v<decltype(remove_void_from_tuple(
+                                 belongs_to_helper<T, Ts...>()))> > 0);
 
 } // namespace nvfuser
