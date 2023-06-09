@@ -6,8 +6,10 @@
  */
 // clang-format on
 
-#include <utils.h>
+#include <type_traits.h>
+
 #include <iostream>
+#include <memory>
 
 namespace nvfuser {
 
