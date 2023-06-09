@@ -12,9 +12,9 @@
 
 namespace nvfuser {
 
-namespace has_operator_impl {
+namespace opcheck_impl {
 
-struct HasOperatorHelper {};
+struct OperatorCheckerHelper {};
 
 struct IsNullaryFunc {
   template <typename T>
@@ -67,33 +67,33 @@ struct FalseType {
 };
 
 template <typename T>
-struct HasOperator {
-  constexpr operator HasOperatorHelper() const {
+struct OperatorChecker {
+  constexpr operator OperatorCheckerHelper() const {
     return {};
   }
 
   template <typename T1>
-  constexpr auto operator=(HasOperator<T1>) const
+  constexpr auto operator=(OperatorChecker<T1>) const
       -> decltype((std::declval<T>() = std::declval<T1>()), true) {
     return true;
   }
 
-  constexpr bool operator=(HasOperatorHelper) const {
+  constexpr bool operator=(OperatorCheckerHelper) const {
     return false;
   }
 
   template <typename... Ts>
-  constexpr auto operator()(HasOperator<Ts>... args) const
+  constexpr auto operator()(OperatorChecker<Ts>... args) const
       -> decltype((std::declval<T>()(std::declval<Ts>()...)), true) {
     return true;
   }
 
-  constexpr bool operator()(HasOperatorHelper) const {
+  constexpr bool operator()(OperatorCheckerHelper) const {
     return false;
   }
 
   template <typename... Ts>
-  constexpr bool operator()(HasOperatorHelper, Ts... args) const {
+  constexpr bool operator()(OperatorCheckerHelper, Ts... args) const {
     return false && operator()(args...);
   }
 
@@ -105,12 +105,12 @@ struct HasOperator {
   }
 
   template <typename T1>
-  constexpr auto operator[](HasOperator<T1>) const
+  constexpr auto operator[](OperatorChecker<T1>) const
       -> decltype((std::declval<T>()[std::declval<T1>()]), true) {
     return true;
   }
 
-  constexpr bool operator[](HasOperatorHelper) const {
+  constexpr bool operator[](OperatorCheckerHelper) const {
     return false;
   }
 
@@ -145,37 +145,37 @@ struct HasOperator {
   }
 };
 
-#define DEFINE_UNARY_OP(op)                       \
-  template <typename T1>                          \
-  constexpr auto operator op(HasOperator<T1>)     \
-      ->decltype(op std::declval<T1>(), true) {   \
-    return true;                                  \
-  }                                               \
-                                                  \
-  constexpr bool operator op(HasOperatorHelper) { \
-    return false;                                 \
+#define DEFINE_UNARY_OP(op)                           \
+  template <typename T1>                              \
+  constexpr auto operator op(OperatorChecker<T1>)     \
+      ->decltype(op std::declval<T1>(), true) {       \
+    return true;                                      \
+  }                                                   \
+                                                      \
+  constexpr bool operator op(OperatorCheckerHelper) { \
+    return false;                                     \
   }
 
-#define DEFINE_UNARY_SUFFIX_OP(op)                     \
-  template <typename T1>                               \
-  constexpr auto operator op(HasOperator<T1>, int)     \
-      ->decltype(std::declval<T1>() op, true) {        \
-    return true;                                       \
-  }                                                    \
-                                                       \
-  constexpr bool operator op(HasOperatorHelper, int) { \
-    return false;                                      \
+#define DEFINE_UNARY_SUFFIX_OP(op)                         \
+  template <typename T1>                                   \
+  constexpr auto operator op(OperatorChecker<T1>, int)     \
+      ->decltype(std::declval<T1>() op, true) {            \
+    return true;                                           \
+  }                                                        \
+                                                           \
+  constexpr bool operator op(OperatorCheckerHelper, int) { \
+    return false;                                          \
   }
 
-#define DEFINE_BINARY_OP(op)                                         \
-  template <typename T1, typename T2>                                \
-  constexpr auto operator op(HasOperator<T1>, HasOperator<T2>)       \
-      ->decltype((std::declval<T1>() op std::declval<T2>()), true) { \
-    return true;                                                     \
-  }                                                                  \
-                                                                     \
-  constexpr bool operator op(HasOperatorHelper, HasOperatorHelper) { \
-    return false;                                                    \
+#define DEFINE_BINARY_OP(op)                                                 \
+  template <typename T1, typename T2>                                        \
+  constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>)       \
+      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {         \
+    return true;                                                             \
+  }                                                                          \
+                                                                             \
+  constexpr bool operator op(OperatorCheckerHelper, OperatorCheckerHelper) { \
+    return false;                                                            \
   }
 
 // Unary operators
@@ -231,22 +231,22 @@ DEFINE_BINARY_OP(>>=);
 // preprocessor, comma is treated as a separator for arguments, so we need to do
 // it manually.
 template <typename T1, typename T2>
-constexpr auto operator,(HasOperator<T1>, HasOperator<T2>)
+constexpr auto operator,(OperatorChecker<T1>, OperatorChecker<T2>)
     -> decltype((std::declval<T1>(), std::declval<T2>()), true) {
   return true;
 }
 
-constexpr bool operator,(HasOperatorHelper, HasOperatorHelper) {
+constexpr bool operator,(OperatorCheckerHelper, OperatorCheckerHelper) {
   return false;
 }
 
 // TODO: overload the following operators:
 // <=> (requires C++20)
 
-} // namespace has_operator_impl
+} // namespace opcheck_impl
 
 // reference: https://en.cppreference.com/w/cpp/language/operators
 template <typename T>
-constexpr has_operator_impl::HasOperator<T> has_operator;
+constexpr opcheck_impl::OperatorChecker<T> opcheck;
 
 } // namespace nvfuser
