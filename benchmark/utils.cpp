@@ -200,7 +200,7 @@ void runBenchmarkIterations(
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  fusion_executor->runFusion(aten_inputs);
+  fusion_executor->runFusion(aten_inputs, launch_constraints, compile_params);
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
