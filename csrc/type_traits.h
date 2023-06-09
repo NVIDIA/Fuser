@@ -19,14 +19,39 @@ namespace opcheck_impl {
 
 struct OperatorCheckerHelper {};
 
+// Implementation detail: The pattern like IsNullaryFunc repeats multiple times
+// and the idea behind it is the key to the implementation of operator checker.
+// The idea is to use SFINAE. I will add detailed comment to IsNullaryFunc, and
+// other classes should have the same principle.
 struct IsNullaryFunc {
+  // In this struct, we define two check functions, one takes an int, and one
+  // takes a long. To use this struct, we should call
+  // IsNullaryFunc::check<T>(int{}). Be sure that the argument has type int
+  // instead of long. Because the argument is int, the compiler will try to do
+  // pattern matching on the check that takes an int argument first, because
+  // this variant does not require any automatic conversion for argument. If the
+  // pattern matching succeeds, then this variant will be chosen. Otherwise, the
+  // compiler will try the other variant, which takes a long, and this variant
+  // is designed that pattern matching always succeeds. So if the compiler
+  // decide to convert int{} to long, this variant will be generated to be
+  // chosen.
+
   template <typename T>
   static constexpr auto check(int) -> decltype((std::declval<T>()()), true) {
+    // When trying to match this variant, the compiler will try to evaluate the
+    // expression inside decltype. If the expression is valid, then the pattern
+    // matching succeeds, and this variant will be chosen. std::declval<T>() is
+    // a value of type T, and if T is a nullary function type, then
+    // std::declval<T>()() is well-formed, and the expression is valid.
+    // Otherwise the expression is invalid, and the pattern matching fails. The
+    // comma ensures that the result of decltype is always bool.
     return true;
   }
 
   template <typename T>
   static constexpr bool check(long) {
+    // The compiler will only consider this variant if the pattern matching on
+    // the previous variant fails.
     return false;
   }
 };
