@@ -41,6 +41,19 @@ struct HasArrowOperator {
   }
 };
 
+struct HasArrowStarOperator {
+  template <typename T>
+  static constexpr auto check(int)
+      -> decltype((std::declval<decltype(&T::operator->*)>()), true) {
+    return true;
+  }
+
+  template <typename T>
+  static constexpr bool check(long) {
+    return false;
+  }
+};
+
 struct TrueType {
   static constexpr bool value() {
     return true;
@@ -113,6 +126,22 @@ struct HasOperator {
       std::enable_if_t<!HasArrowOperator::check<T>(int{}), T1> = 0>
   constexpr auto operator->() const -> FalseType* {
     return nullptr;
+  }
+
+  template <
+      typename T1,
+      typename T2 = int,
+      std::enable_if_t<HasArrowStarOperator::check<T>(int{}), T2> = 0>
+  constexpr bool operator->*(T1) const {
+    return true;
+  }
+
+  template <
+      typename T1,
+      typename T2 = int,
+      std::enable_if_t<!HasArrowStarOperator::check<T>(int{}), T2> = 0>
+  constexpr bool operator->*(T1) const {
+    return false;
   }
 };
 
@@ -213,7 +242,6 @@ constexpr bool operator,(HasOperatorHelper, HasOperatorHelper) {
 
 // TODO: overload the following operators:
 // <=> (requires C++20)
-// ->* (requires pointer, unary and must be member)
 
 } // namespace has_operator_impl
 

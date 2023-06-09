@@ -160,6 +160,24 @@ static_assert(!(has_operator<HasOperatorTestType>[has_operator<int>]));
 // Arrow operator
 static_assert(has_operator<std::unique_ptr<int>>->value());
 static_assert(!has_operator<int>->value());
+
+// Arrow star operator
+struct OverloadArrowStar
+{
+    auto operator->*(int OverloadArrowStar::*memberPtr) const -> int *
+    {
+        return nullptr;
+    }
+};
+
+static_assert(has_operator<OverloadArrowStar>->*2);
+static_assert(has_operator<OverloadArrowStar>->*true);
+static_assert(has_operator<OverloadArrowStar>->*has_operator<int>);
+static_assert(!(has_operator<int>->*2));
+static_assert(!(has_operator<int>->*true));
+static_assert(!(has_operator<int>->*has_operator<OverloadArrowStar>));
+
+
 } // namespace has_operator_tests
 
 } // namespace nvfuser
