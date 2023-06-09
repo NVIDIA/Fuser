@@ -245,6 +245,13 @@ static_assert(
 static_assert(belongs_to<int, float, double, int>);
 static_assert(!belongs_to<int, float, double, long>);
 
+static_assert(
+    cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
+    std::make_tuple(
+        std::make_tuple(1.0, 2.0f),
+        std::make_tuple(1.0, 4),
+        std::make_tuple(true, 2.0f),
+        std::make_tuple(true, 4)));
 } // namespace util_tests
 
 } // namespace nvfuser

@@ -422,4 +422,18 @@ constexpr bool belongs_to =
     (std::tuple_size_v<decltype(remove_void_from_tuple(
          belongs_to_impl::get_match_tuple<T, Ts...>()))> > 0);
 
+// Take the cartesion product of two tuples.
+template <typename... Ts, typename... Us>
+constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
+  return std::apply(
+      [u](auto... ts) {
+        return std::tuple_cat(std::apply(
+            [ts](auto... us) {
+              return std::make_tuple(std::make_tuple(ts, us)...);
+            },
+            u)...);
+      },
+      t);
+}
+
 } // namespace nvfuser
