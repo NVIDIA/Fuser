@@ -286,6 +286,8 @@ constexpr bool operator,(OperatorCheckerHelper, OperatorCheckerHelper) {
 template <typename T>
 constexpr opcheck_impl::OperatorChecker<T> opcheck;
 
+namespace opcheck_note {
+
 // Note [Operator checker]
 //
 // "opcheck" is a utility to check if an operator for certain type is defined.
@@ -310,6 +312,8 @@ static_assert(!int_has_arrow);
 // For more examples, see test_dynamic_type.cpp namespace opcheck_tests
 //
 // reference: https://en.cppreference.com/w/cpp/language/operators
+
+} // namespace opcheck_note
 
 // Run the given function on each type in the variadic template list.
 // The function should take a single argument of type T*. Note that the argument
@@ -396,8 +400,10 @@ constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
 
 // check if T belongs to the given type list Ts
 
+namespace belongs_to_impl {
+
 template <typename T, typename... Ts>
-auto belongs_to_helper() {
+auto get_match_tuple() {
   auto true_or_void = [](auto* x) {
     using U = std::remove_pointer_t<decltype(x)>;
     if constexpr (std::is_same_v<T, U>) {
@@ -409,8 +415,11 @@ auto belongs_to_helper() {
   return ForAllTypes<Ts...>{}(true_or_void);
 }
 
+} // namespace belongs_to_impl
+
 template <typename T, typename... Ts>
-constexpr bool belongs_to = (std::tuple_size_v<decltype(remove_void_from_tuple(
-                                 belongs_to_helper<T, Ts...>()))> > 0);
+constexpr bool belongs_to =
+    (std::tuple_size_v<decltype(remove_void_from_tuple(
+         belongs_to_impl::get_match_tuple<T, Ts...>()))> > 0);
 
 } // namespace nvfuser
