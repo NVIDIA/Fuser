@@ -315,6 +315,11 @@ static_assert(!int_has_arrow);
 
 } // namespace opcheck_note
 
+// Basically just "void". We need this because if we have something like
+// std::tuple<void, int> we will be unable to create an instance of it.
+// So we have to use something like std::tuple<Void, int> instead.
+struct Void {};
+
 // Run the given function on each type in the variadic template list.
 // The function should take a single argument of type T*. Note that the argument
 // of the function should only be used for type deduction, and its value should
@@ -330,8 +335,10 @@ static_assert(!int_has_arrow);
 //     std::cout << T(0.2) << std::endl;
 //   };
 //   ForAllTypes<bool, int, float>{}(f);
-
-struct Void {};
+// And the output will be:
+//  1
+//  0
+//  0.2
 
 template <typename T, typename... Ts>
 struct ForAllTypes {
@@ -362,7 +369,8 @@ struct ForAllTypes<T> {
   }
 };
 
-// Check if all the given booleans are true.
+// Check if all the booleans in the arguments are true. There are two versions:
+// one for variadic arguments, and one for std::tuple.
 
 template <typename... Ts>
 constexpr bool all(Ts... bs) {
@@ -374,6 +382,20 @@ constexpr bool all(std::tuple<Ts...> bs) {
   return std::apply([](auto... bs) { return all(bs...); }, bs);
 }
 
+// Check if all the booleans in the arguments are true. There are two versions:
+// one for variadic arguments, and one for std::tuple.
+
+template <typename... Ts>
+constexpr bool any(Ts... bs) {
+  return (bs || ...);
+}
+
+template <typename... Ts>
+constexpr bool any(std::tuple<Ts...> bs) {
+  return std::apply([](auto... bs) { return any(bs...); }, bs);
+}
+
+// Remove all the voids from a tuple. For example:
 // (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
 
 template <typename... Ts>
@@ -398,10 +420,14 @@ constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
   }
 }
 
-// check if T belongs to the given type list Ts
-
+// Implementation helper for belongs_to. See below for the actual definition of
+// belongs_to.
 namespace belongs_to_impl {
 
+// Given a tuple of Ts, return a tuple with the same size as Ts. The tuple
+// contains either true or void. (true if T is the same as the corresponding
+// type in Ts, void otherwise). For example, if T = int, Ts is (int, float,
+// bool), then the return type is (true, void, void).
 template <typename T, typename... Ts>
 auto get_match_tuple() {
   auto true_or_void = [](auto* x) {
@@ -417,12 +443,17 @@ auto get_match_tuple() {
 
 } // namespace belongs_to_impl
 
+// Check if T belongs to the given type list Ts. For example
+// belongs_to<int, int, float, bool> is true, but
+// belongs_to<int, float, bool> is false.
 template <typename T, typename... Ts>
 constexpr bool belongs_to =
     (std::tuple_size_v<decltype(remove_void_from_tuple(
          belongs_to_impl::get_match_tuple<T, Ts...>()))> > 0);
 
 // Take the cartesion product of two tuples.
+// For example:
+// cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
 template <typename... Ts, typename... Us>
 constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
   return std::apply(

@@ -237,6 +237,13 @@ static_assert(all(std::make_tuple(true, true, true)));
 static_assert(!all(true, false, true));
 static_assert(!all(std::make_tuple(true, false, true)));
 
+static_assert(any(true, true, true));
+static_assert(any(std::make_tuple(true, true, true)));
+static_assert(any(true, false, true));
+static_assert(any(std::make_tuple(true, false, true)));
+static_assert(!any(false, false, false));
+static_assert(!any(std::make_tuple(false, false, false)));
+
 static_assert(
     remove_void_from_tuple(
         std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
