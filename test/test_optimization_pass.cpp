@@ -67,8 +67,9 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     TORCH_CHECK(
         ir_utils::checkCycle(fusion.get()).empty(),
         "no cycle should be detected in fusion");
+    // manually creating a cycle on the an active branch
     auto expr = tv2->definition();
-    ir_utils::replaceValInExpr(expr, tv1, tv4); // manually creating a cycle
+    ir_utils::replaceValInExpr(expr, tv1, tv4);
     TORCH_CHECK(
         ir_utils::checkCycle(fusion.get()).size() == 6,
         "cycle of size 6 should be detected in fusion");
@@ -97,11 +98,13 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv_mean = tvs.mean;
     nvfuser::Val* s0 = IrBuilder::create<Double>(1.0, DataType::Double);
     auto tv1 = add(tv_mean, s0);
+    auto tv2 = set(tv1);
 
-    // manually creating a cycle on dead branch!
+    // manually creating a cycle on dead branch
     auto expr = tv1->definition();
     ir_utils::replaceValInExpr(expr, s0, tv1);
 
+    // cycle on dead branch shouldn't be picked up by default
     TORCH_CHECK(
         ir_utils::checkCycle(fusion.get()).empty(),
         "cycle on dead branch shouldn't be detected");
@@ -109,11 +112,26 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     // adding dead branch to destination
     auto to = fusion->outputs();
     to.push_back(tv1);
+    // cycle should be detected, since dead branch is in our check path
     EXPECT_THAT(
         [&]() { StmtSort::getStmtsBetween(fusion.get(), {}, to); },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("cycle detected")));
 
+    // check for proper size of cycle detected
+    TORCH_CHECK(
+        ir_utils::checkCycle(fusion.get(), {}, to).size() == 4,
+        "cycle with size 4 before `to` should be detected");
+
+    // adding `tv2` to `from` to hide cycle from detection
+    std::unordered_set<Statement*> from;
+    from.insert(tv2);
+    TORCH_CHECK(
+        ir_utils::checkCycle(fusion.get(), from, to).empty(),
+        "cycle after `from` shouldn't be detected");
+
+    // running the unmodified fusion should succeed. cycle on dead branch
+    // shouldn't have any real impact
     auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({M, N}, options);
 
