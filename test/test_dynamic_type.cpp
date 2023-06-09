@@ -173,6 +173,14 @@ static_assert(!(opcheck<int>->*2));
 static_assert(!(opcheck<int>->*true));
 static_assert(!(opcheck<int>->*opcheck<OverloadArrowStar>));
 
+// Casting operators
+static_assert(opcheck<float>.canCastTo(opcheck<float>));
+static_assert(opcheck<float>.canCastTo(opcheck<int>));
+static_assert(opcheck<int>.canCastTo(opcheck<float>));
+static_assert(!opcheck<OperatorCheckerTestType>.canCastTo(opcheck<float>));
+static_assert(!opcheck<float>.canCastTo(opcheck<OperatorCheckerTestType>));
+static_assert(opcheck<OperatorCheckerTestType>.canCastTo(opcheck<OperatorCheckerTestType>));
+
 } // namespace opcheck_tests
 
 namespace ForAllTypes_tests {

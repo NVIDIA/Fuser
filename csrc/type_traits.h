@@ -172,6 +172,16 @@ struct OperatorChecker {
   constexpr bool operator->*(T1) const {
     return false;
   }
+
+  template <typename T1>
+  constexpr auto canCastTo(OperatorChecker<T1>) const
+      -> decltype(((T1)(std::declval<T>())), true) {
+    return true;
+  }
+
+  constexpr bool canCastTo(OperatorCheckerHelper) const {
+    return false;
+  }
 };
 
 #define DEFINE_UNARY_OP(op)                           \
