@@ -180,5 +180,16 @@ bool isConnectedOnlyThroughReductionProducer(
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
+
+//! Calculate the persistent buffer batches in each thread.
+//! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
+//! gradually reduce to small values but not smaller than a threshold determined
+//! by inner_dim_numel and outer_dim_numel.
+int64_t getPersistentBufferBatches(
+    const int64_t inner_vect,
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t warpSize);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
