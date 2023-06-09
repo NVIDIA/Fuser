@@ -10,6 +10,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <tuple>
 
 namespace nvfuser {
 
@@ -347,5 +348,17 @@ struct ForAllTypes<T> {
     }
   }
 };
+
+// Check if all the given booleans are true.
+
+template <typename ... Ts>
+constexpr bool all(Ts... bs) {
+  return (bs && ...);
+}
+
+template <typename ... Ts>
+constexpr bool all(std::tuple<Ts...> bs) {
+  return std::apply([](auto... bs) { return all(bs...); }, bs);
+}
 
 } // namespace nvfuser

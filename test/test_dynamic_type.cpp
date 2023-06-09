@@ -191,14 +191,10 @@ using From2To10 = ForAllTypes<
     std::integral_constant<int, 10>>;
 
 constexpr bool is_prime(int n) {
-  bool is_prime = true;
-  From2To10{}([&is_prime, n](auto* _) {
+  return all(From2To10{}([n](auto* _) {
     auto divisor = std::remove_pointer_t<decltype(_)>::value;
-    if (n % divisor == 0 && n != divisor) {
-      is_prime = false;
-    }
-  });
-  return is_prime;
+    return n % divisor != 0 || n == divisor;
+  }));
 }
 
 auto void_or_prime = [](auto* _) constexpr {
@@ -210,6 +206,7 @@ auto void_or_prime = [](auto* _) constexpr {
   }
 };
 
+// (2, 3, Void, 5, Void, 7, Void, Void, Void)
 using result_with_void = decltype(From2To10{}(void_or_prime));
 
 void remove_void_from_tuple(std::tuple<>) {}
