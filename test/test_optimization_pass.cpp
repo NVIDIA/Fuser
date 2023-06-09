@@ -102,7 +102,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
 
     // manually creating a cycle on dead branch
     auto expr = tv1->definition();
-    ir_utils::replaceValInExpr(expr, s0, tv1);
+    ir_utils::replaceValInExpr(expr, s0, tv2);
 
     // cycle on dead branch shouldn't be picked up by default
     TORCH_CHECK(
