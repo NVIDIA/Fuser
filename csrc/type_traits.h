@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -274,5 +275,52 @@ static_assert(!int_has_arrow);
 // For more examples, see test_dynamic_type.cpp namespace opcheck_tests
 //
 // reference: https://en.cppreference.com/w/cpp/language/operators
+
+// Run the given function on each type in the variadic template list.
+// The function should take a single argument of type T*. Note that the argument
+// of the function should only be used for type deduction, and its value should
+// not be used.
+//
+// The returned value of the function is a tuple of the return values of the
+// function calls, with void replaced by Void.
+//
+// For example, if you want to print 0.2 as bool, int, and float, you can do the
+// following:
+//   auto f = [](auto* x) {
+//     using T = std::remove_pointer_t<decltype(x)>;
+//     std::cout << T(0.2) << std::endl;
+//   };
+//   ForAllTypes<bool, int, float>{}(f);
+
+struct Void {};
+
+template <typename T, typename... Ts>
+struct ForAllTypes {
+  template <typename Fun>
+  constexpr auto operator()(Fun f) {
+    using RetT = decltype(f((T*)nullptr));
+    if constexpr (std::is_void_v<RetT>) {
+      f((T*)nullptr);
+      return std::tuple_cat(std::tuple<Void>{}, ForAllTypes<Ts...>{}(f));
+    } else {
+      return std::tuple_cat(
+          std::make_tuple(f((T*)nullptr)), ForAllTypes<Ts...>{}(f));
+    }
+  }
+};
+
+template <typename T>
+struct ForAllTypes<T> {
+  template <typename Fun>
+  constexpr auto operator()(Fun f) {
+    using RetT = decltype(f((T*)nullptr));
+    if constexpr (std::is_void_v<RetT>) {
+      f((T*)nullptr);
+      return std::tuple<Void>{};
+    } else {
+      return std::make_tuple(f((T*)nullptr));
+    }
+  }
+};
 
 } // namespace nvfuser

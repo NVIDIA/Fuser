@@ -175,4 +175,69 @@ static_assert(!(opcheck<int>->*opcheck<OverloadArrowStar>));
 
 } // namespace opcheck_tests
 
+namespace ForAllTypes_tests {
+
+// Find all primes < 10 using template deduction
+
+using From2To10 = ForAllTypes<
+    std::integral_constant<int, 2>,
+    std::integral_constant<int, 3>,
+    std::integral_constant<int, 4>,
+    std::integral_constant<int, 5>,
+    std::integral_constant<int, 6>,
+    std::integral_constant<int, 7>,
+    std::integral_constant<int, 8>,
+    std::integral_constant<int, 9>,
+    std::integral_constant<int, 10>>;
+
+constexpr bool is_prime(int n) {
+  bool is_prime = true;
+  From2To10{}([&is_prime, n](auto* _) {
+    auto divisor = std::remove_pointer_t<decltype(_)>::value;
+    if (n % divisor == 0 && n != divisor) {
+      is_prime = false;
+    }
+  });
+  return is_prime;
+}
+
+auto void_or_prime = [](auto* _) constexpr {
+  constexpr auto value = std::remove_pointer_t<decltype(_)>::value;
+  if constexpr (is_prime(value)) {
+    return std::integral_constant<int, value>{};
+  } else {
+    return;
+  }
+};
+
+using result_with_void = decltype(From2To10{}(void_or_prime));
+
+void remove_void_from_tuple(std::tuple<>) {}
+
+template <typename T, typename... Ts>
+auto remove_void_from_tuple(std::tuple<T, Ts...>) {
+  if constexpr (std::is_same_v<T, Void>) {
+    return remove_void_from_tuple(std::tuple<Ts...>{});
+  } else {
+    using others_t = decltype(remove_void_from_tuple(std::tuple<Ts...>{}));
+    if constexpr (std::is_void_v<others_t>) {
+      return std::tuple<T>{};
+    } else {
+      return std::tuple_cat(std::tuple<T>{}, others_t{});
+    }
+  }
+}
+
+using result = decltype(remove_void_from_tuple(result_with_void{}));
+
+static_assert(std::is_same_v<
+              result,
+              std::tuple<
+                  std::integral_constant<int, 2>,
+                  std::integral_constant<int, 3>,
+                  std::integral_constant<int, 5>,
+                  std::integral_constant<int, 7>>>);
+
+} // namespace ForAllTypes_tests
+
 } // namespace nvfuser
