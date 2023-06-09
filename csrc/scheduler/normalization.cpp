@@ -86,21 +86,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   InnerOuterParams iop;
 
-  // Set a minimum workload for each thread to take advantage of low
-  // intra-threads communication cost. Tuned for layer_norm backward on A100.
-  auto getMinimumBatch = [&]() -> int64_t {
-    if (inner_dim_numel >= 3072) {
-      if (outer_dim_numel <= 2048 && inner_dim_numel == 3072) {
-        return 3;
-      } else {
-        return 4;
-      }
-    } else if (inner_dim_numel >= 2048) {
-      return 2;
-    }
-    return 1;
-  };
-
   // Estimate register per thread based on buffer size, since inner reduction
   // dim is fully parallelized, the buffer size of each thread equals the total
   // buffer size divide by inner_dim_numel.
@@ -136,34 +121,14 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
-  int64_t threads_per_block = dev_prop->warpSize / 4;
   iop.inner_vect = (int64_t)vectorize_factor;
-  iop.inner_batch = inner_dim_numel / iop.inner_vect / threads_per_block;
+  iop.inner_batch = normalization_scheduler_utils::getPersistentBufferBatches(
+      iop.inner_vect, inner_dim_numel, outer_dim_numel, dev_prop->warpSize);
+  int64_t threads_per_block =
+      inner_dim_numel / iop.inner_vect / iop.inner_batch;
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block == inner_dim_numel,
       " inner_dim_numel must be dividable by the multiplication of a quarter warp and vectorize_factor");
-  const int64_t threads_per_block_max = inner_dim_numel >= 20480 ? 512 : 256;
-  const int64_t batch_min = getMinimumBatch();
-  auto tryReduceBatch = [&](auto factor) -> bool {
-    return iop.inner_batch % factor == 0 &&
-        iop.inner_batch / factor >= batch_min &&
-        threads_per_block * factor <= threads_per_block_max;
-  };
-  while (iop.inner_batch > batch_min &&
-         threads_per_block < threads_per_block_max) {
-    bool modified = false;
-    for (auto factor : {2, 3, 5}) {
-      if (tryReduceBatch(factor)) {
-        iop.inner_batch /= factor;
-        threads_per_block *= factor;
-        modified = true;
-        break;
-      }
-    }
-    if (!modified) {
-      break;
-    }
-  }
 
   // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
   // from buffer size, then it is used to calculate threads_per_sm and gdimy.

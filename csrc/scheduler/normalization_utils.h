@@ -180,5 +180,24 @@ bool isConnectedOnlyThroughReductionProducer(
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
+
+//! Calculate the persistent buffer batches in each thread.
+//! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
+//! gradually reduce to small values but not smaller than a threshold determined
+//! by inner_dim_numel and outer_dim_numel.
+int64_t getPersistentBufferBatches(
+    const int64_t inner_vect,
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t warpSize);
+
+//! Each thread can use a maximum of 255 registers, and assume 40 of them are
+//! reserved for indexing and other purposes. So, each thread can use up to 215
+//! registers for persistent buffer. Calculate number of buffer batches using
+//! these 215 registers.
+int64_t getMaximumBatch(
+    const int64_t total_buffer_bytes,
+    const int64_t reduction_elements,
+    const int64_t vectorization_factor);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

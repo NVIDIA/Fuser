@@ -7,6 +7,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/utils.h>
@@ -167,15 +168,23 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     for (auto s : norm_shape) {
       feature_size *= s;
     }
+    int64_t batch_size = 1;
+    for (auto s : batch_shape) {
+      batch_size *= s;
+    }
     int64_t vectorization_factor = 16l / dataTypeSize(dtype);
     // try 8, 4, 2, 1
     while (feature_size % vectorization_factor) {
       vectorization_factor /= 2;
     }
-    const int64_t quarter_warp =
-        at::cuda::getCurrentDeviceProperties()->warpSize / 4;
-    const int64_t n_elements_factor = quarter_warp * vectorization_factor;
-    bool expect_segmentation = feature_size % n_elements_factor;
+    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
+    const int64_t n_elements_factor = warp_size / 4 * vectorization_factor;
+    const int64_t inner_batch =
+        normalization_scheduler_utils::getPersistentBufferBatches(
+            vectorization_factor, feature_size, batch_size, warp_size);
+    const int64_t max_batch = 7l;
+    bool expect_segmentation =
+        feature_size % n_elements_factor || inner_batch > max_batch;
 
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(
@@ -255,8 +264,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}};
-
+      {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;

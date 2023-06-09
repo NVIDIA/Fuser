@@ -151,10 +151,10 @@ namespace {
 int64_t getAvailableRegisterCount(int64_t persistent_buffer_factor) {
   // The thread block size is (currently) always 256, so each thread
   // can use up to 255 registers
-  int64_t register_count = 255;
+  int64_t register_count = scheduler_utils::max_registers_per_thread;
 
   // Offset a constant overhead
-  register_count -= 40;
+  register_count -= scheduler_utils::register_overhead;
 
   // Allow small number of spills
   register_count += 5;
@@ -623,6 +623,62 @@ int64_t partialReductionBufferSize(
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+int64_t getPersistentBufferBatches(
+    const int64_t inner_vect,
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t warpSize) {
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072) {
+      if (outer_dim_numel <= 2048 && inner_dim_numel == 3072) {
+        return 3;
+      } else {
+        return 4;
+      }
+    } else if (inner_dim_numel >= 2048) {
+      return 2;
+    }
+    return 1;
+  };
+  int64_t threads_per_block = warpSize / 4;
+  int64_t inner_batch = inner_dim_numel / inner_vect / threads_per_block;
+  const int64_t threads_per_block_max = inner_dim_numel >= 20480 ? 512 : 256;
+  const int64_t batch_min = getMinimumBatch();
+  auto tryReduceBatch = [&](auto factor) -> bool {
+    return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
+        threads_per_block * factor <= threads_per_block_max;
+  };
+  while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
+    bool modified = false;
+    for (auto factor : {2, 3, 5}) {
+      if (tryReduceBatch(factor)) {
+        inner_batch /= factor;
+        threads_per_block *= factor;
+        modified = true;
+        break;
+      }
+    }
+    if (!modified) {
+      break;
+    }
+  }
+  return inner_batch;
+}
+
+int64_t getMaximumBatch(
+    const int64_t total_buffer_bytes,
+    const int64_t reduction_elements,
+    const int64_t vectorization_factor) {
+  int64_t register_per_batch = total_buffer_bytes / reduction_elements /
+      scheduler_utils::bytes_per_register * vectorization_factor;
+  return scheduler_utils::safeDiv(
+      scheduler_utils::max_registers_per_thread -
+          scheduler_utils::register_overhead,
+      register_per_batch);
 }
 
 } // namespace normalization_scheduler_utils

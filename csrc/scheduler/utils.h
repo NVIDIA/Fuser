@@ -30,6 +30,9 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+constexpr int64_t register_overhead = 40l;
+constexpr int64_t max_registers_per_thread = 255l;
+constexpr int64_t bytes_per_register = 4l;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
