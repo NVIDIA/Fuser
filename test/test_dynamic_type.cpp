@@ -155,6 +155,9 @@ static_assert(has_operator<int[3]>[has_operator<int>]);
 static_assert(!(has_operator<int[3]>[has_operator<HasOperatorTestType>]));
 static_assert(!(has_operator<HasOperatorTestType>[has_operator<int>]));
 
+// Arrow operator
+static_assert(has_operator<std::unique_ptr<int>>->value());
+static_assert(!has_operator<int>->value());
 } // namespace has_operator_tests
 
 } // namespace nvfuser

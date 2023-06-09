@@ -530,6 +530,31 @@ struct IsNullaryFunc {
   }
 };
 
+struct HasArrowOperator {
+  template <typename T>
+  static constexpr auto check(int)
+      -> decltype((std::declval<decltype(&T::operator->)>()), true) {
+    return true;
+  }
+
+  template <typename T>
+  static constexpr bool check(long) {
+    return false;
+  }
+};
+
+struct TrueType {
+  static constexpr bool value() {
+    return true;
+  }
+};
+
+struct FalseType {
+  static constexpr bool value() {
+    return false;
+  }
+};
+
 template <typename T>
 struct HasOperator {
   constexpr operator HasOperatorHelper() const {
@@ -576,6 +601,20 @@ struct HasOperator {
 
   constexpr bool operator[](HasOperatorHelper) const {
     return false;
+  }
+
+  template <
+      typename T1 = int,
+      std::enable_if_t<HasArrowOperator::check<T>(int{}), T1> = 0>
+  constexpr auto operator->() const -> TrueType* {
+    return nullptr;
+  }
+
+  template <
+      typename T1 = int,
+      std::enable_if_t<!HasArrowOperator::check<T>(int{}), T1> = 0>
+  constexpr auto operator->() const -> FalseType* {
+    return nullptr;
   }
 };
 
