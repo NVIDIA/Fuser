@@ -179,7 +179,8 @@ static_assert(opcheck<float>.canCastTo(opcheck<int>));
 static_assert(opcheck<int>.canCastTo(opcheck<float>));
 static_assert(!opcheck<OperatorCheckerTestType>.canCastTo(opcheck<float>));
 static_assert(!opcheck<float>.canCastTo(opcheck<OperatorCheckerTestType>));
-static_assert(opcheck<OperatorCheckerTestType>.canCastTo(opcheck<OperatorCheckerTestType>));
+static_assert(opcheck<OperatorCheckerTestType>.canCastTo(
+    opcheck<OperatorCheckerTestType>));
 
 } // namespace opcheck_tests
 
@@ -217,22 +218,6 @@ auto void_or_prime = [](auto* _) constexpr {
 // (2, 3, Void, 5, Void, 7, Void, Void, Void)
 using result_with_void = decltype(From2To10{}(void_or_prime));
 
-void remove_void_from_tuple(std::tuple<>) {}
-
-template <typename T, typename... Ts>
-auto remove_void_from_tuple(std::tuple<T, Ts...>) {
-  if constexpr (std::is_same_v<T, Void>) {
-    return remove_void_from_tuple(std::tuple<Ts...>{});
-  } else {
-    using others_t = decltype(remove_void_from_tuple(std::tuple<Ts...>{}));
-    if constexpr (std::is_void_v<others_t>) {
-      return std::tuple<T>{};
-    } else {
-      return std::tuple_cat(std::tuple<T>{}, others_t{});
-    }
-  }
-}
-
 using result = decltype(remove_void_from_tuple(result_with_void{}));
 
 static_assert(std::is_same_v<
@@ -244,5 +229,19 @@ static_assert(std::is_same_v<
                   std::integral_constant<int, 7>>>);
 
 } // namespace ForAllTypes_tests
+
+namespace util_tests {
+
+static_assert(all(true, true, true));
+static_assert(all(std::make_tuple(true, true, true)));
+static_assert(!all(true, false, true));
+static_assert(!all(std::make_tuple(true, false, true)));
+
+static_assert(
+    remove_void_from_tuple(
+        std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
+    std::make_tuple(1, 2, 3));
+
+} // namespace util_tests
 
 } // namespace nvfuser

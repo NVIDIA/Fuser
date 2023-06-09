@@ -10,7 +10,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <tuple>
 
 namespace nvfuser {
 
@@ -361,14 +360,35 @@ struct ForAllTypes<T> {
 
 // Check if all the given booleans are true.
 
-template <typename ... Ts>
+template <typename... Ts>
 constexpr bool all(Ts... bs) {
   return (bs && ...);
 }
 
-template <typename ... Ts>
+template <typename... Ts>
 constexpr bool all(std::tuple<Ts...> bs) {
   return std::apply([](auto... bs) { return all(bs...); }, bs);
+}
+
+// (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
+
+void remove_void_from_tuple(std::tuple<>) {}
+
+template <typename T, typename... Ts>
+auto remove_void_from_tuple(std::tuple<T, Ts...> t) {
+  std::tuple<Ts...> others = std::apply(
+      [](auto head, auto... tail) { return std::make_tuple(tail...); }, t);
+  if constexpr (std::is_same_v<T, Void>) {
+    return remove_void_from_tuple();
+  } else {
+    using first = std::tuple<T>{std::get<0>(t)};
+    using others_t = decltype(remove_void_from_tuple(others));
+    if constexpr (std::is_void_v<others_t>) {
+      return first;
+    } else {
+      return std::tuple_cat(first, others);
+    }
+  }
 }
 
 } // namespace nvfuser
