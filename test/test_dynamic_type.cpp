@@ -139,8 +139,15 @@ static_assert(!(has_operator<int&> >>= has_operator<HasOperatorTestType>));
 // Function call
 int foo(int);
 static_assert(has_operator<decltype(foo)>(has_operator<int>));
+static_assert(!(has_operator<decltype(foo)>()));
 static_assert(
     !(has_operator<decltype(foo)>(has_operator<HasOperatorTestType>)));
+static_assert(!(has_operator<HasOperatorTestType>(has_operator<int>)));
+int bar();
+static_assert(has_operator<decltype(bar)>());
+static_assert(!(has_operator<decltype(bar)>(has_operator<int>)));
+static_assert(
+    !(has_operator<decltype(bar)>(has_operator<HasOperatorTestType>)));
 static_assert(!(has_operator<HasOperatorTestType>(has_operator<int>)));
 
 // Array index

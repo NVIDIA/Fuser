@@ -301,9 +301,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -519,6 +518,18 @@ namespace has_operator_impl {
 
 struct HasOperatorHelper {};
 
+struct IsNullaryFunc {
+  template <typename T>
+  static constexpr auto check(int) -> decltype((std::declval<T>()()), true) {
+    return true;
+  }
+
+  template <typename T>
+  static constexpr bool check(long) {
+    return false;
+  }
+};
+
 template <typename T>
 struct HasOperator {
   constexpr operator HasOperatorHelper() const {
@@ -548,6 +559,13 @@ struct HasOperator {
   template <typename... Ts>
   constexpr bool operator()(HasOperatorHelper, Ts... args) const {
     return false && operator()(args...);
+  }
+
+  template <
+      typename T1 = int,
+      std::enable_if_t<!IsNullaryFunc::check<T>(int{}), T1> = 0>
+  constexpr bool operator()() const {
+    return false;
   }
 
   template <typename T1>
