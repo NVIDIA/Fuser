@@ -5,12 +5,12 @@
 
 from copy import deepcopy
 from functools import partial
+import itertools
 import math
-import os
 import re
 from typing import List, Callable
+import tempfile
 import unittest
-import itertools
 
 import torch
 import torch.nn.functional as F
@@ -62,19 +62,16 @@ def serde_check(test_fn: Callable):
         # Run test to populate FusionCache
         test_fn(*args, **kwargs)
 
-        # Delete previous file
-        if os.path.isfile("foo.bin"):
-            os.remove("foo.bin")
+        with tempfile.NamedTemporaryFile() as tmp:
+            # Serialize FusionCache
+            fc = FusionCache.get()
+            fc.serialize(tmp.name)
 
-        # Serialize FusionCache
-        fc = FusionCache.get()
-        fc.serialize("foo.bin")
+            FusionCache.reset()
 
-        FusionCache.reset()
-
-        # Get new FusionCache because the previous one was destroyed by the reset call.
-        fc = FusionCache.get()
-        fc.deserialize("foo.bin")
+            # Get new FusionCache because the previous one was destroyed by the reset call.
+            fc = FusionCache.get()
+            fc.deserialize(tmp.name)
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
