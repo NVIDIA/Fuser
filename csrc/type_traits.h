@@ -58,31 +58,23 @@ namespace opcheck_impl {
 
 struct OperatorCheckerHelper {};
 
-struct HasArrowOperator {
-  template <typename T>
-  static constexpr auto check(int)
-      -> decltype((std::declval<decltype(&T::operator->)>()), true) {
-    return true;
-  }
+template <typename T, typename = void>
+struct HasArrowOperator : std::false_type {};
 
-  template <typename T>
-  static constexpr bool check(long) {
-    return false;
-  }
-};
+template <typename T>
+struct HasArrowOperator<
+    T,
+    std::void_t<decltype(std::declval<decltype(&T::operator->)>())>>
+    : std::true_type {};
 
-struct HasArrowStarOperator {
-  template <typename T>
-  static constexpr auto check(int)
-      -> decltype((std::declval<decltype(&T::operator->*)>()), true) {
-    return true;
-  }
+template <typename T, typename = void>
+struct HasArrowStarOperator : std::false_type {};
 
-  template <typename T>
-  static constexpr bool check(long) {
-    return false;
-  }
-};
+template <typename T>
+struct HasArrowStarOperator<
+    T,
+    std::void_t<decltype(std::declval<decltype(&T::operator->*)>())>>
+    : std::true_type {};
 
 struct TrueType {
   static constexpr bool value() {
@@ -140,14 +132,14 @@ struct OperatorChecker {
 
   template <
       typename T1 = int,
-      std::enable_if_t<HasArrowOperator::check<T>(int{}), T1> = 0>
+      std::enable_if_t<HasArrowOperator<T>::value, T1> = 0>
   constexpr auto operator->() const -> TrueType* {
     return nullptr;
   }
 
   template <
       typename T1 = int,
-      std::enable_if_t<!HasArrowOperator::check<T>(int{}), T1> = 0>
+      std::enable_if_t<!HasArrowOperator<T>::value, T1> = 0>
   constexpr auto operator->() const -> FalseType* {
     return nullptr;
   }
@@ -155,7 +147,7 @@ struct OperatorChecker {
   template <
       typename T1,
       typename T2 = int,
-      std::enable_if_t<HasArrowStarOperator::check<T>(int{}), T2> = 0>
+      std::enable_if_t<HasArrowStarOperator<T>::value, T2> = 0>
   constexpr bool operator->*(T1) const {
     return true;
   }
@@ -163,7 +155,7 @@ struct OperatorChecker {
   template <
       typename T1,
       typename T2 = int,
-      std::enable_if_t<!HasArrowStarOperator::check<T>(int{}), T2> = 0>
+      std::enable_if_t<!HasArrowStarOperator<T>::value, T2> = 0>
   constexpr bool operator->*(T1) const {
     return false;
   }

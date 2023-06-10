@@ -231,9 +231,6 @@ static_assert(std::is_same_v<
 
 namespace util_tests {
 
-
-
-
 static_assert(any_defined(
     [](auto x) constexpr { return -x; },
     std::tuple<int, SomeType>{}));
