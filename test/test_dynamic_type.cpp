@@ -252,12 +252,31 @@ static_assert(belongs_to<int, float, double, int>);
 static_assert(!belongs_to<int, float, double, long>);
 
 static_assert(
+    cartesian_product(std::make_tuple(1.0, true)) ==
+    std::make_tuple(std::make_tuple(1.0), std::make_tuple(true)));
+
+static_assert(
     cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
     std::make_tuple(
         std::make_tuple(1.0, 2.0f),
         std::make_tuple(1.0, 4),
         std::make_tuple(true, 2.0f),
         std::make_tuple(true, 4)));
+
+static_assert(
+    cartesian_product(
+        std::make_tuple(1.0, true),
+        std::make_tuple(2.0f, 4),
+        std::make_tuple(size_t(0), nullptr)) ==
+    std::make_tuple(
+        std::make_tuple(1.0, 2.0f, size_t(0)),
+        std::make_tuple(1.0, 2.0f, nullptr),
+        std::make_tuple(1.0, 4, size_t(0)),
+        std::make_tuple(1.0, 4, nullptr),
+        std::make_tuple(true, 2.0f, size_t(0)),
+        std::make_tuple(true, 2.0f, nullptr),
+        std::make_tuple(true, 4, size_t(0)),
+        std::make_tuple(true, 4, nullptr)));
 
 static_assert(any_defined(
     [](auto x, auto y) constexpr { return x + y; },

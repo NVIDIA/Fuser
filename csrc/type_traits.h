@@ -450,22 +450,33 @@ constexpr bool belongs_to =
 // Take the cartesion product of two tuples.
 // For example:
 // cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
-template <typename... Ts, typename... Us>
-constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
+template <typename Tuple>
+constexpr auto cartesian_product(Tuple t) {
   return std::apply(
-      [u](auto... ts) constexpr {
-        return std::tuple_cat(std::apply(
-            [ts](auto... us) constexpr {
-              return std::make_tuple(std::make_tuple(ts, us)...);
-            },
-            u)...);
+      [](auto... ts) constexpr {
+        return std::make_tuple(std::make_tuple(ts)...);
       },
       t);
 }
 
+template <typename Tuple1, typename ... OtherTuples>
+constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
+  auto c_first = cartesian_product(first);
+  auto c_others = cartesian_product(others...);
+  return std::apply(
+      [c_others](auto... ts) constexpr {
+        return std::tuple_cat(std::apply(
+            [ts](auto... us) constexpr {
+              return std::make_tuple(std::tuple_cat(ts, us)...);
+            },
+            c_others)...);
+      },
+      c_first);
+}
+
 template <typename... Tuples, typename Fun>
 constexpr bool any_defined(Fun f, Tuples... tuples) {
-  constexpr auto c = decltype(cartesian_product(tuples...)){};
+  auto c = cartesian_product(tuples...);
   return std::apply(
       [f](auto... candidates) constexpr {
         return any(std::apply(
