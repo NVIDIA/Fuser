@@ -667,8 +667,8 @@ void Val::mutatorDispatch(T mutator, Val* val) {
         ptr(mutator)->mutate(val->as<Int>());
         return;
       }
-      if (!std::holds_alternative<PrimDataType>(val->getDataType()->type)) {
-        ptr(mutator)->mutateUntypedVal(val);
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(mutator)->mutateArrayType(val);
         return;
       }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {

@@ -133,7 +133,7 @@ void OptOutMutator::mutate(kir::TensorIndex*) {
   TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutateUntypedVal(Val* v) {}
+void OptOutMutator::mutateArrayType(Val* v) {}
 
 void OptOutMutator::mutate(Expr* op) {
   std::vector<Val*> mutated_inputs;
