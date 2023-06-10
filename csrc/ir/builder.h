@@ -9,6 +9,7 @@
 
 #include <ir/all_nodes.h>
 #include <ir/builder_passkey.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -83,6 +84,35 @@ class TORCH_CUDA_CU_API IrBuilder {
 
   // Ternary operations
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
+
+  // Index an array
+  static Val* getItemExpr(Val* array, Val* index);
+
+  // Construct an array of values, or nested arrays of values.
+  template <typename T>
+  static Val* arrayExpr(std::vector<T> members) {
+    if constexpr (std::is_same_v<T, Val*>) {
+      TORCH_INTERNAL_ASSERT(
+          !members.empty(), "Cannot create an array with no members.");
+      auto in_dtype = members.at(0)->dtype();
+      auto out_dtype =
+          ArrayOf{std::make_shared<DataType>(in_dtype), members.size()};
+      auto out = newScalar(out_dtype);
+      create<ArrayConstruct>(out, members);
+      return out;
+    } else {
+      static_assert(
+          is_std_vector_v<T>,
+          "Argument for function array must be vector of value or nested vector");
+      std::vector<Val*> array_members;
+      std::transform(
+          members.begin(),
+          members.end(),
+          std::back_inserter(array_members),
+          [](const T& member) { return arrayExpr(member); });
+      return arrayExpr(array_members);
+    }
+  }
 
   static Val* newScalar(DataType dtype);
 

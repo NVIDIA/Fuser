@@ -233,6 +233,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   Val(const Val* src, IrCloner* ir_cloner);
 
+  std::string toString(int = 0) const override {
+    std::stringstream ss;
+    ss << "[" << dtype() << " value " << name() << "]";
+    return ss.str();
+  }
+
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
   static void dispatch(T handler, Val*);
