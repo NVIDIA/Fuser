@@ -53,10 +53,12 @@ static_assert(!can_use_args<float (*)(float), float*>);
 
 namespace nvfuser {
 
-// Implementation detail
+// Implementation detail for opcheck. This implementation is very long, I
+// recommend read the usage doc below first before reading this implementation.
 namespace opcheck_impl {
 
-struct OperatorCheckerHelper {};
+// A type that is purposely made implicitly convertible from OperatorChecker
+struct CastableFromOperatorChecker {};
 
 template <typename T, typename = void>
 struct HasArrowOperator : std::false_type {};
@@ -90,17 +92,26 @@ struct FalseType {
 
 template <typename T>
 struct OperatorChecker {
-  constexpr operator OperatorCheckerHelper() const {
+  constexpr operator CastableFromOperatorChecker() const {
     return {};
   }
 
+  // The trick here is, when the compiler sees `operator=`, It will first try
+  // with the function signature that does not require implicit conversion, that
+  // is, the first candidate. And only if the first candidate fails to match, it
+  // will try the function signatures that requires implicit conversion from
+  // OperatorChecker to CastableFromOperatorChecker. In the code below, if the
+  // expression (std::declval<T>() = std::declval<T1>()) is well-formed, then
+  // template deduction for the first candidate will succeed, so it will be
+  // chosen. If not, then the compiler will find that the second candidate is
+  // also a match by casting OperatorChecker to CastableFromOperatorChecker.
+  // So the second candidate will be chosen.
   template <typename T1>
   constexpr auto operator=(OperatorChecker<T1>) const
       -> decltype((std::declval<T>() = std::declval<T1>()), true) {
     return true;
   }
-
-  constexpr bool operator=(OperatorCheckerHelper) const {
+  constexpr bool operator=(CastableFromOperatorChecker) const {
     return false;
   }
 
@@ -111,7 +122,6 @@ struct OperatorChecker {
   constexpr bool operator()(OperatorChecker<Ts>... args) const {
     return true;
   }
-
   template <
       typename T1 = int,
       typename... Ts,
@@ -125,8 +135,7 @@ struct OperatorChecker {
       -> decltype((std::declval<T>()[std::declval<T1>()]), true) {
     return true;
   }
-
-  constexpr bool operator[](OperatorCheckerHelper) const {
+  constexpr bool operator[](CastableFromOperatorChecker) const {
     return false;
   }
 
@@ -136,7 +145,6 @@ struct OperatorChecker {
   constexpr auto operator->() const -> TrueType* {
     return nullptr;
   }
-
   template <
       typename T1 = int,
       std::enable_if_t<!HasArrowOperator<T>::value, T1> = 0>
@@ -151,7 +159,6 @@ struct OperatorChecker {
   constexpr bool operator->*(T1) const {
     return true;
   }
-
   template <
       typename T1,
       typename T2 = int,
@@ -165,43 +172,43 @@ struct OperatorChecker {
       -> decltype(((T1)(std::declval<T>())), true) {
     return true;
   }
-
-  constexpr bool canCastTo(OperatorCheckerHelper) const {
+  constexpr bool canCastTo(CastableFromOperatorChecker) const {
     return false;
   }
 };
 
-#define DEFINE_UNARY_OP(op)                           \
-  template <typename T1>                              \
-  constexpr auto operator op(OperatorChecker<T1>)     \
-      ->decltype(op std::declval<T1>(), true) {       \
-    return true;                                      \
-  }                                                   \
-                                                      \
-  constexpr bool operator op(OperatorCheckerHelper) { \
-    return false;                                     \
+#define DEFINE_UNARY_OP(op)                                 \
+  template <typename T1>                                    \
+  constexpr auto operator op(OperatorChecker<T1>)           \
+      ->decltype(op std::declval<T1>(), true) {             \
+    return true;                                            \
+  }                                                         \
+                                                            \
+  constexpr bool operator op(CastableFromOperatorChecker) { \
+    return false;                                           \
   }
 
-#define DEFINE_UNARY_SUFFIX_OP(op)                         \
-  template <typename T1>                                   \
-  constexpr auto operator op(OperatorChecker<T1>, int)     \
-      ->decltype(std::declval<T1>() op, true) {            \
-    return true;                                           \
-  }                                                        \
-                                                           \
-  constexpr bool operator op(OperatorCheckerHelper, int) { \
-    return false;                                          \
+#define DEFINE_UNARY_SUFFIX_OP(op)                               \
+  template <typename T1>                                         \
+  constexpr auto operator op(OperatorChecker<T1>, int)           \
+      ->decltype(std::declval<T1>() op, true) {                  \
+    return true;                                                 \
+  }                                                              \
+                                                                 \
+  constexpr bool operator op(CastableFromOperatorChecker, int) { \
+    return false;                                                \
   }
 
-#define DEFINE_BINARY_OP(op)                                                 \
-  template <typename T1, typename T2>                                        \
-  constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>)       \
-      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {         \
-    return true;                                                             \
-  }                                                                          \
-                                                                             \
-  constexpr bool operator op(OperatorCheckerHelper, OperatorCheckerHelper) { \
-    return false;                                                            \
+#define DEFINE_BINARY_OP(op)                                           \
+  template <typename T1, typename T2>                                  \
+  constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
+      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
+    return true;                                                       \
+  }                                                                    \
+                                                                       \
+  constexpr bool operator op(                                          \
+      CastableFromOperatorChecker, CastableFromOperatorChecker) {      \
+    return false;                                                      \
   }
 
 // Unary operators
@@ -262,7 +269,9 @@ constexpr auto operator,(OperatorChecker<T1>, OperatorChecker<T2>)
   return true;
 }
 
-constexpr bool operator,(OperatorCheckerHelper, OperatorCheckerHelper) {
+constexpr bool operator,(
+    CastableFromOperatorChecker,
+    CastableFromOperatorChecker) {
   return false;
 }
 
