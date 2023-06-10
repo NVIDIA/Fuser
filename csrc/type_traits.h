@@ -453,7 +453,7 @@ constexpr bool belongs_to =
 template <typename... Ts, typename... Us>
 constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
   return std::apply(
-      [u](auto... ts) {
+      [u](auto... ts) constexpr {
         return std::tuple_cat(std::apply(
             [ts](auto... us) constexpr {
               return std::make_tuple(std::make_tuple(ts, us)...);
@@ -463,15 +463,16 @@ constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
       t);
 }
 
-template <typename... Ts, typename... Us, typename Fun>
-constexpr bool any_defined(std::tuple<Ts...> t, std::tuple<Us...> u, Fun f) {
-  return any(ForAllTypes<Ts...>{}([f](auto* x) {
-    using T = std::remove_pointer_t<decltype(x)>;
-    return any(ForAllTypes<Us...>{}([f](auto* y) {
-      using U = std::remove_pointer_t<decltype(y)>;
-      return f(opcheck<T>, opcheck<U>);
-    }));
-  }));
+template <typename Tuple1, typename Tuple2, typename Fun>
+constexpr bool any_defined(Tuple1, Tuple2, Fun f) {
+  constexpr auto c = decltype(cartesian_product(std::declval<Tuple1>(), std::declval<Tuple2>())){};
+  return std::apply(
+      [f](auto... candidates) constexpr {
+        return any(std::apply(
+            [&](auto... args) constexpr { return f(opcheck<decltype(args)>...); },
+            candidates)...);
+      },
+      c);
 }
 
 } // namespace nvfuser
