@@ -11,9 +11,15 @@
 #include <type_traits>
 #include <utility>
 
-namespace nvfuser {
+// Note on the coding style of this file:
+// - I use `namespace nvfuser` and `} // namespace nvfuser` a lot to separate
+//   different parts of the code, so that we can easily fold and unfold them in
+//   editors that support folding.
+// - Many tests are done with static_assert, so I just put it here, instead of
+//   writing a separate test file. Because I think these tests serves as a good
+//   documentation of the usage.
 
-// ----------------------------------------------------------------------------
+namespace nvfuser {
 
 // Implementation detail
 namespace can_use_args_impl {
@@ -43,7 +49,9 @@ constexpr bool can_use_args =
 static_assert(can_use_args<float (*)(float), int>);
 static_assert(!can_use_args<float (*)(float), float*>);
 
-// ----------------------------------------------------------------------------
+} // namespace nvfuser
+
+namespace nvfuser {
 
 // Implementation detail
 namespace opcheck_impl {
@@ -296,7 +304,9 @@ static_assert(!(opcheck<int>->value()));
 // Reference about operator overloading:
 // https://en.cppreference.com/w/cpp/language/operators
 
-// ----------------------------------------------------------------------------
+} // namespace nvfuser
+
+namespace nvfuser {
 
 // Basically just "void". We need this because if we have something like
 // std::tuple<void, int> we will be unable to create an instance of it.
@@ -352,6 +362,10 @@ struct ForAllTypes<T> {
   }
 };
 
+} // namespace nvfuser
+
+namespace nvfuser {
+
 // Check if all the booleans in the arguments are true. There are two versions:
 // one for variadic arguments, and one for std::tuple.
 
@@ -365,6 +379,16 @@ constexpr bool all(std::tuple<Ts...> bs) {
   return std::apply([](auto... bs) { return all(bs...); }, bs);
 }
 
+// For example:
+static_assert(all(true, true, true));
+static_assert(all(std::make_tuple(true, true, true)));
+static_assert(!all(true, false, true));
+static_assert(!all(std::make_tuple(true, false, true)));
+
+} // namespace nvfuser
+
+namespace nvfuser {
+
 // Check if all the booleans in the arguments are true. There are two versions:
 // one for variadic arguments, and one for std::tuple.
 
@@ -377,6 +401,18 @@ template <typename... Ts>
 constexpr bool any(std::tuple<Ts...> bs) {
   return std::apply([](auto... bs) { return any(bs...); }, bs);
 }
+
+// For example:
+static_assert(any(true, true, true));
+static_assert(any(std::make_tuple(true, true, true)));
+static_assert(any(true, false, true));
+static_assert(any(std::make_tuple(true, false, true)));
+static_assert(!any(false, false, false));
+static_assert(!any(std::make_tuple(false, false, false)));
+
+} // namespace nvfuser
+
+namespace nvfuser {
 
 // Remove all the voids from a tuple. For example:
 // (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
@@ -403,8 +439,16 @@ constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
   }
 }
 
-// Implementation helper for belongs_to. See below for the actual definition of
-// belongs_to.
+// For example:
+static_assert(
+    remove_void_from_tuple(
+        std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
+    std::make_tuple(1, 2, 3));
+
+} // namespace nvfuser
+
+namespace nvfuser {
+
 namespace belongs_to_impl {
 
 // Given a tuple of Ts, return a tuple with the same size as Ts. The tuple
@@ -434,6 +478,15 @@ constexpr bool belongs_to =
     (std::tuple_size_v<decltype(remove_void_from_tuple(
          belongs_to_impl::get_match_tuple<T, Ts...>()))> > 0);
 
+// For example:
+
+static_assert(belongs_to<int, float, double, int>);
+static_assert(!belongs_to<int, float, double, long>);
+
+} // namespace nvfuser
+
+namespace nvfuser {
+
 // Take the cartesion product of two tuples.
 // For example:
 // cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
@@ -460,6 +513,39 @@ constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
       },
       c_first);
 }
+
+// For example:
+
+static_assert(
+    cartesian_product(std::make_tuple(1.0, true)) ==
+    std::make_tuple(std::make_tuple(1.0), std::make_tuple(true)));
+
+static_assert(
+    cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
+    std::make_tuple(
+        std::make_tuple(1.0, 2.0f),
+        std::make_tuple(1.0, 4),
+        std::make_tuple(true, 2.0f),
+        std::make_tuple(true, 4)));
+
+static_assert(
+    cartesian_product(
+        std::make_tuple(1.0, true),
+        std::make_tuple(2.0f, 4),
+        std::make_tuple(std::size_t(0), nullptr)) ==
+    std::make_tuple(
+        std::make_tuple(1.0, 2.0f, std::size_t(0)),
+        std::make_tuple(1.0, 2.0f, nullptr),
+        std::make_tuple(1.0, 4, std::size_t(0)),
+        std::make_tuple(1.0, 4, nullptr),
+        std::make_tuple(true, 2.0f, std::size_t(0)),
+        std::make_tuple(true, 2.0f, nullptr),
+        std::make_tuple(true, 4, std::size_t(0)),
+        std::make_tuple(true, 4, nullptr)));
+
+} // namespace nvfuser
+
+namespace nvfuser {
 
 template <typename... Tuples, typename Fun>
 constexpr bool any_defined(Fun f, Tuples... tuples) {

@@ -231,52 +231,8 @@ static_assert(std::is_same_v<
 
 namespace util_tests {
 
-static_assert(all(true, true, true));
-static_assert(all(std::make_tuple(true, true, true)));
-static_assert(!all(true, false, true));
-static_assert(!all(std::make_tuple(true, false, true)));
 
-static_assert(any(true, true, true));
-static_assert(any(std::make_tuple(true, true, true)));
-static_assert(any(true, false, true));
-static_assert(any(std::make_tuple(true, false, true)));
-static_assert(!any(false, false, false));
-static_assert(!any(std::make_tuple(false, false, false)));
 
-static_assert(
-    remove_void_from_tuple(
-        std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
-    std::make_tuple(1, 2, 3));
-
-static_assert(belongs_to<int, float, double, int>);
-static_assert(!belongs_to<int, float, double, long>);
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true)) ==
-    std::make_tuple(std::make_tuple(1.0), std::make_tuple(true)));
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f),
-        std::make_tuple(1.0, 4),
-        std::make_tuple(true, 2.0f),
-        std::make_tuple(true, 4)));
-
-static_assert(
-    cartesian_product(
-        std::make_tuple(1.0, true),
-        std::make_tuple(2.0f, 4),
-        std::make_tuple(size_t(0), nullptr)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f, size_t(0)),
-        std::make_tuple(1.0, 2.0f, nullptr),
-        std::make_tuple(1.0, 4, size_t(0)),
-        std::make_tuple(1.0, 4, nullptr),
-        std::make_tuple(true, 2.0f, size_t(0)),
-        std::make_tuple(true, 2.0f, nullptr),
-        std::make_tuple(true, 4, size_t(0)),
-        std::make_tuple(true, 4, nullptr)));
 
 static_assert(any_defined(
     [](auto x) constexpr { return -x; },
