@@ -19,36 +19,38 @@ namespace opcheck_impl {
 
 struct OperatorCheckerHelper {};
 
-// Implementation detail: The pattern like IsNullaryFunc repeats multiple times
-// and the idea behind it is the key to the implementation of operator checker.
-// The idea is to use SFINAE. I will add detailed comment to IsNullaryFunc, and
-// other classes should have the same principle.
-struct IsNullaryFunc {
+// Implementation detail: The pattern like IsFunc repeats multiple times and the
+// idea behind it is the key to the implementation of operator checker. The idea
+// is to use SFINAE. I will add detailed comment to IsFunc, and other classes
+// should have the same principle.
+struct IsFunc {
   // In this struct, we define two check functions, one takes an int, and one
   // takes a long. To use this struct, we should call
-  // IsNullaryFunc::check<T>(int{}). Be sure that the argument has type int
-  // instead of long. Because the argument is int, the compiler will try to do
-  // pattern matching on the check that takes an int argument first, because
-  // this variant does not require any automatic conversion for argument. If the
-  // pattern matching succeeds, then this variant will be chosen. Otherwise, the
-  // compiler will try the other variant, which takes a long, and this variant
-  // is designed that pattern matching always succeeds. So if the compiler
-  // decide to convert int{} to long, this variant will be generated to be
-  // chosen.
+  // IsFunc::check<Fun, Arg1, Arg2>(int{})
+  // Be sure that the argument has type int instead of long. Because the
+  // argument is int, the compiler will try to do pattern matching on the check
+  // that takes an int argument first, because this variant does not require any
+  // automatic conversion for argument. If the pattern matching succeeds, then
+  // this variant will be chosen. Otherwise, the compiler will try the other
+  // variant, which takes a long, and this variant is designed that pattern
+  // matching always succeeds. So if the compiler decide to convert int{} to
+  // long, this variant will be generated to be chosen.
 
-  template <typename T>
-  static constexpr auto check(int) -> decltype((std::declval<T>()()), true) {
+  template <typename Fun, typename... Ts>
+  static constexpr auto check(int)
+      -> decltype((std::declval<Fun>()(std::declval<Ts>()...)), true) {
     // When trying to match this variant, the compiler will try to evaluate the
     // expression inside decltype. If the expression is valid, then the pattern
-    // matching succeeds, and this variant will be chosen. std::declval<T>() is
-    // a value of type T, and if T is a nullary function type, then
-    // std::declval<T>()() is well-formed, and the expression is valid.
-    // Otherwise the expression is invalid, and the pattern matching fails. The
-    // comma ensures that the result of decltype is always bool.
+    // matching succeeds, and this variant will be chosen. std::declval<Fun>()
+    // is a value of type Fun, and if Fun is a desired function type, then
+    // std::declval<Fun>()(std::declval<Ts>()...) is well-formed, and the
+    // expression is valid. Otherwise the expression is invalid, and the pattern
+    // matching fails. The comma ensures that the result of decltype is always
+    // bool.
     return true;
   }
 
-  template <typename T>
+  template <typename Fun, typename... Ts>
   static constexpr bool check(long) {
     // The compiler will only consider this variant if the pattern matching on
     // the previous variant fails.
@@ -110,25 +112,19 @@ struct OperatorChecker {
     return false;
   }
 
-  template <typename... Ts>
-  constexpr auto operator()(OperatorChecker<Ts>... args) const
-      -> decltype((std::declval<T>()(std::declval<Ts>()...)), true) {
+  template <
+      typename T1 = int,
+      typename... Ts,
+      std::enable_if_t<IsFunc::check<T, Ts...>(int{}), T1> = 0>
+  constexpr bool operator()(OperatorChecker<Ts>... args) const {
     return true;
-  }
-
-  constexpr bool operator()(OperatorCheckerHelper) const {
-    return false;
-  }
-
-  template <typename... Ts>
-  constexpr bool operator()(OperatorCheckerHelper, Ts... args) const {
-    return false && operator()(args...);
   }
 
   template <
       typename T1 = int,
-      std::enable_if_t<!IsNullaryFunc::check<T>(int{}), T1> = 0>
-  constexpr bool operator()() const {
+      typename... Ts,
+      std::enable_if_t<!IsFunc::check<T, Ts...>(int{}), T1> = 0>
+  constexpr bool operator()(OperatorChecker<Ts>... args) const {
     return false;
   }
 
@@ -459,7 +455,7 @@ constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
   return std::apply(
       [u](auto... ts) {
         return std::tuple_cat(std::apply(
-            [ts](auto... us) {
+            [ts](auto... us) constexpr {
               return std::make_tuple(std::make_tuple(ts, us)...);
             },
             u)...);
