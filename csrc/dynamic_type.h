@@ -62,39 +62,45 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(
-        ret.has_value(), "Cannot cast to ", typeid(T).name());
+    TORCH_CHECK(ret.has_value(), "Cannot cast to ", typeid(T).name());
     return ret.value();
   }
 };
 
-// TODO: we should inline the definition of this lambda into enable_if, but
-// I can only do this in C++20
-constexpr auto plus_helper = [](auto x, auto y) constexpr { return x + y; };
-template <
-    typename DT,
-    typename = std::enable_if_t<
-        any_defined(plus_helper, DT::types_as_tuple, DT::types_as_tuple)>>
-inline constexpr DT operator+(DT x, DT y) {
-  DT ret(std::monostate{});
-  DT::for_all_types([&ret, x, y](auto* lhs) {
-    using LHS = std::remove_pointer_t<decltype(lhs)>;
-    DT::for_all_types([&ret, x, y](auto* rhs) {
-      using RTS = std::remove_pointer_t<decltype(rhs)>;
-      if constexpr (opcheck<LHS> + opcheck<RTS>) {
-        if (x.template is<LHS>() && y.template is<RTS>()) {
-          ret = DT(x.template as<LHS>() + y.template as<RTS>());
-        }
-      }
-    });
-  });
-  TORCH_CHECK(
-      !ret.template is<std::monostate>(),
-      "Can not compute ",
-      "+",
-      " : incompatible type");
-  return ret;
-}
+#define DEFINE_BINARY_OP(opname, op)                                           \
+  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
+  /*but I can only do this in C++20 */                                         \
+  constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
+    return x + y;                                                              \
+  };                                                                           \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename = std::enable_if_t<any_defined(                                 \
+          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+  inline constexpr DT operator op(DT x, DT y) {                                \
+    DT ret(std::monostate{});                                                  \
+    DT::for_all_types([&ret, x, y](auto* lhs) {                                \
+      using LHS = std::remove_pointer_t<decltype(lhs)>;                        \
+      DT::for_all_types([&ret, x, y](auto* rhs) {                              \
+        using RTS = std::remove_pointer_t<decltype(rhs)>;                      \
+        if constexpr (opcheck<LHS> op opcheck<RTS>) {                          \
+          if (x.template is<LHS>() && y.template is<RTS>()) {                  \
+            ret = DT(x.template as<LHS>() op y.template as<RTS>());            \
+          }                                                                    \
+        }                                                                      \
+      });                                                                      \
+    });                                                                        \
+    TORCH_CHECK(                                                               \
+        !ret.template is<std::monostate>(),                                    \
+        "Can not compute ",                                                    \
+        #op,                                                                   \
+        " : incompatible type");                                               \
+    return ret;                                                                \
+  }
+
+DEFINE_BINARY_OP(add, +);
+
+#undef DEFINE_BINARY_OP
 
 class TORCH_CUDA_CU_API EvaluatorValue {
   std::variant<double, int64_t, bool> value_;
