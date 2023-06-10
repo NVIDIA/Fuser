@@ -440,8 +440,8 @@ constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
 // For example:
 static_assert(
     remove_void_from_tuple(
-        std::make_tuple(Void{}, 1, Void{}, 2, Void{}, 3, Void{})) ==
-    std::make_tuple(1, 2, 3));
+        std::make_tuple(Void{}, 1, Void{}, true, Void{}, 3.5, Void{})) ==
+    std::make_tuple(1, true, 3.5));
 
 } // namespace nvfuser
 

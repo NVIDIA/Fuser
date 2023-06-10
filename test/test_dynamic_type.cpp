@@ -238,6 +238,7 @@ static_assert(std::is_same_v<
 class DynamicTypeTest : public NVFuserTest {};
 
 using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
+using BoolSomeType = DynamicType<bool, SomeType>;
 using IntSomeType = DynamicType<int, SomeType>;
 using SomeTypes = DynamicType<SomeType, SomeType>;
 
@@ -303,5 +304,28 @@ TEST_BINARY_OP_INT_ONLY(BinaryOr, |);
 TEST_BINARY_OP_INT_ONLY(Xor, ^);
 TEST_BINARY_OP_INT_ONLY(LShift, <<);
 TEST_BINARY_OP_INT_ONLY(RShift, >>);
+
+#define TEST_UNARY_OP(name, op)                                            \
+  TEST_F(DynamicTypeTest, name) {                                          \
+    static_assert(op opcheck<DoubleInt64Bool>);                            \
+    static_assert((op DoubleInt64Bool(2)).as<decltype(op 2)>() == (op 2)); \
+    EXPECT_THAT(                                                           \
+        [&]() { op DoubleInt64Bool(); },                                   \
+        ::testing::ThrowsMessage<c10::Error>(                              \
+            ::testing::HasSubstr("Can not compute ")));                    \
+    static_assert(op opcheck<IntSomeType>);                                \
+    static_assert(!(op opcheck<SomeTypes>));                               \
+    EXPECT_THAT(                                                           \
+        [&]() { op IntSomeType(SomeType{}); },                             \
+        ::testing::ThrowsMessage<c10::Error>(                              \
+            ::testing::HasSubstr("Can not compute ")));                    \
+  }
+
+TEST_UNARY_OP(Positive, +);
+TEST_UNARY_OP(Negative, -);
+TEST_UNARY_OP(BinaryNot, ~);
+TEST_UNARY_OP(BinaryNot, !);
+
+#undef TEST_UNARY_OP
 
 } // namespace nvfuser
