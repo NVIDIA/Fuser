@@ -260,14 +260,14 @@ static_assert(
         std::make_tuple(true, 4)));
 
 static_assert(any_defined(
+    [](auto x, auto y) constexpr { return x + y; },
     std::tuple<int, SomeType>{},
-    std::tuple<SomeType, float>{},
-    [](auto x, auto y) constexpr { return x + y; }));
+    std::tuple<SomeType, float>{}));
 
 static_assert(!any_defined(
+    [](auto x, auto y) constexpr { return x + y; },
     std::tuple<int, SomeType>{},
-    std::tuple<SomeType, SomeType2>{},
-    [](auto x, auto y) constexpr { return x + y; }));
+    std::tuple<SomeType, SomeType2>{}));
 
 } // namespace util_tests
 

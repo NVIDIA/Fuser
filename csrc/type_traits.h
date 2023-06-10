@@ -463,13 +463,15 @@ constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
       t);
 }
 
-template <typename Tuple1, typename Tuple2, typename Fun>
-constexpr bool any_defined(Tuple1, Tuple2, Fun f) {
-  constexpr auto c = decltype(cartesian_product(std::declval<Tuple1>(), std::declval<Tuple2>())){};
+template <typename... Tuples, typename Fun>
+constexpr bool any_defined(Fun f, Tuples... tuples) {
+  constexpr auto c = decltype(cartesian_product(tuples...)){};
   return std::apply(
       [f](auto... candidates) constexpr {
         return any(std::apply(
-            [&](auto... args) constexpr { return f(opcheck<decltype(args)>...); },
+            [&](auto... args) constexpr {
+              return f(opcheck<decltype(args)>...);
+            },
             candidates)...);
       },
       c);
