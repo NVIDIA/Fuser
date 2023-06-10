@@ -171,9 +171,6 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! TODO: This step will very likely be removed in a follow up PR. All of
   //!  the options configured here could actually be inferred from fusion IR
   //!  once we are feature complete.
-  //! TODO: Remove variant that accepts TensorView, variant with MmaOp
-  //!  simplifies dependencies in scheduleMatmul
-  void configureMma(TensorView* mma_output) const;
   void configureMma(MmaOp* mma) const;
 
   //! Export all the parameters with user's configurations applied.
