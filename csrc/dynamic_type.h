@@ -71,11 +71,11 @@ struct DynamicType {
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
-    return x + y;                                                              \
+    return opcheck<decltype(x)> op opcheck<decltype(y)>;                       \
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
-      typename = std::enable_if_t<any_defined(                                 \
+      typename = std::enable_if_t<any_check(                                   \
           opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
   inline constexpr DT operator op(DT x, DT y) {                                \
     DT ret(std::monostate{});                                                  \
