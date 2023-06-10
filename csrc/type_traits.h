@@ -550,57 +550,32 @@ static_assert(
 
 namespace nvfuser {
 
-// Can I find a T1 from Tuple1 and a T2 from Tuple2 such that f(T1, T2) is
-// defined? For example, if Tuple1 = (int, float), Tuple2 = (int, bool), and
-// f(T1, T2) = T1 + T2, then the answer is yes, because I can find T1 = int and
-// T2 = int such that f(T1, T2) is defined.
+// Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
+// true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
 template <typename... Tuples, typename Fun>
-constexpr bool any_defined(Fun f, Tuples... tuples) {
+constexpr bool any_check(Fun f, Tuples... tuples) {
   auto c = cartesian_product(tuples...);
   return std::apply(
       [f](auto... candidates) constexpr {
-        return any(std::apply(
-            [&](auto... args) constexpr {
-              // TODO: I should actually use
-              //   return opcheck<Fun>(opcheck<decltype(args)>...);
-              // or
-              //   return can_use_args<Fun, decltype(args)...>;
-              // because the current implementation only support f being a
-              // single op, but unfortunately this won't compile. I have a
-              // feeling that this is a bug of SFINAE in the compiler, but I'm
-              // not sure.
-              return f(opcheck<decltype(args)>...);
-            },
-            candidates)...);
+        return any(std::apply(f, candidates)...);
       },
       c);
 }
 
 // For example:
+static_assert(
+    any_check([](auto x) constexpr { return x > 0; }, std::make_tuple(1, -1)));
+static_assert(!any_check(
+    [](auto x) constexpr { return x > 0; },
+    std::make_tuple(-2, -1)));
 
-// Can I find a T from {int, std::pair<int, int>} such that -T is defined?
-static_assert(any_defined(
-    [](auto x) constexpr { return -x; },
-    std::tuple<int, std::pair<int, int>>{}));
-
-// Can I find a T from {std::pair<int, int>, std::pair<int, float>} such that -T
-// is defined?
-static_assert(!any_defined(
-    [](auto x) constexpr { return -x; },
-    std::tuple<std::pair<int, int>, std::pair<int, float>>{}));
-
-// Can I find a T from {int, std::pair<int, int>} and a U from
-// {std::pair<int, int>, float} such that T + U is defined?
-static_assert(any_defined(
-    [](auto x, auto y) constexpr { return x + y; },
-    std::tuple<int, std::pair<int, int>>{},
-    std::tuple<std::pair<int, int>, float>{}));
-
-// Can I find a T from {int, std::pair<int, int>} and a U from
-// {std::pair<int, int>, std::pair<int, float>} such that T + U is defined?
-static_assert(!any_defined(
-    [](auto x, auto y) constexpr { return x + y; },
-    std::tuple<int, std::pair<int, int>>{},
-    std::tuple<std::pair<int, int>, std::pair<int, float>>{}));
+static_assert(any_check(
+    [](auto x, auto y) constexpr { return (x + y) > 0; },
+    std::make_tuple(2.0, 1),
+    std::make_tuple(-2, -1)));
+static_assert(!any_check(
+    [](auto x, auto y) constexpr { return (x + y) > 0; },
+    std::make_tuple(1.0, 1),
+    std::make_tuple(-2, -1)));
 
 } // namespace nvfuser
