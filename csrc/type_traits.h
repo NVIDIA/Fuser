@@ -510,7 +510,7 @@ constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
         c_others);
   };
   return std::apply(
-      [c_others, cat_one_first_all_others](auto... first_items) constexpr {
+      [cat_one_first_all_others](auto... first_items) constexpr {
         return std::tuple_cat(cat_one_first_all_others(first_items)...);
       },
       c_first);

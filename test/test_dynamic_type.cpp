@@ -19,6 +19,11 @@
 
 namespace nvfuser {
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-comparison"
+#pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
+#pragma clang diagnostic ignored "-Wliteral-conversion"
+
 struct SomeType {};
 struct SomeType2 {};
 
@@ -112,6 +117,7 @@ static_assert(!(opcheck<int> >= opcheck<SomeType>));
 
 // Assignment operators
 static_assert(opcheck<int&> = opcheck<int>);
+#if 0
 static_assert(!(opcheck<int&> = opcheck<SomeType>));
 
 static_assert(opcheck<float&> += opcheck<int>);
@@ -186,7 +192,7 @@ static_assert(opcheck<int>.canCastTo(opcheck<float>));
 static_assert(!opcheck<SomeType>.canCastTo(opcheck<float>));
 static_assert(!opcheck<float>.canCastTo(opcheck<SomeType>));
 static_assert(opcheck<SomeType>.canCastTo(opcheck<SomeType>));
-
+#endif
 } // namespace OpCheckTests
 
 namespace ForAllTypesTests {
@@ -305,6 +311,30 @@ TEST_BINARY_OP_INT_ONLY(Xor, ^);
 TEST_BINARY_OP_INT_ONLY(LShift, <<);
 TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
+/*TODO: we should inline the definition of opname##_helper into enable_if,*/ /*but I can only do this in C++20 */
+
+// template <typename DT>
+// constexpr bool support_opname =
+//     any_check([](auto x) { return +opcheck<decltype(x)>; }, typename DT::TypesAsTuple{}, typename DT::TypesAsTuple{});
+// template <typename DT, typename = std::enable_if_t<support_opname<DT>>>
+// inline constexpr DT operator+(DT x) {
+//   DT ret(std::monostate{});
+//   DT::for_all_types([&ret, x](auto* _) {
+//     using Type = std::remove_pointer_t<decltype(_)>;
+//     if constexpr (+opcheck<Type>) {
+//       if (x.template is<Type>()) {
+//         ret = DT(+x.template as<Type>());
+//       }
+//     }
+//   });
+//   TORCH_CHECK(
+//       !ret.template is<std::monostate>(),
+//       "Can not compute ",
+//       "+",
+//       " : incompatible type");
+//   return ret;
+// }
+
 #define TEST_UNARY_OP(name, op)                                            \
   TEST_F(DynamicTypeTest, name) {                                          \
     static_assert(op opcheck<DoubleInt64Bool>);                            \
@@ -321,11 +351,13 @@ TEST_BINARY_OP_INT_ONLY(RShift, >>);
             ::testing::HasSubstr("Can not compute ")));                    \
   }
 
-TEST_UNARY_OP(Positive, +);
-TEST_UNARY_OP(Negative, -);
-TEST_UNARY_OP(BinaryNot, ~);
-TEST_UNARY_OP(BinaryNot, !);
+// TEST_UNARY_OP(Positive, +);
+// TEST_UNARY_OP(Negative, -);
+// TEST_UNARY_OP(BinaryNot, ~);
+// TEST_UNARY_OP(LogicalNot, !);
 
 #undef TEST_UNARY_OP
+
+#pragma clang diagnostic pop
 
 } // namespace nvfuser

@@ -20,8 +20,12 @@
 
 namespace nvfuser {
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-comparison"
+#pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
+
 template <typename... Ts>
-class DynamicType;
+struct DynamicType;
 
 // template <typename... Ts>
 // std::ostream& operator<<(std::ostream& os, const DynamicType<Ts...>& dt);
@@ -58,7 +62,7 @@ struct DynamicType {
       using From = std::remove_pointer_t<decltype(from)>;
       if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
         if (is<From>()) {
-          ret = (T)as<From>();
+          ret = (T)this->as<From>();
         }
       }
     });
@@ -119,36 +123,10 @@ DEFINE_BINARY_OP(ge, >=);
 
 #undef DEFINE_BINARY_OP
 
-#define DEFINE_UNARY_OP(opname, op)                                            \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_helper = [](auto x) { return op x; };      \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename = std::enable_if_t<any_defined(                                 \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
-  inline constexpr DT operator op(DT x) {                                      \
-    DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, x](auto* _) {                                     \
-      using Type = std::remove_pointer_t<decltype(_)>;                         \
-      if constexpr (op opcheck<Type>) {                                        \
-        if (x.template is<Type>()) {                                           \
-          ret = DT(op x.template as<Type>());                                  \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    TORCH_CHECK(                                                               \
-        !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
-        #op,                                                                   \
-        " : incompatible type");                                               \
-    return ret;                                                                \
-  }
-
-DEFINE_UNARY_OP(pos, +);
-DEFINE_UNARY_OP(neg, -);
-DEFINE_UNARY_OP(bnot, ~);
-DEFINE_UNARY_OP(lnot, !);
+// DEFINE_UNARY_OP(pos, +);
+// DEFINE_UNARY_OP(neg, -);
+// DEFINE_UNARY_OP(bnot, ~);
+// DEFINE_UNARY_OP(lnot, !);
 
 // Intentionally not supporting the following unary ops:
 //   DEFINE_UNARY_OP(addr, &);
@@ -467,5 +445,7 @@ inline EvaluatorValue abs(const EvaluatorValue& a) {
 }
 
 } // namespace EvaluatorValue_functions
+
+#pragma clang diagnostic pop
 
 } // namespace nvfuser
