@@ -501,18 +501,17 @@ template <typename Tuple1, typename... OtherTuples>
 constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
   auto c_first = cartesian_product(first);
   auto c_others = cartesian_product(others...);
+  // cat one item in c_first with all the items in c_others
+  auto cat_one_first_all_others = [c_others](auto first_item) {
+    return std::apply(
+        [first_item](auto... other_item) constexpr {
+          return std::make_tuple(std::tuple_cat(first_item, other_item)...);
+        },
+        c_others);
+  };
   return std::apply(
-      [c_others](auto... ts) constexpr {
-        // cat one item in c_first with all the items in c_others
-        auto cat_one_first_all_others = [c_others](auto first_item) {
-          return std::apply(
-              [first_item](auto... other_item) constexpr {
-                return std::make_tuple(
-                    std::tuple_cat(first_item, other_item)...);
-              },
-              c_others);
-        };
-        return std::tuple_cat(cat_one_first_all_others(ts)...);
+      [c_others, cat_one_first_all_others](auto... first_items) constexpr {
+        return std::tuple_cat(cat_one_first_all_others(first_items)...);
       },
       c_first);
 }
