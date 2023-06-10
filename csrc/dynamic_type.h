@@ -23,8 +23,8 @@ namespace nvfuser {
 template <typename... Ts>
 class DynamicType;
 
-template <typename... Ts>
-std::ostream& operator<<(std::ostream& os, const DynamicType<Ts...>& dt);
+// template <typename... Ts>
+// std::ostream& operator<<(std::ostream& os, const DynamicType<Ts...>& dt);
 
 template <typename... Ts>
 // not using template <typename... Ts> to make sure there is at least one type
@@ -63,11 +63,13 @@ struct DynamicType {
       }
     });
     TORCH_CHECK(
-        ret.has_value(), "Cannot cast ", *this, " to ", typeid(T).name());
+        ret.has_value(), "Cannot cast to ", typeid(T).name());
     return ret.value();
   }
 };
 
+// TODO: we should inline the definition of this lambda into enable_if, but
+// I can only do this in C++20
 constexpr auto plus_helper = [](auto x, auto y) constexpr { return x + y; };
 template <
     typename DT,
@@ -90,7 +92,7 @@ inline constexpr DT operator+(DT x, DT y) {
       !ret.template is<std::monostate>(),
       "Can not compute ",
       "+",
-      " incompatible type");
+      " : incompatible type");
   return ret;
 }
 

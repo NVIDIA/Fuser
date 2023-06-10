@@ -6,6 +6,10 @@
  */
 // clang-format on
 
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <test/utils.h>
 #include <type_traits.h>
 
 #include <dynamic_type.h>
@@ -231,17 +235,34 @@ static_assert(std::is_same_v<
 
 } // namespace ForAllTypesTests
 
-namespace DynamicTypeTests {
+class DynamicTypeTest : public NVFuserTest {};
 
 using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
-using PairPair = DynamicType<std::pair<int, int>, std::pair<int, float>>;
+using IntSomeType = DynamicType<int, SomeType>;
+using SomeTypes = DynamicType<SomeType, SomeType>;
 
-static_assert(opcheck<DoubleInt64Bool> + opcheck<DoubleInt64Bool>);
-static_assert(!(opcheck<PairPair> + opcheck<PairPair>));
+TEST_F(DynamicTypeTest, Casting) {
+  static_assert(IntSomeType(2).cast<double>() == 2.0);
+  EXPECT_THAT(
+      [&]() { IntSomeType(2).cast<SomeType>(); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Cannot cast to ")));
+}
 
-static_assert(DoubleInt64Bool(2.5).cast<int64_t>() == 2);
-static_assert((DoubleInt64Bool(2) + DoubleInt64Bool(2.5)).as<double>() == 4.5);
-
-} // namespace DynamicTypeTests
+TEST_F(DynamicTypeTest, Add) {
+  static_assert(opcheck<DoubleInt64Bool> + opcheck<DoubleInt64Bool>);
+  static_assert(
+      (DoubleInt64Bool(2) + DoubleInt64Bool(2.5)).as<double>() == 4.5);
+  EXPECT_THAT(
+      [&]() { DoubleInt64Bool() + DoubleInt64Bool(2); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not compute ")));
+  static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);
+  static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));
+  EXPECT_THAT(
+      [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not compute ")));
+}
 
 } // namespace nvfuser

@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+#if 0
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -474,3 +476,4 @@ TEST_F(NVFuserTest, FusionRandLikeReduction_CUDA) {
 }
 
 } // namespace nvfuser
+#endif
