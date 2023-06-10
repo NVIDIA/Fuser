@@ -1181,4 +1181,65 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
 }
 
+// Test dynamic pad followed by broadcast resolution
+TEST_F(NVFuserTest, DynamicPadBroadcast_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  // 2d axis order here is YX
+  auto ypad = IrBuilder::create<Int>();
+  fusion.addInput(ypad);
+  auto xpad = IrBuilder::create<Int>();
+  fusion.addInput(xpad);
+
+  // two-way resizes to cut square tv down to broadcastable size in each axis
+  auto tv0_pad = pad(tv0, {fusion.zeroVal(), xpad, fusion.zeroVal(), ypad});
+
+  // This will potentially resolve the y or x broadcast
+  auto p = mul(tv0_pad, tv1);
+  fusion.addOutput(p);
+  fusion.addOutput(tv0_pad);
+
+  fusion.printMath();
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({5, 5}, options);
+  at::Tensor at_y = at::randn({5, 5}, options);
+
+  // trivial resize
+  std::vector<c10::IValue> aten_inputs({at_x, at_y, 0, 0});
+  std::vector<at::Tensor> outputs;
+
+  /*
+  aten_inputs[2] = 0;
+  aten_inputs[3] = 0;
+  outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  testValidate(fusion_executor_cache.fusion(), outputs, aten_inputs, {at_x *
+  at_y}, __LINE__, __FILE__);
+  */
+
+  // shrink first axis
+  aten_inputs[2] = -4;
+  aten_inputs[3] = 0;
+  outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  std::cout << outputs << std::endl;
+  std::cout << at_x.slice(0, 0, 1) * at_y << std::endl;
+  std::cout << at_x.slice(0, 0, 1) << std::endl;
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_x.slice(0, 0, 1) * at_y, at_x.slice(0, 0, 1)},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
