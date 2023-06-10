@@ -99,6 +99,23 @@ struct DynamicType {
   }
 
 DEFINE_BINARY_OP(add, +);
+DEFINE_BINARY_OP(minus, -);
+DEFINE_BINARY_OP(mul, *);
+DEFINE_BINARY_OP(div, /);
+DEFINE_BINARY_OP(mod, %);
+DEFINE_BINARY_OP(band, &);
+DEFINE_BINARY_OP(bor, |);
+DEFINE_BINARY_OP(xor, ^);
+DEFINE_BINARY_OP(land, &&);
+DEFINE_BINARY_OP(lor, ||);
+DEFINE_BINARY_OP(lshift, <<);
+DEFINE_BINARY_OP(rshift, >>);
+DEFINE_BINARY_OP(eq, ==);
+DEFINE_BINARY_OP(neq, !=);
+DEFINE_BINARY_OP(lt, <);
+DEFINE_BINARY_OP(gt, >);
+DEFINE_BINARY_OP(le, <=);
+DEFINE_BINARY_OP(ge, >=);
 
 #undef DEFINE_BINARY_OP
 

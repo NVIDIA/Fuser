@@ -249,20 +249,59 @@ TEST_F(DynamicTypeTest, Casting) {
           ::testing::HasSubstr("Cannot cast to ")));
 }
 
-TEST_F(DynamicTypeTest, Add) {
-  static_assert(opcheck<DoubleInt64Bool> + opcheck<DoubleInt64Bool>);
-  static_assert(
-      (DoubleInt64Bool(2) + DoubleInt64Bool(2.5)).as<double>() == 4.5);
-  EXPECT_THAT(
-      [&]() { DoubleInt64Bool() + DoubleInt64Bool(2); },
-      ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Can not compute ")));
-  static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);
-  static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));
-  EXPECT_THAT(
-      [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },
-      ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Can not compute ")));
-}
+#define TEST_BINARY_OP_ALLTYPE(name, op)                                 \
+  TEST_F(DynamicTypeTest, name) {                                        \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>); \
+    static_assert(                                                       \
+        (DoubleInt64Bool(2) op DoubleInt64Bool(2.5))                     \
+            .as<decltype(2 op 2.5)>() == (2 op 2.5));                    \
+    EXPECT_THAT(                                                         \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },              \
+        ::testing::ThrowsMessage<c10::Error>(                            \
+            ::testing::HasSubstr("Can not compute ")));                  \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);          \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));           \
+    EXPECT_THAT(                                                         \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },    \
+        ::testing::ThrowsMessage<c10::Error>(                            \
+            ::testing::HasSubstr("Can not compute ")));                  \
+  }
+
+TEST_BINARY_OP_ALLTYPE(Add, +);
+TEST_BINARY_OP_ALLTYPE(Minus, -);
+TEST_BINARY_OP_ALLTYPE(Mul, *);
+TEST_BINARY_OP_ALLTYPE(Div, /);
+TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
+TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
+TEST_BINARY_OP_ALLTYPE(Eq, ==);
+TEST_BINARY_OP_ALLTYPE(Ne, !=);
+TEST_BINARY_OP_ALLTYPE(Lt, <);
+TEST_BINARY_OP_ALLTYPE(Gt, >);
+TEST_BINARY_OP_ALLTYPE(Le, <=);
+TEST_BINARY_OP_ALLTYPE(Ge, >=);
+
+#define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3) op DoubleInt64Bool(2)).as<int64_t>() == (3 op 2)); \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+  }
+
+TEST_BINARY_OP_INT_ONLY(Mod, %);
+TEST_BINARY_OP_INT_ONLY(BinaryAnd, &);
+TEST_BINARY_OP_INT_ONLY(BinaryOr, |);
+TEST_BINARY_OP_INT_ONLY(Xor, ^);
+TEST_BINARY_OP_INT_ONLY(LShift, <<);
+TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
 } // namespace nvfuser
