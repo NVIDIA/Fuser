@@ -463,4 +463,15 @@ constexpr auto cartesian_product(std::tuple<Ts...> t, std::tuple<Us...> u) {
       t);
 }
 
+template <typename... Ts, typename... Us, typename Fun>
+constexpr bool any_defined(std::tuple<Ts...> t, std::tuple<Us...> u, Fun f) {
+  return any(ForAllTypes<Ts...>{}([f](auto* x) {
+    using T = std::remove_pointer_t<decltype(x)>;
+    return any(ForAllTypes<Us...>{}([f](auto* y) {
+      using U = std::remove_pointer_t<decltype(y)>;
+      return f(opcheck<T>, opcheck<U>);
+    }));
+  }));
+}
+
 } // namespace nvfuser

@@ -13,147 +13,147 @@
 
 namespace nvfuser {
 
-namespace opcheck_tests {
+struct SomeType {};
+struct SomeType2 {};
 
-struct OperatorCheckerTestType {};
+namespace opcheck_tests {
 
 // Unary operators
 static_assert(+opcheck<int>);
-static_assert(!(+opcheck<OperatorCheckerTestType>));
+static_assert(!(+opcheck<SomeType>));
 
 static_assert(-opcheck<int>);
-static_assert(!(-opcheck<OperatorCheckerTestType>));
+static_assert(!(-opcheck<SomeType>));
 
 static_assert(~opcheck<int>);
-static_assert(!(~opcheck<OperatorCheckerTestType>));
+static_assert(!(~opcheck<SomeType>));
 
 static_assert(!opcheck<int>);
-static_assert(!(!opcheck<OperatorCheckerTestType>));
+static_assert(!(!opcheck<SomeType>));
 
 static_assert(++opcheck<int&>);
-static_assert(!(++opcheck<OperatorCheckerTestType&>));
+static_assert(!(++opcheck<SomeType&>));
 
 static_assert(--opcheck<int&>);
-static_assert(!(--opcheck<OperatorCheckerTestType&>));
+static_assert(!(--opcheck<SomeType&>));
 
 static_assert(opcheck<int&> ++);
-static_assert(!(opcheck<OperatorCheckerTestType&> ++));
+static_assert(!(opcheck<SomeType&> ++));
 
 static_assert(opcheck<int&> --);
-static_assert(!(opcheck<OperatorCheckerTestType&> --));
+static_assert(!(opcheck<SomeType&> --));
 
 // Comma
-static_assert(
-    (opcheck<OperatorCheckerTestType>, opcheck<OperatorCheckerTestType>));
+static_assert((opcheck<SomeType>, opcheck<SomeType>));
 // TODO: how to test negative case for comma operator? I can not think of any
 // case where comma operator is not valid.
 
 // Binary operators
 
 static_assert(opcheck<int> + opcheck<float>);
-static_assert(!(opcheck<int> + opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> + opcheck<SomeType>));
 
 static_assert(opcheck<int> - opcheck<float>);
-static_assert(!(opcheck<int> - opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> - opcheck<SomeType>));
 
 static_assert(opcheck<int> * opcheck<float>);
-static_assert(!(opcheck<int> * opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> * opcheck<SomeType>));
 
 static_assert(opcheck<int> / opcheck<float>);
-static_assert(!(opcheck<int> / opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> / opcheck<SomeType>));
 
 static_assert(opcheck<int> % opcheck<int>);
-static_assert(!(opcheck<int> % opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> % opcheck<SomeType>));
 
 static_assert(opcheck<int> & opcheck<int>);
-static_assert(!(opcheck<int> & opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> & opcheck<SomeType>));
 
 static_assert(opcheck<int> | opcheck<int>);
-static_assert(!(opcheck<int> | opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> | opcheck<SomeType>));
 
 static_assert(opcheck<int> ^ opcheck<int>);
-static_assert(!(opcheck<int> ^ opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> ^ opcheck<SomeType>));
 
 static_assert(opcheck<int> && opcheck<int>);
-static_assert(!(opcheck<int> && opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> && opcheck<SomeType>));
 
 static_assert(opcheck<int> || opcheck<int>);
-static_assert(!(opcheck<int> || opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> || opcheck<SomeType>));
 
 static_assert(opcheck<int> << opcheck<int>);
-static_assert(!(opcheck<int> << opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> << opcheck<SomeType>));
 
 static_assert(opcheck<int> >> opcheck<int>);
-static_assert(!(opcheck<int> >> opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> >> opcheck<SomeType>));
 
 static_assert(opcheck<int> == opcheck<float>);
-static_assert(!(opcheck<int> == opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> == opcheck<SomeType>));
 
 static_assert(opcheck<int> != opcheck<float>);
-static_assert(!(opcheck<int> != opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> != opcheck<SomeType>));
 
 static_assert(opcheck<int> < opcheck<float>);
-static_assert(!(opcheck<int> < opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> < opcheck<SomeType>));
 
 static_assert(opcheck<int> > opcheck<float>);
-static_assert(!(opcheck<int> > opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> > opcheck<SomeType>));
 
 static_assert(opcheck<int> <= opcheck<float>);
-static_assert(!(opcheck<int> <= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> <= opcheck<SomeType>));
 
 static_assert(opcheck<int> >= opcheck<float>);
-static_assert(!(opcheck<int> >= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int> >= opcheck<SomeType>));
 
 // Assignment operators
 static_assert(opcheck<int&> = opcheck<int>);
-static_assert(!(opcheck<int&> = opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> = opcheck<SomeType>));
 
 static_assert(opcheck<float&> += opcheck<int>);
-static_assert(!(opcheck<int&> += opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> += opcheck<SomeType>));
 
 static_assert(opcheck<float&> -= opcheck<int>);
-static_assert(!(opcheck<int&> -= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> -= opcheck<SomeType>));
 
 static_assert(opcheck<float&> *= opcheck<int>);
-static_assert(!(opcheck<int&> *= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> *= opcheck<SomeType>));
 
 static_assert(opcheck<float&> /= opcheck<int>);
-static_assert(!(opcheck<int&> /= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> /= opcheck<SomeType>));
 
 static_assert(opcheck<int&> %= opcheck<int>);
-static_assert(!(opcheck<int&> %= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> %= opcheck<SomeType>));
 
 static_assert(opcheck<int&> &= opcheck<int>);
-static_assert(!(opcheck<int&> &= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> &= opcheck<SomeType>));
 
 static_assert(opcheck<int&> |= opcheck<int>);
-static_assert(!(opcheck<int&> |= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> |= opcheck<SomeType>));
 
 static_assert(opcheck<int&> ^= opcheck<int>);
-static_assert(!(opcheck<int&> ^= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> ^= opcheck<SomeType>));
 
 static_assert(opcheck<int&> <<= opcheck<int>);
-static_assert(!(opcheck<int&> <<= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> <<= opcheck<SomeType>));
 
 static_assert(opcheck<int&> >>= opcheck<int>);
-static_assert(!(opcheck<int&> >>= opcheck<OperatorCheckerTestType>));
+static_assert(!(opcheck<int&> >>= opcheck<SomeType>));
 
 // Function call
 int foo(int);
 static_assert(opcheck<decltype(foo)>(opcheck<int>));
 static_assert(!(opcheck<decltype(foo)>()));
-static_assert(!(opcheck<decltype(foo)>(opcheck<OperatorCheckerTestType>)));
-static_assert(!(opcheck<OperatorCheckerTestType>(opcheck<int>)));
+static_assert(!(opcheck<decltype(foo)>(opcheck<SomeType>)));
+static_assert(!(opcheck<SomeType>(opcheck<int>)));
 int bar();
 static_assert(opcheck<decltype(bar)>());
 static_assert(!(opcheck<decltype(bar)>(opcheck<int>)));
-static_assert(!(opcheck<decltype(bar)>(opcheck<OperatorCheckerTestType>)));
-static_assert(!(opcheck<OperatorCheckerTestType>(opcheck<int>)));
+static_assert(!(opcheck<decltype(bar)>(opcheck<SomeType>)));
+static_assert(!(opcheck<SomeType>(opcheck<int>)));
 
 // Array index
 static_assert(opcheck<int[3]>[opcheck<int>]);
-static_assert(!(opcheck<int[3]>[opcheck<OperatorCheckerTestType>]));
-static_assert(!(opcheck<OperatorCheckerTestType>[opcheck<int>]));
+static_assert(!(opcheck<int[3]>[opcheck<SomeType>]));
+static_assert(!(opcheck<SomeType>[opcheck<int>]));
 
 // Arrow operator
 static_assert(opcheck<std::unique_ptr<int>>->value());
@@ -177,10 +177,9 @@ static_assert(!(opcheck<int>->*opcheck<OverloadArrowStar>));
 static_assert(opcheck<float>.canCastTo(opcheck<float>));
 static_assert(opcheck<float>.canCastTo(opcheck<int>));
 static_assert(opcheck<int>.canCastTo(opcheck<float>));
-static_assert(!opcheck<OperatorCheckerTestType>.canCastTo(opcheck<float>));
-static_assert(!opcheck<float>.canCastTo(opcheck<OperatorCheckerTestType>));
-static_assert(opcheck<OperatorCheckerTestType>.canCastTo(
-    opcheck<OperatorCheckerTestType>));
+static_assert(!opcheck<SomeType>.canCastTo(opcheck<float>));
+static_assert(!opcheck<float>.canCastTo(opcheck<SomeType>));
+static_assert(opcheck<SomeType>.canCastTo(opcheck<SomeType>));
 
 } // namespace opcheck_tests
 
@@ -259,6 +258,17 @@ static_assert(
         std::make_tuple(1.0, 4),
         std::make_tuple(true, 2.0f),
         std::make_tuple(true, 4)));
+
+static_assert(any_defined(
+    std::tuple<int, SomeType>{},
+    std::tuple<SomeType, float>{},
+    [](auto x, auto y) constexpr { return x + y; }));
+
+static_assert(!any_defined(
+    std::tuple<int, SomeType>{},
+    std::tuple<SomeType, SomeType2>{},
+    [](auto x, auto y) constexpr { return x + y; }));
+
 } // namespace util_tests
 
 } // namespace nvfuser
