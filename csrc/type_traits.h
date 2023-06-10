@@ -470,6 +470,11 @@ constexpr bool any_defined(Fun f, Tuples... tuples) {
       [f](auto... candidates) constexpr {
         return any(std::apply(
             [&](auto... args) constexpr {
+              // TODO: I should actually use
+              //   return opcheck<Fun>(opcheck<decltype(args)>...);
+              // for better compatibility with different types of f, but
+              // unfortunately this won't compile. I have a feeling that this is
+              // a bug of SFINAE in the compiler, but I'm not sure.
               return f(opcheck<decltype(args)>...);
             },
             candidates)...);
