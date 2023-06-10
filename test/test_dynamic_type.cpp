@@ -8,6 +8,8 @@
 
 #include <type_traits.h>
 
+#include <dynamic_type.h>
+
 #include <iostream>
 #include <memory>
 
@@ -16,7 +18,7 @@ namespace nvfuser {
 struct SomeType {};
 struct SomeType2 {};
 
-namespace opcheck_tests {
+namespace OpCheckTests {
 
 // Unary operators
 static_assert(+opcheck<int>);
@@ -181,9 +183,9 @@ static_assert(!opcheck<SomeType>.canCastTo(opcheck<float>));
 static_assert(!opcheck<float>.canCastTo(opcheck<SomeType>));
 static_assert(opcheck<SomeType>.canCastTo(opcheck<SomeType>));
 
-} // namespace opcheck_tests
+} // namespace OpCheckTests
 
-namespace ForAllTypes_tests {
+namespace ForAllTypesTests {
 
 // Find all primes < 10 using template deduction
 
@@ -227,6 +229,19 @@ static_assert(std::is_same_v<
                   std::integral_constant<int, 5>,
                   std::integral_constant<int, 7>>>);
 
-} // namespace ForAllTypes_tests
+} // namespace ForAllTypesTests
+
+namespace DynamicTypeTests {
+
+using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
+using PairPair = DynamicType<std::pair<int, int>, std::pair<int, float>>;
+
+static_assert(opcheck<DoubleInt64Bool> + opcheck<DoubleInt64Bool>);
+static_assert(!(opcheck<PairPair> + opcheck<PairPair>));
+
+static_assert(DoubleInt64Bool(2.5).cast<int64_t>() == 2);
+static_assert((DoubleInt64Bool(2) + DoubleInt64Bool(2.5)).as<double>() == 4.5);
+
+} // namespace DynamicTypeTests
 
 } // namespace nvfuser

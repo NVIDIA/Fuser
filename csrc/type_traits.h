@@ -334,10 +334,13 @@ struct Void {};
 //  0
 //  0.2
 
+template <typename... Ts>
+struct ForAllTypes;
+
 template <typename T, typename... Ts>
-struct ForAllTypes {
+struct ForAllTypes<T, Ts...> {
   template <typename Fun>
-  constexpr auto operator()(Fun f) {
+  constexpr auto operator()(Fun f) const {
     using RetT = decltype(f((T*)nullptr));
     if constexpr (std::is_void_v<RetT>) {
       f((T*)nullptr);
@@ -349,17 +352,11 @@ struct ForAllTypes {
   }
 };
 
-template <typename T>
-struct ForAllTypes<T> {
+template <>
+struct ForAllTypes<> {
   template <typename Fun>
-  constexpr auto operator()(Fun f) {
-    using RetT = decltype(f((T*)nullptr));
-    if constexpr (std::is_void_v<RetT>) {
-      f((T*)nullptr);
-      return std::tuple<Void>{};
-    } else {
-      return std::make_tuple(f((T*)nullptr));
-    }
+  constexpr auto operator()(Fun f) const {
+    return std::tuple<>{};
   }
 };
 
@@ -506,11 +503,16 @@ constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
   auto c_others = cartesian_product(others...);
   return std::apply(
       [c_others](auto... ts) constexpr {
-        return std::tuple_cat(std::apply(
-            [ts](auto... us) constexpr {
-              return std::make_tuple(std::tuple_cat(ts, us)...);
-            },
-            c_others)...);
+        // cat one item in c_first with all the items in c_others
+        auto cat_one_first_all_others = [c_others](auto first_item) {
+          return std::apply(
+              [first_item](auto... other_item) constexpr {
+                return std::make_tuple(
+                    std::tuple_cat(first_item, other_item)...);
+              },
+              c_others);
+        };
+        return std::tuple_cat(cat_one_first_all_others(ts)...);
       },
       c_first);
 }

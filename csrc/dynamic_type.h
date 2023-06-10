@@ -10,12 +10,89 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
+#include <type_traits.h>
+
 #include <cmath>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <variant>
 
 namespace nvfuser {
+
+template <typename... Ts>
+class DynamicType;
+
+template <typename... Ts>
+std::ostream& operator<<(std::ostream& os, const DynamicType<Ts...>& dt);
+
+template <typename... Ts>
+// not using template <typename... Ts> to make sure there is at least one type
+struct DynamicType {
+  std::variant<std::monostate, Ts...> value_;
+
+  using TypesAsTuple = std::tuple<Ts...>;
+  static constexpr TypesAsTuple types_as_tuple{};
+  using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
+  static constexpr ForAllTypes for_all_types{};
+
+  constexpr DynamicType() = default;
+
+  template <typename T>
+  explicit constexpr DynamicType(T value) : value_(value) {}
+
+  template <typename T>
+  constexpr bool is() const {
+    return std::holds_alternative<T>(value_);
+  }
+
+  template <typename T>
+  constexpr T as() const {
+    return std::get<T>(value_);
+  }
+
+  template <typename T>
+  constexpr T cast() const {
+    std::optional<T> ret = std::nullopt;
+    for_all_types([this, &ret](auto* from) {
+      using From = std::remove_pointer_t<decltype(from)>;
+      if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
+        if (is<From>()) {
+          ret = (T)as<From>();
+        }
+      }
+    });
+    TORCH_CHECK(
+        ret.has_value(), "Cannot cast ", *this, " to ", typeid(T).name());
+    return ret.value();
+  }
+};
+
+constexpr auto plus_helper = [](auto x, auto y) constexpr { return x + y; };
+template <
+    typename DT,
+    typename = std::enable_if_t<
+        any_defined(plus_helper, DT::types_as_tuple, DT::types_as_tuple)>>
+inline constexpr DT operator+(DT x, DT y) {
+  DT ret(std::monostate{});
+  DT::for_all_types([&ret, x, y](auto* lhs) {
+    using LHS = std::remove_pointer_t<decltype(lhs)>;
+    DT::for_all_types([&ret, x, y](auto* rhs) {
+      using RTS = std::remove_pointer_t<decltype(rhs)>;
+      if constexpr (opcheck<LHS> + opcheck<RTS>) {
+        if (x.template is<LHS>() && y.template is<RTS>()) {
+          ret = DT(x.template as<LHS>() + y.template as<RTS>());
+        }
+      }
+    });
+  });
+  TORCH_CHECK(
+      !ret.template is<std::monostate>(),
+      "Can not compute ",
+      "+",
+      " incompatible type");
+  return ret;
+}
 
 class TORCH_CUDA_CU_API EvaluatorValue {
   std::variant<double, int64_t, bool> value_;
