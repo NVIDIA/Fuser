@@ -13,50 +13,42 @@
 
 namespace nvfuser {
 
-// See note [Operator checker] below
+// ----------------------------------------------------------------------------
 
+// Implementation detail
+namespace can_use_args_impl {
+
+// For how to use std::void_t for SFINAE, see
+// https://en.cppreference.com/w/cpp/types/void_t
+
+template <typename, typename Fun, typename... Ts>
+struct HasArg : std::false_type {};
+
+template <typename Fun, typename... Ts>
+struct HasArg<
+    std::void_t<decltype(std::declval<Fun>()(std::declval<Ts>()...))>,
+    Fun,
+    Ts...> : std::true_type {};
+
+} // namespace can_use_args_impl
+
+// Check if a function Fun can be called with arguments Ts...
+
+template <typename Fun, typename... Ts>
+constexpr bool can_use_args =
+    can_use_args_impl::HasArg<void, Fun, Ts...>::value;
+
+// For example, `float sin(float)` can be called with int, but not with float*
+// so:
+static_assert(can_use_args<float (*)(float), int>);
+static_assert(!can_use_args<float (*)(float), float*>);
+
+// ----------------------------------------------------------------------------
+
+// Implementation detail
 namespace opcheck_impl {
 
 struct OperatorCheckerHelper {};
-
-// Implementation detail: The pattern like IsFunc repeats multiple times and the
-// idea behind it is the key to the implementation of operator checker. The idea
-// is to use SFINAE. I will add detailed comment to IsFunc, and other classes
-// should have the same principle.
-struct IsFunc {
-  // In this struct, we define two check functions, one takes an int, and one
-  // takes a long. To use this struct, we should call
-  // IsFunc::check<Fun, Arg1, Arg2>(int{})
-  // Be sure that the argument has type int instead of long. Because the
-  // argument is int, the compiler will try to do pattern matching on the check
-  // that takes an int argument first, because this variant does not require any
-  // automatic conversion for argument. If the pattern matching succeeds, then
-  // this variant will be chosen. Otherwise, the compiler will try the other
-  // variant, which takes a long, and this variant is designed that pattern
-  // matching always succeeds. So if the compiler decide to convert int{} to
-  // long, this variant will be generated to be chosen.
-
-  template <typename Fun, typename... Ts>
-  static constexpr auto check(int)
-      -> decltype((std::declval<Fun>()(std::declval<Ts>()...)), true) {
-    // When trying to match this variant, the compiler will try to evaluate the
-    // expression inside decltype. If the expression is valid, then the pattern
-    // matching succeeds, and this variant will be chosen. std::declval<Fun>()
-    // is a value of type Fun, and if Fun is a desired function type, then
-    // std::declval<Fun>()(std::declval<Ts>()...) is well-formed, and the
-    // expression is valid. Otherwise the expression is invalid, and the pattern
-    // matching fails. The comma ensures that the result of decltype is always
-    // bool.
-    return true;
-  }
-
-  template <typename Fun, typename... Ts>
-  static constexpr bool check(long) {
-    // The compiler will only consider this variant if the pattern matching on
-    // the previous variant fails.
-    return false;
-  }
-};
 
 struct HasArrowOperator {
   template <typename T>
@@ -115,7 +107,7 @@ struct OperatorChecker {
   template <
       typename T1 = int,
       typename... Ts,
-      std::enable_if_t<IsFunc::check<T, Ts...>(int{}), T1> = 0>
+      std::enable_if_t<can_use_args<T, Ts...>, T1> = 0>
   constexpr bool operator()(OperatorChecker<Ts>... args) const {
     return true;
   }
@@ -123,7 +115,7 @@ struct OperatorChecker {
   template <
       typename T1 = int,
       typename... Ts,
-      std::enable_if_t<!IsFunc::check<T, Ts...>(int{}), T1> = 0>
+      std::enable_if_t<!can_use_args<T, Ts...>, T1> = 0>
   constexpr bool operator()(OperatorChecker<Ts>... args) const {
     return false;
   }
@@ -282,19 +274,14 @@ constexpr bool operator,(OperatorCheckerHelper, OperatorCheckerHelper) {
 template <typename T>
 constexpr opcheck_impl::OperatorChecker<T> opcheck;
 
-namespace opcheck_note {
-
 // Note [Operator checker]
 //
 // "opcheck" is a utility to check if an operator for certain type is defined.
 // For example, if you want to check if int > float is defined, you can do:
-constexpr bool int_gt_float_is_defined = (opcheck<int> > opcheck<float>);
-static_assert(int_gt_float_is_defined);
-// This will return true because int > float is defined. However, if you do
-constexpr bool int_gt_pair_is_defined =
-    (opcheck<int> > opcheck<std::pair<int, int>>);
-static_assert(!int_gt_pair_is_defined);
-// This will return false because int > pair is not defined.
+static_assert(opcheck<int> > opcheck<float>);
+// This will be true because int > float is defined. However, if you do
+static_assert(!(opcheck<int> > opcheck<std::pair<int, int>>));
+// This will be false because int > pair is not defined.
 //
 // This utility works for all overloadable operators in C++. Just use these ops
 // on opcheck and you will know if it is defined for the underlying type.
@@ -302,14 +289,14 @@ static_assert(!int_gt_pair_is_defined);
 // Due to the limitiation of C++'s operator overloading, some operators'
 // interface might not be as clean as others. For example, the arrow operator ->
 // is a special one. If you want to check if int has ->, you need to do:
-constexpr bool int_has_arrow = (opcheck<int>->value());
-static_assert(!int_has_arrow);
+static_assert(!(opcheck<int>->value()));
 //
 // For more examples, see test_dynamic_type.cpp namespace opcheck_tests
 //
-// reference: https://en.cppreference.com/w/cpp/language/operators
+// Reference about operator overloading:
+// https://en.cppreference.com/w/cpp/language/operators
 
-} // namespace opcheck_note
+// ----------------------------------------------------------------------------
 
 // Basically just "void". We need this because if we have something like
 // std::tuple<void, int> we will be unable to create an instance of it.
@@ -459,7 +446,7 @@ constexpr auto cartesian_product(Tuple t) {
       t);
 }
 
-template <typename Tuple1, typename ... OtherTuples>
+template <typename Tuple1, typename... OtherTuples>
 constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
   auto c_first = cartesian_product(first);
   auto c_others = cartesian_product(others...);
@@ -486,6 +473,8 @@ constexpr bool any_defined(Fun f, Tuples... tuples) {
               // for better compatibility with different types of f, but
               // unfortunately this won't compile. I have a feeling that this is
               // a bug of SFINAE in the compiler, but I'm not sure.
+              // return opcheck_impl::IsFunc<void, Fun,
+              // decltype(args)...>::value;
               return f(opcheck<decltype(args)>...);
             },
             candidates)...);
