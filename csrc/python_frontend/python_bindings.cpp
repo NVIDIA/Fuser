@@ -254,7 +254,14 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              // Allows for a Vector of Sizes to be inputed as a list
+              if (py::isinstance<py::list>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+              	inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
             }
             std::optional<int8_t> int8_device = std::nullopt;
             if (device.has_value()) {
