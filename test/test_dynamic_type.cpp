@@ -229,26 +229,4 @@ static_assert(std::is_same_v<
 
 } // namespace ForAllTypes_tests
 
-namespace util_tests {
-
-static_assert(any_defined(
-    [](auto x) constexpr { return -x; },
-    std::tuple<int, SomeType>{}));
-
-static_assert(!any_defined(
-    [](auto x) constexpr { return -x; },
-    std::tuple<SomeType, SomeType2>{}));
-
-static_assert(any_defined(
-    [](auto x, auto y) constexpr { return x + y; },
-    std::tuple<int, SomeType>{},
-    std::tuple<SomeType, float>{}));
-
-static_assert(!any_defined(
-    [](auto x, auto y) constexpr { return x + y; },
-    std::tuple<int, SomeType>{},
-    std::tuple<SomeType, SomeType2>{}));
-
-} // namespace util_tests
-
 } // namespace nvfuser
