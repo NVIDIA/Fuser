@@ -177,13 +177,15 @@ DEFINE_UNARY_OP(bnot, ~);
 DEFINE_UNARY_OP(lnot, !);
 
 // Intentionally not supporting the following unary ops:
-//   DEFINE_UNARY_OP(addr, &);
-// Because if it is overloaded, how do we get the address of the dynamic type
-// itself?
+// DEFINE_UNARY_OP(addr, &);
+// DEFINE_UNARY_OP(deref, *);
+// Because it only makes sense if and only if both T& and T* are included in
+// the type list, however, std::variant does not allow reference type to be
+// an alternative. Also, if we overloaded the operator&, how can we get the
+// address of the dynamic type itself?
 
 #undef DEFINE_UNARY_OP
 
-// DEFINE_UNARY_OP(deref, *);
 // DEFINE_UNARY_OP(pp, ++);
 // DEFINE_UNARY_OP(mm, --);
 // DEFINE_UNARY_SUFFIX_OP(spp, ++);
