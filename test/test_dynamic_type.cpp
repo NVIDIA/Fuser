@@ -388,6 +388,16 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
   {
     using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
     static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
+    using BFloatOrHalfZeroOrInt =
+        DynamicType<bfloat16_zero, half_zero, int>;
+    static_assert(
+        opcheck<BFloatOrHalfZeroOrInt> + opcheck<BFloatOrHalfZeroOrInt>);
+    EXPECT_THAT(
+        [&]() {
+          BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{});
+        },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
   }
   // example 5
   {

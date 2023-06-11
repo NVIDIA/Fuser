@@ -70,7 +70,13 @@
 //   float operator+(bfloat16_zero, half_zero) { return 0.0f; }
 //   using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
 // Then the operator+ on BFloatOrHalf should not be defined, because the result
-// type is not in the type list.
+// type is not in the type list. However, if you have:
+//   using BFloatOrHalfZeroOrInt = DynamicType<bfloat16_zero, half_zero, int>;
+// Then the operator+ on BFloatOrHalfZeroOrInt should be defined at compile time
+// because int+int is defined, but
+// BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{})
+// should be a runtime error, because the the result of half_zero+bfloat16_zero,
+// i.e. float, is not in the type list.
 //
 // TODO implement below:
 // Besides the operators within DynamicType, such as DynamicType + DynamicType,
@@ -132,6 +138,10 @@ struct DynamicType {
   using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
   static constexpr ForAllTypes for_all_types{};
 
+  // Check if T is one of the types in the type list Ts...
+  template <typename T>
+  static constexpr auto is_candidate_type = nvfuser::belongs_to<T, Ts...>;
+
   constexpr DynamicType() = default;
 
   template <typename T>
@@ -185,10 +195,14 @@ struct DynamicType {
     DT::for_all_types([&ret, x, y](auto* lhs) {                        \
       using LHS = std::remove_pointer_t<decltype(lhs)>;                \
       DT::for_all_types([&ret, x, y](auto* rhs) {                      \
-        using RTS = std::remove_pointer_t<decltype(rhs)>;              \
-        if constexpr ((opcheck<LHS> op opcheck<RTS>)) {                \
-          if (x.template is<LHS>() && y.template is<RTS>()) {          \
-            ret = DT(x.template as<LHS>() op y.template as<RTS>());    \
+        using RHS = std::remove_pointer_t<decltype(rhs)>;              \
+        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                \
+          if constexpr (DT::template is_candidate_type<                \
+                            decltype(std::declval<LHS>()               \
+                                         op std::declval<RHS>())>) {   \
+            if (x.template is<LHS>() && y.template is<RHS>()) {        \
+              ret = DT(x.template as<LHS>() op y.template as<RHS>());  \
+            }                                                          \
           }                                                            \
         }                                                              \
       });                                                              \
