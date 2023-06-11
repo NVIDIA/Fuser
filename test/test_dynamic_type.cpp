@@ -19,11 +19,13 @@
 
 namespace nvfuser {
 
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-comparison"
 #pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #pragma clang diagnostic ignored "-Wunused-lambda-capture"
+#endif
 
 struct SomeType {};
 struct SomeType2 {};
@@ -247,7 +249,6 @@ static_assert(std::is_same_v<
 class DynamicTypeTest : public NVFuserTest {};
 
 using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
-using BoolSomeType = DynamicType<bool, SomeType>;
 using IntSomeType = DynamicType<int, SomeType>;
 using SomeTypes = DynamicType<SomeType, SomeType>;
 
@@ -314,53 +315,31 @@ TEST_BINARY_OP_INT_ONLY(Xor, ^);
 TEST_BINARY_OP_INT_ONLY(LShift, <<);
 TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
-/*TODO: we should inline the definition of opname##_helper into enable_if,*/ /*but I can only do this in C++20 */
-
-// template <typename DT>
-// constexpr bool support_opname =
-//     any_check([](auto x) { return +opcheck<decltype(x)>; }, typename DT::TypesAsTuple{}, typename DT::TypesAsTuple{});
-// template <typename DT, typename = std::enable_if_t<support_opname<DT>>>
-// inline constexpr DT operator+(DT x) {
-//   DT ret(std::monostate{});
-//   DT::for_all_types([&ret, x](auto* _) {
-//     using Type = std::remove_pointer_t<decltype(_)>;
-//     if constexpr (+opcheck<Type>) {
-//       if (x.template is<Type>()) {
-//         ret = DT(+x.template as<Type>());
-//       }
-//     }
-//   });
-//   TORCH_CHECK(
-//       !ret.template is<std::monostate>(),
-//       "Can not compute ",
-//       "+",
-//       " : incompatible type");
-//   return ret;
-// }
-
-#define TEST_UNARY_OP(name, op)                                            \
-  TEST_F(DynamicTypeTest, name) {                                          \
-    static_assert(op opcheck<DoubleInt64Bool>);                            \
-    static_assert((op DoubleInt64Bool(2)).as<decltype(op 2)>() == (op 2)); \
-    EXPECT_THAT(                                                           \
-        [&]() { op DoubleInt64Bool(); },                                   \
-        ::testing::ThrowsMessage<c10::Error>(                              \
-            ::testing::HasSubstr("Can not compute ")));                    \
-    static_assert(op opcheck<IntSomeType>);                                \
-    static_assert(!(op opcheck<SomeTypes>));                               \
-    EXPECT_THAT(                                                           \
-        [&]() { op IntSomeType(SomeType{}); },                             \
-        ::testing::ThrowsMessage<c10::Error>(                              \
-            ::testing::HasSubstr("Can not compute ")));                    \
+#define TEST_UNARY_OP(name, op)                                              \
+  TEST_F(DynamicTypeTest, name) {                                            \
+    static_assert(op opcheck<DoubleInt64Bool>);                              \
+    static_assert((op DoubleInt64Bool(2)).as<decltype(op 2L)>() == (op 2L)); \
+    EXPECT_THAT(                                                             \
+        [&]() { op DoubleInt64Bool(); },                                     \
+        ::testing::ThrowsMessage<c10::Error>(                                \
+            ::testing::HasSubstr("Can not compute ")));                      \
+    static_assert(op opcheck<IntSomeType>);                                  \
+    static_assert(!(op opcheck<SomeTypes>));                                 \
+    EXPECT_THAT(                                                             \
+        [&]() { op IntSomeType(SomeType{}); },                               \
+        ::testing::ThrowsMessage<c10::Error>(                                \
+            ::testing::HasSubstr("Can not compute ")));                      \
   }
 
-// TEST_UNARY_OP(Positive, +);
-// TEST_UNARY_OP(Negative, -);
-// TEST_UNARY_OP(BinaryNot, ~);
-// TEST_UNARY_OP(LogicalNot, !);
+TEST_UNARY_OP(Positive, +);
+TEST_UNARY_OP(Negative, -);
+TEST_UNARY_OP(BinaryNot, ~);
+TEST_UNARY_OP(LogicalNot, !);
 
 #undef TEST_UNARY_OP
 
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif
 
 } // namespace nvfuser

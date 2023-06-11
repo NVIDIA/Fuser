@@ -20,11 +20,29 @@
 
 namespace nvfuser {
 
+// We must disable a lot of compiler warnings to make this work. The reason for
+// the need to disable these warnings is not because the code quality in this
+// file is bad, but because these apparently "bad" practices are necessary. For
+// example, if you have a dynamic type that can be either a bool or a class
+// SomeType{}, then we should support the ~ operator on it, because in the C++
+// standard bool supports it. Usually, when people write code like ~bool, they
+// are making a mistake, and the compiler will want you to use !bool instead.
+// However, in our case here we will allow everything that the C++ standard
+// allows. The compiler should yell at the user who uses DynamicType with ~
+// but not at us for implementing it.
+
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-comparison"
 #pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #pragma clang diagnostic ignored "-Wunused-lambda-capture"
+#endif
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wbool-operation"
+#endif
 
 template <typename... Ts>
 struct DynamicType;
@@ -125,10 +143,38 @@ DEFINE_BINARY_OP(ge, >=);
 
 #undef DEFINE_BINARY_OP
 
-// DEFINE_UNARY_OP(pos, +);
-// DEFINE_UNARY_OP(neg, -);
-// DEFINE_UNARY_OP(bnot, ~);
-// DEFINE_UNARY_OP(lnot, !);
+#define DEFINE_UNARY_OP(opname, op)                                            \
+  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
+  /*but I can only do this in C++20 */                                         \
+  constexpr auto opname##_helper = [](auto x) constexpr {                      \
+    return op opcheck<decltype(x)>;                                            \
+  };                                                                           \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename =                                                               \
+          std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
+  inline constexpr DT operator op(DT x) {                                      \
+    DT ret(std::monostate{});                                                  \
+    DT::for_all_types([&ret, x](auto* _) {                                     \
+      using Type = std::remove_pointer_t<decltype(_)>;                         \
+      if constexpr (op opcheck<Type>) {                                        \
+        if (x.template is<Type>()) {                                           \
+          ret = DT(op x.template as<Type>());                                  \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    TORCH_CHECK(                                                               \
+        !ret.template is<std::monostate>(),                                    \
+        "Can not compute ",                                                    \
+        #op,                                                                   \
+        " : incompatible type");                                               \
+    return ret;                                                                \
+  }
+
+DEFINE_UNARY_OP(pos, +);
+DEFINE_UNARY_OP(neg, -);
+DEFINE_UNARY_OP(bnot, ~);
+DEFINE_UNARY_OP(lnot, !);
 
 // Intentionally not supporting the following unary ops:
 //   DEFINE_UNARY_OP(addr, &);
@@ -448,6 +494,12 @@ inline EvaluatorValue abs(const EvaluatorValue& a) {
 
 } // namespace EvaluatorValue_functions
 
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 } // namespace nvfuser
