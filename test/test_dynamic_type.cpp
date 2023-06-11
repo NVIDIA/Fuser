@@ -265,10 +265,12 @@ TEST_F(DynamicTypeTest, Casting) {
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
     static_assert(                                                             \
-        (DoubleInt64Bool(2) op DoubleInt64Bool(2.5))                           \
-            .as<decltype(2 op 2.5)>() == (2 op 2.5));                          \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
+            .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
     static_assert(                                                             \
         (DoubleInt64Bool(3L) op 2L).as<decltype((3L op 2L))>() == (3L op 2L)); \
+    static_assert(                                                             \
+        (3L op DoubleInt64Bool(2L)).as<decltype((3L op 2L))>() == (3L op 2L)); \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
         ::testing::ThrowsMessage<c10::Error>(                                  \
@@ -294,22 +296,24 @@ TEST_BINARY_OP_ALLTYPE(Gt, >);
 TEST_BINARY_OP_ALLTYPE(Le, <=);
 TEST_BINARY_OP_ALLTYPE(Ge, >=);
 
-#define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
-  TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
-    static_assert(                                                             \
-        (DoubleInt64Bool(3) op DoubleInt64Bool(2)).as<int64_t>() == (3 op 2)); \
-    static_assert((DoubleInt64Bool(3) op 2).as<int64_t>() == (3 op 2));        \
-    EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
-    EXPECT_THAT(                                                               \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+#define TEST_BINARY_OP_INT_ONLY(name, op)                                   \
+  TEST_F(DynamicTypeTest, name) {                                           \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);    \
+    static_assert(                                                          \
+        (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==       \
+        (3L op 2L));                                                        \
+    static_assert((DoubleInt64Bool(3L) op 2L).as<int64_t>() == (3L op 2L)); \
+    static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L)); \
+    EXPECT_THAT(                                                            \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                 \
+        ::testing::ThrowsMessage<c10::Error>(                               \
+            ::testing::HasSubstr("Can not compute ")));                     \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);             \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));              \
+    EXPECT_THAT(                                                            \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },       \
+        ::testing::ThrowsMessage<c10::Error>(                               \
+            ::testing::HasSubstr("Can not compute ")));                     \
   }
 
 TEST_BINARY_OP_INT_ONLY(Mod, %);
