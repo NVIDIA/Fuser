@@ -367,6 +367,8 @@ DEFINE_UNARY_OP(lnot, !);
 // DEFINE_UNARY_SUFFIX_OP(spp, ++);
 // DEFINE_UNARY_SUFFIX_OP(smm, --);
 
+// legacy code below:
+
 class TORCH_CUDA_CU_API EvaluatorValue {
   std::variant<double, int64_t, bool> value_;
 

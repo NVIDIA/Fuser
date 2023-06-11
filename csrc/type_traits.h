@@ -302,12 +302,12 @@ constexpr bool operator,(
 
 } // namespace opcheck_impl
 
-template <typename T>
-constexpr opcheck_impl::OperatorChecker<T> opcheck;
-
 // Note [Operator checker]
 //
 // "opcheck" is a utility to check if an operator for certain type is defined.
+template <typename T>
+constexpr opcheck_impl::OperatorChecker<T> opcheck;
+
 // For example, if you want to check if int > float is defined, you can do:
 static_assert(opcheck<int> > opcheck<float>);
 // This will be true because int > float is defined. However, if you do
