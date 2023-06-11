@@ -419,6 +419,81 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
       std::string in3) const;
 };
 
+// construct an array from a list of values
+class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArrayConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+};
+
+// Get an item from an array, array[index]
+class TORCH_CUDA_CU_API GetItem : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetItem(IrBuilderPasskey, Val* output, Val* array, Val* index);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetItem";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* array() const {
+    return input(0);
+  }
+
+  Val* index() const {
+    return input(1);
+  }
+};
+
+// Construct a tensor from an array
+class TORCH_CUDA_CU_API TensorConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  TensorConstruct(IrBuilderPasskey, TensorView* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TensorConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class TORCH_CUDA_CU_API RNGOp : public Expr {

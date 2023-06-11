@@ -1093,6 +1093,9 @@ std::string typePrefix(const DataType data_type) {
   if (std::holds_alternative<PointerOf>(data_type.type)) {
     return "ptr";
   }
+  if (std::holds_alternative<ArrayOf>(data_type.type)) {
+    return "a";
+  }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:
       return "b";
