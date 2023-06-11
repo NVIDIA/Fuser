@@ -1228,7 +1228,7 @@ TEST_F(NVFuserTest, FusionReshapeIdGraph_CUDA) {
   fusion.addOutput(t13);
 
   // Grab the trivial reduced tensor from t12's reshape.
-  ir_utils::producerTvsOf(tv12)[0];
+  ir_utils::producerTvsOf(tv12);
 
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(&fusion);

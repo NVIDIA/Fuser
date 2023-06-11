@@ -23,6 +23,8 @@ namespace nvfuser {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-comparison"
 #pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
+#pragma clang diagnostic ignored "-Wliteral-conversion"
+#pragma clang diagnostic ignored "-Wunused-lambda-capture"
 
 template <typename... Ts>
 struct DynamicType;
@@ -62,7 +64,7 @@ struct DynamicType {
       using From = std::remove_pointer_t<decltype(from)>;
       if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
         if (is<From>()) {
-          ret = (T)this->as<From>();
+          ret = (T)as<From>();
         }
       }
     });

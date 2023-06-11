@@ -23,6 +23,7 @@ namespace nvfuser {
 #pragma clang diagnostic ignored "-Wunused-comparison"
 #pragma clang diagnostic ignored "-Wbitwise-instead-of-logical"
 #pragma clang diagnostic ignored "-Wliteral-conversion"
+#pragma clang diagnostic ignored "-Wunused-lambda-capture"
 
 struct SomeType {};
 struct SomeType2 {};
@@ -115,9 +116,11 @@ static_assert(!(opcheck<int> <= opcheck<SomeType>));
 static_assert(opcheck<int> >= opcheck<float>);
 static_assert(!(opcheck<int> >= opcheck<SomeType>));
 
+#if !defined(__clang__)
+// TODO: clang can not handle assignment operators well
+
 // Assignment operators
 static_assert(opcheck<int&> = opcheck<int>);
-#if 0
 static_assert(!(opcheck<int&> = opcheck<SomeType>));
 
 static_assert(opcheck<float&> += opcheck<int>);
@@ -149,6 +152,7 @@ static_assert(!(opcheck<int&> <<= opcheck<SomeType>));
 
 static_assert(opcheck<int&> >>= opcheck<int>);
 static_assert(!(opcheck<int&> >>= opcheck<SomeType>));
+#endif
 
 // Function call
 int foo(int);
@@ -192,7 +196,6 @@ static_assert(opcheck<int>.canCastTo(opcheck<float>));
 static_assert(!opcheck<SomeType>.canCastTo(opcheck<float>));
 static_assert(!opcheck<float>.canCastTo(opcheck<SomeType>));
 static_assert(opcheck<SomeType>.canCastTo(opcheck<SomeType>));
-#endif
 } // namespace OpCheckTests
 
 namespace ForAllTypesTests {
