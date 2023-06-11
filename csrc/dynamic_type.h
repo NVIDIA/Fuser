@@ -78,14 +78,15 @@
 // should be a runtime error, because the the result of half_zero+bfloat16_zero,
 // i.e. float, is not in the type list.
 //
-// TODO implement below:
 // Besides the operators within DynamicType, such as DynamicType + DynamicType,
 // DynamicType also support operators with static type. For example, if you have
-//   IntOrFloat x = 1; float y = 2.5f; auto z = x + y;
-// then z should be an IntOrFloat with value 3.5f. However, if you have
+//   IntOrFloat x = 1; float y = 2.5f;
+// then x + y or y + x should be an IntOrFloat with value 3.5f. However, if you
+// have
 //   IntOrFloat x = 1; double y = 2.5;
-// then you will get a compilation error for doing x + y because int + double is
-// double, which is not in the list of types of IntOrFloat.
+// then you will get a compilation error for doing x + y or y + x, because int +
+// double and double + int are double, which is not in the list of types of
+// IntOrFloat.
 //
 // All the above behaviors are handled by template meta-programming, so they are
 // automatic. Adding a new type to the list of types does not introduce any

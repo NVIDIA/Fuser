@@ -264,6 +264,8 @@ TEST_F(DynamicTypeTest, Casting) {
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
+    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
             .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
@@ -299,6 +301,8 @@ TEST_BINARY_OP_ALLTYPE(Ge, >=);
 #define TEST_BINARY_OP_INT_ONLY(name, op)                                   \
   TEST_F(DynamicTypeTest, name) {                                           \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);    \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<int64_t>);            \
+    static_assert(opcheck<int64_t> op opcheck<DoubleInt64Bool>);            \
     static_assert(                                                          \
         (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==       \
         (3L op 2L));                                                        \
@@ -413,7 +417,10 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     constexpr float y = 2.5f;
     static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
     static_assert((x + y).as<float>() == 3.5f);
+    static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
+    static_assert((y + x).as<float>() == 3.5f);
     static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
+    static_assert(!(opcheck<double> + opcheck<IntOrFloat>));
   }
 }
 
@@ -430,6 +437,33 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
   static_assert(+opcheck<DynamicType<Type2, int>>);
   // runtime error because +Type2 is not in type list
   auto bad = [&]() { +DynamicType<Type2, int>(Type2{}); };
+  EXPECT_THAT(
+      bad,
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not compute ")));
+}
+
+TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
+  struct Type1 {};
+  struct Type2 {
+    Type1 operator+(Type2) const {
+      return Type1{};
+    }
+  };
+  // not defined compile time because Type2+Type2 is not in type list
+  static_assert(
+      !(opcheck<DynamicType<Type2, SomeType>> +
+        opcheck<DynamicType<Type2, SomeType>>));
+  static_assert(!(opcheck<DynamicType<Type2, SomeType>> + opcheck<Type2>));
+  static_assert(!(opcheck<Type2> + opcheck<DynamicType<Type2, SomeType>>));
+  // defined compile time because int+int is in type list
+  static_assert(
+      opcheck<DynamicType<Type2, int>> + opcheck<DynamicType<Type2, int>>);
+  // runtime error because Type2+Type2 is not in type list
+  auto bad = [&]() {
+    DynamicType<Type2, int> x(Type2{});
+    x + x;
+  };
   EXPECT_THAT(
       bad,
       ::testing::ThrowsMessage<c10::Error>(
