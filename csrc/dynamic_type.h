@@ -239,20 +239,26 @@ DEFINE_BINARY_OP(ge, >=);
 #define DEFINE_UNARY_OP(opname, op)                                            \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    return op opcheck<decltype(x)>;                                            \
+  constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
+    if constexpr (op opcheck<decltype(x)>) {                                   \
+      return std::is_same_v<decltype(op x), decltype(y)>;                      \
+    }                                                                          \
+    return false;                                                              \
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
-      typename =                                                               \
-          std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
+      typename = std::enable_if_t<any_check(                                   \
+          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
   inline constexpr DT operator op(DT x) {                                      \
     DT ret(std::monostate{});                                                  \
     DT::for_all_types([&ret, x](auto* _) {                                     \
       using Type = std::remove_pointer_t<decltype(_)>;                         \
       if constexpr (op opcheck<Type>) {                                        \
-        if (x.template is<Type>()) {                                           \
-          ret = DT(op x.template as<Type>());                                  \
+        if constexpr (DT::template is_candidate_type<                          \
+                          decltype(op std::declval<Type>())>) {                \
+          if (x.template is<Type>()) {                                         \
+            ret = DT(op x.template as<Type>());                                \
+          }                                                                    \
         }                                                                      \
       }                                                                        \
     });                                                                        \
@@ -276,6 +282,8 @@ DEFINE_UNARY_OP(lnot, !);
 // the type list, however, std::variant does not allow reference type to be
 // an alternative. Also, if we overloaded the operator&, how can we get the
 // address of the dynamic type itself?
+// TODO: even if we can not have T& in the type list, should we just let * to
+// return T instead of T&?
 
 #undef DEFINE_UNARY_OP
 

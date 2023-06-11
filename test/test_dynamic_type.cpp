@@ -250,6 +250,7 @@ class DynamicTypeTest : public NVFuserTest {};
 
 using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
 using IntSomeType = DynamicType<int, SomeType>;
+using BoolSomeType = DynamicType<bool, SomeType>;
 using SomeTypes = DynamicType<SomeType, SomeType>;
 
 TEST_F(DynamicTypeTest, Casting) {
@@ -315,26 +316,26 @@ TEST_BINARY_OP_INT_ONLY(Xor, ^);
 TEST_BINARY_OP_INT_ONLY(LShift, <<);
 TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
-#define TEST_UNARY_OP(name, op)                                              \
-  TEST_F(DynamicTypeTest, name) {                                            \
-    static_assert(op opcheck<DoubleInt64Bool>);                              \
-    static_assert((op DoubleInt64Bool(2)).as<decltype(op 2L)>() == (op 2L)); \
-    EXPECT_THAT(                                                             \
-        [&]() { op DoubleInt64Bool(); },                                     \
-        ::testing::ThrowsMessage<c10::Error>(                                \
-            ::testing::HasSubstr("Can not compute ")));                      \
-    static_assert(op opcheck<IntSomeType>);                                  \
-    static_assert(!(op opcheck<SomeTypes>));                                 \
-    EXPECT_THAT(                                                             \
-        [&]() { op IntSomeType(SomeType{}); },                               \
-        ::testing::ThrowsMessage<c10::Error>(                                \
-            ::testing::HasSubstr("Can not compute ")));                      \
+#define TEST_UNARY_OP(name, op, int_or_bool)                                  \
+  TEST_F(DynamicTypeTest, name) {                                             \
+    static_assert(op opcheck<DoubleInt64Bool>);                               \
+    static_assert((op DoubleInt64Bool(2L)).as<decltype(op 2L)>() == (op 2L)); \
+    EXPECT_THAT(                                                              \
+        [&]() { op DoubleInt64Bool(); },                                      \
+        ::testing::ThrowsMessage<c10::Error>(                                 \
+            ::testing::HasSubstr("Can not compute ")));                       \
+    static_assert(op opcheck<int_or_bool##SomeType>);                         \
+    static_assert(!(op opcheck<SomeTypes>));                                  \
+    EXPECT_THAT(                                                              \
+        [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
+        ::testing::ThrowsMessage<c10::Error>(                                 \
+            ::testing::HasSubstr("Can not compute ")));                       \
   }
 
-TEST_UNARY_OP(Positive, +);
-TEST_UNARY_OP(Negative, -);
-TEST_UNARY_OP(BinaryNot, ~);
-TEST_UNARY_OP(LogicalNot, !);
+TEST_UNARY_OP(Positive, +, Int);
+TEST_UNARY_OP(Negative, -, Int);
+TEST_UNARY_OP(BinaryNot, ~, Int);
+TEST_UNARY_OP(LogicalNot, !, Bool);
 
 #undef TEST_UNARY_OP
 
@@ -388,13 +389,13 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
   {
     using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
     static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
-    using BFloatOrHalfZeroOrInt =
-        DynamicType<bfloat16_zero, half_zero, int>;
+    using BFloatOrHalfZeroOrInt = DynamicType<bfloat16_zero, half_zero, int>;
     static_assert(
         opcheck<BFloatOrHalfZeroOrInt> + opcheck<BFloatOrHalfZeroOrInt>);
     EXPECT_THAT(
         [&]() {
-          BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{});
+          BFloatOrHalfZeroOrInt(half_zero{}) +
+              BFloatOrHalfZeroOrInt(bfloat16_zero{});
         },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Can not compute ")));
@@ -407,6 +408,25 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     // static_assert((x + y).as<float>() == 3.5f);
     // static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
   }
+}
+
+TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
+  struct Type1 {};
+  struct Type2 {
+    Type1 operator+() const {
+      return Type1{};
+    }
+  };
+  // not defined compile time because +Type2 is not in type list
+  static_assert(!(+opcheck<DynamicType<Type2, SomeType>>));
+  // defined compile time because +int is in type list
+  static_assert(+opcheck<DynamicType<Type2, int>>);
+  // runtime error because +Type2 is not in type list
+  auto bad = [&]() { +DynamicType<Type2, int>(Type2{}); };
+  EXPECT_THAT(
+      bad,
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not compute ")));
 }
 
 #if defined(__clang__)
