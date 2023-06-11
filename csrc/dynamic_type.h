@@ -63,11 +63,32 @@
 //  - operator+(CustomType2, CustomType2)
 // So we decide decide to not create the operator+ for Custom12.
 //
+// Also, beside requiring operator+(T1, T2) to be defined for some T1 and T2 in
+// the type list, it is also required that the result type of operator+(T1, T2)
+// is also in the type list. For example, if you have:
+//   struct bfloat16_zero {}; struct half_zero {};
+//   float operator+(bfloat16_zero, half_zero) { return 0.0f; }
+//   using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
+// Then the operator+ on BFloatOrHalf should not be defined, because the result
+// type is not in the type list.
+//
+// TODO implement below:
+// Besides the operators within DynamicType, such as DynamicType + DynamicType,
+// DynamicType also support operators with static type. For example, if you have
+//   IntOrFloat x = 1; float y = 2.5f; auto z = x + y;
+// then z should be an IntOrFloat with value 3.5f. However, if you have
+//   IntOrFloat x = 1; double y = 2.5;
+// then you will get a compilation error for doing x + y because int + double is
+// double, which is not in the list of types of IntOrFloat.
+//
 // All the above behaviors are handled by template meta-programming, so they are
 // automatic. Adding a new type to the list of types does not introduce any
 // extra work. All the behaviors mentioned in this note is tested in
 // DynamicTypeTest.ExamplesInNote, so if you want to change anything in this
 // doc, please make sure to update the test as well.
+//
+// Also, operations on DynamicType should be as constexpr as possible. So most
+// tests in DynamicTypeTest are static_assert tests.
 
 namespace nvfuser {
 
@@ -142,35 +163,42 @@ struct DynamicType {
   }
 };
 
-#define DEFINE_BINARY_OP(opname, op)                                           \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
-    return opcheck<decltype(x)> op opcheck<decltype(y)>;                       \
-  };                                                                           \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename = std::enable_if_t<any_check(                                   \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
-  inline constexpr DT operator op(DT x, DT y) {                                \
-    DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, x, y](auto* lhs) {                                \
-      using LHS = std::remove_pointer_t<decltype(lhs)>;                        \
-      DT::for_all_types([&ret, x, y](auto* rhs) {                              \
-        using RTS = std::remove_pointer_t<decltype(rhs)>;                      \
-        if constexpr (opcheck<LHS> op opcheck<RTS>) {                          \
-          if (x.template is<LHS>() && y.template is<RTS>()) {                  \
-            ret = DT(x.template as<LHS>() op y.template as<RTS>());            \
-          }                                                                    \
-        }                                                                      \
-      });                                                                      \
-    });                                                                        \
-    TORCH_CHECK(                                                               \
-        !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
-        #op,                                                                   \
-        " : incompatible type");                                               \
-    return ret;                                                                \
+#define DEFINE_BINARY_OP(opname, op)                                   \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/ \
+  /*but I can only do this in C++20 */                                 \
+  constexpr auto opname##_defined_checker =                            \
+      [](auto x, auto y, auto z) constexpr {                           \
+        if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {  \
+          return std::is_same_v<decltype(x op y), decltype(z)>;        \
+        }                                                              \
+        return false;                                                  \
+      };                                                               \
+  template <                                                           \
+      typename DT,                                                     \
+      typename = std::enable_if_t<any_check(                           \
+          opname##_defined_checker,                                    \
+          DT::types_as_tuple,                                          \
+          DT::types_as_tuple,                                          \
+          DT::types_as_tuple)>>                                        \
+  inline constexpr DT operator op(DT x, DT y) {                        \
+    DT ret(std::monostate{});                                          \
+    DT::for_all_types([&ret, x, y](auto* lhs) {                        \
+      using LHS = std::remove_pointer_t<decltype(lhs)>;                \
+      DT::for_all_types([&ret, x, y](auto* rhs) {                      \
+        using RTS = std::remove_pointer_t<decltype(rhs)>;              \
+        if constexpr ((opcheck<LHS> op opcheck<RTS>)) {                \
+          if (x.template is<LHS>() && y.template is<RTS>()) {          \
+            ret = DT(x.template as<LHS>() op y.template as<RTS>());    \
+          }                                                            \
+        }                                                              \
+      });                                                              \
+    });                                                                \
+    TORCH_CHECK(                                                       \
+        !ret.template is<std::monostate>(),                            \
+        "Can not compute ",                                            \
+        #op,                                                           \
+        " : incompatible type");                                       \
+    return ret;                                                        \
   }
 
 DEFINE_BINARY_OP(add, +);

@@ -341,10 +341,17 @@ TEST_UNARY_OP(LogicalNot, !);
 // This is the test for the examples in the note [Design of DynamicType], if you
 // updated that note, please update this test as well. On the other hand, if you
 // have to do something that breaks this test, please update the note as well.
+
+struct bfloat16_zero {};
+struct half_zero {};
+float operator+(bfloat16_zero, half_zero) {
+  return 0.0f;
+}
+
 TEST_F(DynamicTypeTest, ExamplesInNote) {
   // example 1
+  using IntOrFloat = DynamicType<int, float>;
   {
-    using IntOrFloat = DynamicType<int, float>;
     constexpr IntOrFloat x = 1;
     constexpr IntOrFloat y = 2.5f;
     constexpr IntOrFloat z = x + y;
@@ -376,6 +383,19 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     struct CustomType2 {};
     using Custom12 = DynamicType<CustomType, CustomType2>;
     static_assert(!(opcheck<Custom12> + opcheck<Custom12>));
+  }
+  // example 4
+  {
+    using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
+    static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
+  }
+  // example 5
+  {
+    // constexpr IntOrFloat x = 1;
+    // constexpr float y = 2.5f;
+    // static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
+    // static_assert((x + y).as<float>() == 3.5f);
+    // static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
   }
 }
 
