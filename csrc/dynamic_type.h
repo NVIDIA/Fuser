@@ -54,7 +54,7 @@
 //   struct CustomType2 {};
 //   using Custom12 = DynamicType<CustomType, CustomType2>;
 // Then the operator+ on Custom12 should not be defined at compile time, and
-// doing CustomType{} + CustomType2{} results in a compilation error. It is a
+// doing Custom12{} + Custom12{} results in a compilation error. It is a
 // compilation error because we know at compile time that none of them are
 // defined:
 //  - operator+(CustomType, CustomType)
