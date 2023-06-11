@@ -261,22 +261,24 @@ TEST_F(DynamicTypeTest, Casting) {
           ::testing::HasSubstr("Cannot cast to ")));
 }
 
-#define TEST_BINARY_OP_ALLTYPE(name, op)                                 \
-  TEST_F(DynamicTypeTest, name) {                                        \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>); \
-    static_assert(                                                       \
-        (DoubleInt64Bool(2) op DoubleInt64Bool(2.5))                     \
-            .as<decltype(2 op 2.5)>() == (2 op 2.5));                    \
-    EXPECT_THAT(                                                         \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },              \
-        ::testing::ThrowsMessage<c10::Error>(                            \
-            ::testing::HasSubstr("Can not compute ")));                  \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);          \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));           \
-    EXPECT_THAT(                                                         \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },    \
-        ::testing::ThrowsMessage<c10::Error>(                            \
-            ::testing::HasSubstr("Can not compute ")));                  \
+#define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2) op DoubleInt64Bool(2.5))                           \
+            .as<decltype(2 op 2.5)>() == (2 op 2.5));                          \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3L) op 2L).as<decltype((3L op 2L))>() == (3L op 2L)); \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
   }
 
 TEST_BINARY_OP_ALLTYPE(Add, +);
@@ -297,6 +299,7 @@ TEST_BINARY_OP_ALLTYPE(Ge, >=);
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
     static_assert(                                                             \
         (DoubleInt64Bool(3) op DoubleInt64Bool(2)).as<int64_t>() == (3 op 2)); \
+    static_assert((DoubleInt64Bool(3) op 2).as<int64_t>() == (3 op 2));        \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
         ::testing::ThrowsMessage<c10::Error>(                                  \
@@ -402,11 +405,11 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
   }
   // example 5
   {
-    // constexpr IntOrFloat x = 1;
-    // constexpr float y = 2.5f;
-    // static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
-    // static_assert((x + y).as<float>() == 3.5f);
-    // static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
+    constexpr IntOrFloat x = 1;
+    constexpr float y = 2.5f;
+    static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
+    static_assert((x + y).as<float>() == 3.5f);
+    static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
   }
 }
 
