@@ -15,10 +15,11 @@
 
 namespace nvfuser {
 
-PipelineStage::PipelineStage(IrBuilderPasskey passkey,
-                             const PipelineStageDescriptor* descriptor,
-                             ValSet input_vals,
-                             ValSet output_vals)
+PipelineStage::PipelineStage(
+    IrBuilderPasskey passkey,
+    const PipelineStageDescriptor* descriptor,
+    ValSet input_vals,
+    ValSet output_vals)
     : Expr(passkey), descriptor_(descriptor) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<Pipeline>(),
@@ -66,8 +67,10 @@ bool PipelineStage::sameAs(const Statement* other) const {
   return descriptor_ == other->as<PipelineStage>()->descriptor();
 }
 
-
-PipelineCommunication::PipelineCommunication(IrBuilderPasskey passkey, Val* in, Val* out)
+PipelineCommunication::PipelineCommunication(
+    IrBuilderPasskey passkey,
+    Val* in,
+    Val* out)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<Pipeline>(),
@@ -91,12 +94,8 @@ std::string PipelineCommunication::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-
-PipelineVal::PipelineVal(
-    IrBuilderPasskey passkey,
-    Val* val)
-    : Val(passkey, ValType::PipelineVal, val->dtype()),
-      original_val_(val) {
+PipelineVal::PipelineVal(IrBuilderPasskey passkey, Val* val)
+    : Val(passkey, ValType::PipelineVal, val->dtype()), original_val_(val) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<Pipeline>(),
       "IR type only valid for Pipeline container.");

@@ -12,9 +12,9 @@
 #include <disjoint_set.h>
 
 namespace nvfuser {
-    using RankType = int;
-    using DeviceIdxType = RankType;
-    using DimensionType = int;
-    using DeviceType = c10::Device;
-    using ValSet = VectorOfUniqueEntries<Val*>;
-}
+using RankType = int;
+using DeviceIdxType = RankType;
+using DimensionType = int;
+using DeviceType = c10::Device;
+using ValSet = VectorOfUniqueEntries<Val*>;
+} // namespace nvfuser

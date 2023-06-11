@@ -14,42 +14,46 @@
 
 /*
 This file implements the Pipeline interface.
-A Pipeline represents a Fusion segmented into a series of Stages, each Stage being thought
-as a portion of the original Fusion that will be executed on a given device mesh.
+A Pipeline represents a Fusion segmented into a series of Stages, each Stage
+being thought as a portion of the original Fusion that will be executed on a
+given device mesh.
 
-The decomposition of the Pipeline into Stages is described through a 
+The decomposition of the Pipeline into Stages is described through a
 PipelineDescriptor, which is nothing but a vector of PipelineStageDescriptor.
-Each PipelineStageDescriptor desribes a stage by listing all the 
+Each PipelineStageDescriptor desribes a stage by listing all the
 Vals that compose it.
 
-During initialization, the system will figure out the data dependencies and infer
-what is each stage's inputs and outputs, defined as follow: a Val is a stage's input (resp. output)
- if it is either a global input (resp. output) of the originalFusion or if it is a direct
- consumer (resp. producer) of a Val from a another stage.
+During initialization, the system will figure out the data dependencies and
+infer what is each stage's inputs and outputs, defined as follow: a Val is a
+stage's input (resp. output) if it is either a global input (resp. output) of
+the originalFusion or if it is a direct consumer (resp. producer) of a Val from
+a another stage.
 
 To be considered as valid, the PipelineDescriptor must ensure that the described
 Pipeline satisfies the following assumption:
 *) Each Val belongs to one and only one Stage
 *) The directed graph composed of the Stages and their dependencies is acyclic
    (i.e., the Pipeline is a DAG (Directed Acyclic Graph))
-   Remark: the word "Pipeline" can be misleading because it conveys the idea of a linear
-           dependency between stages -- however our Pipeline is allowed to have any DAG structure
-*) The inputs of a stage are TensorViews which are either global inputs of the fusion OR
-    are defined as copies (a "set" operation) of a Tv from another stage
+   Remark: the word "Pipeline" can be misleading because it conveys the idea of
+a linear dependency between stages -- however our Pipeline is allowed to have
+any DAG structure
+*) The inputs of a stage are TensorViews which are either global inputs of the
+fusion OR are defined as copies (a "set" operation) of a Tv from another stage
     (Later we could add the case where they are defined as a reduction).
-*) Global inputs of the Fusion belong to stage(s) whose mesh contains only one device index.
-   Note: Later, when we add a new parallel type for inter-device sharding (dIdx, dIdy, etc...)
-         we can loosen this condition by assuming only that the input values are not
-         replicated on different devices. This assumption is natural because the input values
-         must be univoque
+*) Global inputs of the Fusion belong to stage(s) whose mesh contains only one
+device index. Note: Later, when we add a new parallel type for inter-device
+sharding (dIdx, dIdy, etc...) we can loosen this condition by assuming only that
+the input values are not replicated on different devices. This assumption is
+natural because the input values must be univoque
 
-The PipelineStageDescriptor are passed to the Pipeline (through a PipelineDescriptor)
-by REFERENCE. As a consequence, after instantiation of the Pipeline, it is not allowed to add Vals to
-the PipelineStageDescriptor nor to free them. However, even after the Pipeline is instantiated,
-the user can still set som runtime informations on the PipelineStageDescriptor, which are
+The PipelineStageDescriptor are passed to the Pipeline (through a
+PipelineDescriptor) by REFERENCE. As a consequence, after instantiation of the
+Pipeline, it is not allowed to add Vals to the PipelineStageDescriptor nor to
+free them. However, even after the Pipeline is instantiated, the user can still
+set som runtime informations on the PipelineStageDescriptor, which are
 - auto_schedule: bool indicating whether the stage should be autoscheduled
-- mesh (see multidevice/device_mesh.h) which is basically an n-array of devices indices 
-  on which the stage should be executed at runtime.
+- mesh (see multidevice/device_mesh.h) which is basically an n-array of devices
+indices on which the stage should be executed at runtime.
 */
 
 namespace nvfuser {
@@ -74,7 +78,7 @@ class TORCH_CUDA_CU_API PipelineStageDescriptor final {
 
   // add a Val to the Stage
   void addVal(std::vector<Val*> vals) {
-    for (auto& val: vals){
+    for (auto& val : vals) {
       vals_.pushBack(val);
     }
   }
@@ -84,15 +88,12 @@ class TORCH_CUDA_CU_API PipelineStageDescriptor final {
   ValSet vals_;
   // used to set the unique_id attribute
   static int running_unique_id_;
-
 };
-
 
 // Interface to describe the composition of a Pipeline
 struct PipelineDescriptor {
   std::vector<PipelineStageDescriptor*> stageDescriptors;
 };
-
 
 /*
 The Pipeline Class is instantiated from a Fusion (called originalFusion)
@@ -100,15 +101,15 @@ and a PipelineDescriptor.
 
 It itself inherits from Fusion, which is populated at initialization
 with three types of IRs (see multidevice/pipeline_ir.h):
-1) PipelineVals (inheriting from Val), representing Vals that are I/O of 
+1) PipelineVals (inheriting from Val), representing Vals that are I/O of
    each Stage (including global I/O)
 2) PipelineStage (inherinting from Expr), representing each Stage given
    in the PipelineDescriptor
 3) PipelineCommunication (inherinting from Expr), representing the transfer of
    PipelineVals in-between stages
 
-The pipeline forms a DAG with PipelineVals as nodes and PipelineStages & PipelineCommunications
-as edges.
+The pipeline forms a DAG with PipelineVals as nodes and PipelineStages &
+PipelineCommunications as edges.
 */
 class TORCH_CUDA_CU_API Pipeline : public Fusion {
  public:

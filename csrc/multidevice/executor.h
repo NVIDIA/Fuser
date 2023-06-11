@@ -34,7 +34,7 @@ class PipelineExecutor : public IterVisitor {
   using CompiledKernelPtr = std::unique_ptr<FusionExecutor>;
 
   explicit PipelineExecutor(MultiDeviceRuntime& runtime)
-  : IterVisitor(), runtime_(runtime) {}
+      : IterVisitor(), runtime_(runtime) {}
 
   // Run the Pipelined Fusion with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
@@ -42,7 +42,8 @@ class PipelineExecutor : public IterVisitor {
  private:
   // Implement the execution of exprs of the Pipeline
   // Each PipelineStage will be compiled and executed on a GPU
-  // Each PipelineCommunication will invoke the ProgressStage to perform the comm
+  // Each PipelineCommunication will invoke the ProgressStage to perform the
+  // comm
   using IterVisitor::handle;
   void handle(PipelineStage* pipelineStage) override;
   void handle(PipelineCommunication* sr) override;

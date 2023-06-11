@@ -19,8 +19,8 @@ int PipelineStageDescriptor::running_unique_id_ = 0;
 
 // Utility class used for Pipeline instantiation
 class PipelineBuilder final {
-public:
-  PipelineBuilder(Pipeline* pipeline): pipeline_(pipeline) {
+ public:
+  PipelineBuilder(Pipeline* pipeline) : pipeline_(pipeline) {
     validate();
     fillInfo();
     buildPipelineVals();
@@ -28,7 +28,7 @@ public:
     buildPipelineCommunications();
   }
 
-private:
+ private:
   // Points to the pipeline to be constructed
   Pipeline* pipeline_;
   // Stores the Stages IR of the pipeline
@@ -37,7 +37,8 @@ private:
   std::unordered_map<const PipelineStageDescriptor*, ValSet> StageInputsDesc;
   std::unordered_map<const PipelineStageDescriptor*, ValSet> StageOutputsDesc;
   // Store the stages that consumes a given Val produced at another stage
-  std::unordered_map<Val*, std::vector<const PipelineStageDescriptor*>> ValConsumerStageDesc;
+  std::unordered_map<Val*, std::vector<const PipelineStageDescriptor*>>
+      ValConsumerStageDesc;
   // maps Vals of the original fusion to their corresponding PipelineVals
   // which are inputs/outputs of a Stage. We need to differentiate those
   // two cases for when a stage contains only one Val, from which we create
@@ -45,51 +46,56 @@ private:
   std::unordered_map<Val*, Val*> valToPipelineValInputOfStage;
   std::unordered_map<Val*, Val*> valToPipelineValOutputOfStage;
 
-
-  // Check (partially) that the pipeline is valid and satisfies the assumptions described in pipeline.h
+  // Check (partially) that the pipeline is valid and satisfies the assumptions
+  // described in pipeline.h
   void validate() {
     std::unordered_set<Val*> tvInStages;
-    // Check that each Val is a TensorView and that it belongs to at most one stage
-    for (auto& stage_desc: pipeline_->descriptor().stageDescriptors) {
-      for (auto& val: stage_desc->vals()) {
+    // Check that each Val is a TensorView and that it belongs to at most one
+    // stage
+    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+      for (auto& val : stage_desc->vals()) {
         if (!val->isA<TensorView>()) {
-          TORCH_INTERNAL_ASSERT(0, 
-            "the Val " + val->toString() + " must be a TensorView to belong to a Pipeline");
-        } else if (tvInStages.count(val)){
-          TORCH_INTERNAL_ASSERT(0, "the Val " + val->toString()
-                 + " belongs to more than one stage");
+          TORCH_INTERNAL_ASSERT(
+              0,
+              "the Val " + val->toString() +
+                  " must be a TensorView to belong to a Pipeline");
+        } else if (tvInStages.count(val)) {
+          TORCH_INTERNAL_ASSERT(
+              0,
+              "the Val " + val->toString() + " belongs to more than one stage");
         } else {
           tvInStages.insert(val);
         }
       }
     }
     // Check that each TensorView belongs to at least one stage
-    for (auto& val: pipeline_->originalFusion()->vals()) {
-      TORCH_INTERNAL_ASSERT((!val->isA<TensorView>()) || tvInStages.count(val),
-      "the Val " + val->toString() + " must be added to a stage");
+    for (auto& val : pipeline_->originalFusion()->vals()) {
+      TORCH_INTERNAL_ASSERT(
+          (!val->isA<TensorView>()) || tvInStages.count(val),
+          "the Val " + val->toString() + " must be added to a stage");
     }
   }
 
   // returns whether a Val is an input of the originalFusion
   bool isGlobalInput(Val* val) const {
     return std::count(
-              pipeline_->originalFusion()->inputs().begin(),
-              pipeline_->originalFusion()->inputs().end(),
-              val);
+        pipeline_->originalFusion()->inputs().begin(),
+        pipeline_->originalFusion()->inputs().end(),
+        val);
   }
 
   // returns whether a Val is an output of the originalFusion
   bool isGlobalOutput(Val* val) const {
     return std::count(
-              pipeline_->originalFusion()->outputs().begin(),
-              pipeline_->originalFusion()->outputs().end(),
-              val);
+        pipeline_->originalFusion()->outputs().begin(),
+        pipeline_->originalFusion()->outputs().end(),
+        val);
   }
 
   // populates StageInputsDesc, StageOutputsDesc, ValConsumerStageDesc
   void fillInfo() {
-    for (auto& stage_desc: pipeline_->descriptor().stageDescriptors) {
-      for (auto& val: stage_desc->vals()) {
+    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+      for (auto& val : stage_desc->vals()) {
         // Add global inputs of the original fusion
         if (isGlobalInput(val)) {
           StageInputsDesc[stage_desc].pushBack(val);
@@ -110,8 +116,8 @@ private:
       }
     }
     // Add Vals which are consumed in-between stages
-    for (auto& stage_desc: pipeline_->descriptor().stageDescriptors) {
-      for (auto& val: stage_desc->vals()) {
+    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+      for (auto& val : stage_desc->vals()) {
         if (!ValConsumerStageDesc[val].empty()) {
           StageOutputsDesc[stage_desc].pushBack(val);
         }
@@ -123,33 +129,36 @@ private:
      A PipelineVal is created for each input/output of each Stage of the
      Fusion. If a Val is an I/O of the original Fusion,
      the correspondings PipelineVal are also I/O of the Pipeline */
-  void buildPipelineVals()
-  {
+  void buildPipelineVals() {
     for (auto stage_desc : pipeline_->descriptor().stageDescriptors) {
       // Create a PipelineVal for each stage's input
       for (auto val : StageInputsDesc[stage_desc].vector()) {
-        auto pVal = IrBuilder::create<PipelineVal>(
-            pipeline_->as<IrContainer>(), val);
+        auto pVal =
+            IrBuilder::create<PipelineVal>(pipeline_->as<IrContainer>(), val);
         valToPipelineValInputOfStage[val] = pVal;
         // If the Val is an Input of the original Fusion,
         // then add the newly created PipelineVal as an input of the pipeline
         if (isGlobalInput(val)) {
           pipeline_->addInput(pVal);
-          TORCH_INTERNAL_ASSERT(stage_desc->mesh.size() == 1,
+          TORCH_INTERNAL_ASSERT(
+              stage_desc->mesh.size() == 1,
               "A global input must belong to a stage which mesh is of size 1");
         } else {
-          // if the Val is a stage input but not a global input, it must be defined by a "Set" operation
+          // if the Val is a stage input but not a global input, it must be
+          // defined by a "Set" operation
           TORCH_INTERNAL_ASSERT(
               (val->definition()->isA<LoadStoreOp>()) &&
-               (val->definition()->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set),
+                  (val->definition()->as<LoadStoreOp>()->opType() ==
+                   LoadStoreOpType::Set),
               "A Val that is the input of a stage must be defined by a LoadStoreOp expression of type Set"
-              "but here the definition is " + val->definition()->toString());
+              "but here the definition is " +
+                  val->definition()->toString());
         }
       }
       // Create a PipelineVal for each stage's output
       for (auto val : StageOutputsDesc[stage_desc].vector()) {
-        auto pVal = IrBuilder::create<PipelineVal>(
-            pipeline_->as<IrContainer>(), val);
+        auto pVal =
+            IrBuilder::create<PipelineVal>(pipeline_->as<IrContainer>(), val);
         valToPipelineValOutputOfStage[val] = pVal;
         if (isGlobalOutput(val)) {
           pipeline_->addOutput(pVal);
@@ -164,14 +173,14 @@ private:
     for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
       // containers for storing the I/O of the PipelineStage
       ValSet ins, outs;
-      for (auto& val: StageInputsDesc[stage_desc]) {
+      for (auto& val : StageInputsDesc[stage_desc]) {
         ins.pushBack(valToPipelineValInputOfStage[val]);
       }
-      for (auto& val: StageOutputsDesc[stage_desc]) {
+      for (auto& val : StageOutputsDesc[stage_desc]) {
         outs.pushBack(valToPipelineValOutputOfStage[val]);
       }
-      auto stage = IrBuilder::create<PipelineStage>(pipeline_->as<IrContainer>(),
-                                                   stage_desc, ins, outs);
+      auto stage = IrBuilder::create<PipelineStage>(
+          pipeline_->as<IrContainer>(), stage_desc, ins, outs);
       stages.push_back(stage);
     }
   }
@@ -179,30 +188,30 @@ private:
   // Build the PipelineCommunication IR of the Pipeline
   // A PipelineCommunication is created for each stage's input
   void buildPipelineCommunications() {
-    for (auto& stage: stages) {
-      for (auto& pVal: stage->inputs()) {
+    for (auto& stage : stages) {
+      for (auto& pVal : stage->inputs()) {
         std::vector<Val*> ins, outs;
         auto val = pVal->as<PipelineVal>()->getOriginalVal();
         if (isGlobalInput(val)) {
           continue;
         }
         outs.push_back(pVal);
-        for (auto& producer: val->definition()->inputs()) {
+        for (auto& producer : val->definition()->inputs()) {
           ins.push_back(valToPipelineValOutputOfStage[producer]);
         }
-        TORCH_INTERNAL_ASSERT(std::size(ins) == 1 && std::size(outs) == 1,
-          "Pipeline Communications must involve one input and one output");
-        IrBuilder::create<PipelineCommunication>(pipeline_->as<IrContainer>(),
-                                                    ins.at(0), outs.at(0));
+        TORCH_INTERNAL_ASSERT(
+            std::size(ins) == 1 && std::size(outs) == 1,
+            "Pipeline Communications must involve one input and one output");
+        IrBuilder::create<PipelineCommunication>(
+            pipeline_->as<IrContainer>(), ins.at(0), outs.at(0));
       }
     }
   }
 };
 
-
-Pipeline::Pipeline(Fusion* fusion, PipelineDescriptor descriptor) :
-    originalFusion_(fusion), descriptor_(descriptor) {
-  PipelineBuilder {this};
+Pipeline::Pipeline(Fusion* fusion, PipelineDescriptor descriptor)
+    : originalFusion_(fusion), descriptor_(descriptor) {
+  PipelineBuilder{this};
 }
 
 std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
@@ -228,13 +237,17 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
   // Add stage inputs
   std::for_each(
       stage->inputs().begin(), stage->inputs().end(), [&](Val* const& input) {
-        fusion_copy->addInput(original_to_copy_map.clone(input->as<PipelineVal>()->getOriginalVal()));
+        fusion_copy->addInput(original_to_copy_map.clone(
+            input->as<PipelineVal>()->getOriginalVal()));
       });
 
   // Add stage outputs
   std::for_each(
-      stage->outputs().begin(), stage->outputs().end(), [&](Val* const& output) {
-        fusion_copy->addOutput(original_to_copy_map.clone(output->as<PipelineVal>()->getOriginalVal()));
+      stage->outputs().begin(),
+      stage->outputs().end(),
+      [&](Val* const& output) {
+        fusion_copy->addOutput(original_to_copy_map.clone(
+            output->as<PipelineVal>()->getOriginalVal()));
       });
 
   return fusion_copy;
@@ -268,9 +281,13 @@ class PipelinePrinter : public IterVisitor {
  private:
   // Overriding IterVisitor
   void handle(Statement* stmt) override {
-    if (std::count(pipeline_->inputs().begin(), pipeline_->inputs().end(), stmt) +
-        std::count(pipeline_->outputs().begin(), pipeline_->outputs().end(), stmt) ==
-            0) {
+    if (std::count(
+            pipeline_->inputs().begin(), pipeline_->inputs().end(), stmt) +
+            std::count(
+                pipeline_->outputs().begin(),
+                pipeline_->outputs().end(),
+                stmt) ==
+        0) {
       string_ << "  " << stmt->toString() << "\n";
     }
   }

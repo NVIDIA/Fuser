@@ -59,14 +59,20 @@ void testValidateMultidevice(
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    RankType tester_rank = 0)
-{
+    RankType tester_rank = 0) {
   std::vector<at::Tensor> buffer;
 
   // gathering all the inputs at tester_rank
   std::vector<c10::IValue> input_tensors;
-  for (auto i: c10::irange(inputs.size())) {
-    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()->inputs().at(i)->as<PipelineVal>()->getStage()->descriptor()->mesh.deviceIndices().at(0));
+  for (auto i : c10::irange(inputs.size())) {
+    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()
+                                                   ->inputs()
+                                                   .at(i)
+                                                   ->as<PipelineVal>()
+                                                   ->getStage()
+                                                   ->descriptor()
+                                                   ->mesh.deviceIndices()
+                                                   .at(0));
     buffer = {inputs.at(i).toTensor()};
     runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
     input_tensors.push_back(buffer.at(0));
@@ -74,8 +80,15 @@ void testValidateMultidevice(
 
   // gathering all the outputs at tester_rank
   std::vector<at::Tensor> output_tensors;
-  for (auto i: c10::irange(outputs.size())) {
-    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()->outputs().at(i)->as<PipelineVal>()->getStage()->descriptor()->mesh.deviceIndices().at(0));
+  for (auto i : c10::irange(outputs.size())) {
+    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()
+                                                   ->outputs()
+                                                   .at(i)
+                                                   ->as<PipelineVal>()
+                                                   ->getStage()
+                                                   ->descriptor()
+                                                   ->mesh.deviceIndices()
+                                                   .at(0));
     buffer = {outputs.at(i)};
     runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
     output_tensors.push_back(buffer.at(0));
@@ -88,7 +101,13 @@ void testValidateMultidevice(
     auto ref_outputs = fec.runFusionWithInputs(inputs);
 
     // validation
-    testValidate(&fusion, output_tensors, input_tensors, ref_outputs, __LINE__, __FILE__);
+    testValidate(
+        &fusion,
+        output_tensors,
+        input_tensors,
+        ref_outputs,
+        __LINE__,
+        __FILE__);
   }
 
   runtime.comm().barrier();
@@ -96,8 +115,9 @@ void testValidateMultidevice(
 
 /* To run the following tests on several devices, pytorch must be installed
    with the flag USE_DISTRIBUTED=1 and nccl support.
-   Then simply run the tests on several processes, for example using mpirun, e.g.:
-   mpirun -np 6 ./build/bin/nvfuser_tests --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
+   Then simply run the tests on several processes, for example using mpirun,
+   e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
+   --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
 */
 
 TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
@@ -144,10 +164,11 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   //        PIPELINE SCHEDULING
   // ===========================================================
   /* Each TensorView must be assigned to one and only one stage
-     WAR: if an intermediate TensorView is automatically added 
+     WAR: if an intermediate TensorView is automatically added
           in the Fusion during Fusion definition,
           it also needs to be assigned manually to a stage */
-  PipelineStageDescriptor stage0_, stage1_, stage0, stage1, stage2, stage3, stage4; 
+  PipelineStageDescriptor stage0_, stage1_, stage0, stage1, stage2, stage3,
+      stage4;
   stage0_.addVal({tv0_, tv1_});
   stage1_.addVal({tv2_, tv3_});
   stage0.addVal({tv0, tv1});
@@ -156,7 +177,14 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage3.addVal({tv6, tv7});
   stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
 
-  PipelineDescriptor descriptor {.stageDescriptors {&stage0_, &stage1_, &stage0, &stage1, &stage2, &stage3, &stage4}}; // the order doesnt matter
+  PipelineDescriptor descriptor{.stageDescriptors{
+      &stage0_,
+      &stage1_,
+      &stage0,
+      &stage1,
+      &stage2,
+      &stage3,
+      &stage4}}; // the order doesn't matter
   Pipeline pipeline(&fusion, descriptor);
 
   // ===========================================================
@@ -165,20 +193,22 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
 
   // binding each stage to a device mesh
   stage0_.mesh.set({5});
-  stage1_.mesh.set({2,4});
+  stage1_.mesh.set({2, 4});
   stage0.mesh.set({0});
-  stage1.mesh.set({0,1,4});
-  stage2.mesh.set({1,3});
+  stage1.mesh.set({0, 1, 4});
+  stage2.mesh.set({1, 3});
   stage3.mesh.set({2});
-  stage4.mesh.set({4,5});
+  stage4.mesh.set({4, 5});
 
   MultiDeviceRuntime runtime(&pipeline);
 
   // Create input tensors.
   // Note: each rank is binded to a different GPU
-  c10::TensorOptions options = at::TensorOptions().dtype(at::kFloat).device(runtime.device());
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(runtime.device());
   // Note: the concrete values are only used at the relevant ranks
-  std::vector<c10::IValue> inputs {at::randn({3,11}, options), at::randn({2,7,8}, options)};
+  std::vector<c10::IValue> inputs{
+      at::randn({3, 11}, options), at::randn({2, 7, 8}, options)};
 
   // Run the pipeline
   auto outputs = runtime.runWithInput(inputs);
@@ -188,13 +218,13 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   // ===========================================================
 
   // Print the  the Pipeline:
-  if (!runtime.rank()){
+  if (!runtime.rank()) {
     std::cout << pipeline.toString() << std::endl;
   }
 
   testValidateMultidevice(std::move(fusion_ptr), runtime, inputs, outputs);
 }
 
-} //namespace nvfuser
+} // namespace nvfuser
 
 #endif

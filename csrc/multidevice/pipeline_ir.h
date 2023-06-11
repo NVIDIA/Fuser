@@ -26,19 +26,21 @@ class PipelineStageDescriptor;
 /*
   A PipelineStage represents a Stage of a Pipeline.
   It is derived from Expr, and represents the composition
-  of all the exprs of the originalFusion to go from the stage's inputs to the stage's output.
+  of all the exprs of the originalFusion to go from the stage's inputs to the
+  stage's output.
 
-  It is instantiated from a list of I/O and a PipelineStageDescriptor (pointing to
-  the originalFusion's Vals contained in the Stage)
+  It is instantiated from a list of I/O and a PipelineStageDescriptor (pointing
+  to the originalFusion's Vals contained in the Stage)
 */
 class TORCH_CUDA_CU_API PipelineStage : public Expr {
  public:
   using Expr::Expr;
 
-  PipelineStage(IrBuilderPasskey passkey,
-                const PipelineStageDescriptor* descriptor,
-                ValSet input_vals,
-                ValSet output_vals);
+  PipelineStage(
+      IrBuilderPasskey passkey,
+      const PipelineStageDescriptor* descriptor,
+      ValSet input_vals,
+      ValSet output_vals);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -59,12 +61,12 @@ class TORCH_CUDA_CU_API PipelineStage : public Expr {
   const PipelineStageDescriptor* descriptor_;
 };
 
-
 /*
   PipelineVals are the only Vals of a Pipeline.
   Each instance contains a pointer to a Val from the originalFusion,
   as well as a pointer to the PipelineStage to which it belongs.
-  Currently, PipelineVal is necessarily an input or output of a (unique) PipelineStage
+  Currently, PipelineVal is necessarily an input or output of a (unique)
+  PipelineStage
 */
 class TORCH_CUDA_CU_API PipelineVal : public Val {
  public:
@@ -99,9 +101,10 @@ class TORCH_CUDA_CU_API PipelineVal : public Val {
   PipelineStage* stage_ = nullptr;
 };
 
-/* 
+/*
   PipelineCommunication is a unary operation between two PipelineVals
-  It represents the inter-device data transfers of tensors in-between two PipelineStages
+  It represents the inter-device data transfers of tensors in-between two
+  PipelineStages
 */
 class TORCH_CUDA_CU_API PipelineCommunication : public Expr {
  public:

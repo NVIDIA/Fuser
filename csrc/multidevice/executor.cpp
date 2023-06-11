@@ -36,8 +36,7 @@ PipelineExecutor::CompiledKernelPtr PipelineExecutor::compileStage(
   // Auto schedule if requested
   if (stage->descriptor()->auto_schedule) {
     // Get runtime info from fusion graph and concrete tensor inputs.
-    SchedulerRuntimeInfo runtime_info(
-        fusion_from_stage.get(), stage_inputs);
+    SchedulerRuntimeInfo runtime_info(fusion_from_stage.get(), stage_inputs);
 
     // Get heuristic tag that applies to the given fusion and input info.
     auto heuristic = SchedulerEntry::proposeHeuristics(
@@ -79,8 +78,7 @@ PipelineExecutor::CompiledKernelPtr PipelineExecutor::compileStage(
 
   args.setDeviceIndex(device_index);
   // Lower the fusion and compile the generated kernel.
-  executor_ptr->compileFusion(
-      fusion_from_stage.get(), args, launch_params, {});
+  executor_ptr->compileFusion(fusion_from_stage.get(), args, launch_params, {});
 
   return executor_ptr;
 }
@@ -88,7 +86,7 @@ PipelineExecutor::CompiledKernelPtr PipelineExecutor::compileStage(
 void PipelineExecutor::handle(PipelineStage* stage) {
   // get the IValues corresponding to the stage's input
   std::vector<c10::IValue> stage_input_IValues;
-  for (auto& input_val: stage->inputs()) {
+  for (auto& input_val : stage->inputs()) {
     stage_input_IValues.push_back(val_to_IValue[input_val]);
   }
 
@@ -102,9 +100,10 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   std::vector<at::Tensor> outputs;
 
   // bool indicating whether the current rank should run the current stage
-  bool shouldRun = std::count(stage->descriptor()->mesh.deviceIndices().begin(),
-                              stage->descriptor()->mesh.deviceIndices().end(),
-                              runtime_.rankToDeviceIdx(runtime_.comm_.rank()));
+  bool shouldRun = std::count(
+      stage->descriptor()->mesh.deviceIndices().begin(),
+      stage->descriptor()->mesh.deviceIndices().end(),
+      runtime_.rankToDeviceIdx(runtime_.comm_.rank()));
 
   if (shouldRun) {
     // Use default launch parameters.
@@ -136,19 +135,27 @@ struct SendRecvDescriptor {
 };
 
 void PipelineExecutor::handle(PipelineCommunication* c) {
-
   /* Lower the communication into several SendRecvDescriptor
      The idea is to evenly split the destinations accross the sources
-     TODO: ensure that the srcs send to the receivers that are the closest in the topology. */
+     TODO: ensure that the srcs send to the receivers that are the closest in
+     the topology. */
   std::vector<SendRecvDescriptor> communications;
   {
     std::vector<RankType> sender_ranks;
-    for (auto& dId: c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh.deviceIndices()) {
+    for (auto& dId : c->in()
+                         ->as<PipelineVal>()
+                         ->getStage()
+                         ->descriptor()
+                         ->mesh.deviceIndices()) {
       sender_ranks.push_back(runtime_.deviceIdxToRank(dId));
     }
 
     std::vector<RankType> receiver_ranks;
-    for (auto& dId: c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh.deviceIndices()) {
+    for (auto& dId : c->out()
+                         ->as<PipelineVal>()
+                         ->getStage()
+                         ->descriptor()
+                         ->mesh.deviceIndices()) {
       receiver_ranks.push_back(runtime_.deviceIdxToRank(dId));
     }
 
@@ -156,14 +163,13 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     auto nbr_dests_per_comm = receiver_ranks.size() / nbr_srcs;
     auto remainder = receiver_ranks.size() % nbr_srcs;
     int j = 0;
-    for (auto i: c10::irange(nbr_srcs)) {
+    for (auto i : c10::irange(nbr_srcs)) {
       SendRecvDescriptor communication;
       auto src = sender_ranks.at(i);
       communication.team = {src};
       communication.root = src;
-      for (size_t counter = 0;
-          counter < nbr_dests_per_comm + (i < remainder); 
-          counter++, j++) {
+      for (size_t counter = 0; counter < nbr_dests_per_comm + (i < remainder);
+           counter++, j++) {
         auto dst = receiver_ranks.at(j);
         communication.team.push_back(dst);
       }
@@ -175,12 +181,14 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   auto output_val = c->out();
   std::vector<at::Tensor> tensor = {val_to_IValue.at(input_val).toTensor()};
 
-  /* perform the needed communications. For now everything is translated as send/recv.
-     TODO: sending from one src to multiple dsts could be lowered as a broadcast,
-           in which case we should create a new communictor backend (and cache it)*/
-  for (auto& communication: communications) {
+  /* perform the needed communications. For now everything is translated as
+     send/recv.
+     TODO: sending from one src to multiple dsts could be lowered as a
+     broadcast, in which case we should create a new communictor backend (and
+     cache it)*/
+  for (auto& communication : communications) {
     auto sender_rank = communication.root;
-    for (auto receiver_rank: communication.team) {
+    for (auto receiver_rank : communication.team) {
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }
   }
@@ -205,7 +213,7 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val: runtime_.pipeline_->outputs()) {
+  for (auto output_val : runtime_.pipeline_->outputs()) {
     outputs.push_back(val_to_IValue[output_val].toTensor());
   }
 
