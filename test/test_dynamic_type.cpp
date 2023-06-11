@@ -338,6 +338,47 @@ TEST_UNARY_OP(LogicalNot, !);
 
 #undef TEST_UNARY_OP
 
+// This is the test for the examples in the note [Design of DynamicType], if you
+// updated that note, please update this test as well. On the other hand, if you
+// have to do something that breaks this test, please update the note as well.
+TEST_F(DynamicTypeTest, ExamplesInNote) {
+  // example 1
+  {
+    using IntOrFloat = DynamicType<int, float>;
+    constexpr IntOrFloat x = 1;
+    constexpr IntOrFloat y = 2.5f;
+    constexpr IntOrFloat z = x + y;
+    static_assert(z.as<float>() == 3.5f);
+  }
+  // example 2
+  struct CustomType {};
+  {
+    using IntOrFloatOrCustom = DynamicType<int, float, CustomType>;
+    constexpr IntOrFloatOrCustom i = 1;
+    constexpr IntOrFloatOrCustom f = 2.5f;
+    constexpr IntOrFloatOrCustom c = CustomType{};
+    constexpr IntOrFloatOrCustom null;
+    static_assert((i + i).as<int>() == 2);
+    static_assert((i + f).as<float>() == 3.5f);
+    static_assert((f + i).as<float>() == 3.5f);
+    static_assert((f + f).as<float>() == 5.0f);
+    EXPECT_THAT(
+        [&]() { i + null; },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+    EXPECT_THAT(
+        [&]() { i + c; },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+  }
+  // example 3
+  {
+    struct CustomType2 {};
+    using Custom12 = DynamicType<CustomType, CustomType2>;
+    static_assert(!(opcheck<Custom12> + opcheck<Custom12>));
+  }
+}
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

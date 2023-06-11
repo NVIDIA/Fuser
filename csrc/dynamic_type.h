@@ -18,6 +18,57 @@
 #include <optional>
 #include <variant>
 
+// Note [Design of DynamicType]
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// DynamicType is a type that can be one of a set of types. It is similar to
+// std::variant, but it is designed to be used in a way that is more similar to
+// how dynamic types are used in Python. For example, in Python, you can do
+// something like this:
+//   x = 1; y = 2.5; z = x + y
+// and z will be a dynamic float. However in C++, you will not be able to do:
+//   using IntOrFloat = std::variant<int, float>;
+//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
+// because the operator+ on std::variant is not defined. The goal of DynamicType
+// is to fill this gap. So you can do:
+//   using IntOrFloat = DynamicType<int, float>;
+//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
+//
+// The design purpose of DynamicType is to allow the user to forget about the
+// actual type as much as possible, and use operators seamlessly just like if
+// they are using Python. DynamicType should support arbitrary types, including
+// user-defined types, pointers, but excluding references, due to the limitation
+// of the C++ standard. The definition of operators on DynamicType should be
+// automatic. For example, if you have:
+//   struct CustomType {};
+//   using IntOrFloatOrCustom = DynamicType<int, float, CustomType>;
+// The the operator+ on IntOrFloatOrCustom should be defined, and it should be
+// equivalent to one of the following:
+//  - operator+(int, int)
+//  - operator+(float, float)
+//  - operator+(int, float)
+//  - operator+(float, int)
+// depending on the actual type of the DynamicType. If the actual type is
+// CustomType which does not have operator+, or if the value is null, then this
+// is a runtime error.
+// However, if have:
+//   struct CustomType2 {};
+//   using Custom12 = DynamicType<CustomType, CustomType2>;
+// Then the operator+ on Custom12 should not be defined at compile time, and
+// doing CustomType{} + CustomType2{} results in a compilation error. It is a
+// compilation error because we know at compile time that none of them are
+// defined:
+//  - operator+(CustomType, CustomType)
+//  - operator+(CustomType, CustomType2)
+//  - operator+(CustomType2, CustomType)
+//  - operator+(CustomType2, CustomType2)
+// So we decide decide to not create the operator+ for Custom12.
+//
+// All the above behaviors are handled by template meta-programming, so they are
+// automatic. Adding a new type to the list of types does not introduce any
+// extra work. All the behaviors mentioned in this note is tested in
+// DynamicTypeTest.ExamplesInNote, so if you want to change anything in this
+// doc, please make sure to update the test as well.
+
 namespace nvfuser {
 
 // We must disable a lot of compiler warnings to make this work. The reason for
@@ -63,7 +114,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  explicit constexpr DynamicType(T value) : value_(value) {}
+  constexpr DynamicType(T value) : value_(value) {}
 
   template <typename T>
   constexpr bool is() const {
