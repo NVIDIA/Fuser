@@ -19,6 +19,28 @@
 //   writing a separate test file. Because I think these tests serves as a good
 //   documentation of the usage.
 
+// Important priliminary knowledge to understand this file:
+// Starting from C++14, lambdas can have auto in its parameter list, for
+// example:
+//   auto f = [](auto x) { return -x; };
+// on C++17, we can be even crazier:
+//  auto f = [](auto x) {
+//    if constexpr (std::is_same_v<decltype(x), int>) {
+//      return -x;
+//    } else {
+//      // The return type can be very different for different types of x
+//      return;
+//    }
+//  };
+// I find it helpful to understand this feature by considering the auto lambda
+// as something like this:
+//  struct Lambda {
+//    template <typename T>
+//    auto operator()(T x) {
+//      ...
+//    }
+//  };
+
 namespace nvfuser {
 
 // Implementation detail
