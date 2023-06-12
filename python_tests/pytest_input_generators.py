@@ -12,6 +12,100 @@ from torch.testing import make_tensor
 from pytest_core import OpInfo, SampleInput, ErrorSample
 from nvfuser import DataType
 
+
+def bcast_in_dim_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # The first 5 test cases below are taken from JAX's broadcast_in_dim tests
+    #   https://github.com/google/jax/blob/main/tests/lax_test.py#L1171
+    # input shape, output shape, bcast_dims
+    cases = (
+        ([2], [2, 2], [0]),
+        ([2], [2, 2], [1]),
+        ([2], [2, 3], [0]),
+        ([], [2, 3], []),
+        ([1], [2, 3], [1]),
+        ((4, 6, 3, 1), (5, 4, 7, 6, 3, 6, 6), (1, 3, 4, 5)),
+    )
+
+    for input_shape, output_shape, bcast_dims in cases:
+        a = make_arg(input_shape)
+        yield SampleInput(a, output_shape, bcast_dims)
+
+
+def bcast_in_dim_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # jax.lax.broadcast_in_dim(operand, shape, broadcast_dimensions)
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # 1. Every dimension in the input tensor must be used in broadcast_dimensions.
+    missing_axis_in_bcast_dims = (
+        ([2, 2], [2, 2, 3], [0]),
+        RuntimeError,
+        "The broadcast dimensions should match the input dimensions.",
+    )
+
+    # 2. New shape has weakly more dimentions than the original tensor.
+    fewer_dims_in_output_shape = (
+        (
+            [2, 2],
+            [
+                2,
+            ],
+            [0],
+        ),
+        RuntimeError,
+        "The new shape is expected to be greater-then-or-equal to the input",
+    )
+
+    # 3. broadcast_dimensions is an ascending sequence of integers.
+    descending_broadcast_dimensions = (
+        ([2, 2], [2, 2], [1, 0]),
+        RuntimeError,
+        "Broadcast dimension is not greater than the previous value.",
+    )
+
+    # 4. Each broadcast dimension is within the new shape.
+    out_of_bounds_broadcast_dimensions = (
+        ([2, 2], [2, 2], [0, 2]),
+        RuntimeError,
+        "Invalid broadcast_dims value.",
+    )
+
+    # 5. The original tensor is not broadcastable to desired shape.
+    # tensor.shape[idx] == 1 or tensor.shape[idx] == output_shape[new_idx]
+    #
+    # Jax Exception:
+    # TypeError: broadcast_in_dim operand dimension sizes must either be 1,
+    # or be equal to their corresponding dimensions in the target broadcast shape;
+    # got operand of shape (2, 3), target broadcast shape (2, 3, 4), broadcast_dimensions (0, 2)
+    not_broadcastable = (
+        ([2, 3], [2, 3, 4], [0, 2]),
+        RuntimeError,
+        "Invalid broadcast_dims value.",
+    )
+
+    # TODO add exception for not_broadcastable
+    error_cases = [
+        missing_axis_in_bcast_dims,
+        fewer_dims_in_output_shape,
+        descending_broadcast_dimensions,
+        out_of_bounds_broadcast_dimensions,
+    ]
+    for es in error_cases:
+        ex_case, ex_type, ex_str = es
+        input_shape, output_shape, bcast_dims = ex_case
+        input_tensor = make_arg(input_shape)
+        yield SampleInput(input_tensor, output_shape, bcast_dims), ex_type, ex_str
+
+
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(
     op: OpInfo,
@@ -312,7 +406,9 @@ def reduction_error_generator(
         yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
 
 
-def var_mean_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False):
+def var_mean_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
     """torch.var_mean(input, dim=None, *, correction=1, keepdim=False)"""
     correction = (0, 1)
     samples = reduction_generator(op, dtype, requires_grad)

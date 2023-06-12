@@ -7,6 +7,8 @@ import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_input_generators import (
+    bcast_in_dim_generator,
+    bcast_in_dim_error_generator,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     define_tensor_generator,
@@ -69,6 +71,17 @@ normalization_ops.append(var_mean_opinfo)
 """ Start Shape Operations """
 
 shape_ops = []
+
+broadcast_in_dim_opinfo = OpInfo(
+    lambda fd: fd.ops.broadcast_in_dim,
+    "broadcast_in_dim",
+    sample_input_generator=bcast_in_dim_generator,
+    error_input_generator=bcast_in_dim_error_generator,
+    reference=jax.lax.broadcast_in_dim,
+    reference_type=ReferenceType.Jax,
+    symbolic_parameter_list=(True, False, False),
+)
+shape_ops.append(broadcast_in_dim_opinfo)
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
