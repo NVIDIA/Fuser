@@ -175,6 +175,18 @@ struct DynamicType {
     return ret.value();
   }
 
+  // Intentionally not overloading operator=, because the compiler generated
+  // default behavior usually makes more sense than the overloaded one. For
+  // example, if we have
+  //   struct SomeType {};
+  //   using IntOrCustom = DynamicType<int, SomeType>;
+  //   IntOrCustom x(1);
+  //   IntOrCustom y(SomeType{});
+  //   x = y;
+  // Then the compiler generated behavior will get us SomeType{} for x, but if
+  // we overload based on the underlying type, we will get a runtime error,
+  // because it is not possible to assign SomeType{} to an int.
+
   // Intentionally not overloading operator-> because it only makes sense when
   // returning pointers, however, if we have a DynamicType that can be either a
   // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
@@ -496,7 +508,8 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 // TODO: clang can not handle assignment operators for opcheck correctly, so
 // we are not adding them for now. In the future, when clang's bug is fixed,
-// we can add them. DEFINE_ASSIGNMENT_OP(=); DEFINE_ASSIGNMENT_OP(+=);
+// we can add them.
+// DEFINE_ASSIGNMENT_OP(+=);
 // DEFINE_ASSIGNMENT_OP(-=);
 // DEFINE_ASSIGNMENT_OP(*=);
 // DEFINE_ASSIGNMENT_OP(/=);
