@@ -13,6 +13,41 @@ from pytest_core import OpInfo, SampleInput, ErrorSample
 from nvfuser import DataType
 
 
+def bcast_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # jax.lax.broadcast(operand, sizes)
+    # add new dimensions to left-hand-side of tensor
+    # dims = tuple(range(len(sizes), len(sizes) + np.ndim(operand)))
+    # return broadcast_in_dim(operand, tuple(sizes) + np.shape(operand), dims)
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    fewer_original_axes = (
+        ([2, 3], [True, False]),
+        RuntimeError,
+        "Invalid broadcast, number of false entries in is_broadcast_dim expected to be",
+    )
+
+    greater_original_axes = (
+        ([2, 3], [True, False, False, False]),
+        RuntimeError,
+        "Invalid broadcast, number of false entries in is_broadcast_dim expected to be",
+    )
+
+    error_cases = [
+        fewer_original_axes,
+        greater_original_axes,
+    ]
+    for es in error_cases:
+        ex_case, ex_type, ex_str = es
+        input_shape, bcast_dims = ex_case
+        input_tensor = make_arg(input_shape)
+        yield SampleInput(input_tensor, bcast_dims), ex_type, ex_str
+
+
 def bcast_in_dim_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -86,12 +121,21 @@ def bcast_in_dim_error_generator(
         "Invalid broadcast_dims value.",
     )
 
-    # TODO add exception for not_broadcastable
+    # 6. TypeError: broadcast_in_dim shape must have every element be nonnegative, got (-1, 2, 3).
+    negative_shape = (
+        ([2, 3], [2, 3, -1], [0, 1]),
+        RuntimeError,
+        "Invalid broadcast_dims value.",
+    )
+
+    # TODO add exceptions for not_broadcastable, negative output shape
     error_cases = [
         missing_axis_in_bcast_dims,
         fewer_dims_in_output_shape,
         descending_broadcast_dimensions,
         out_of_bounds_broadcast_dimensions,
+        # not_broadcastable,
+        # negative_shape,
     ]
     for es in error_cases:
         ex_case, ex_type, ex_str = es

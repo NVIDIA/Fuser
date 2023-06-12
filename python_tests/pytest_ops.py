@@ -190,7 +190,7 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 
 
 # TODO Maybe only test a single dtype
-@create_op_test(tuple(op for op in opinfos))
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
         result = run_test_fn(
