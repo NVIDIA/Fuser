@@ -54,13 +54,7 @@ def bcast_in_dim_error_generator(
 
     # 2. New shape has weakly more dimentions than the original tensor.
     fewer_dims_in_output_shape = (
-        (
-            [2, 2],
-            [
-                2,
-            ],
-            [0],
-        ),
+        ([2, 2], [2], [0]),
         RuntimeError,
         "The new shape is expected to be greater-then-or-equal to the input",
     )
