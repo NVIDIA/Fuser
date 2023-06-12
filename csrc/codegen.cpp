@@ -572,6 +572,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
+  void handleArrayType(const Val* v) final {
+    const auto def = v->definition();
+    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
+    if (def != nullptr && !has_alloc) {
+      code_ << v->dtype() << "(" << genInline(def) << ")";
+    } else {
+      code_ << genVariableName(v);
+    }
+  }
+
   //! Utility for generating vectorized pointer access in ldsm and
   //!  cpasync.
   //! TODO: this access pattern as is could be merged with exisiting
@@ -959,6 +969,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << top->getTernaryOpType() << "(" << gen(top->in1()) << ", "
             << gen(top->in2()) << ", " << gen(top->in3()) << ")";
     }
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const ArrayConstruct* aop) final {
+    if (!print_inline_) {
+      indent() << gen(aop->out()) << " = ";
+    }
+
+    code_ << "{";
+    bool first = true;
+    for (auto in : aop->inputs()) {
+      if (!first) {
+        code_ << ", ";
+      }
+      first = false;
+      code_ << gen(in);
+    }
+    code_ << "}";
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const GetItem* gop) final {
+    if (!print_inline_) {
+      indent() << gen(gop->out()) << " = ";
+    }
+
+    code_ << gen(gop->array()) << "[" << gen(gop->index()) << "]";
 
     if (!print_inline_) {
       code_ << ";\n";

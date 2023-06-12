@@ -17,8 +17,7 @@
 #include <limits>
 #include <set>
 
-namespace nvfuser {
-namespace ir_utils {
+namespace nvfuser::ir_utils {
 
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
@@ -1006,7 +1005,79 @@ class ValidateDomainEquivalence : private IterVisitor {
   std::unordered_set<Val*> frontier_;
 };
 
+std::vector<Statement*> next(Statement* stmt) {
+  if (stmt->isVal()) {
+    if (auto val = stmt->as<Val>()->definition()) {
+      return {val};
+    } else {
+      return {};
+    }
+  } else {
+    auto expr = stmt->as<Expr>();
+    std::vector<Statement*> inputs{
+        expr->inputs().begin(), expr->inputs().end()};
+    return inputs;
+  }
+}
+
 } // namespace
+
+std::vector<Statement*> checkCycle(
+    Fusion* fusion,
+    const std::unordered_set<Statement*>& from,
+    const std::vector<Val*>& to) {
+  std::unordered_set<Statement*> path;
+  std::unordered_set<Statement*> visited;
+  std::deque<Statement*> queue;
+  queue.insert(queue.end(), to.begin(), to.end());
+
+  while (!queue.empty()) {
+    auto val = queue.front();
+
+    // early termination if we have already reached boundary or hit a previously
+    // visited node
+    if (from.count(val) != 0 || visited.count(val) != 0) {
+      queue.pop_front();
+      continue;
+    }
+
+    auto next_stmts = next(val);
+
+    // if val is a leaf node.
+    if (next_stmts.empty()) {
+      queue.pop_front();
+      visited.insert(val);
+      continue;
+    }
+
+    // if val is already in path, we are just cleaning up the stack here.
+    auto iter = path.find(val);
+    if (iter != path.end()) {
+      queue.pop_front();
+      path.erase(iter);
+      visited.insert(val);
+      continue;
+    }
+
+    // putting self on path
+    path.insert(val);
+
+    // check for cycles
+    for (auto stmt : next_stmts) {
+      if (path.count(stmt) != 0) {
+        // find a cycle, return current path;
+        std::vector<Statement*> ret;
+        std::copy(path.begin(), path.end(), std::back_inserter(ret));
+        return ret;
+      }
+      // adding statement to a queue;
+      queue.push_front(stmt);
+    }
+  }
+
+  // no cycle detected, return empty
+  return {};
+}
 
 void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
@@ -1038,5 +1109,8 @@ bool isAlignedScopeExpr(const Expr* expr) {
   return true;
 }
 
-} // namespace ir_utils
-} // namespace nvfuser
+std::vector<Statement*> checkCycle(Fusion* fusion) {
+  return checkCycle(fusion, {}, fusion->outputs());
+}
+
+} // namespace nvfuser::ir_utils

@@ -1922,7 +1922,17 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
     if (inner_reduction && outer_reduction) {
-      if (!checkCombinedReductionShape(runtime_info, reduction_tvs)) {
+      // get vectorize_factor, same process to that in getPersistentHeuristics
+      auto reduced_tv = ir_utils::getSoleProducerTv(first_inner_reduction_tv);
+      auto properties = scheduler_utils::getReductionProperties(
+          fusion, runtime_info, first_inner_reduction_tv);
+      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      if (!checkCombinedReductionShape(
+              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
@@ -2079,7 +2089,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
   static bool checkCombinedReductionShape(
       SchedulerRuntimeInfo& runtime_info,
-      const std::vector<TensorView*>& reduction_tvs) {
+      const std::vector<TensorView*>& reduction_tvs,
+      const int64_t vectorization_factor) {
     // In combined_inner_outer_reduction, the inner dim should be a
     // multiplication of a quarter warp and vectorization factor. Otherwise,
     // will use segregated version. Since inner reduction dim is splitted by
@@ -2090,9 +2101,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
         at::cuda::getCurrentDeviceProperties()->warpSize / 4;
     for (auto tv : reduction_tvs) {
       int64_t n_elements = 1;
-      const int64_t vectorization_factor = 16 /
-          (int64_t)dataTypeSize(tv->getDataType().value(),
-                                runtime_info.getIndexType());
       const int64_t n_elements_factor = quarter_warp * vectorization_factor;
       const bool is_inner_reduction =
           scheduler_utils::isFastestDimReduction(tv);

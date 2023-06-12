@@ -52,6 +52,10 @@ void Val::dispatch(T handler, Val* val) {
         ptr(handler)->handle(val->as<Int>());
         return;
       }
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(handler)->handleArrayType(val);
+        return;
+      }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
         case DataType::Bool:
           ptr(handler)->handle(val->as<Bool>());
@@ -139,6 +143,18 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   if (expr->isStrictlyA<TernaryOp>()) {
     ptr(handler)->handle(expr->as<TernaryOp>());
+    return;
+  }
+  if (expr->isStrictlyA<ArrayConstruct>()) {
+    ptr(handler)->handle(expr->as<ArrayConstruct>());
+    return;
+  }
+  if (expr->isStrictlyA<GetItem>()) {
+    ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<TensorConstruct>()) {
+    ptr(handler)->handle(expr->as<TensorConstruct>());
     return;
   }
   if (expr->isStrictlyA<SelectOp>()) {
@@ -338,6 +354,10 @@ void Val::constDispatch(T handler, const Val* val) {
         ptr(handler)->handle(val->as<Int>());
         return;
       }
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(handler)->handleArrayType(val);
+        return;
+      }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
         case DataType::Bool:
           ptr(handler)->handle(val->as<Bool>());
@@ -425,6 +445,18 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<TernaryOp>()) {
     ptr(handler)->handle(expr->as<TernaryOp>());
+    return;
+  }
+  if (expr->isStrictlyA<ArrayConstruct>()) {
+    ptr(handler)->handle(expr->as<ArrayConstruct>());
+    return;
+  }
+  if (expr->isStrictlyA<GetItem>()) {
+    ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<TensorConstruct>()) {
+    ptr(handler)->handle(expr->as<TensorConstruct>());
     return;
   }
   if (expr->isStrictlyA<SelectOp>()) {
@@ -635,6 +667,10 @@ void Val::mutatorDispatch(T mutator, Val* val) {
         ptr(mutator)->mutate(val->as<Int>());
         return;
       }
+      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
+        ptr(mutator)->mutateArrayType(val);
+        return;
+      }
       switch (std::get<PrimDataType>(val->getDataType()->type)) {
         case DataType::Bool:
           ptr(mutator)->mutate(val->as<Bool>());
@@ -833,6 +869,10 @@ void OptOutConstDispatch::handle(const AggregateVal* stmt) {
   unhandled(stmt);
 }
 
+void OptOutConstDispatch::handleArrayType(const Val* stmt) {
+  unhandled(stmt);
+}
+
 // Exprs
 void OptOutConstDispatch::handle(const FullOp* stmt) {
   unhandled(stmt);
@@ -850,6 +890,15 @@ void OptOutConstDispatch::handle(const BinaryOp* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const TernaryOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const TensorConstruct* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const SelectOp* stmt) {
@@ -1027,6 +1076,10 @@ void OptOutDispatch::handle(AggregateVal* stmt) {
   unhandled(stmt);
 }
 
+void OptOutDispatch::handleArrayType(Val* stmt) {
+  unhandled(stmt);
+}
+
 // Exprs
 void OptOutDispatch::handle(FullOp* stmt) {
   unhandled(stmt);
@@ -1044,6 +1097,15 @@ void OptOutDispatch::handle(BinaryOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(TernaryOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ArrayConstruct* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(TensorConstruct* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(SelectOp* stmt) {
