@@ -630,23 +630,28 @@ int64_t getPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t warpSize) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1
+  if (inner_dim_numel <= 1024l) {
+    return 1l;
+  }
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost. Tuned for layer_norm backward on A100.
   auto getMinimumBatch = [&]() -> int64_t {
-    if (inner_dim_numel >= 3072) {
-      if (outer_dim_numel <= 2048 && inner_dim_numel == 3072) {
-        return 3;
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
       } else {
-        return 4;
+        return 4l;
       }
-    } else if (inner_dim_numel >= 2048) {
-      return 2;
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
     }
-    return 1;
+    return 1l;
   };
   int64_t threads_per_block = warpSize / 4;
   int64_t inner_batch = inner_dim_numel / inner_vect / threads_per_block;
-  const int64_t threads_per_block_max = inner_dim_numel >= 20480 ? 512 : 256;
+  const int64_t threads_per_block_max = inner_dim_numel >= 20480l ? 512l : 256l;
   const int64_t batch_min = getMinimumBatch();
   auto tryReduceBatch = [&](auto factor) -> bool {
     return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
