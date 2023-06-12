@@ -489,15 +489,54 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_ScalarLong, deserializeScalarLongRecord);
 
-  auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_ScalarInput();
-    return new python_frontend::ScalarRecord<double>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarInput,
-        std::nullopt,
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
+  auto deserializeScalarBoolInputRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_ScalarInput();
+        return new python_frontend::ScalarRecord<bool>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarBoolInput,
+            std::nullopt,
+            mapToNvfuserDtype(data->dtype()));
+      };
+  registerParser(
+      serde::RecordType_ScalarBoolInput, deserializeScalarBoolInputRecord);
+
+  auto deserializeScalarIntInputRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_ScalarInput();
+        return new python_frontend::ScalarRecord<int64_t>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarIntInput,
+            std::nullopt,
+            mapToNvfuserDtype(data->dtype()));
+      };
+  registerParser(
+      serde::RecordType_ScalarIntInput, deserializeScalarIntInputRecord);
+
+  auto deserializeScalarDoubleInputRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_ScalarInput();
+        return new python_frontend::ScalarRecord<double>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarDoubleInput,
+            std::nullopt,
+            mapToNvfuserDtype(data->dtype()));
+      };
+  registerParser(
+      serde::RecordType_ScalarDoubleInput, deserializeScalarDoubleInputRecord);
+
+  auto deserializeScalarComplexInputRecord =
+      [](const serde::RecordFunctor* buffer) {
+        auto data = buffer->data_as_ScalarInput();
+        return new python_frontend::ScalarRecord<std::complex<double>>(
+            parseStateArgs(buffer->outputs()),
+            serde::RecordType_ScalarDoubleInput,
+            std::nullopt,
+            mapToNvfuserDtype(data->dtype()));
+      };
+  registerParser(
+      serde::RecordType_ScalarComplexInput,
+      deserializeScalarComplexInputRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();

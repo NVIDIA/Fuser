@@ -281,22 +281,25 @@ enum RecordType : int32_t {
   RecordType_ScalarBool = 46,
   RecordType_ScalarComplexDouble = 47,
   RecordType_ScalarDouble = 48,
-  RecordType_ScalarInput = 49,
-  RecordType_ScalarLong = 50,
-  RecordType_SliceOp = 51,
-  RecordType_SqueezeOp = 52,
-  RecordType_Start = 53,
-  RecordType_Tensor = 54,
-  RecordType_TensorSizes = 55,
-  RecordType_VarianceOp = 56,
-  RecordType_VarianceMeanOp = 57,
-  RecordType_VectorInput = 58,
-  RecordType_VectorLong = 59,
+  RecordType_ScalarBoolInput = 49,
+  RecordType_ScalarIntInput = 50,
+  RecordType_ScalarDoubleInput = 51,
+  RecordType_ScalarComplexInput = 52,
+  RecordType_ScalarLong = 53,
+  RecordType_SliceOp = 54,
+  RecordType_SqueezeOp = 55,
+  RecordType_Start = 56,
+  RecordType_Tensor = 57,
+  RecordType_TensorSizes = 58,
+  RecordType_VarianceOp = 59,
+  RecordType_VarianceMeanOp = 60,
+  RecordType_VectorInput = 61,
+  RecordType_VectorLong = 62,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_VectorLong
 };
 
-inline const RecordType (&EnumValuesRecordType())[60] {
+inline const RecordType (&EnumValuesRecordType())[63] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -347,7 +350,10 @@ inline const RecordType (&EnumValuesRecordType())[60] {
     RecordType_ScalarBool,
     RecordType_ScalarComplexDouble,
     RecordType_ScalarDouble,
-    RecordType_ScalarInput,
+    RecordType_ScalarBoolInput,
+    RecordType_ScalarIntInput,
+    RecordType_ScalarDoubleInput,
+    RecordType_ScalarComplexInput,
     RecordType_ScalarLong,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
@@ -363,7 +369,7 @@ inline const RecordType (&EnumValuesRecordType())[60] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[61] = {
+  static const char * const names[64] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -413,7 +419,10 @@ inline const char * const *EnumNamesRecordType() {
     "ScalarBool",
     "ScalarComplexDouble",
     "ScalarDouble",
-    "ScalarInput",
+    "ScalarBoolInput",
+    "ScalarIntInput",
+    "ScalarDoubleInput",
+    "ScalarComplexInput",
     "ScalarLong",
     "SliceOp",
     "SqueezeOp",

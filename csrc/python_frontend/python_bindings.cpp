@@ -513,30 +513,111 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord<double>(
-                {self.recordingState(out())},
-                serde::RecordType_ScalarInput,
-                std::nullopt,
-                dtype));
+            switch (dtype) {
+              case PrimDataType::Bool:
+                self.defineRecord(new ScalarRecord<bool>(
+                    {self.recordingState(out())},
+                    serde::RecordType_ScalarBoolInput,
+                    std::nullopt,
+                    dtype));
+                break;
+              case PrimDataType::Int32:
+              case PrimDataType::Int:
+                self.defineRecord(new ScalarRecord<int64_t>(
+                    {self.recordingState(out())},
+                    serde::RecordType_ScalarIntInput,
+                    std::nullopt,
+                    dtype));
+                break;
+              case PrimDataType::BFloat16:
+              case PrimDataType::Half:
+              case PrimDataType::Float:
+              case PrimDataType::Double:
+                self.defineRecord(new ScalarRecord<double>(
+                    {self.recordingState(out())},
+                    serde::RecordType_ScalarDoubleInput,
+                    std::nullopt,
+                    dtype));
+                break;
+              case PrimDataType::ComplexFloat:
+              case PrimDataType::ComplexDouble:
+                self.defineRecord(new ScalarRecord<std::complex<double>>(
+                    {self.recordingState(out())},
+                    serde::RecordType_ScalarComplexInput,
+                    std::nullopt,
+                    dtype));
+                break;
+              default:
+                TORCH_INTERNAL_ASSERT(
+                    false,
+                    "PrimDataType ",
+                    dtype,
+                    " is not supported by define_scalar");
+            }
             return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
 
-// This is the canonical version of define_scalar
+  // We must infer the record type from the requested dtype, in case no value is
+  // provided
+  auto dtype2InputRecord =
+      [](FusionDefinition& self, Scalar out, PrimDataType dtype) {
+        switch (dtype) {
+          case PrimDataType::Bool:
+            return self.defineRecord(new ScalarRecord<bool>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarBoolInput,
+                std::nullopt,
+                dtype));
+          case PrimDataType::Int32:
+          case PrimDataType::Int:
+            return self.defineRecord(new ScalarRecord<int64_t>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarIntInput,
+                std::nullopt,
+                dtype));
+          case PrimDataType::BFloat16:
+          case PrimDataType::Half:
+          case PrimDataType::Float:
+          case PrimDataType::Double:
+            return self.defineRecord(new ScalarRecord<double>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarDoubleInput,
+                std::nullopt,
+                dtype));
+          case PrimDataType::ComplexFloat:
+          case PrimDataType::ComplexDouble:
+            return self.defineRecord(new ScalarRecord<std::complex<double>>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarComplexInput,
+                std::nullopt,
+                dtype));
+          default:
+            TORCH_INTERNAL_ASSERT(
+                false,
+                "PrimDataType ",
+                dtype,
+                " is not supported by define_scalar");
+        }
+      };
+  // This is the canonical version of define_scalar
 #define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
     Nvfuser_DType, Serde_RType, CType)                                                         \
   fusion_def.def(                                                                              \
       "define_scalar",                                                                         \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
+      [&dtype2InputRecord](                                                                    \
+          FusionDefinition& self,                                                              \
+          std::optional<CType> value,                                                          \
+          PrimDataType dtype) -> Scalar {                                                      \
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          dtype2InputRecord(self, out, dtype);                                                 \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
@@ -544,17 +625,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);                                                     \
   fusion_def.def(                                                                              \
       "define_constant",                                                                       \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
+      [&dtype2InputRecord](                                                                    \
+          FusionDefinition& self,                                                              \
+          std::optional<CType> value,                                                          \
+          PrimDataType dtype) -> Scalar {                                                      \
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");                                   \
         TORCH_WARN_ONCE(                                                                       \
             "Deprecating define_constant functions in favor of define_scalar for constants."); \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          dtype2InputRecord(self, out, dtype);                                                 \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
