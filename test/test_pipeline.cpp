@@ -8,8 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <multidevice/pipeline.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
@@ -23,7 +23,7 @@ using namespace at::indexing;
 
 TEST_F(NVFuserTest, Pipeline_CUDA) {
   // Fusion definition
-  Fusion fusion = fusion;
+  Fusion fusion;
   FusionGuard fg(&fusion);
 
   TensorView* tv0_ = makeContigTensor(2);

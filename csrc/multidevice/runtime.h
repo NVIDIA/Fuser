@@ -18,9 +18,9 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/core/DeviceType.h>
 #include <c10/cuda/CUDAFunctions.h>
-#include <ATen/cuda/CUDAContext.h>
 #include <multidevice/communicator.h>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 
@@ -50,7 +50,9 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
  public:
   explicit MultiDeviceRuntime(
       Pipeline* pipeline,
-      Communicator comm = {COMM_BACKEND_DEFAULT, COMM_SERVER_RANK_DEFAULT})
+      Communicator comm = // NOLINT: pass by value and use std::move
+      {COMM_BACKEND_DEFAULT, // NOLINT: pass by value and use std::move
+       COMM_SERVER_RANK_DEFAULT}) // NOLINT: pass by value and use std::move
       : pipeline_(pipeline), comm_(comm) {
     validate();
   }
@@ -99,7 +101,7 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
         "No rank is associated with device index " + std::to_string(dId));
   }
 
-  //  private:
+ private:
   friend class PipelineExecutor; // could remove friendship by passing pipeline_
                                  // and comm_ to PipelineExecutor
   // test if the runtime is valid and satisfies our assumptions

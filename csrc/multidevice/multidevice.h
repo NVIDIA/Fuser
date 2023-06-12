@@ -17,4 +17,5 @@ using DeviceIdxType = RankType;
 using DimensionType = int;
 using DeviceType = c10::Device;
 using ValSet = VectorOfUniqueEntries<Val*>;
+
 } // namespace nvfuser

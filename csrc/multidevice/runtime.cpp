@@ -6,11 +6,11 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <ir/utils.h>
-#include <device_lower/utils.h>
-#include <multidevice/runtime.h>
 #include <multidevice/executor.h>
+#include <multidevice/runtime.h>
 
 namespace nvfuser {
 
@@ -48,10 +48,9 @@ void MultiDeviceRuntime::validate() const {
   // concrete device (if invovled in the pipeline)
   auto currentDeviceIdx = rankToDeviceIdx(comm_.rank());
   if (deviceIndices.count(currentDeviceIdx)) {
-    auto device = deviceIdxToDevice(currentDeviceIdx);
     TORCH_INTERNAL_ASSERT(
-        true,
-        "device index " + device.str() +
+        true, // TODO
+        "device index " + deviceIdxToDevice(currentDeviceIdx).str() +
             " is present in the pipeline but does not correspond to a valid cuda device");
   }
 }

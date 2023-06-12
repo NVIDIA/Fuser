@@ -6,10 +6,10 @@
  */
 // clang-format on
 #pragma once
+#include <disjoint_set.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <multidevice/device_mesh.h>
-#include <disjoint_set.h>
 #include <multidevice/multidevice.h>
 
 /*
@@ -44,8 +44,8 @@ class TORCH_CUDA_CU_API PipelineStage : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   const char* getOpString() const override {
     return "PipelineStage";
@@ -75,8 +75,8 @@ class TORCH_CUDA_CU_API PipelineVal : public Val {
 
   NVFUSER_DECLARE_CLONE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   // returns the Val from which this PipelineVal has been created
   Val* getOriginalVal() const {
@@ -113,8 +113,8 @@ class TORCH_CUDA_CU_API PipelineCommunication : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual std::string toString(int indent_size = 0) const override;
-  virtual std::string toInlineString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   const char* getOpString() const override {
     return "PipelineCommunication";

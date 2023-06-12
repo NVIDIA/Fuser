@@ -35,8 +35,8 @@ class Communicator {
   // returns the flattenend list of ranks of the communicator
   auto ranks() const {
     std::vector<RankType> ret;
-    for (RankType rank : c10::irange(size())) {
-      ret.push_back(rank);
+    for (auto rank : c10::irange(size())) {
+      ret.push_back(static_cast<RankType>(rank));
     }
     return ret;
   }

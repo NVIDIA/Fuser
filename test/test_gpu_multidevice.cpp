@@ -47,7 +47,6 @@
 #include <algorithm>
 #include <iostream>
 
-
 namespace nvfuser {
 
 using namespace torch::jit::fuser::cuda;

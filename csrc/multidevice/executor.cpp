@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <ir/utils.h>
-#include <device_lower/utils.h>
 #include <multidevice/executor.h>
 
 namespace nvfuser {
@@ -131,7 +131,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
 
 struct SendRecvDescriptor {
   std::vector<RankType> team;
-  RankType root;
+  RankType root = 0;
 };
 
 void PipelineExecutor::handle(PipelineCommunication* c) {

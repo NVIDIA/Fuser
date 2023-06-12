@@ -209,7 +209,10 @@ class PipelineBuilder final {
   }
 };
 
-Pipeline::Pipeline(Fusion* fusion, PipelineDescriptor descriptor)
+Pipeline::Pipeline(
+    Fusion* fusion,
+    PipelineDescriptor // NOLINT (pass fusion as value and use std::move)
+        descriptor) // NOLINT (pass fusion as value and use std::move)
     : originalFusion_(fusion), descriptor_(descriptor) {
   PipelineBuilder{this};
 }
