@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <python_frontend/fusion_record.h>
 #include <serde/factory.h>
 

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 
@@ -52,7 +53,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
     DerivedClass::runPass(fusion);
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
   }

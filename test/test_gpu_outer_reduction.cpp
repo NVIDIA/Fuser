@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -18,6 +19,7 @@
 #include <scheduler/utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
@@ -114,7 +116,7 @@ TEST_F(NVFuserTest, FusionGroupedGridWelfordOuterOpt_CUDA) {
     FusionExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         fe.kernel()->summary().has_outer_grouped_grid_welford ==
             params.should_use_opt,
         (params.should_use_opt ? "Failed to use the optimized implementation"
@@ -230,7 +232,7 @@ namespace {
 
 // A quick opt-in switch to enable performance measurements.
 bool isBenchmarkMode() {
-  return getenv("PYTORCH_NVFUSER_OUTER_REDUCTION_BENCHMARK") != nullptr;
+  return getNvFuserEnv("OUTER_REDUCTION_BENCHMARK") != nullptr;
 }
 
 struct OuterReductionParams {
@@ -401,24 +403,24 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
     }
 
     // Any other tensor is assumed to be a 4D tensor that requires recomputation
-    TORCH_CHECK(
+    NVF_CHECK(
         input_tv->nDims() == 4,
         "Unexpected input tensor: ",
         input_tv->toString());
     // If the input type is Half, it must be cast to Float
     if (input_tv->getDataType() == DataType::Half) {
-      TORCH_CHECK(
+      NVF_CHECK(
           input_tv->uses().size() == 1,
           "Unexpected input tensor: ",
           input_tv->toString());
       auto cast_expr = dynamic_cast<UnaryOp*>(input_tv->uses().at(0));
-      TORCH_CHECK(
+      NVF_CHECK(
           cast_expr != nullptr &&
               cast_expr->getUnaryOpType() == UnaryOpType::Cast,
           "Unexpected input tensor: ",
           input_tv->toString());
       auto cast_tv = dynamic_cast<TensorView*>(cast_expr->out());
-      TORCH_CHECK(cast_tv != nullptr);
+      NVF_CHECK(cast_tv != nullptr);
       auto cast_tv_use_exprs = cast_tv->uses();
       for (auto use : cast_tv_use_exprs) {
         auto replica = RecomputeTv::recompute(cast_tv);
@@ -446,14 +448,14 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
     }
   }
 
-  TORCH_CHECK(!reduction_exprs.empty(), "No reduction found");
+  NVF_CHECK(!reduction_exprs.empty(), "No reduction found");
 
   // Apply horizontal grouping before rfactor
   if (reduction_exprs.size() > 1) {
     groupReductions(reduction_tvs);
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dataTypeSize(DataType::Half) * params.vec * reduction_tvs.size() <= 16,
       "Invalid vectorization");
 
@@ -521,7 +523,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
       vec_reorder_map[i] = i - 1;
     }
   }
-  TORCH_CHECK(vec_id_cur_pos != -1, "Vectorized ID not found");
+  NVF_CHECK(vec_id_cur_pos != -1, "Vectorized ID not found");
   reduction_tv_rf->reorder(vec_reorder_map);
 
   TransformPropagator propagator(reduction_tv_rf);
@@ -874,8 +876,8 @@ void grid_persistent_batchnorm_manual(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -1040,7 +1042,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Double>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -1194,7 +1196,7 @@ void grid_persistent_batchnorm_bwd_manual(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -1452,16 +1454,16 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
   if (!shouldBePersistent(N, HW, dtype, false, use_weights, weights_dtype)) {
-    TORCH_CHECK(runtime->isSegmented(), "Expected to be segmented");
+    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !runtime->isSegmented(),
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
-    TORCH_CHECK(
+    NVF_CHECK(
         scheduler_entry->heuristic() == ScheduleHeuristic::Persistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->heuristic());
@@ -1610,16 +1612,16 @@ void grid_persistent_welford_outer_norm_like_scheduler(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
   if (!shouldBePersistent(N, HW, dtype, false, use_weights, weights_dtype)) {
-    TORCH_CHECK(runtime->isSegmented(), "Expected to be segmented");
+    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !runtime->isSegmented(),
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
-    TORCH_CHECK(
+    NVF_CHECK(
         scheduler_entry->heuristic() == ScheduleHeuristic::Persistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->heuristic());
@@ -1744,8 +1746,8 @@ void grid_persistent_batchnorm_scheduler(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -1789,16 +1791,16 @@ void grid_persistent_batchnorm_scheduler(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
   if (!shouldBePersistent(N, HW, dtype, false, true, DataType::Float)) {
-    TORCH_CHECK(runtime->isSegmented(), "Expected to be segmented");
+    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !runtime->isSegmented(),
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
-    TORCH_CHECK(
+    NVF_CHECK(
         scheduler_entry->heuristic() == ScheduleHeuristic::Persistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->heuristic());
@@ -1892,7 +1894,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Double>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -1926,16 +1928,16 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
   if (!shouldBePersistent(N, HW, dtype, true)) {
-    TORCH_CHECK(runtime->isSegmented(), "Expected to be segmented");
+    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !runtime->isSegmented(),
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
-    TORCH_CHECK(
+    NVF_CHECK(
         scheduler_entry->heuristic() == ScheduleHeuristic::Persistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->heuristic());
@@ -2051,7 +2053,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -2116,16 +2118,16 @@ void grid_persistent_batchnorm_bwd_scheduler(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
   if (!shouldBePersistent(N, HW, dtype, true, true, DataType::Float)) {
-    TORCH_CHECK(runtime->isSegmented(), "Expected to be segmented");
+    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !runtime->isSegmented(),
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
-    TORCH_CHECK(
+    NVF_CHECK(
         scheduler_entry->heuristic() == ScheduleHeuristic::Persistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->heuristic());

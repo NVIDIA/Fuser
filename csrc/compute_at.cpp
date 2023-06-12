@@ -76,7 +76,7 @@ std::deque<std::deque<TensorView*>> tvChains(
 std::unordered_set<TensorView*> getAllTVsBetween(
     TensorView* producer,
     TensorView* consumer) {
-  TORCH_CHECK(
+  NVF_CHECK(
       DependencyCheck::isDependencyOf(producer, consumer),
       "Compute At expects ",
       producer->name(),
@@ -114,7 +114,7 @@ TensorView* getCommonConsumer(TensorView* producer, TensorView* consumer) {
 
   // Right now we only support compute at if at some point in the graph consumer
   // is dependent on producer.
-  TORCH_CHECK(
+  NVF_CHECK(
       !all_chains.empty(),
       "Compute At expects ",
       producer->name(),
@@ -140,7 +140,7 @@ TensorView* getCommonConsumer(TensorView* producer, TensorView* consumer) {
         break;
       }
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         common_consumer != nullptr,
         "Hit a logical inconsistency in the computeAt pass.");
   }
@@ -168,7 +168,7 @@ std::unordered_set<TensorView*> pullInSiblings(
 std::unordered_set<TensorView*> getPropagationSubgraph(
     TensorView* producer,
     TensorView* consumer) {
-  TORCH_CHECK(
+  NVF_CHECK(
       DependencyCheck::isDependencyOf(producer, consumer),
       "Compute At expects ",
       producer->name(),
@@ -204,7 +204,7 @@ void ComputeAt::runAt(
   FUSER_PERF_SCOPE("ComputeAt::runAt");
 
   // Make sure the correct fusion is setup between this and consumer.
-  TORCH_CHECK(
+  NVF_CHECK(
       producer->fusion() == consumer->fusion(),
       producer,
       " and ",

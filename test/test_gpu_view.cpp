@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -27,7 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
 #include <root_domain_map.h>
@@ -124,7 +124,7 @@ TEST_F(NVFuserTest, FusionViewAsRealOutput_CUDA) {
   TensorView* y = makeSymbolicTensor(output_shape.size());
   fusion.addInput(y);
 
-  auto y_plus_1 = add(y, IrBuilder::create<Double>(1));
+  auto y_plus_1 = add(y, IrBuilder::create<Val>(1.0));
 
   auto x_add_bias = add(x, bias);
   auto x_view = view_as_real(x_add_bias);
@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionReshapeRfactorExtentReplacement_CUDA) {
 
   auto tv2 = reshape(tv0, {12, 8}, {4, 3, 8});
   auto tv3 = sum(tv2, {-1});
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   auto tv5 = add(tv1, tv4);
   fusion->addOutput(tv5);
 
@@ -317,8 +317,8 @@ void reductionViewAddFusion(
   }
 }
 
-typedef std::vector<int64_t> shape;
-typedef std::pair<shape, shape> reshape_example;
+typedef std::vector<int64_t> shape_t;
+typedef std::pair<shape_t, shape_t> reshape_example;
 
 // TODO: View examples with just 333 elements are failing validation in
 // normalization. This might just be because our tolerances aren't tuned well
@@ -654,7 +654,7 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = reshape(tv0, {2, 3}, {6});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   auto tv4 = broadcast(tv3, {true, false});
   auto tv5 = add(tv4, tv1);
 
@@ -775,7 +775,7 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain4_CUDA) {
   tv0->computeAt(tv5, -1);
   tv1->computeAt(tv5, -1);
 
-  TORCH_CHECK(tv5->nDims() == 1);
+  NVF_CHECK(tv5->nDims() == 1);
 
   // The concrete domain of tv5, which is 1D, with permissive or loop mapping
   // needs to be either the domain of tv4 or tv5, both of which have the three
@@ -784,11 +784,11 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain4_CUDA) {
   ComputeAtMap map(&fusion);
   auto concrete_id =
       map.getConcreteMappedID(tv5->axis(0), IdMappingMode::PERMISSIVE);
-  TORCH_CHECK(
+  NVF_CHECK(
       map.areMapped(concrete_id, tv5->axis(0), IdMappingMode::EXACT),
       "Invalid concrete ID: ",
       concrete_id->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       map.areMapped(concrete_id, tv4->axis(0), IdMappingMode::EXACT),
       "Invalid concrete ID: ",
       concrete_id->toString());
@@ -849,18 +849,18 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain5_CUDA) {
     tv0->computeAt(path2_out, -1);
     tv1->computeAt(path2_out, -1);
 
-    TORCH_CHECK(path1_out->nDims() == 1);
-    TORCH_CHECK(path2_out->nDims() == 1);
+    NVF_CHECK(path1_out->nDims() == 1);
+    NVF_CHECK(path2_out->nDims() == 1);
 
     ComputeAtMap map(&fusion);
 
     // Make sure the two output tensors are mapped. Note both are 1D.
-    TORCH_CHECK(map.areMapped(
+    NVF_CHECK(map.areMapped(
         path1_out->axis(0), path2_out->axis(0), IdMappingMode::LOOP));
 
     auto concrete_id =
         map.getConcreteMappedID(path2_out->axis(0), IdMappingMode::LOOP);
-    TORCH_CHECK(
+    NVF_CHECK(
         path2_out->axis(0) == concrete_id,
         "Incorrect concrete ID: ",
         concrete_id->toString());
@@ -913,7 +913,7 @@ TEST_F(NVFuserTest, FusionComputeAtRootDomainMapWithView_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // reduction followed by broadcast
   auto tv2 = sum(tv1, {1});
@@ -934,7 +934,7 @@ TEST_F(NVFuserTest, FusionComputeAtRootDomainMapWithView_CUDA) {
   // second axis.
   auto tv1_tv2_mappable_dims =
       map.getMappableDims(tv1->domain(), tv2->domain());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv1_tv2_mappable_dims.find(tv1->axis(1)) == tv1_tv2_mappable_dims.end(),
       "Invalid ComputeAtRootDomainMap. Domain should not be mappable: ",
       tv1->axis(1)->toString());
@@ -986,9 +986,9 @@ TEST_F(NVFuserTest, FusionExpandView1_CUDA) {
 
   auto tv2 = expand(
       tv0,
-      {IrBuilder::create<Int>(4),
-       IrBuilder::create<Int>(3),
-       IrBuilder::create<Int>(8)});
+      {IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(3L),
+       IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
   auto tv4 = add(tv3, tv1);
@@ -1018,7 +1018,7 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   fusion->addInput(tv1);
 
   auto tv2 =
-      expand(tv0, {IrBuilder::create<Int>(12), IrBuilder::create<Int>(8)});
+      expand(tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);
@@ -1040,7 +1040,7 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
 TEST_F(NVFuserTest, FusionReshapeTransformCache_CUDA) {
   auto assert_matches = [](reshape_example example_0,
                            reshape_example example_1) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         analyzeViewConstraint(example_0.first, example_0.second) ==
             analyzeViewConstraint(example_1.first, example_1.second),
         "View: ",
@@ -1055,7 +1055,7 @@ TEST_F(NVFuserTest, FusionReshapeTransformCache_CUDA) {
 
   auto assert_does_not_match = [](reshape_example example_0,
                                   reshape_example example_1) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !(analyzeViewConstraint(example_0.first, example_0.second) ==
           analyzeViewConstraint(example_1.first, example_1.second)),
         "View: ",
@@ -1227,23 +1227,18 @@ TEST_F(NVFuserTest, FusionReshapeIdGraph_CUDA) {
   auto t13 = add(tv12, tv4);
   fusion.addOutput(t13);
 
-  // Grab the trivial reduced tensor from t12's reshape.
-  ir_utils::producerTvsOf(tv12)[0];
-
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(&fusion);
   auto disjoint_reshape_ids = id_graph.exactNodes();
 
-  TORCH_CHECK(
-      id_graph.exactNodes().strictAreMapped(tv2->axis(1), tv4->axis(1)));
-  TORCH_CHECK(
-      id_graph.exactNodes().strictAreMapped(tv2->axis(2), tv4->axis(2)));
+  NVF_CHECK(id_graph.exactNodes().strictAreMapped(tv2->axis(1), tv4->axis(1)));
+  NVF_CHECK(id_graph.exactNodes().strictAreMapped(tv2->axis(2), tv4->axis(2)));
 
-  TORCH_CHECK(id_graph.exactNodes().strictAreMapped(
+  NVF_CHECK(id_graph.exactNodes().strictAreMapped(
       tv2->getRootDomain()[1], tv12->getRootDomain()[1]));
-  TORCH_CHECK(id_graph.exactNodes().strictAreMapped(
+  NVF_CHECK(id_graph.exactNodes().strictAreMapped(
       tv2->getRootDomain()[2], tv12->getRootDomain()[2]));
-  TORCH_CHECK(id_graph.exactNodes().strictAreMapped(
+  NVF_CHECK(id_graph.exactNodes().strictAreMapped(
       tv2->getRootDomain()[3], tv12->getRootDomain()[3]));
 }
 
@@ -1275,11 +1270,11 @@ TEST_F(NVFuserTest, FusionReshapeVectorize_CUDA) {
   };
 
   for (auto o : fusion.outputs()) {
-    TORCH_CHECK(hasVectorization(o->as<TensorView>()));
+    NVF_CHECK(hasVectorization(o->as<TensorView>()));
   }
   for (auto i : fusion.inputs()) {
     for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
-      TORCH_CHECK(hasVectorization(c));
+      NVF_CHECK(hasVectorization(c));
     }
   }
 
@@ -1305,7 +1300,7 @@ TEST_F(NVFuserTest, FusionExpandFlatten_CUDA) {
       tv0,
       {tv0->axis(0)->extent(),
        tv0->axis(1)->extent(),
-       IrBuilder::create<Int>(8)});
+       IrBuilder::create<Val>(8L)});
   auto tv2 = flatten(tv1, 1, 2);
   auto tv3 = sum(tv2, {1});
   fusion->addOutput(tv3);
@@ -1340,7 +1335,7 @@ TEST_F(NVFuserTest, FusionIllegalReductionFlatten_CUDA) {
         auto tv2 = flatten(tv1, 0, 1);
         fusion->addOutput(tv2);
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid end_dim")));
 }
 
@@ -1536,7 +1531,7 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule1_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t2, t4, t5}, __LINE__, __FILE__);
 }
@@ -1632,12 +1627,12 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule3_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<PointwiseParams>());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<PointwiseParams>());
   auto pparams =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
-  TORCH_CHECK(pparams->break_point == 1);
+  NVF_CHECK(pparams->break_point == 1);
 
   testValidate(
       &fusion, cg_outputs, {t0, t3, t6}, {t2, t4, t5, t8}, __LINE__, __FILE__);
@@ -1692,12 +1687,12 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule4_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t4});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<PointwiseParams>());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<PointwiseParams>());
   auto pparams =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
-  TORCH_CHECK(pparams->break_point == 1);
+  NVF_CHECK(pparams->break_point == 1);
 
   testValidate(
       &fusion, cg_outputs, {t0, t3, t4}, {t2, t6, t7}, __LINE__, __FILE__);
@@ -1740,9 +1735,9 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule5_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<PointwiseParams>());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<PointwiseParams>());
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t6}, __LINE__, __FILE__);
 }
@@ -1782,10 +1777,10 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule6_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<PointwiseParams>());
-  TORCH_CHECK(
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<PointwiseParams>());
+  NVF_CHECK(
       executor_cache.getMostRecentExecutorInfo()
           .params->as<PointwiseParams>()
           ->vectorize &&
@@ -1833,9 +1828,9 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule7_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<ReductionParams>());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<ReductionParams>());
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t7}, __LINE__, __FILE__);
 }
@@ -1883,9 +1878,9 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule8_CUDA) {
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                  .params->isA<ReductionParams>());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<ReductionParams>());
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t9}, __LINE__, __FILE__);
 }
@@ -1915,7 +1910,7 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule9_CUDA) {
   auto tv8 = broadcast(tv3, {false, false, true});
   auto tv9 = set(tv6);
 
-  auto s10 = IrBuilder::create<Double>(1e-12);
+  auto s10 = IrBuilder::create<Val>(1e-12);
   auto tv11 = add(abs(tv8), s10);
 
   auto tv12 = sub(tv4, tv9);
@@ -2129,21 +2124,21 @@ TEST_F(NVFuserTest, FusionLowerDivisibleSplits_CUDA) {
     auto transform_6 = transform_5->in()->definition()->as<Split>();
     auto transform_7 = transform_6->in()->definition()->as<Split>();
 
-    TORCH_CHECK(
+    NVF_CHECK(
         divisible_splits.find(transform_5) != divisible_splits.end(),
         "Expecting: ",
         transform_5->toString(),
         "\nFrom TV: ",
         tv,
         "\nTo be a divisible split.");
-    TORCH_CHECK(
+    NVF_CHECK(
         divisible_splits.find(transform_6) != divisible_splits.end(),
         "Expecting: ",
         transform_6->toString(),
         "\nFrom TV: ",
         tv,
         "\nTo be a divisible split.");
-    TORCH_CHECK(
+    NVF_CHECK(
         divisible_splits.find(transform_7) != divisible_splits.end(),
         "Expecting: ",
         transform_7->toString(),
@@ -2179,17 +2174,16 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv3 = castOp(DataType::Float, tv0);
   auto tv4 = reshape(tv1, {48, 128, 128}, {4, 12, 128, 128});
 
-  auto tv5 = mul(tv3, IrBuilder::create<Double>(1));
-  auto tv6 = sub(IrBuilder::create<Double>(1), tv5);
+  auto tv5 = mul(tv3, IrBuilder::create<Val>(1.0));
+  auto tv6 = sub(IrBuilder::create<Val>(1.0), tv5);
   auto tv7 = castOp(DataType::Bool, tv6);
-  auto tv8 =
-      where(tv7, IrBuilder::create<Double>(-3.4028200000000001e+38), tv6);
+  auto tv8 = where(tv7, IrBuilder::create<Val>(-3.4028200000000001e+38), tv6);
   auto tv9 = add(tv8, tv2);
   auto tv10 = set(tv9);
   auto tv11 = expand(
       tv10,
       {tv10->axis(0)->extent(),
-       IrBuilder::create<Int>(12),
+       IrBuilder::create<Val>(12L),
        tv10->axis(2)->extent(),
        tv10->axis(3)->extent()});
 
@@ -2202,7 +2196,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv16,
       {tv16->axis(0)->extent(),
        tv16->axis(1)->extent(),
-       IrBuilder::create<Int>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv18 = sub(tv13, tv17);
   auto tv19 = exp(tv18);
   auto tv20 = sum(tv19, {2});
@@ -2212,7 +2206,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv22,
       {tv22->axis(0)->extent(),
        tv22->axis(1)->extent(),
-       IrBuilder::create<Int>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv24 = div(tv19, tv23);
 
   fusion.addOutput(tv9);
@@ -2328,7 +2322,7 @@ TEST_F(NVFuserTest, FusionReshapeZeroDimInput_CUDA) {
 
   at::Tensor at_x =
       at::randn({1}).to(options)[0]; // indexing to get zero-dim tensor
-  TORCH_INTERNAL_ASSERT(at_x.ndimension() == 0);
+  NVF_ERROR(at_x.ndimension() == 0);
 
   at::Tensor at_y = at::randn({2, 3, 4}).to(options);
 
@@ -2371,7 +2365,7 @@ TEST_F(NVFuserTest, FusionReshapeZeroDimOutput_CUDA) {
   at::Tensor at_y = at::randn({1, 1}).to(options);
   at::Tensor at_z =
       at::randn({1}).to(options)[0]; // indexing to get zero-dim tensor
-  TORCH_INTERNAL_ASSERT(at_z.ndimension() == 0);
+  NVF_ERROR(at_z.ndimension() == 0);
 
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_z};
 
@@ -2408,7 +2402,7 @@ TEST_F(NVFuserTest, FusionReshapeZeroDimInputOutput_CUDA) {
   at::Tensor at_x =
       at::randn({1}).to(options)[0]; // indexing to get zero-dim tensor
   at::Tensor at_y = at::randn({1}).to(options)[0];
-  TORCH_INTERNAL_ASSERT(at_x.ndimension() == 0 && at_y.ndimension() == 0);
+  NVF_ERROR(at_x.ndimension() == 0 && at_y.ndimension() == 0);
 
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
@@ -2445,11 +2439,11 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto ref = t0.reshape({8, 4}).reshape({32});
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
 } // namespace nvfuser

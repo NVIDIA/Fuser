@@ -24,8 +24,7 @@ namespace nvfuser {
 namespace {
 
 at::ScalarType toAccumulateType(const torch::jit::TensorTypePtr& op) {
-  TORCH_INTERNAL_ASSERT(
-      op->scalarType().has_value(), "Missing Type Information.");
+  NVF_ERROR(op->scalarType().has_value(), "Missing Type Information.");
   return at::toAccumulateType(op->scalarType().value(), true /* is_cuda */);
 }
 
@@ -40,12 +39,26 @@ void copyScalarTypeAndDeviceToOutput(
     torch::jit::Node* node,
     size_t index = 0) {
   auto out = node->output(index)->type()->cast<at::TensorType>();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out != nullptr,
       "Expect target node's type pointer to be non-nullptr, but get nullptr");
   if (!hasTypeAndDevice(out)) {
     node->output(index)->setType(torch::jit::TensorType::create(
         dtype, device, c10::nullopt, c10::nullopt));
+  }
+}
+
+void copyScalarTypeAndDeviceToOutput(
+    c10::optional<DataType> dtype,
+    c10::optional<c10::Device> device,
+    torch::jit::Node* node,
+    size_t index = 0) {
+  if (dtype.has_value()) {
+    copyScalarTypeAndDeviceToOutput(
+        data_type_to_aten(dtype.value()), device, node, index);
+  } else {
+    c10::optional<c10::ScalarType> nullopt = c10::nullopt;
+    copyScalarTypeAndDeviceToOutput(nullopt, device, node, index);
   }
 }
 
@@ -67,7 +80,7 @@ at::TensorTypePtr getInputTensorType(
   }
 
   // (not optional) implies (tensor_type not equal nullptr)
-  TORCH_CHECK(
+  NVF_CHECK(
       optional || tensor_type != nullptr,
       "Input ",
       index,
@@ -75,7 +88,7 @@ at::TensorTypePtr getInputTensorType(
       node->kind().toDisplayString(),
       " needs to be a tensor.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       hasTypeAndDevice(tensor_type),
       "Input ",
       index,
@@ -273,13 +286,13 @@ class NaiveTypePropagator {
             c10::Symbol::fromQualString("aten::native_batch_norm_backward")) {
           mask_index = 9;
         } else {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               false, "unidentified node kind", node->kind().toDisplayString());
         }
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
         auto out_mask_list =
             torch::jit::constant_as<c10::List<bool>>(node->input(mask_index));
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_mask_list.has_value(),
             "Missing output mask for batch_norm_backward");
         std::vector<int> output_mask;
@@ -352,7 +365,7 @@ class NaiveTypePropagator {
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
         auto out_mask_list =
             torch::jit::constant_as<c10::List<bool>>(node->input(7));
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_mask_list.has_value(), "output mask for layer_norm_backward");
         std::vector<int> output_mask;
         for (const auto value : out_mask_list->vec()) {
@@ -397,7 +410,7 @@ class NaiveTypePropagator {
 
         const auto half_to_float =
             torch::jit::constant_as<bool>(node->input(2));
-        TORCH_CHECK(
+        NVF_CHECK(
             half_to_float.has_value(),
             "half_to_float bool doesn't have a value.");
         if (half_to_float.value()) {
@@ -434,7 +447,7 @@ class NaiveTypePropagator {
         const auto dims =
             torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
         const auto keepdim = torch::jit::constant_as<bool>(node->input(2));
-        TORCH_CHECK(
+        NVF_CHECK(
             dims.has_value() && keepdim.has_value(),
             "Shape inference cannot handle options.");
         unary_reduce_type(node, out_type, dims->vec(), keepdim.value());
@@ -446,7 +459,7 @@ class NaiveTypePropagator {
         const auto dims =
             torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
         const auto keepdim = torch::jit::constant_as<bool>(node->input(3));
-        TORCH_CHECK(
+        NVF_CHECK(
             dims.has_value() && keepdim.has_value(),
             "Shape inference cannot handle options.");
         unary_reduce_type(node, out_type, dims->vec(), keepdim.value());
@@ -489,7 +502,7 @@ class NaiveTypePropagator {
           copyScalarTypeAndDeviceToOutput(
               type0->withScalarType(out_dtype->toScalarType()), node);
         } else {
-          TORCH_CHECK(
+          NVF_CHECK(
               !out_dtype.has_value() || out_dtype->isNone(),
               "dtype for cast unrecognized ",
               out_dtype->tagKind());
@@ -502,13 +515,13 @@ class NaiveTypePropagator {
         // const auto type1 = getInputTensorType(node, 1, true);
         // note: add_optional is supposed to replace an inplace add on input0,
         // so we just directly forward dtype
-        TORCH_CHECK(type0 != nullptr);
+        NVF_CHECK(type0 != nullptr);
         copyScalarTypeAndDeviceToOutput(type0, node);
         break;
       }
       case at::aten::_autocast_to_reduced_precision: {
         const auto in_type = node->input(0)->type()->cast<at::TensorType>();
-        TORCH_CHECK(
+        NVF_CHECK(
             hasTypeAndDevice(in_type),
             "Type and device propagation has failed, or was not provided enough information.");
         const auto in_device = in_type->device();
@@ -518,7 +531,7 @@ class NaiveTypePropagator {
             torch::jit::constant_as<c10::ScalarType>(node->input(3));
         const auto cpu_dtype =
             torch::jit::constant_as<c10::ScalarType>(node->input(4));
-        TORCH_CHECK(
+        NVF_CHECK(
             cuda_enabled.has_value() && cpu_enabled.has_value() &&
                 cuda_dtype.has_value() && cpu_dtype.has_value(),
             "_autocast_to_reduced_precision requires all scalar inputs to be constant.");
@@ -538,14 +551,14 @@ class NaiveTypePropagator {
       }
       case at::aten::_autocast_to_full_precision: {
         const auto in_type = node->input(0)->type()->cast<at::TensorType>();
-        TORCH_CHECK(
+        NVF_CHECK(
             hasTypeAndDevice(in_type),
             "Type and device propagation has failed, or was not provided enough information.");
         const auto in_scalar_type = in_type->scalarType();
         const auto in_device = in_type->device();
         const auto cuda_enabled = torch::jit::constant_as<bool>(node->input(1));
         const auto cpu_enabled = torch::jit::constant_as<bool>(node->input(2));
-        TORCH_CHECK(
+        NVF_CHECK(
             cuda_enabled.has_value() && cpu_enabled.has_value(),
             "_autocast_to_full_precision requires enable flag to be constant.");
 
@@ -561,7 +574,7 @@ class NaiveTypePropagator {
         break;
       }
       default:
-        TORCH_CHECK(
+        NVF_CHECK(
             false,
             "type inference failed, unrecognized operation encountered:",
             node->kind().toDisplayString());
@@ -594,7 +607,7 @@ class NaiveTypePropagator {
       const torch::jit::TensorTypePtr& op,
       const std::vector<int64_t>& dims,
       bool keepdim) {
-    TORCH_CHECK(
+    NVF_CHECK(
         hasTypeAndDevice(op),
         "Type and device propagation has failed, or was not provided enough information.");
     copyScalarTypeAndDeviceToOutput(op, node);
@@ -607,7 +620,7 @@ class NaiveTypePropagator {
     auto op1 = node->input(1)->type();
     auto op0_tensor_type = op0->cast<at::TensorType>();
     auto op1_tensor_type = op1->cast<at::TensorType>();
-    TORCH_CHECK(
+    NVF_CHECK(
         hasTypeAndDevice(op0_tensor_type) || hasTypeAndDevice(op1_tensor_type),
         "At least one operand must be a tensor.");
     auto ptr = (op0_tensor_type != nullptr) ? op0_tensor_type : op1_tensor_type;
@@ -620,16 +633,16 @@ class NaiveTypePropagator {
       torch::jit::Node* node,
       torch::jit::TensorTypePtr const& op0,
       torch::jit::TensorTypePtr const& op1,
-      c10::optional<at::ScalarType> scalar_type = c10::nullopt) {
+      std::optional<at::ScalarType> scalar_type = std::nullopt) {
     torch::jit::TensorTypePtr out;
-    TORCH_CHECK(
+    NVF_CHECK(
         op0 != nullptr || op1 != nullptr,
         "Scalar operations on binary broadcast type, not supported yet.");
 
     c10::ScalarType promoted_scalar_type = c10::ScalarType::Undefined;
     c10::optional<c10::Device> device;
     if (op0 != nullptr && op1 != nullptr) {
-      TORCH_CHECK(
+      NVF_CHECK(
           hasTypeAndDevice(op0) && hasTypeAndDevice(op1),
           "Type and device propagation has failed, or was not provided enough information.");
       promoted_scalar_type = scalar_type.has_value()
@@ -638,7 +651,7 @@ class NaiveTypePropagator {
       device = *op0->device();
     } else {
       auto ptr = (op0 != nullptr) ? op0 : op1;
-      TORCH_CHECK(
+      NVF_CHECK(
           hasTypeAndDevice(ptr),
           "Type and device propagation has failed, or was not provided enough information.");
       promoted_scalar_type =

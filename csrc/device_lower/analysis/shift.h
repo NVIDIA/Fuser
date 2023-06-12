@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <dispatch.h>
@@ -231,7 +232,7 @@ class ShiftPredicateInserter {
   static Expr* insert(
       Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
-      Bool* thread_pred,
+      Val* thread_pred,
       bool within_unswitch);
 };
 

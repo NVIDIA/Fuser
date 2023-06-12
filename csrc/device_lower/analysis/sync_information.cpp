@@ -35,7 +35,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !pt_map.get(ptype),
         "Multiple use of ",
         ptype,
@@ -54,7 +54,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       predicated_parallel_types.none(),
       "Invalid parallelization of tensor t",
       tv->name(),
@@ -200,15 +200,15 @@ struct ProducerConsumerIndexingInfoCache {
   TensorView* consumer_tv_ = nullptr;
   // Consumer leaf IDs that are also used to index the producer, i.e.,
   // those that are loop-mapped with the producer leaf IDs
-  c10::optional<std::vector<IterDomain*>>
+  std::optional<std::vector<IterDomain*>>
       consumer_leaf_ids_shared_with_producer_;
   // Root IDs of the shared leaf IDs
-  c10::optional<std::vector<Val*>> consumer_root_ids_shared_with_producer_;
+  std::optional<std::vector<Val*>> consumer_root_ids_shared_with_producer_;
   // Consumer CA leaf IDs that are not shared with producer and
   // permissively mapped with consumers of the consumer
-  c10::optional<std::vector<IterDomain*>> consumer_only_permissive_leaf_ids_;
+  std::optional<std::vector<IterDomain*>> consumer_only_permissive_leaf_ids_;
   // IDs whose index depends on consumer_only_permissive_leaf_ids_
-  c10::optional<VectorOfUniqueEntries<IterDomain*>> consumer_loop_indexing_ids_;
+  std::optional<VectorOfUniqueEntries<IterDomain*>> consumer_loop_indexing_ids_;
 };
 
 // For a given pair of a producer and consumer leaf ID, check if the
@@ -745,7 +745,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               continue;
             }
             // Can this happen?
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 false,
                 "Unexpected case. Producer: ",
                 producer->toString(),
@@ -762,7 +762,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         } // end for ptypes
 
         if (raw_dims.hasBID()) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               producer->getMemoryType() == MemoryType::Global,
               "Inconsistent parallelization found between TV",
               producer->name(),
@@ -776,7 +776,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               " RAW flags: ",
               raw_dims.toString());
         } else if (raw_dims.hasTID()) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               producer->getMemoryType() == MemoryType::Global ||
                   producer->getMemoryType() == MemoryType::Shared,
               "Inconsistent parallelization found between TV",

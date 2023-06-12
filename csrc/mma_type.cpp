@@ -13,12 +13,11 @@
 namespace nvfuser {
 
 MmaOp* MmaOptions::mmaOp() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       accumulator_tv != nullptr && accumulator_tv->definition() != nullptr,
       "Invalid accumulator_tv.");
   auto mma_op = dynamic_cast<MmaOp*>(accumulator_tv->definition());
-  TORCH_INTERNAL_ASSERT(
-      mma_op != nullptr, "accumulator tv not an output of mma op");
+  NVF_ERROR(mma_op != nullptr, "accumulator tv not an output of mma op");
   return mma_op;
 }
 
@@ -42,7 +41,7 @@ MmaBuilder::MmaBuilder(
       option_.accumulator_stride = outer_stride * 4;
       break;
     default:
-      TORCH_CHECK(false, "unsupported macro");
+      NVF_CHECK(false, "unsupported macro");
       break;
   }
 }
@@ -59,22 +58,22 @@ MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
 
 // TODO: validate op config
 MmaOptions MmaBuilder::build() const {
-  TORCH_CHECK(
+  NVF_CHECK(
       option_.accumulator_tv != nullptr,
       "Please configure accumulator tv before using swizzle options.")
   return option_;
 }
 
 void MmaBuilder::configureMma(MmaOp* mma) const {
-  TORCH_CHECK(mma, "configureMma: invalid op object ", mma);
+  NVF_CHECK(mma, "configureMma: invalid op object ", mma);
   mma->configureOptions(option_);
 }
 
 void MmaBuilder::accumulatorTv(TensorView* tv) {
-  TORCH_CHECK(
+  NVF_CHECK(
       tv->getMemoryType() == MemoryType::Local, "Mma only outputs to register");
-  TORCH_CHECK(tv->definition(), "Input cannot be accumulator tv");
-  TORCH_CHECK(
+  NVF_CHECK(tv->definition(), "Input cannot be accumulator tv");
+  NVF_CHECK(
       tv->definition()->isA<MmaOp>(),
       "Requires mma op output for reduction tv");
   option_.accumulator_tv = tv;
@@ -97,7 +96,7 @@ LoadStoreOpType getLdMatrixType(MmaOptions options) {
            isOperandTransposed(options));
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unsupported op with ldmatrix");
+      NVF_ERROR(false, "unsupported op with ldmatrix");
       break;
   }
   return transpose ? LoadStoreOpType::LdMatrixTranspose
@@ -135,7 +134,7 @@ int getOutputRegisterSize(MmaOptions::MacroType macro) {
     case MmaOptions::MacroType::Ampere_16_8_16:
       return 4;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown macro");
+      NVF_ERROR(false, "unknown macro");
       break;
   }
   return -1;
@@ -151,7 +150,7 @@ int getInputARegisterSize(MmaOptions::MacroType macro) {
     case MmaOptions::MacroType::Ampere_16_16_16:
       return 8;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown macro");
+      NVF_ERROR(false, "unknown macro");
       break;
   }
   return -1;
@@ -167,7 +166,7 @@ int getInputBRegisterSize(MmaOptions::MacroType macro) {
     case MmaOptions::MacroType::Ampere_16_16_16:
       return 8;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown macro");
+      NVF_ERROR(false, "unknown macro");
       break;
   }
   return -1;
@@ -182,7 +181,7 @@ bool isOperandTransposed(MmaOptions options) {
       return options.layout == MmaOptions::MmaLayout::TT ||
           options.layout == MmaOptions::MmaLayout::NT;
     default:
-      TORCH_CHECK(false, "isOperandTransposed: please specify operand");
+      NVF_CHECK(false, "isOperandTransposed: please specify operand");
   }
   return false;
 }
@@ -203,7 +202,7 @@ GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
       return {1, 1, 1};
   }
 
-  TORCH_INTERNAL_ASSERT(false, "unknown MMA macro");
+  NVF_ERROR(false, "unknown MMA macro");
 }
 
 std::string toString(MmaOptions::MmaLayout input_layout) {
@@ -222,7 +221,7 @@ std::string toString(MmaOptions::MmaLayout input_layout) {
       ss << "NN";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unsupported operand layout");
+      NVF_ERROR(false, "unsupported operand layout");
   }
   return ss.str();
 }
@@ -245,7 +244,7 @@ std::string toString(MmaOptions::MacroType mt) {
       ss << "M16N16K16";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined mma type");
+      NVF_ERROR(false, "undefined mma type");
       break;
   }
   return ss.str();
@@ -283,7 +282,7 @@ std::string toString(MmaOptions::MacroType mt, bool) {
     case MmaOptions::MacroType::Volta_16_16_4:
       return "Volta_16_16_4";
   }
-  TORCH_INTERNAL_ASSERT(false, "Unsupported mma type");
+  NVF_ERROR(false, "Unsupported mma type");
   return "Unsupported";
 }
 

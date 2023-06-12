@@ -15,11 +15,11 @@
 namespace nvfuser {
 
 // Transform dispatch
-void ReplayTransformations::handle(Expr* e) {
+void ReplayTransformations::dispatch(Expr* e) {
   auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       is_supported_expr, "Invalid expr type found in transform traversal.");
-  IterVisitor::handle(e);
+  IterVisitor::dispatch(e);
 }
 
 // We're going to replay this split operation on the corresponding ID
@@ -32,8 +32,7 @@ void ReplayTransformations::handle(Split* s) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      TORCH_INTERNAL_ASSERT(
-          false, "Transform traversal failed, dependencies not met.");
+      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -41,7 +40,7 @@ void ReplayTransformations::handle(Split* s) {
 
   auto mapped = it->second;
   // Make sure this ID is a leaf ID (meaning it has no uses we generated)
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       leaf_ids_.find(mapped) != leaf_ids_.end(),
       "Transform traversal failed, modified a node but it was not a leaf node.");
 
@@ -84,8 +83,7 @@ void ReplayTransformations::handle(Merge* m) {
     if (!(outer_found || inner_found) || (outer_found && !inner_bcast) ||
         (inner_found && !outer_bcast)) {
       if (error_on_failure_) {
-        TORCH_INTERNAL_ASSERT(
-            false, "Transform traversal failed, dependencies not met.");
+        NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
       } else {
         return;
       }
@@ -108,7 +106,7 @@ void ReplayTransformations::handle(Merge* m) {
   const auto id_inner_mapped = it_inner->second;
 
   // Make sure these IDs are leaf IDs (meaning they have no uses we generated)
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
           leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
       "Transform traversal failed, tried to replay with ",
@@ -143,8 +141,7 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
 
   if (it_x == id_map_.end() || it_y == id_map_.end()) {
     if (error_on_failure_) {
-      TORCH_INTERNAL_ASSERT(
-          false, "Transform traversal failed, dependencies not met.");
+      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -154,7 +151,7 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
   auto mapped_y = it_y->second;
 
   // Make sure this ID is a leaf ID (meaning it has no uses we generated)
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       leaf_ids_.find(mapped_x) != leaf_ids_.end() &&
           leaf_ids_.find(mapped_y) != leaf_ids_.end(),
       "Transform traversal failed, modified a node but it was not a leaf node.");
@@ -185,8 +182,7 @@ void ReplayTransformations::handle(Resize* exp) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      TORCH_INTERNAL_ASSERT(
-          false, "Transform traversal failed, dependencies not met.");
+      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -194,7 +190,7 @@ void ReplayTransformations::handle(Resize* exp) {
 
   auto mapped = it->second;
   // Make sure this ID is a leaf ID (meaning it has no uses we generated)
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       leaf_ids_.find(mapped) != leaf_ids_.end(),
       "Transform traversal failed, modified a node but it was not a leaf node.");
 
@@ -228,7 +224,7 @@ ReplayTransformations::ReplayTransformations(
 
 // Replays outputs that were generated from ids.first on ids.second
 void ReplayTransformations::runReplay() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !ran_replay_,
       "Cannot run replay twice without creating a new Replay Class.");
 
@@ -237,12 +233,12 @@ void ReplayTransformations::runReplay() {
     auto inps = IterVisitor::getInputsTo(
         std::vector<Val*>(target_domain_.begin(), target_domain_.end()));
     std::for_each(inps.begin(), inps.end(), [this](Val* val) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           val->getValType().value() == ValType::IterDomain,
           "Expected IterDomain only for Replay Transformations, but found ",
           val);
       IterDomain* id = val->as<IterDomain>();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id_map_.find(id) != id_map_.end(),
           "Could not find required input: ",
           id,
@@ -262,7 +258,7 @@ void ReplayTransformations::runReplay() {
   traverseTo(traversal_vals[0]->fusion(), traversal_vals);
 
   if (error_on_failure_) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.size() >= target_domain_.size(),
         "Transform traversal failed, did not find enough output IterDomains.");
   }
@@ -272,7 +268,7 @@ void ReplayTransformations::runReplay() {
     auto it_replayed = id_map_.find(out);
     if (it_replayed == id_map_.end()) {
       if (error_on_failure_) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false,
             "Transform traversal failed, could not find expected output.");
       }
@@ -281,7 +277,7 @@ void ReplayTransformations::runReplay() {
 
     auto id_replayed = it_replayed->second;
     auto it_leaf = leaf_ids_.find(id_replayed);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it_leaf != leaf_ids_.end(),
         "Transform Traversal failed, expected a replayed dim for ",
         out,
@@ -322,7 +318,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprs(
+  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(target_domain.begin(), target_domain.end()));
 
@@ -333,7 +329,7 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprs(
+  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
 
@@ -351,7 +347,7 @@ BestEffortReplay::BestEffortReplay(
   std::unordered_map<IterDomain*, Expr*> replay_id2expr_map;
   for (auto replay_expr : replay_exprs) {
     for (auto id : ir_utils::filterByType<IterDomain>(replay_expr->inputs())) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           replay_id2expr_map.find(id) == replay_id2expr_map.end(),
           "Error trying to map rfactor root domain during replay.",
           " An IterDomain was found to be used in more than one expression.");
@@ -372,7 +368,7 @@ BestEffortReplay::BestEffortReplay(
   std::unordered_map<IterDomain*, Expr*> target_id2expr_map;
   for (auto target_expr : target_exprs) {
     for (auto id : ir_utils::filterByType<IterDomain>(target_expr->inputs())) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           target_id2expr_map.insert({id, target_expr}).second,
           "BestEffortReplay : Unexpected multi-use of id",
           id);
@@ -481,13 +477,13 @@ BestEffortReplay::BestEffortReplay(
       // target domain (broadcast) may contain broadcast ids that are not
       // present in the replay domain (view). In this case, we skip any target
       // expressions that contain broadcast ids.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           no_missing_exprs || any_target_expr_contains_broadcast_id, err_str);
     }
 
     // If any inputs are missing, continue as this expr doesn't match.
     if (missing_replay_input) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !replay_has_rfactor_inp || any_target_expr_contains_broadcast_id,
           err_str);
       continue;
@@ -516,7 +512,7 @@ BestEffortReplay::BestEffortReplay(
     // If expressions of mapped inputs don't match, then continue to next target
     // expr
     if (mismatched_replay_exprs || replay_expr == nullptr) {
-      TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_rfactor_inp, err_str);
       continue;
     }
 
@@ -529,14 +525,14 @@ BestEffortReplay::BestEffortReplay(
     // If there isn't an rfactor id in the replay's inputs and there's a
     // mismatched input, continue
     if (mismatched_inputs) {
-      TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_rfactor_inp, err_str);
       continue;
     }
 
     // If there isn't an rfactor id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's outputs, continue
     if (target_expr->outputs().size() != replay_expr->outputs().size()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !replay_has_rfactor_inp,
           err_str,
           ". Target: ",
@@ -549,7 +545,7 @@ BestEffortReplay::BestEffortReplay(
     // If there isn't an rfactor id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's expression type, continue
     if (typeid(*replay_expr) != typeid(*target_expr)) {
-      TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_rfactor_inp, err_str);
       continue;
     }
 
@@ -563,7 +559,7 @@ BestEffortReplay::BestEffortReplay(
           r_split->innerSplit() != t_split->innerSplit() ||
           !r_split->startOffset()->sameAs(t_split->startOffset()) ||
           !r_split->stopOffset()->sameAs(t_split->stopOffset())) {
-        TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+        NVF_ERROR(!replay_has_rfactor_inp, err_str);
         continue;
       }
     }
@@ -575,7 +571,7 @@ BestEffortReplay::BestEffortReplay(
       auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
       auto t_swizzle_2d = target_expr->as<Swizzle2D>();
       if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
-        TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+        NVF_ERROR(!replay_has_rfactor_inp, err_str);
         continue;
       }
     }
@@ -585,7 +581,7 @@ BestEffortReplay::BestEffortReplay(
       auto t_resize = target_expr->as<Resize>();
       if (!r_resize->leftExpand()->sameAs(t_resize->leftExpand()) ||
           !r_resize->rightExpand()->sameAs(t_resize->rightExpand())) {
-        TORCH_INTERNAL_ASSERT(!replay_has_rfactor_inp, err_str);
+        NVF_ERROR(!replay_has_rfactor_inp, err_str);
         continue;
       }
     }
@@ -742,7 +738,7 @@ struct ForwardingInfo {
     // Collect which root ids are only in active_tv but not in the inactive
     // tensor.
     std::unordered_set<IterDomain*> forwarded_ids;
-    TORCH_INTERNAL_ASSERT(active_root_dom.size() == active_dim_flags->size());
+    NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
     for (auto i : c10::irange(active_dim_flags->size())) {
       if (active_dim_flags->at(i)) {
         forwarded_ids.emplace(active_root_dom.at(i));
@@ -752,7 +748,7 @@ struct ForwardingInfo {
     // We have root axes in active_tv that don't exist in the inactive tensor,
     // now forward those to include all id's in active_tv comprised of only axes
     // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+    std::vector<Expr*> active_tv_history = StmtSort::getExprsTo(
         FusionGuard::getCurFusion(),
         std::vector<Val*>(
             active_tv->getLeafDomain().begin(),
@@ -834,7 +830,7 @@ IterDomain* getSwizzleFinalOutput(
       if (id == expr->inX()) {
         id = expr->outX();
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id == expr->inY(),
             "unknown input to swizzle op",
             id->toString(),
@@ -892,7 +888,7 @@ void BestEffortReplay::addComplimentLeafIDs(
   std::vector<IterDomain*> compliments;
   for (auto forwarded_id : expanded_forwarded_ids) {
     auto compliment_map_it = compliment_map.find(forwarded_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         compliment_map_it != compliment_map.end(),
         "Issue tracking forwarded broadcast merges in best effort replay. ",
         forwarded_id->toString());
@@ -903,7 +899,7 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprs(
+  auto compliment_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
@@ -937,7 +933,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   if (producer_compute_at_axis < 0)
     producer_compute_at_axis += (int)producer->nDims() + 1;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       producer_compute_at_axis >= 0 &&
           (unsigned int)producer_compute_at_axis <= producer->nDims(),
       "Invalid axis provided to BestEffortReplay::replayCasP.");
@@ -1002,7 +998,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
     bool skip_resize) {
   if (consumer_compute_at_axis < 0)
     consumer_compute_at_axis += (int)consumer->nDims() + 1;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       consumer_compute_at_axis >= 0 &&
           (unsigned int)consumer_compute_at_axis <= consumer->nDims(),
       "Invalid axis provided to BestEffortReplay::replayPasC.");
@@ -1072,7 +1068,7 @@ void BestEffortReplay::skipSwizzles(
         //  skipping all swizzles in between. We'd need to
         //  update the mapping and leaf ids to the final outputs.
         target2replay_id_map_.erase(it.first);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             target2replay_id_map_.insert(std::make_pair(new_target, new_replay))
                 .second,
             "Unexpected replay leaf");
@@ -1115,10 +1111,12 @@ void BestEffortReplay::skipResizes(
       if (auto target_resize = getResizeUse(target_id, target_exprs);
           target_resize != nullptr) {
         new_target_id = target_resize->out();
+        skipped_resize_id_map_.emplace(target_id, new_target_id);
       }
       if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
           replay_resize != nullptr) {
         new_replay_id = replay_resize->out();
+        skipped_resize_id_map_.emplace(replay_id, new_replay_id);
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {
@@ -1126,7 +1124,7 @@ void BestEffortReplay::skipResizes(
       }
 
       target2replay_id_map_.erase(target_id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           target2replay_id_map_
               .insert(std::make_pair(new_target_id, new_replay_id))
               .second,
@@ -1146,8 +1144,11 @@ void BestEffortReplay::skipResizes(
 DisjointSets<IterDomain*> BestEffortReplay::getIterDomainEquivalence() {
   DisjointSets<IterDomain*> result;
   using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-  const std::array<IterDomainMap*, 3> maps = {
-      &target2replay_id_map_, &replay_forward_id_map_, &target_forward_id_map_};
+  const std::array<IterDomainMap*, 4> maps = {
+      &target2replay_id_map_,
+      &replay_forward_id_map_,
+      &target_forward_id_map_,
+      &skipped_resize_id_map_};
   for (auto map : maps) {
     // Sort the keys so that they appear in a deterministic order
     for (auto key : getSortedKeys(*map, Statement::lessThan)) {

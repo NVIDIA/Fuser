@@ -70,7 +70,7 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
   std::unordered_map<IterDomain*, IterDomain*> inverted;
   for (const auto& kv : map) {
     bool inserted = inverted.emplace(kv.second, kv.first).second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inserted,
         "Multiple mappings to the same value detected: ",
         kv.second->toString());
@@ -101,6 +101,11 @@ struct IndexingParameters {
 
   //! The inferred halo padded extents of the concrete iterdomains.
   std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
+
+  //! Unswitched concrete domains. Back-traversing through the inner
+  //! domain of a merge may need to be replaced with the maximum of
+  //! the inner domain.
+  std::unordered_set<IterDomain*> unswitched_domains;
 };
 
 // Initial loop index map for global producer or consumer case.
@@ -153,12 +158,13 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto stage_depth =
-            GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+            (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+                SimplifyingIrBuilder::create<Val>(
+                    stage_depth - 1L, DataType::Index));
       }
     }
   }
@@ -212,7 +218,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
 
   ensureStaticIndexing(alloc_tv, alloc_info.init_for_loop, loops, alloc_id_map);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
@@ -298,6 +304,31 @@ bool predicateAtEnd(kir::ForLoop* loop) {
   return true;
 }
 
+// Check if this loop is actually unswitched, meaning an initial index
+// of the maximum value from a non-size-one range is used.
+bool trackUnswitchedDomain(kir::ForLoop* loop) {
+  // Loop index has only one valid value per thread, which means the
+  // loop is not actually unswitched
+  if (loop->isTrivial()) {
+    return false;
+  }
+
+  // The same can be said as long as it's exactly mapped with a
+  // vectorized domain
+  const auto& id_exact_set = GpuLower::current()
+                                 ->caMap()
+                                 ->getIdSets(IdMappingMode::EXACT)
+                                 .getDisjointSetOf(loop->iter_domain());
+
+  if (std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
+        return id->getParallelType() == ParallelType::Vectorize;
+      })) {
+    return false;
+  }
+
+  return true;
+}
+
 //! Initial index parameters for predicate, adjusts loop to indexing
 //!  may according to the information annotated on the loop nest.
 //!
@@ -319,7 +350,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   const auto& loop_domains = loop_indexing.loopDomains();
 
   // This shouldn't be needed.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
@@ -421,6 +452,20 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
       }
+
+      // When predicating a loop at the maximum end, predicate
+      // expressions such as (extent-1) are used, which represent the
+      // maximum possible value of the loop range but are not
+      // guaranteed to result in the maximum index when traversing
+      // through merge inner domains as modulo is used. Keep track of
+      // those domains, which will be used by IndexCompute to make
+      // necessary adjustments. See also csrc/index_compute.h for more
+      // context.
+      if (!is_start_predicate && trackUnswitchedDomain(loop)) {
+        index_parameters.unswitched_domains.insert(
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                loop_id, IdMappingMode::EXACT));
+      }
     }
   }
 
@@ -430,14 +475,14 @@ IndexingParameters getPredicateInitialIndexParameters(
         double_buffer_axis, loops, true);
     if (db_loop != nullptr) {
       auto loop_to_ind_map_it = loop_to_ind_map.find(db_loop);
-      TORCH_INTERNAL_ASSERT(loop_to_ind_map_it != loop_to_ind_map.end());
+      NVF_ERROR(loop_to_ind_map_it != loop_to_ind_map.end());
       auto cur_index = loop_to_ind_map_it->second;
       // if cur_index is not the same as the index of db_loop, it must
       // be true that that index has been modified to support
       // unswitch. In that case, it is not necessary to move ahead the
       // index for double buffering.
       auto stage_depth =
-          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
@@ -446,7 +491,9 @@ IndexingParameters getPredicateInitialIndexParameters(
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
-            cur_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+            cur_index,
+            SimplifyingIrBuilder::create<Val>(
+                stage_depth - 1L, DataType::Index));
       }
     }
   }
@@ -518,7 +565,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
       std::back_inserter(initial_loop_domain_ids_),
       [&](IterDomain* consumer_leaf_id) {
         // Make sure consumer_leaf_id is indeed a consumer leaf ID
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             std::find(
                 consumer_tv->getLeafDomain().begin(),
                 consumer_tv->getLeafDomain().end(),
@@ -588,7 +635,7 @@ void LoopIndexingAnalysis::validateLoopStructure(
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !concrete_to_loop.count(concrete_loop_id),
         "Unsupported loop structure. Two loops are mapped together.",
         loop_id->toString(),
@@ -746,7 +793,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
                   concrete_id, loop_id, IdMappingMode::PERMISSIVE);
         });
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ref_id_it != replayed_concrete_ids_.vector().end(),
         "Could not find required iter domain in reference replay: ",
         loop_id->toString());
@@ -968,7 +1015,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.concrete_id_to_halo_extent,
+      index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);
 
@@ -1107,7 +1155,7 @@ LoopIndexingTraversal::LoopIndexingTraversal(
     for (auto id : next_ids) {
       auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
           id, IdMappingMode::EXACT);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           concrete_id_to_dependency_.insert(std::make_pair(concrete_id, expr))
               .second,
           "Repeated dependency, invalid iterdomain traversal.");
@@ -1126,7 +1174,7 @@ const std::vector<Val*>& LoopIndexingTraversal::nextValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_ERROR(false, "unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1142,7 +1190,7 @@ const std::vector<Val*>& LoopIndexingTraversal::prevValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_ERROR(false, "unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1181,7 +1229,7 @@ std::vector<Expr*> LoopIndexingTraversal::getExprList() {
         if (!visited.count(prev_expr)) {
           ready = false;
           to_visit.push_front(prev_expr);
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               inserted.insert(prev_expr).second,
               "Circular dependency in loop index expressions.");
           break;
@@ -1295,7 +1343,7 @@ bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
     if (auto id_resize = dynamic_cast<Resize*>(id->uses().at(0))) {
       auto mapped_id_resize =
           dynamic_cast<Resize*>(val->as<IterDomain>()->uses().at(0));
-      TORCH_INTERNAL_ASSERT(mapped_id_resize != nullptr);
+      NVF_ERROR(mapped_id_resize != nullptr);
       if (!(id_resize->leftExpand()->sameAs(mapped_id_resize->leftExpand()) &&
             id_resize->rightExpand()->sameAs(
                 mapped_id_resize->rightExpand()))) {
@@ -1347,14 +1395,14 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     }
 
     for (auto expr : loop_indexing.getForwardExprList()) {
-      compute.handle(expr);
+      compute.dispatch(expr);
     }
 
     return compute.preferred_path_;
   }
 
  private:
-  void handle(Expr* e) override {
+  void dispatch(Expr* e) override {
     // If an input ID is marked, propagate the marking to outputs of the
     // expression
     auto all_iter_inputs = ir_utils::filterByType<IterDomain>(e->inputs());

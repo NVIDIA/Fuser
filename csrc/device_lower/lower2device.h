@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
@@ -26,6 +27,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <non_divisible_split.h>
+#include <options.h>
 #include <parallel_dimension_map.h>
 #include <partial_split_map.h>
 #include <root_domain_map.h>
@@ -69,6 +71,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   //! Query if lowering is in progress
   static bool hasCurrent();
 
+  const PrimDataType& indexType() const {
+    return cparams_.index_type.value();
+  }
+
   std::shared_ptr<const ConcretizedBroadcastDomains>
   concretizedBroadcastDomains() {
     return concretized_broadcast_domains_;
@@ -101,12 +107,12 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   }
 
   PredicateElimination& predicateElimination() {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 
   const PredicateElimination& predicateElimination() const {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 
@@ -194,6 +200,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   //    in any pass that performs replacement.
   void propagateExprInfo(const Expr* old_expr, const Expr* new_expr);
 
+  std::vector<Val*>& allKnownVals() {
+    return all_known_vals_;
+  }
+
+  const std::vector<Val*>& allKnownVals() const {
+    return all_known_vals_;
+  }
+
  private:
   void lower(Fusion* fusion);
 
@@ -238,6 +252,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   std::unordered_map<TensorView*, int> vectorized_accesses_;
   // Info on each vectorized set op
   std::vector<VectorizedSetInfo> vectorized_set_info_;
+
+  // All vals that are known to the kernel, including fusion inputs and
+  // precomputed values
+  std::vector<Val*> all_known_vals_;
 
   Fusion* fusion_ = nullptr;
 };

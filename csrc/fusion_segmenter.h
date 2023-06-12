@@ -7,9 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <kernel_cache.h>
+#include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
@@ -123,7 +126,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  c10::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
@@ -211,7 +214,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
 
   //! Assign Id for this group
   void setID(int id) {
-    TORCH_INTERNAL_ASSERT(group_id_ == -1);
+    NVF_ERROR(group_id_ == -1);
     group_id_ = id;
   }
 
@@ -248,7 +251,7 @@ class TORCH_CUDA_CU_API FusionHeuristics {
 
   //! Place a scheduler entry on the list. Applies to segmented fusion only.
   void emplaceBack(SchedulerEntryOwningPtr&& pt) {
-    TORCH_INTERNAL_ASSERT(is_segmented_);
+    NVF_ERROR(is_segmented_);
     heuristics_.emplace_back(std::move(pt));
   }
 
@@ -259,7 +262,7 @@ class TORCH_CUDA_CU_API FusionHeuristics {
 
   //! Returns the single scheduler for a complete fusion.
   SchedulerEntry* singleKernelHeuristics() {
-    TORCH_INTERNAL_ASSERT(!is_segmented_);
+    NVF_ERROR(!is_segmented_);
     return heuristics_.begin()->get();
   }
 
@@ -522,8 +525,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       fusion_copy->printMath();
     }
     SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
@@ -537,8 +540,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       scf.completeFusion()->printMath();
     }
     return std::move(scf.segmented_fusion_);
@@ -585,19 +588,19 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
 
   std::vector<SegmentedGroup*>& groups() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->groups();
   }
 
   std::vector<SegmentedEdge*>& edges() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->edges();
   }
 
   Fusion* completeFusion() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->completeFusion();
   }

@@ -351,7 +351,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -412,7 +412,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -468,7 +468,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -529,7 +529,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -597,7 +597,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -664,7 +664,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -741,7 +741,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -808,7 +808,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -879,7 +879,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "merging of discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -953,7 +953,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -1043,7 +1043,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -1051,123 +1051,6 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
-}
-
-// Check that the maximum vectorizable width is computed correctly
-TEST_F(AllocationDomainTest, NHWCMaxVectorizableWidth_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(4, DataType::Half);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  std::vector<IterDomain*> tv0_nhwc = {
-      tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-  tv0->setAllocationDomain(tv0_nhwc, false);
-
-  int n = 2, h = 2, w = 2, c = 10001;
-
-  // fully discontiguous
-  {
-    tv0->setContiguity(false);
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {5, 2, 3, 4});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 1);
-  }
-
-  // c contiguous, bad stride
-  {
-    tv0->setContiguity({false, false, false, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {5, 1, 3, 7});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 1);
-  }
-
-  // c contiguous, good stride
-  {
-    tv0->setContiguity({false, false, false, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {16, 1, 8, 4});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 1);
-  }
-
-  // wc contiguous, bad stride
-  {
-    tv0->setContiguity({false, false, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {5, 1, 3, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 1);
-  }
-
-  // wc contiguous, good stride
-  {
-    tv0->setContiguity({false, false, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {16, 1, 8, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 2);
-  }
-
-  // hwc contiguous, bad stride 1
-  {
-    tv0->setContiguity({false, true, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {5, 1, w * c, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 1);
-  }
-
-  // hwc contiguous, bad stride 2
-  {
-    tv0->setContiguity({false, true, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {14, 1, w * c, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 2);
-  }
-
-  // hwc contiguous, good stride
-  {
-    tv0->setContiguity({false, true, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {16, 1, w * c, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 4);
-  }
-
-  // nhwc contiguous
-  {
-    tv0->setContiguity({true, true, true, true});
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({n * h * w * c}, options)
-                        .as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
-    auto vec = SchedulerRuntimeInfo(fusion_ptr.get(), {t0})
-                   .getMaxVectorizableWidth(tv0);
-    ASSERT_EQ(vec, 8);
-  }
 }
 
 } // namespace nvfuser

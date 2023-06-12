@@ -50,14 +50,13 @@ void NonDivisibleSplitInfo::handle(Split* split) {
     if (maybe_non_divisible_extent) {
       // If the outputs are vectorized, predication isn't
       // sufficient, it must be divisible.
-      TORCH_INTERNAL_ASSERT(
-          split->outer()->getParallelType() != ParallelType::Vectorize);
+      NVF_ERROR(split->outer()->getParallelType() != ParallelType::Vectorize);
       if (split->inner()->getParallelType() == ParallelType::Vectorize) {
         splits_to_validate_.insert(split);
       } else {
         // Not proven to be a divisible split
         auto gpu_lower = GpuLower::current();
-        TORCH_INTERNAL_ASSERT(gpu_lower != nullptr);
+        NVF_ERROR(gpu_lower != nullptr);
 
         // If we know this split must be divisible, it's either validated as
         // above, exact matches to a case matching the above, or exact matches
@@ -102,12 +101,12 @@ void NonDivisibleSplitInfo::propagateReachability(
 }
 
 Val* NonDivisibleSplitInfo::getMaybeNonDivisibleExtent(Split* split) const {
-  c10::optional<int64_t> in_extent;
+  std::optional<int64_t> in_extent;
   if (split->in()->extent()->isConstInt()) {
     in_extent = split->in()->extent()->evaluateInt();
   }
 
-  c10::optional<int64_t> factor;
+  std::optional<int64_t> factor;
   if (split->factor()->isConstInt()) {
     factor = split->factor()->evaluateInt();
   }
@@ -141,7 +140,7 @@ void NonDivisibleSplitInfo::propagateReachability(Merge* merge) {
 
 void NonDivisibleSplitInfo::removeRedundancy() {
   auto gpu_lower = GpuLower::current();
-  TORCH_INTERNAL_ASSERT(gpu_lower != nullptr);
+  NVF_ERROR(gpu_lower != nullptr);
 
   std::unordered_set<IterDomain*> split_to_validate_outer;
   for (auto it = splits_to_validate_.begin();

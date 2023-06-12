@@ -23,16 +23,16 @@ namespace nvfuser {
 // Make sure we can inline something, before we attempt to.
 void checkInlineable(const Expr* expr) {
   for (auto input : expr->inputs()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         input->isScalar() || input->isA<kir::TensorIndex>() ||
             (expr->isA<UnaryOp>() &&
              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Address),
         "Printing inline computations involving values other than scalars is not currently supported.");
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       expr->outputs().size() == 1,
       "Cannot print inline computations if there's more than one output.");
-  TORCH_CHECK(
+  NVF_CHECK(
       expr->output(0)->isScalar() || expr->output(0)->isA<NamedScalar>(),
       "Printing inline computations involving values other than scalars is not currently supported.");
 }
@@ -46,7 +46,7 @@ void IrPrinter::handle(Fusion* fusion) {
 }
 
 void IrPrinter::handle(const kir::Kernel* kernel) {
-  TORCH_CHECK(kernel != nullptr);
+  NVF_CHECK(kernel != nullptr);
 
   // kernel declaration
   os_ << "\nKERNEL (";

@@ -63,7 +63,7 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
   GpuLower::current()->propagateExprInfo(reference, new_expr);
 }
 
-void UnrollPass::handle(Expr* expr) {
+void UnrollPass::dispatch(Expr* expr) {
   if (ir_utils::isTvOp(expr)) {
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
@@ -92,7 +92,7 @@ void UnrollPass::handle(Expr* expr) {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other
         // memory type shows up here.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_tv->getMemoryType() == MemoryType::Global,
             "Unexpected memory type: ",
             out_tv->getMemoryType(),
@@ -203,7 +203,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     // Skip Misaligned Vectorization For-Loops here
     if (!containsAnyDirectChildMisalignedVectorize(fl)) {
       for (auto expr : exprs_copy) {
-        handle(expr);
+        dispatch(expr);
       }
     }
 

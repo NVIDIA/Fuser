@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <scheduler/reduction_heuristic.h>

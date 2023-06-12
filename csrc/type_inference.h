@@ -8,6 +8,7 @@
 #pragma once
 
 #include <ATen/Context.h>
+#include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
 
 namespace nvfuser {

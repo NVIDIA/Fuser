@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/thread_predicate.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
@@ -21,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-Bool* getPredicatePerParallelType(
+Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -35,11 +36,10 @@ Bool* getPredicatePerParallelType(
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
     return SimplifyingIrBuilder::eqExpr(
-               NamedScalar::getParallelIndex(pt),
-               SimplifyingIrBuilder::subExpr(
-                   NamedScalar::getParallelDim(pt),
-                   GpuLower::current()->kernel()->oneVal()))
-        ->as<Bool>();
+        NamedScalar::getParallelIndex(pt),
+        SimplifyingIrBuilder::subExpr(
+            NamedScalar::getParallelDim(pt),
+            GpuLower::current()->kernel()->oneVal()));
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -48,23 +48,22 @@ Bool* getPredicatePerParallelType(
     // skip concretized broadcast root domains
     const auto& broadcast_rd_indices = it->second;
     Val* zero = GpuLower::current()->kernel()->zeroVal();
-    Bool* pred = GpuLower::current()->kernel()->trueVal();
+    Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
-      pred = SimplifyingIrBuilder::andExpr(
+      pred = SimplifyingIrBuilder::logicalAndExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
     }
     return pred;
   }
 
   return SimplifyingIrBuilder::eqExpr(
-             NamedScalar::getParallelIndex(pt),
-             GpuLower::current()->kernel()->zeroVal())
-      ->as<Bool>();
+      NamedScalar::getParallelIndex(pt),
+      GpuLower::current()->kernel()->zeroVal());
 }
 
 } // namespace
 
-Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
+Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -74,12 +73,12 @@ Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
     return GpuLower::current()->kernel()->trueVal();
   }
 
-  Bool* pred = nullptr;
+  Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Bool>();
+    pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
-  TORCH_INTERNAL_ASSERT(pred != nullptr);
+  NVF_ERROR(pred != nullptr);
 
   return pred;
 }
@@ -201,6 +200,11 @@ ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
 void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap::updateBitSet");
 
+  auto tv_out = ir_utils::getTvOutput(expr);
+  if (tv_out == nullptr) {
+    return;
+  }
+
   // If all of the inputs are not updated and all of the outputs have
   // already mappings, don't do anything
   if (std::all_of(
@@ -248,7 +252,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         thread_predicates_.find(tv_inp) != thread_predicates_.end(),
         "Thread predicate map was not initialized, couldn't find ",
         inp->toString());
@@ -278,11 +282,11 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
       if (input_reductions[i]) {
         if (id_ptypes[i]) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               id_reductions[i],
               "Mismatched parallelized reductions found on inputs of epxr: ",
               expr);
-          TORCH_CHECK(
+          NVF_CHECK(
               !id_bcasts[i],
               "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
               inp);
@@ -371,7 +375,17 @@ class RedundantUseAnalysis : BackwardVisitor {
   ParallelTypeBitmap getRedundantUseBitMap(const TensorView* tv) {
     // Since all tv's consumers are visited at this point, we
     //  can aggregate the final redundant use info for this tv.
-    if (fusion_->unordered_uses(tv).empty()) {
+    bool not_used_by_tensor_op = true;
+    for (auto expr : fusion_->unordered_uses(tv)) {
+      // There are ops, especially GetMetaData, that takes TensorView as input
+      // and output a non-tensor object. These ops should be treated as scalars,
+      // and we do not need to worry about thread predicate.
+      if (ir_utils::isTvOp(expr)) {
+        not_used_by_tensor_op = false;
+        break;
+      }
+    }
+    if (not_used_by_tensor_op) {
       // Base case, un-used is also not redundantly used
       return ParallelTypeBitmap();
     } else {
@@ -382,6 +396,11 @@ class RedundantUseAnalysis : BackwardVisitor {
       redundant_use.setAllBID();
       redundant_use.setAllTID();
       for (auto expr : fusion_->unordered_uses(tv)) {
+        if (!ir_utils::isTvOp(expr)) {
+          // For non-TV op that takes a tensor as input, such as, GetMetaData
+          // we should not consider it for predication.
+          continue;
+        }
         redundant_use &= redundant_expr_use_map_.at(expr);
       }
 
@@ -455,10 +474,10 @@ class RedundantUseAnalysis : BackwardVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Initialize redundant info for current expr
-      c10::optional<ParallelTypeBitmap> maybe_expr_pred_map;
+      std::optional<ParallelTypeBitmap> maybe_expr_pred_map;
 
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -474,7 +493,7 @@ class RedundantUseAnalysis : BackwardVisitor {
         }
       }
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_expr_pred_map.has_value(), "TV op not having a tv output");
       redundant_expr_use_map_[expr] = maybe_expr_pred_map.value();
     }
@@ -591,7 +610,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
           continue;
         }
         auto concrete_root_id = *it;
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             concretized_broadcast_root_domains_.emplace(rd, concrete_root_id)
                 .second);
       }
@@ -632,8 +651,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     size_t n_elements = merged_root_domains.size();
-    TORCH_INTERNAL_ASSERT(
-        n_elements, "The number of merged root domains should > 0");
+    NVF_ERROR(n_elements, "The number of merged root domains should > 0");
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
@@ -793,10 +811,10 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Bool* ThreadPredicateMap::getPredicate(
+Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
-  TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);
+  NVF_ERROR(find(tv) != end(), "Couldn't find ", tv);
   auto pred_info = getPredicateInfo(tv);
   return getPredicateFromPredicateInfo(pred_info, mask);
 }
@@ -834,7 +852,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
 
 ParallelTypeBitmap ThreadPredicateMap::getRedundantConsumerType(
     Expr* expr) const {
-  c10::optional<ParallelTypeBitmap> result;
+  std::optional<ParallelTypeBitmap> result;
   for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     auto out_tv_redundant_map = getPredicateInfo(out_tv).redundant_use_types;
     if (!result.has_value()) {
@@ -844,8 +862,7 @@ ParallelTypeBitmap ThreadPredicateMap::getRedundantConsumerType(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      result.has_value(), "ThreadPredicateMap : TV op assumed");
+  NVF_ERROR(result.has_value(), "ThreadPredicateMap : TV op assumed");
   return result.value();
 }
 
@@ -854,15 +871,15 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 }
 
 void ThreadPredicateMap::print() const {
-  std::cout << "\nThreadPredicateMap\n";
-  std::cout << "--------------------------------\n";
+  debug() << "\nThreadPredicateMap\n";
+  debug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
-    std::cout << "T" << kv.first->name();
-    std::cout << " {" << kv.second.limited_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_use_types.toString() << "}\n";
+    debug() << "T" << kv.first->name();
+    debug() << " {" << kv.second.limited_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
-  std::cout << "--------------------------------\n\n";
+  debug() << "--------------------------------\n\n";
 }
 
 } // namespace nvfuser

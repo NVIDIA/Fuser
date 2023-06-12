@@ -9,6 +9,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <ir/all_nodes.h>
@@ -104,7 +105,7 @@ TORCH_CUDA_CU_API TensorView* getTvInput(const Expr*);
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
-c10::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input);
 
@@ -139,7 +140,7 @@ bool isCpAsyncInit(const Expr* expr);
 //!  if(...) {expr;}
 //! Returns the expr if it is this pattern.
 //! Returns nullptr if the pattern doesn't match.
-c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr);
+std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr);
 
 //! Short-cut for checking if the expression loads from global memory.
 bool isGlobalLoad(const Expr* expr);
@@ -198,23 +199,29 @@ std::vector<Expr*> replaceInputsInExpr(
 // across groups. If the domain is not in a produce at position in the producer
 // edges, or a compute at position in the consumer edges, the expressions we
 // look at may not have a unique ordering.
-
+//
+// The optional kernel_scope_domain parameter is only used in
+// expression sorting. It isn't in the CA map, but since we only have
+// a single unique IterDomain, the conrete ID is just itself.
 struct TORCH_CUDA_CU_API IterDomainDependencySorter {
   IterDomainDependencySorter(
       const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
           concrete_id_dependencies,
-      std::shared_ptr<const ComputeAtMap> compute_at_map)
+      std::shared_ptr<const ComputeAtMap> compute_at_map,
+      IterDomain* kernel_scope_domain = nullptr)
       : concrete_id_dependencies_(concrete_id_dependencies),
-        compute_at_map_(std::move(compute_at_map)) {}
+        compute_at_map_(std::move(compute_at_map)),
+        kernel_scope_domain_(kernel_scope_domain) {}
 
   // Return true if id0 should be before id1
   // Orders such that if x maps to {y}, x comes before y in final ordering.
   inline bool operator()(IterDomain* id0, IterDomain* id1) {
-    auto concrete_id_0 =
-        compute_at_map_->getConcreteMappedID(id0, IdMappingMode::LOOP);
-    auto concrete_id_1 =
-        compute_at_map_->getConcreteMappedID(id1, IdMappingMode::LOOP);
-
+    auto concrete_id_0 = id0 != kernel_scope_domain_
+        ? compute_at_map_->getConcreteMappedID(id0, IdMappingMode::LOOP)
+        : id0;
+    auto concrete_id_1 = id1 != kernel_scope_domain_
+        ? compute_at_map_->getConcreteMappedID(id1, IdMappingMode::LOOP)
+        : id1;
     if (concrete_id_dependencies_.find(concrete_id_0) !=
         concrete_id_dependencies_.end()) {
       const auto& dependencies_0 = concrete_id_dependencies_.at(concrete_id_0);
@@ -230,6 +237,7 @@ struct TORCH_CUDA_CU_API IterDomainDependencySorter {
   const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
       concrete_id_dependencies_;
   const std::shared_ptr<const ComputeAtMap> compute_at_map_;
+  const IterDomain* kernel_scope_domain_ = nullptr;
 };
 
 } // namespace ir_utils
@@ -279,6 +287,11 @@ bool supportInlinePredicate(Expr* expr);
 
 //! Test if an expression is a scalar expression.
 bool isScalarExpr(Expr* expr);
+
+//! Test if provided IterDomain instance has an extent that matches maximum
+//!  extent stored in parallel dimension map for parallel type of provided
+//!  IterDomain object.
+bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 
 } // namespace lower_utils
 

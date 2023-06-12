@@ -64,8 +64,8 @@ void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   }
 }
 
-void ConcretizedBroadcastDomains::handle(Expr* expr) {
-  IterVisitor::handle(expr);
+void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
+  IterVisitor::dispatch(expr);
 
   // Propagate broadcast origin info from producers to consumers
   for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -95,7 +95,7 @@ void ConcretizedBroadcastDomains::handle(Expr* expr) {
         const bool is_concretized =
             !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
             p_id->toString(),

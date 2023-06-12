@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/shift.h>

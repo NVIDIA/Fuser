@@ -8,12 +8,14 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <fusion.h>
 #include <ir/builder_passkey.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -43,122 +45,13 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 }
 
 template <typename T>
-inline bool __toBool(T x) {
-  return static_cast<bool>(x);
+T& Expr::attribute(size_t index) const {
+  if constexpr (PolymorphicValue::is_candidate_type<T>) {
+    return attributeVal(index)->value().as<T>();
+  } else {
+    return attributeVal(index)->value().as<Opaque>().as<T>();
+  }
 }
-
-template <>
-inline bool __toBool<std::complex<double>>(std::complex<double> x) {
-  return x != std::complex<double>(0, 0);
-}
-
-//! A scalr value. This value can be a symbolic value (defined after
-//! the kernel is compiled) or a constant value (inlined into the kernel
-//! definition).
-template <typename UnderlyingType>
-class TORCH_CUDA_CU_API Scalar : public Val {
- public:
-  using ScalarType = UnderlyingType;
-  static constexpr PrimDataType kDefaultDataType =
-      NativeTypeToDataType<UnderlyingType>::type;
-
-  explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{c10::nullopt} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value &&
-         isIntegralOrPointerType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
-  }
-
-  explicit Scalar(
-      IrBuilderPasskey passkey,
-      c10::optional<UnderlyingType> value,
-      DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{value} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value && isIntegralType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
-  }
-
-  Scalar(const Scalar* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-  NVFUSER_DECLARE_CLONE
-
-  std::string toString(int indent_size = 0) const override {
-    std::stringstream ss;
-    if (isSymbolic()) {
-      ss << ir_utils::varName(this);
-      return ss.str();
-    }
-    auto dtype = getDataType().value();
-    if (dtype == DataType::Bool) {
-      ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
-    } else if (isIntegralType(dtype)) {
-      ss << *(value());
-    } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
-      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << *(value())
-         << ")";
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
-    }
-    return ss.str();
-  }
-
-  std::string toInlineString(int indent_size = 0) const override {
-    if (definition() != nullptr) {
-      std::stringstream ss;
-      ss << "( " << definition()->toInlineString(indent_size) << " )";
-      return ss.str();
-    } else {
-      return toString(indent_size);
-    }
-  }
-
-  bool isSymbolic() const {
-    return !(maybe_value_.has_value());
-  }
-  bool isConst() const final {
-    return maybe_value_.has_value();
-  }
-  c10::optional<UnderlyingType> value() const {
-    return maybe_value_;
-  }
-
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
-      return true;
-    }
-    if (!other->isA<Scalar>()) {
-      return false;
-    }
-    const auto other_val = other->as<Scalar>();
-    if (isConst() && other_val->isConst()) {
-      return *value() == *(other_val->value());
-    }
-    return Val::sameAs(other);
-  }
-
- private:
-  const c10::optional<UnderlyingType> maybe_value_;
-};
-
-using Bool = Scalar<bool>;
-using Int = Scalar<int64_t>;
-using Double = Scalar<double>;
-using ComplexDouble = Scalar<std::complex<double>>;
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the
@@ -231,13 +124,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain_;
   }
 
-  //! This is for a TensorView with an rFactor domain that is an input to a
-  //! fusion segment. We convert the rfactor domain into a new root domain.
-  //! Any dynamic-sized rfactor iterDomains are given a new symbolic extent.
-  //! Concrete integer extents are kept. Output TensorViews of any subsequent
-  //! expressions that use this TensorView are also updated.
-  void convertRfactorToRootDomain();
-
   void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);
   }
@@ -285,7 +171,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  c10::optional<unsigned int> getReductionAxis() const {
+  std::optional<unsigned int> getReductionAxis() const {
     return domain()->getReductionAxis();
   }
 
@@ -517,8 +403,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Returns the depth of circular buffering if applicable.
   unsigned int circularBufferDepth() const {
-    TORCH_INTERNAL_ASSERT(
-        is_circular_buffered_, toString(), "not circular buffered");
+    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
   }
 
@@ -620,6 +505,26 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // ensure consistency.
   void commitLeafToRFactor();
 
+  //! Request that we reclaim the memory of this tv before any subsequent
+  //! tensors are allocated.
+  //!
+  //! This method influences the shared memory allocator that assigns shared
+  //! memory addresses at lowering. It ensures that the proper synchronization
+  //! is present in the kernel to reuse memory and inserts new block
+  //! synchronizations if necessary.
+  void promoteReuse(bool b = true) {
+    NVF_CHECK(
+        memory_type_ == MemoryType::Shared,
+        "promoteReuse should only be called on shared memory tensors");
+    promote_reuse_ = b;
+  }
+
+  //! Returns whether we should insert syncs if needed in order to reuse the
+  //! memory of this tensor.
+  bool shouldPromoteReuse() const {
+    return promote_reuse_;
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -682,6 +587,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! transformed when there may actually be a producer tensor that
   //! may be computed at.
   unsigned int maybe_max_producer_pos_ = 0;
+
+  //! When this is true, it indicates, if this is a shared memory tensor and
+  //! there other shared memory tensors whose lifetimes do not overlap and come
+  //! later than this tensor's lifetime, that we should ensure that thread
+  //! blocks are synchronized such that all threads have performed their last
+  //! read of this tensor (or any tensors aliasing in) before writing to the
+  //! current tensor. This will then allow us to safely reuse the memory
+  //! allocated to this tensor.
+  bool promote_reuse_ = false;
 };
 
 //! A simple TensorView builder

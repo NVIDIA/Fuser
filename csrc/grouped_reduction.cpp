@@ -19,7 +19,7 @@ namespace {
 #define GROUP_REDUCTION_CHECK(error_on_failure, condition, ...) \
   do {                                                          \
     if (error_on_failure) {                                     \
-      TORCH_CHECK(condition, ##__VA_ARGS__);                    \
+      NVF_CHECK(condition, ##__VA_ARGS__);                      \
     } else {                                                    \
       if (!(condition)) {                                       \
         return false;                                           \
@@ -53,11 +53,11 @@ bool validateReductionGrouping(
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     bool error_on_failure) {
-  TORCH_INTERNAL_ASSERT(inputs.size() == outputs.size());
-  TORCH_INTERNAL_ASSERT(!inputs.empty());
+  NVF_ERROR(inputs.size() == outputs.size());
+  NVF_ERROR(!inputs.empty());
 
   auto fusion = dynamic_cast<Fusion*>(outputs[0]->container());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion != nullptr, "Grouping of reductions must be done within a Fusion");
 
   ExactRootDomainMap exact_map(fusion);
@@ -205,7 +205,7 @@ bool validateReductionGrouping(
 bool groupReductions(
     const std::vector<TensorView*>& reduction_outputs,
     bool error_on_failure) {
-  TORCH_CHECK(!reduction_outputs.empty(), "No tensor is given");
+  NVF_CHECK(!reduction_outputs.empty(), "No tensor is given");
 
   auto container = reduction_outputs[0]->container();
 
@@ -234,8 +234,7 @@ bool groupReductions(
         reduction_out->definition()->toString());
     // Fused reduction is only enabled during the lowering, so at this
     // point it should be false.
-    TORCH_INTERNAL_ASSERT(
-        !rop->isAllreduce(), "Invalid ReductionOp: ", rop->toString());
+    NVF_ERROR(!rop->isAllreduce(), "Invalid ReductionOp: ", rop->toString());
     op_types.at(i) = rop->getReductionOpType();
     init_vals.at(i) = rop->init();
     outputs.at(i) = rop->out();

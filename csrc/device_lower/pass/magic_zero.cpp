@@ -32,7 +32,7 @@ class MagicZeroInserter : public kir::ExprMutator {
   };
 
   MagicZeroInserter(const std::vector<Expr*>& exprs) {
-    TORCH_INTERNAL_ASSERT(!exprs.empty());
+    NVF_ERROR(!exprs.empty());
     kir::ExprMutator::registerInsertBefore(
         exprs.front(), IrBuilder::create<kir::InitMagicZero>(), nullptr);
     kir::ExprMutator::traverseAndInsert(exprs);
@@ -44,7 +44,7 @@ class MagicZeroInserter : public kir::ExprMutator {
         kir::ExprMutator::registerInsertAfter(
             fl, IrBuilder::create<kir::UpdateMagicZero>());
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !scope_.back()->exprs().empty(), "Not expecting an empty loop.");
         kir::ExprMutator::registerInsertAfter(
             fl, IrBuilder::create<kir::UpdateMagicZero>(), scope_.back());
@@ -82,7 +82,7 @@ bool isMagicZero(const Val* val) {
     return false;
   }
   auto ns = val->as<NamedScalar>();
-  return ns->dtype() == DataType::Int &&
+  return ns->dtype() == DataType::Index &&
       ns->name() == std::string(kMagicZeroName);
 }
 
@@ -166,7 +166,7 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
   replacement_map[loop_index_to_protect] = protected_loop_index;
 
   auto protected_index =
-      ir_utils::replaceValInIndexVal(overall_index_val, replacement_map);
+      ir_utils::replaceValRecursively(overall_index_val, replacement_map);
 
   IndexMagicZeroInfo info;
   info.index = protected_index;
@@ -188,7 +188,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
     auto index_it = id_graph.initial_concrete_index_map.find(concrete_loop_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_it != id_graph.initial_concrete_index_map.end(),
         "Index not found for loop: ",
         concrete_loop_id->toString());
@@ -204,14 +204,13 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
   for (int i = static_cast<int>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
-    TORCH_INTERNAL_ASSERT(GpuLower::current()->caMap()->areMapped(
+    NVF_ERROR(GpuLower::current()->caMap()->areMapped(
         loop_id, loop->iter_domain(), IdMappingMode::PERMISSIVE));
     IterDomain* concrete_loop_id =
         GpuLower::current()->caMap()->getConcreteMappedID(
             loop_id, IdMappingMode::EXACT);
     auto index_it = id_graph.initial_concrete_index_map.find(concrete_loop_id);
-    TORCH_INTERNAL_ASSERT(
-        index_it != id_graph.initial_concrete_index_map.end());
+    NVF_ERROR(index_it != id_graph.initial_concrete_index_map.end());
     auto loop_index = index_it->second;
 
     const auto is_loop_index_used =

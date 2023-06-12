@@ -8,6 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <scheduler/utils.h>
@@ -34,6 +35,10 @@ class DomainMap {
   // Determine if all IterDomains are mapped between input and the given tvs
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
       const;
+
+  virtual IterDomain* getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const;
 
   // Erase input concrete ID if it is mapped to output ID
   bool eraseIfMapped(

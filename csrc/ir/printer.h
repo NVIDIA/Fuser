@@ -53,7 +53,6 @@ class TORCH_CUDA_CU_API IrTransformPrinter : public IrPrinter {
 
   void handle(Fusion* f) override;
 
- private:
   void printTransforms(TensorView* tv);
 };
 

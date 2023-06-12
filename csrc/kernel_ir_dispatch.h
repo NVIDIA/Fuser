@@ -8,6 +8,7 @@
 #pragma once
 
 #include <dispatch.h>
+#include <exceptions.h>
 
 namespace nvfuser {
 

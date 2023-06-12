@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
@@ -16,6 +17,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
+#include <options.h>
 
 #include <functional>
 
@@ -24,12 +26,12 @@ namespace nvfuser {
 Expr* ShiftPredicateInserter::insert(
     Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
-    Bool* thread_pred,
+    Val* thread_pred,
     bool within_unswitch) {
   const auto gpu_lower = GpuLower::current();
 
   TensorView* out_tv = ir_utils::getTvOutput(expr);
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "Missing TensorView output");
+  NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   const bool needs_shift_predicate =
       gpu_lower->haloInfo()->needsShiftPredicate(out_tv->definition());
@@ -86,9 +88,11 @@ Expr* ShiftPredicateInserter::insert(
   kir::Predicate* padding_pred = IrBuilder::create<kir::Predicate>(
       PredicateType::Padding, expr, thread_pred);
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
-  const int pad_value = 0;
+  const int64_t pad_value = 0L;
   auto pad_expr = IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
+      LoadStoreOpType::Set,
+      out_tv,
+      IrBuilder::create<Val>(pad_value, DataType::Index));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -101,12 +105,12 @@ int AxisHaloInfo::width() const {
 }
 
 int AxisHaloInfo::width(int pos) const {
-  TORCH_INTERNAL_ASSERT(pos >= 0 && pos < 2);
+  NVF_ERROR(pos >= 0 && pos < 2);
   return widths_[pos];
 }
 
 void AxisHaloInfo::setWidth(int pos, int width) {
-  TORCH_INTERNAL_ASSERT(pos >= 0 && pos < 2);
+  NVF_ERROR(pos >= 0 && pos < 2);
   widths_[pos] = width;
 }
 
@@ -138,12 +142,12 @@ bool HaloInfo::hasRootAxisInfo(IterDomain* id) const {
 
 const AxisHaloInfo& HaloInfo::getRootAxisInfo(IterDomain* id) const {
   // TODO: Enable this check, was failing in many tests
-  // TORCH_INTERNAL_ASSERT(
+  // NVF_ERROR(
   //     id->definition() == nullptr || id->isRFactorProduct(),
   //     "Invalid IterDomain: ",
   //     id);
   auto it = root_axis_map_.find(id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       it != root_axis_map_.end(),
       "Halo root axis info not found for ",
       id->toString());
@@ -202,7 +206,7 @@ HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Halo)) {
-    std::cout << toString() << std::endl;
+    debug() << toString() << std::endl;
   }
 
   // Note that validation requires consumer halo info
@@ -262,12 +266,12 @@ void HaloInfo::propagateRootAxisInfo(
     // If the root axes are broadcast, no halo should be associated
     // with them.
     if (c_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!c_info.hasHalo());
+      NVF_ERROR(!c_info.hasHalo());
       p_info.merge(c_info);
       setRootAxisInfo(p_id, p_info);
       continue;
     } else if (p_id->isRFactorProduct()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !c_info.hasHalo(),
           "Propagating halo info to a rfactor producer domain not yet supported.");
       continue;
@@ -326,11 +330,11 @@ void HaloInfo::insertToInheritanceMap(
     }
   }
   // No matching set found. This should not happen.
-  TORCH_INTERNAL_ASSERT(inserted);
+  NVF_ERROR(inserted);
 }
 
 void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
-  TORCH_INTERNAL_ASSERT(hasRootAxisInfo(id));
+  NVF_ERROR(hasRootAxisInfo(id));
 
   const auto& halo_info = getRootAxisInfo(id);
   auto halo_width = halo_info.width();
@@ -340,8 +344,9 @@ void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
     return;
   }
 
-  auto expanded_extent =
-      IrBuilder::addExpr(id->extent(), IrBuilder::create<Int>(halo_width));
+  auto expanded_extent = IrBuilder::addExpr(
+      id->extent(),
+      IrBuilder::create<Val>((int64_t)halo_width, DataType::Index));
   extent_map_[id] = expanded_extent;
   halo_width_map_[id] = halo_width;
 
@@ -392,10 +397,10 @@ void HaloInfo::build(TensorDomain* td) {
 
   for (auto expr : exprs) {
     // clang-tidy complains without this about expr being nullptr
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           merged_shifted_ids.find(split->in()) == merged_shifted_ids.end(),
           "Splitting IterDomain that is a merged domain of halo-extended domains is not allowed");
 
@@ -419,7 +424,7 @@ void HaloInfo::build(TensorDomain* td) {
       auto out_id = split->inner();
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       extent_map_.insert({out_id, expanded_extent});
 
       setHaloWidth(split->outer(), 0);
@@ -455,7 +460,7 @@ void HaloInfo::build(TensorDomain* td) {
     } else {
       // Assume no halo
       for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             getExtent(input_id) == nullptr,
             "Halo is not supported. Halo-extended ID: ",
             input_id->toString(),
@@ -497,7 +502,7 @@ void HaloInfo::validate(
     auto concrete_id = ca_map->getConcreteMappedID(axis, IdMappingMode::LOOP);
 
     // The extent is assumed to be the same
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extentEqual(axis, concrete_id),
         "Axis does not have the same exact size with its concrete ID due to halo extension.",
         " Tensor: T",
@@ -523,7 +528,7 @@ void HaloInfo::validate(
     }
 
     // Only threading parallelism is considered for now
-    TORCH_CHECK(
+    NVF_CHECK(
         isParallelTypeThread(ptype), "Unsupported parallel type: ", ptype);
 
     bool shared_mem_needed = false;
@@ -562,7 +567,7 @@ void HaloInfo::validate(
       // expressions is shift, any memory should be fine. Otherwise, it
       // must be accessible by all threads involved in the
       // parallelization.
-      TORCH_CHECK(
+      NVF_CHECK(
           mem_type == MemoryType::Shared,
           "TV",
           tv->name(),
@@ -570,7 +575,7 @@ void HaloInfo::validate(
           ptype);
 
     } else if (isParallelTypeBlockDim(ptype)) {
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Block-based parallelization of a halo-extended axis is not supported: ",
           axis);
@@ -590,7 +595,7 @@ Val* HaloInfo::getExtent(IterDomain* id) const {
 
 int HaloInfo::getHaloWidth(IterDomain* id) const {
   auto it = halo_width_map_.find(id);
-  TORCH_INTERNAL_ASSERT(it != halo_width_map_.end());
+  NVF_ERROR(it != halo_width_map_.end());
   return it->second;
 }
 
@@ -601,7 +606,7 @@ bool HaloInfo::hasHaloWidth(IterDomain* id) const {
 const std::unordered_set<IterDomain*>& HaloInfo::getChildDomains(
     IterDomain* root_id) const {
   auto it = inheritance_map_.find(root_id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       it != inheritance_map_.end(),
       "Domain not found in the inheritance map: ",
       root_id);
@@ -643,7 +648,7 @@ bool extentCompare(
     IterDomain* id2,
     Cmp cmp,
     const DisjointSets<IterDomain*>& permissive_map) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       permissive_map.strictAreMapped(id1, id2),
       "Invalid axes to compare: ",
       id1->toString(),
@@ -654,22 +659,21 @@ bool extentCompare(
   // halo.
 
   if (halo_map.hasHaloWidth(id1)) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         halo_map.hasHaloWidth(id2), "Invalid comparison: ", id1, " and ", id2);
     // Both axes have halo. We assume the axes themselves have equal
     // extents, excluding halo, as they are mapped with the CA
     // map. So, we just need to compare the halo width of each axis.
     return cmp(halo_map.getHaloWidth(id1), halo_map.getHaloWidth(id2));
   } else {
-    TORCH_INTERNAL_ASSERT(!halo_map.hasHaloWidth(id2));
+    NVF_ERROR(!halo_map.hasHaloWidth(id2));
     // Both don't have halo. The only case this can happen must be
     // both axes are the output of a merge expression, so each merge
     // input is recursively compared, and returns true only when both
     // inputs return.
     if (auto merge1 = dynamic_cast<Merge*>(id1->definition())) {
       auto merge2 = dynamic_cast<Merge*>(id2->definition());
-      TORCH_INTERNAL_ASSERT(
-          merge2 != nullptr, "Invalid comparison: ", id1, " and ", id2);
+      NVF_ERROR(merge2 != nullptr, "Invalid comparison: ", id1, " and ", id2);
       auto inner_le = extentCompare(
           halo_map, merge1->inner(), merge2->inner(), cmp, permissive_map);
       auto outer_le = extentCompare(
@@ -677,7 +681,7 @@ bool extentCompare(
       return inner_le && outer_le;
     } else {
       // This is not considered. Should never reach here.
-      TORCH_INTERNAL_ASSERT(false, "Invalid comparison: ", id1, " and ", id2);
+      NVF_ERROR(false, "Invalid comparison: ", id1, " and ", id2);
     }
   }
 }
@@ -685,7 +689,7 @@ bool extentCompare(
 } // namespace
 
 bool HaloInfo::extentLessEqual(IterDomain* id1, IterDomain* id2) const {
-  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  NVF_ERROR(GpuLower::hasCurrent(), "No GpuLower found");
   return extentCompare(
       *this,
       id1,
@@ -695,7 +699,7 @@ bool HaloInfo::extentLessEqual(IterDomain* id1, IterDomain* id2) const {
 }
 
 bool HaloInfo::extentEqual(IterDomain* id1, IterDomain* id2) const {
-  TORCH_INTERNAL_ASSERT(GpuLower::hasCurrent(), "No GpuLower found");
+  NVF_ERROR(GpuLower::hasCurrent(), "No GpuLower found");
   return extentCompare(
       *this,
       id1,
@@ -783,10 +787,10 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
 
   for (auto expr : loop_indexing.getForwardExprList()) {
     // clang-tidy complains without this about expr being nullptr
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Merge-then-split of halo-extended IDs is not allowed
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           merged_shifted_ids.find(split->in()) == merged_shifted_ids.end(),
           "Splitting IterDomain that is a merged domain of halo-extended domains is not allowed");
 
@@ -818,7 +822,7 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
           split->inner(), IdMappingMode::EXACT);
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       local_halo_info.extent_map_.insert({out_id, expanded_extent});
 
       local_halo_info.setHaloWidth(
@@ -868,7 +872,7 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
     } else {
       // Halo not yet supported, just set the width to zero at the moment.
       for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             local_halo_info.getHaloWidth(
                 GpuLower::current()->caMap()->getConcreteMappedID(
                     input_id, IdMappingMode::EXACT)) == 0,

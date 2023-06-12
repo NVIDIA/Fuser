@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #if defined(__linux__)
 
@@ -36,31 +37,31 @@ std::string disassembleBinary(
   std::array<int, 2> disasm_pipe = {-1, -1};
   std::array<int, 2> err_pipe = {-1, -1};
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pipe(cubin_pipe.data()) == 0 && pipe(disasm_pipe.data()) == 0 &&
           pipe(err_pipe.data()) == 0,
       err);
 
   pid_t pid = fork();
-  TORCH_INTERNAL_ASSERT(pid != -1, err);
+  NVF_ERROR(pid != -1, err);
 
   if (pid) { // I am the parent
     // Parent only write cubin and read disasm, close unused pipe end
-    TORCH_INTERNAL_ASSERT(close(cubin_pipe[READ]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(disasm_pipe[WRITE]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(err_pipe[WRITE]) == 0, err);
+    NVF_ERROR(close(cubin_pipe[READ]) == 0, err);
+    NVF_ERROR(close(disasm_pipe[WRITE]) == 0, err);
+    NVF_ERROR(close(err_pipe[WRITE]) == 0, err);
 
     // Wrap pipe fileno as C file stream
     FILE* cubin_fp = fdopen(cubin_pipe[WRITE], "wb");
     FILE* disasm_fp = fdopen(disasm_pipe[READ], "r");
     FILE* err_fp = fdopen(err_pipe[READ], "r");
-    TORCH_INTERNAL_ASSERT(cubin_fp != nullptr, err);
-    TORCH_INTERNAL_ASSERT(disasm_fp != nullptr, err);
-    TORCH_INTERNAL_ASSERT(err_fp != nullptr, err);
+    NVF_ERROR(cubin_fp != nullptr, err);
+    NVF_ERROR(disasm_fp != nullptr, err);
+    NVF_ERROR(err_fp != nullptr, err);
 
     // Write cubin to nvdisasm
     size_t written = fwrite(cubin.data(), 1, cubin.size(), cubin_fp);
-    TORCH_INTERNAL_ASSERT(written == cubin.size(), err);
+    NVF_ERROR(written == cubin.size(), err);
     fclose(cubin_fp);
 
     int ch = -1;
@@ -79,7 +80,7 @@ std::string disassembleBinary(
       error.push_back((char)ch);
     }
     fclose(err_fp);
-    TORCH_CHECK(error.empty(), error);
+    NVF_CHECK(error.empty(), error);
 
     return result;
   } else { // I am the child
@@ -90,21 +91,21 @@ std::string disassembleBinary(
     // not necessarily destroy the object.
 
     // Modify the stdin, stdout and stderr pointer to point to the pipe object
-    TORCH_INTERNAL_ASSERT(close(STDIN_FILENO) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(STDOUT_FILENO) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(STDERR_FILENO) == 0, err);
-    TORCH_INTERNAL_ASSERT(dup2(cubin_pipe[READ], STDIN_FILENO) != -1, err);
-    TORCH_INTERNAL_ASSERT(dup2(disasm_pipe[WRITE], STDOUT_FILENO) != -1, err);
-    TORCH_INTERNAL_ASSERT(dup2(err_pipe[WRITE], STDERR_FILENO) != -1, err);
+    NVF_ERROR(close(STDIN_FILENO) == 0, err);
+    NVF_ERROR(close(STDOUT_FILENO) == 0, err);
+    NVF_ERROR(close(STDERR_FILENO) == 0, err);
+    NVF_ERROR(dup2(cubin_pipe[READ], STDIN_FILENO) != -1, err);
+    NVF_ERROR(dup2(disasm_pipe[WRITE], STDOUT_FILENO) != -1, err);
+    NVF_ERROR(dup2(err_pipe[WRITE], STDERR_FILENO) != -1, err);
 
     // Now we have stdin, stdout and stderr pointing to the pipe object, we no
     // longer need the original pointers.
-    TORCH_INTERNAL_ASSERT(close(cubin_pipe[READ]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(cubin_pipe[WRITE]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(disasm_pipe[READ]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(disasm_pipe[WRITE]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(err_pipe[READ]) == 0, err);
-    TORCH_INTERNAL_ASSERT(close(err_pipe[WRITE]) == 0, err);
+    NVF_ERROR(close(cubin_pipe[READ]) == 0, err);
+    NVF_ERROR(close(cubin_pipe[WRITE]) == 0, err);
+    NVF_ERROR(close(disasm_pipe[READ]) == 0, err);
+    NVF_ERROR(close(disasm_pipe[WRITE]) == 0, err);
+    NVF_ERROR(close(err_pipe[READ]) == 0, err);
+    NVF_ERROR(close(err_pipe[WRITE]) == 0, err);
 
     // If execl succeed, then the current process will be replaced by nvdisasm,
     // and all the remaining code in the current process will not be executed.
@@ -124,7 +125,7 @@ std::string disassembleBinary(
     execl("/bin/bash", "bash", "-c", command.c_str(), NULL);
 
     // only reachable when execl fails
-    TORCH_INTERNAL_ASSERT(false, err);
+    NVF_ERROR(false, err);
   }
 }
 
@@ -135,7 +136,7 @@ std::string disassembleBinary(
 namespace nvfuser::executor_utils {
 
 std::string disassembleBinary(const std::vector<char>& binary) {
-  TORCH_CHECK(false, "disassembling cubin is only supported on Linux");
+  NVF_CHECK(false, "disassembling cubin is only supported on Linux");
 }
 
 } // namespace nvfuser::executor_utils

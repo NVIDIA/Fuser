@@ -90,6 +90,13 @@ class MatmulParams : public HeuristicParams {
   //!    C3 C4 D3 D4
   int grid_swizzle_factor = 1;
 
+  //! Unswizzle MMA results in shared memory to get
+  //!  coalesced write to global memory
+  bool use_smem_epilogue = false;
+
+  //! Promote reuse of prologue shared memory
+  bool promote_prologue_smem_reuse = false;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -112,13 +119,17 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
+       << "Promote re-use of prologue shared memory: "
+       << promote_prologue_smem_reuse << "\n"
        << "====================================\n";
     return ss.str();
   }
 
   size_t hash() const override {
     // combine boolean flags for hashing
-    size_t attr_hash =
+    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 3) |
+        (static_cast<size_t>(use_smem_epilogue) << 2) |
         (static_cast<size_t>(rotate_ldmatrix_out_of_main_loop) << 1) |
         (static_cast<size_t>(async_gmem_load_operands));
 
@@ -145,7 +156,10 @@ class MatmulParams : public HeuristicParams {
         other_casted->tile_sizes == tile_sizes &&
         other_casted->double_buffer_options == double_buffer_options &&
         other_casted->cta_order == cta_order &&
-        other_casted->grid_swizzle_factor == grid_swizzle_factor;
+        other_casted->grid_swizzle_factor == grid_swizzle_factor &&
+        other_casted->use_smem_epilogue == use_smem_epilogue &&
+        other_casted->promote_prologue_smem_reuse ==
+        promote_prologue_smem_reuse;
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {

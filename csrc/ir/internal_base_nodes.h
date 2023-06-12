@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <optional>
 
@@ -21,6 +22,7 @@ namespace nvfuser {
 
 // Friends for direct access to split
 class TensorDomain;
+class IterDomain;
 class ReplayTransformations;
 class IndexReferenceReplay;
 class ViewTransform;
@@ -54,7 +56,7 @@ class TORCH_CUDA_CU_API IterDomainBuilder {
   IterDomainBuilder& iter_type(IterType _iter_type);
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
-  IterDomainBuilder& padded_to_size(c10::optional<int64_t> _padded_to_size);
+  IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
   IterDomainBuilder& is_mma_swizzled(bool _is_mma_swizzled);
 
   IterDomain* build() const;
@@ -72,7 +74,7 @@ class TORCH_CUDA_CU_API IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
-  c10::optional<int64_t> padded_to_size_ = c10::nullopt;
+  std::optional<int64_t> padded_to_size_ = std::nullopt;
   bool is_mma_swizzled_ = false;
 };
 
@@ -96,7 +98,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
-      c10::optional<int64_t> padded_to_size_,
+      std::optional<int64_t> padded_to_size_,
       bool is_mma_swizzled);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
@@ -246,7 +248,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   Val* stopOffset() const;
 
   Val* extent() const {
-    TORCH_INTERNAL_ASSERT(extent_ != nullptr);
+    NVF_ERROR(extent_ != nullptr);
     return extent_;
   }
 
@@ -256,7 +258,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   // Returns the expanded extent of a strided broadcast entry.
   Val* expandedExtent() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         hasExpandedExtent(),
         "Requested expanded extent, but none found on this dimension.");
     return expanded_extent_;
@@ -283,9 +285,9 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //!      is "dynamically" padded to next smallest multiple
   //!      of a warp size, i.e. 17 padded to 32, 33 padded to 64
   //!      based on the given input.
-  void padToMultipleOfWarp(c10::optional<int64_t> maybe_to_size = {}) {
+  void padToMultipleOfWarp(std::optional<int64_t> maybe_to_size = {}) {
     // Currently only restricted to TIDx to generate warp reduce
-    TORCH_CHECK(
+    NVF_CHECK(
         parallel_type_ == ParallelType::TIDx,
         "padToMultipleOfWarp : warp padding only supported on TIDx parallel dimension");
     is_padded_dimension_ = true;
@@ -304,7 +306,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   //! Returns a concrete value if this iterdomain
   //!  has been padded to a statical size.
-  c10::optional<int64_t> getMaybeSizeAfterPadding() const {
+  std::optional<int64_t> getMaybeSizeAfterPadding() const {
     return padded_to_size_;
   }
 
@@ -321,7 +323,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! Split for stride by a given factor. It effectively does an inner
   //! split by the factor and sets the inner domain as a Stride
   //! domain.
-  std::pair<IterDomain*, IterDomain*> stridedSplit(int factor);
+  std::pair<IterDomain*, IterDomain*> stridedSplit(int64_t factor);
 
   //! Marks that this id represents a
   //!  instruction loop, mma use only.
@@ -404,7 +406,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
-  c10::optional<int64_t> padded_to_size_ = c10::nullopt;
+  std::optional<int64_t> padded_to_size_ = std::nullopt;
 
   //! Tracks if this id represents a thread swizzled loop or
   //!   models an implicit loop within instructions. Should not make
@@ -453,6 +455,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
+
+  TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
@@ -533,7 +537,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   bool hasSymbolicAxis() const;
 
-  c10::optional<unsigned int> getReductionAxis() const;
+  std::optional<unsigned int> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {
     return no_reduction_domain_;

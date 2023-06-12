@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -25,7 +26,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -64,7 +64,7 @@ void validateNoParallelBroadcastExist(kir::Kernel* kernel) {
     if (bc == nullptr) {
       continue;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         kernel->summary().broadcast_parallel_types.at(bc).none(),
         "Parallel broadcast should not exist but was found: ",
         bc->toString());
@@ -237,7 +237,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {0});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true});
   auto tv4 = add(tv0, tv3);
 
@@ -288,7 +288,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {1});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = add(tv0, tv3);
 
@@ -496,25 +496,25 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   auto tv4 = makeSymbolicTensor(1, DataType::Float);
   fusion.addInput(tv4);
 
-  auto d34 = IrBuilder::create<Double>(1);
+  auto d34 = IrBuilder::create<Val>(1.0);
   auto tv5 = castOp(DataType::Float, tv0);
   auto tv6 = castOp(DataType::Float, tv1);
   auto tv7 = castOp(DataType::Float, tv2);
   auto tvs = Welford(tv5, {0, 2, 3});
   auto tv8 = tvs.avg;
   auto tv9 = tvs.var_sum;
-  auto tv11 = mul(tv8, IrBuilder::create<Double>(0.1));
+  auto tv11 = mul(tv8, IrBuilder::create<Val>(0.1));
   auto tv12 = mul(tv3, d34);
   auto tv13 = add(tv12, tv11);
-  auto d43 = IrBuilder::create<Double>(0.5);
+  auto d43 = IrBuilder::create<Val>(0.5);
   auto tv14 = mul(tv9, d43);
-  auto tv15 = mul(tv14, IrBuilder::create<Double>(0.1));
+  auto tv15 = mul(tv14, IrBuilder::create<Val>(0.1));
   auto tv16 = mul(tv4, d34);
   auto tv17 = add(tv16, tv15);
   auto tv18 = broadcast(tv8, {true, false, true, true});
   auto tv19 = sub(tv5, tv18);
   auto tv20 = mul(tv9, d43);
-  auto tv21 = add(tv20, IrBuilder::create<Double>(0.0001));
+  auto tv21 = add(tv20, IrBuilder::create<Val>(0.0001));
   auto tv22 = rsqrt(tv21);
   auto tv23 = broadcast(tv22, {true, false, true, true});
   auto tv24 = mul(tv19, tv23);
@@ -670,10 +670,10 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = max(tv3, {1});
 
   auto tv5 = add(tv2, tv4);
@@ -801,13 +801,13 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = sum(tv3, {1});
 
-  auto tv5 = add(tv0, IrBuilder::create<Double>(3));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(3.0));
   auto tv6 = sum(tv5, {1});
 
   auto tv7 = add(add(tv2, tv4), tv6);
@@ -955,7 +955,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   auto tv3 = sum(tv1, {1});
   auto tv4 = add(tv2, tv3);
@@ -1151,7 +1151,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
   std::vector<TensorView*> reduction_tvs;
 
   for (int i = 0; i < num_reductions; ++i) {
-    auto reduction = sum(add(tv0, IrBuilder::create<Double>(i)), {0});
+    auto reduction =
+        sum(add(tv0, IrBuilder::create<Val>(static_cast<double>(i))), {0});
     reduction_tvs.push_back(reduction);
     auto avg = div(reduction, tv0->axis(0)->extent());
     auto bc = broadcast(avg, {true});
@@ -1341,7 +1342,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Double>(input->container(), 1));
+            IrBuilder::create<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -1380,7 +1381,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const int bidy = 4;
   const int bidx = ceilDiv(shape[0], (int64_t)tidy);
   const int vec_width = 4;
-  TORCH_CHECK(
+  NVF_CHECK(
       (shape[2] * shape[3]) % vec_width == 0,
       "Invalid vector width: ",
       vec_width);
@@ -1390,7 +1391,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
 
   grad_input->split(0, tidy);
   grad_input->split(2, bidy);
-  TORCH_CHECK(
+  NVF_CHECK(
       grad_input->nDims() == 6,
       "Unexpected number of dimensions: ",
       grad_input->toString());
@@ -1495,10 +1496,10 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {0});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = sum(tv3, {0});
 
   auto tv5 = add(tv2, tv4);
@@ -1585,7 +1586,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   // Applies the outer-reduction schedule
   const int64_t num_channels = shape.back();
   const int64_t vector = 2;
-  TORCH_CHECK(num_channels % vector == 0);
+  NVF_CHECK(num_channels % vector == 0);
   // Use at most 32 TIDx threads
   const int64_t tidx = std::min<int64_t>(32l, num_channels / vector);
   const auto bidx = ceilDiv(num_channels, tidx * vector);
@@ -1715,7 +1716,7 @@ TEST_F(
   // Applies the outer-reduction schedule
   const int64_t num_channels = shape.back();
   const int64_t vector = 2;
-  TORCH_CHECK(num_channels % vector == 0);
+  NVF_CHECK(num_channels % vector == 0);
   // Use at most 32 TIDx threads
   const int64_t tidx = std::min<int64_t>(32l, num_channels / vector);
   ceilDiv(num_channels, tidx * vector);
@@ -1852,7 +1853,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -1862,7 +1863,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -1932,7 +1933,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -1942,7 +1943,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1966,12 +1967,12 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {0});
   auto tv3 = broadcast(tv2, {true, false});
   auto tv4 = add(tv1, tv3);
 
-  auto tv5 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv6 = sum(tv5, {0});
   auto tv7 = broadcast(tv6, {true, false});
   auto tv8 = add(tv5, tv7);
@@ -2014,7 +2015,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -2024,7 +2025,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -2075,11 +2076,11 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   // This should avoid inlining the grouped domain
   tv0->computeAt(tv4, -1, ComputeAtMode::MostInlined);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       tv1->getComputeAtPosition() == 2,
       "Invalid computeAt position: ",
       tv1->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2->getComputeAtPosition() == 2,
       "Invalid computeAt position: ",
       tv2->toString());
@@ -2106,7 +2107,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -2116,7 +2117,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -2178,8 +2179,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
-      validated, "Invalid lowered kernel. No GroupedGridWelford found.");
+  NVF_CHECK(validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   std::vector<int64_t> shape({99, 101});
 
@@ -2246,8 +2246,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
-      validated, "Invalid lowered kernel. No GroupedGridWelford found.");
+  NVF_CHECK(validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -2381,7 +2380,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
       (void)expr; // Suppress unused variable warning
       validated = true;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2458,23 +2457,23 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
   const float k_010 = 0.1070322243;
-  auto t8 = mul(tv1_xvar, IrBuilder::create<Double>(k_079));
-  auto t9 = mul(tv1_xvar, IrBuilder::create<Double>(k_004));
+  auto t8 = mul(tv1_xvar, IrBuilder::create<Val>(k_079));
+  auto t9 = mul(tv1_xvar, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, tv1_xvar);
-  auto t11 = add(t10, IrBuilder::create<Int>(1));
+  auto t11 = add(t10, IrBuilder::create<Val>(1L));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
-  auto t14 = mul(tv1_xvar, IrBuilder::create<Double>(0.5));
+  auto t14 = mul(tv1_xvar, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Int>(1));
-  auto t18 = mul(tv1_xvar, IrBuilder::create<Double>(k_010));
+  auto t17 = add(t16, IrBuilder::create<Val>(1L));
+  auto t18 = mul(tv1_xvar, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, tv1_xvar);
-  auto t20 = add(t19, IrBuilder::create<Double>(k_079));
+  auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Int>(1));
-  auto t24 = mul(t23, IrBuilder::create<Double>(0.5));
+  auto t23 = add(t13, IrBuilder::create<Val>(1L));
+  auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, tv0_grad);
   auto t27 = sum(t26, {0});
@@ -2496,7 +2495,7 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   // fusion values
   std::vector<int64_t> reduction_axes{0};
   auto reduction_params = getReductionHeuristics(&fusion, {at_grad, at_xvar});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
   FusionExecutor fe;

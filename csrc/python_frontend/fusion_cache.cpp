@@ -5,9 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <instrumentation.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <serde/fusion_record_serde.h>
+#include <utils.h>
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -35,7 +38,7 @@ FusionSchedules::FusionSchedules()
 
 Fusion* FusionSchedules::preschedFusion() {
   auto fusion = auto_gen_schedules->fusion();
-  TORCH_CHECK(fusion != nullptr, "Prescheduled Fusion is unexpectedly null!");
+  NVF_CHECK(fusion != nullptr, "Prescheduled Fusion is unexpectedly null!");
   return fusion;
 }
 
@@ -78,7 +81,7 @@ FusionCache* FusionCache::get(size_t max_fusions) {
   if (singleton_ == nullptr) {
     singleton_ = new FusionCache(max_fusions);
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       max_fusions >= singleton_->fusions_.size(),
       "The max fusions is set less than the number of fusions in the cache.");
   singleton_->max_fusions_ = max_fusions;
@@ -170,40 +173,40 @@ FusionCache::FusionCache(size_t max_fusions)
 // In the worst case, the query should fail and if you try to create a child,
 // it should give you back an already created child if two threads are walking
 // the trie at the same time with the same definition.
-c10::optional<TrieNode*> FusionCache::queryChildren(
+std::optional<TrieNode*> FusionCache::queryChildren(
     TrieNode* node,
     RecordFunctor* rec) const {
-  TORCH_CHECK(
+  NVF_CHECK(
       !node->isTerminal(), "There should be no children from a Terminal Node!");
-  TORCH_CHECK(rec, "Record is null!");
+  NVF_CHECK(rec, "Record is null!");
   auto trie_node = node->children.find(rec);
   if (trie_node == std::end(node->children)) {
-    return c10::nullopt;
+    return std::nullopt;
   } else {
     ++(trie_node->second.get()->visits);
-    return c10::optional<TrieNode*>(trie_node->second.get());
+    return std::optional<TrieNode*>(trie_node->second.get());
   }
 }
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_id < fusions_.size(),
       "Invalid scheduler query for id:",
       fusion_id);
   FusionSchedules* ptr = fusions_.at(fusion_id).get();
-  TORCH_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
+  NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
   return ptr;
 }
-c10::optional<size_t> FusionCache::queryUserScheduleId(
+std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs) {
-  c10::optional<size_t> result = c10::nullopt;
+  std::optional<size_t> result = std::nullopt;
 
   auto& user_scheds = scheds->user_def_schedules;
   if (!user_scheds.empty()) {
     auto input_id = user_def_input_encodings_.lookupId(inputs);
     auto user_sched = user_scheds.find(input_id.id);
     if (user_sched != user_scheds.end()) {
-      return c10::optional<size_t>(user_sched->first);
+      return std::optional<size_t>(user_sched->first);
     }
   }
   return result;
@@ -213,11 +216,11 @@ const UserSchedule& FusionCache::queryUserSchedule(
     size_t id,
     int device) const {
   auto& user_scheds = scheds->user_def_schedules;
-  TORCH_CHECK(
+  NVF_CHECK(
       !user_scheds.empty(),
       "Expecting there to be at least one user schedule!");
   auto user_sched = user_scheds.find(id);
-  TORCH_CHECK(
+  NVF_CHECK(
       user_sched != user_scheds.end(), "Lookup of non-existent user schedule!");
   return user_sched->second.at(device);
 }
@@ -225,9 +228,9 @@ const UserSchedule& FusionCache::queryUserSchedule(
 TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
   FUSER_PERF_SCOPE("FusionCache::createChild");
   TrieNode* child = nullptr;
-  TORCH_CHECK(
+  NVF_CHECK(
       !node->isTerminal(), "Cannot create a trie node from a terminal node!");
-  TORCH_CHECK(rec, "Record is null!");
+  NVF_CHECK(rec, "Record is null!");
 
   std::lock_guard<std::mutex> guard(node->trie_node_lock);
 
@@ -239,7 +242,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
   } else {
     size_t fusion_id = 0;
     if (rec->recordType() == serde::RecordType_End) {
-      TORCH_CHECK(
+      NVF_CHECK(
           (fusions_.size() + 1) <= max_fusions_,
           "The number of fusions in nvfuser has exceeded ",
           max_fusions_,
@@ -257,7 +260,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     node->children[new_rec] =
         std::make_unique<TrieNode>(new_rec, node, fusion_id);
     child = node->children[new_rec].get();
-    TORCH_CHECK(child, "Created child of TrieNode should not be null!");
+    NVF_CHECK(child, "Created child of TrieNode should not be null!");
     ++(child->visits);
     if (rec->recordType() == serde::RecordType_End) {
       terminal_nodes_.push_back(node->children[new_rec].get());
@@ -265,8 +268,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::stringstream ss;
       new_rec->print(ss);
-      std::cout << "\nFusionDefinition: Create new trie node for: " << ss.str()
-                << "\n";
+      debug() << "\nFusionDefinition: Create new trie node for: " << ss.str()
+              << "\n";
     }
   }
   return child;
@@ -301,6 +304,7 @@ TrieNode* FusionCache::rootTriePtr() {
 }
 
 void FusionCache::serialize(std::string filename) const {
+  FUSER_PERF_SCOPE("FusionCache::serialize");
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -341,21 +345,32 @@ void FusionCache::serialize(std::string filename) const {
   }
 
   // 4. Map the terminal nodes to their BFS positions.
+  // 5. Serialize each FusionExecutorCache for each fusion.
   std::vector<size_t> terminal_node_idx;
   terminal_node_idx.reserve(terminal_nodes_.size());
+
+  using fb_fusion_executor_cache =
+      flatbuffers::Offset<serde::FusionExecutorCache>;
+  std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
+  fb_auto_gen_schedules.reserve(terminal_nodes_.size());
+
   for (auto node : terminal_nodes_) {
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
+
+    auto schedule = queryFusionSchedules(node->fusion_id);
+    fb_auto_gen_schedules.emplace_back(
+        schedule->auto_gen_schedules->serialize(builder));
   }
 
-  // 5. Build FusionCache flatbuffer object
-  // table FusionCache {
-  //  max_fusions: ulong;
-  //  structure: [TrieNode];
-  //  terminal_nodes: [ulong];
-  // }
+  // 6. Build FusionCache flatbuffer object
+  // See table definition for FusionCache in serde/fusion_cache.fbs
   auto fusion_cache = serde::CreateFusionCacheDirect(
-      builder, max_fusions_, &fb_nodes, &terminal_node_idx);
+      builder,
+      max_fusions_,
+      &fb_nodes,
+      &terminal_node_idx,
+      &fb_auto_gen_schedules);
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -363,7 +378,7 @@ void FusionCache::serialize(std::string filename) const {
   auto file_handle = std::fopen(filename.c_str(), "wb");
   size_t write_status =
       std::fwrite(fb.data(), sizeof(uint8_t), fb.size(), file_handle);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       write_status == fb.size(),
       "Failed to write entire FusionCache Flatbuffer.\n");
   std::fclose(file_handle);
@@ -373,28 +388,30 @@ namespace {
 typedef std::vector<uint8_t> BinaryBuffer;
 
 BinaryBuffer openFusionCache(std::string filename) {
+  FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
   auto file_handle = std::fopen(filename.c_str(), "rb");
-  TORCH_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
+  NVF_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
 
   auto file_path = fs::path(filename.c_str());
   auto file_size = fs::file_size(file_path);
-  TORCH_CHECK(file_size > 0, "FusionCache buffer is empty.");
+  NVF_CHECK(file_size > 0, "FusionCache buffer is empty.");
 
   BinaryBuffer buffer(file_size);
   size_t read_status =
       std::fread(buffer.data(), sizeof(uint8_t), file_size, file_handle);
-  TORCH_CHECK(
+  NVF_CHECK(
       read_status == file_size, "Failed to read entire FusionCache buffer.\n");
   return buffer;
 }
 
 const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
+  FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
   flatbuffers::Verifier v(buffer.data(), buffer.size());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_cache_buffer->Verify(v),
       "Failed to verify the integrity of FusionCache buffer.");
-  TORCH_CHECK(
+  NVF_CHECK(
       serde::FusionCacheBufferHasIdentifier(buffer.data()),
       "Failed to verify the schema version of the FusionCache buffer");
   return fusion_cache_buffer;
@@ -403,13 +420,10 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
 } // namespace
 
 void FusionCache::deserialize(std::string filename) {
+  // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
-  // table FusionCache {
-  //  max_fusions: ulong;
-  //  structure: [TrieNode];
-  //  terminal_nodes: [ulong];
-  // }
-  TORCH_CHECK(
+  FUSER_PERF_SCOPE("FusionCache::deserialize");
+  NVF_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
   auto buffer = openFusionCache(filename);
@@ -462,13 +476,13 @@ void FusionCache::deserialize(std::string filename) {
 
     // Build fusion container if current node is a terminal node
     if (fb_trie_node->is_terminal()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           fb_trie_node->children()->size() == 0,
           "This terminal node should not have any children.")
-      TORCH_CHECK(
+      NVF_CHECK(
           fb_trie_node->record()->type() == serde::RecordType_End,
           "This terminal node should have an EndRecord RecordFunctor")
-      TORCH_CHECK(
+      NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
           "The fusion id for this TrieNode should already be set.")
       Fusion* fusion =
@@ -492,7 +506,7 @@ void FusionCache::deserialize(std::string filename) {
           rec,
           std::make_unique<TrieNode>(
               rec, trie_ptr, fb_child_trie_node->fusion_id()));
-      TORCH_CHECK(
+      NVF_CHECK(
           status.second,
           "Fusion-Cache Deserialization: Failed to add child to the current TrieNode.");
 
@@ -508,8 +522,29 @@ void FusionCache::deserialize(std::string filename) {
   }
 
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : *fusion_cache_buffer->terminal_nodes()) {
-    terminal_nodes_.push_back(bfs_order.at(idx));
+  for (auto idx : c10::irange(fusions_.size())) {
+    auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
+    auto trie_node = bfs_order.at(node_idx);
+    terminal_nodes_.push_back(trie_node);
+
+    auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
+    auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
+
+    if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+      // Parallelize the deserialization of each FusionExecutorCache.
+      getThreadPool()->run([=]() {
+        FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
+        fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+      });
+    } else {
+      FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
+      fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+    }
+  }
+
+  if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+    // Wait until all fusion executor caches are deserialized
+    getThreadPool()->waitWorkComplete();
   }
 }
 
