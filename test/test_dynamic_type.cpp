@@ -492,6 +492,55 @@ TEST_F(DynamicTypeTest, Printing) {
   static_assert(!(opcheck<std::stringstream&> << opcheck<SomeTypes>));
 }
 
+TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
+  // ++
+  {
+    IntSomeType x(1);
+    auto& y = ++x;
+    EXPECT_EQ(x.as<int>(), 2);
+    EXPECT_EQ(y.as<int>(), 2);
+    EXPECT_EQ(&x, &y);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          ++x;
+        },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          ++x;
+        },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+    static_assert(!(++opcheck<SomeTypes&>));
+  }
+  // --
+  {
+    IntSomeType x(1);
+    auto& y = --x;
+    EXPECT_EQ(x.as<int>(), 0);
+    EXPECT_EQ(y.as<int>(), 0);
+    EXPECT_EQ(&x, &y);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          --x;
+        },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          --x;
+        },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Can not compute ")));
+    static_assert(!(--opcheck<SomeTypes&>));
+  }
+}
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

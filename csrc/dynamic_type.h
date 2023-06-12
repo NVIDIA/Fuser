@@ -156,6 +156,11 @@ struct DynamicType {
   }
 
   template <typename T>
+  constexpr T& as() {
+    return std::get<T>(value_);
+  }
+
+  template <typename T>
   constexpr T cast() const {
     std::optional<T> ret = std::nullopt;
     for_all_types([this, &ret](auto* from) {
@@ -359,12 +364,9 @@ DEFINE_UNARY_OP(lnot, !);
 
 #undef DEFINE_UNARY_OP
 
-// DEFINE_UNARY_OP(pp, ++);
-// DEFINE_UNARY_OP(mm, --);
-// DEFINE_UNARY_SUFFIX_OP(spp, ++);
-// DEFINE_UNARY_SUFFIX_OP(smm, --);
-
 // Printing
+// TODO: we should inline the definition of opname##_helper into enable_if, but
+// I can only do this in C++20
 constexpr auto can_print = [](auto x) constexpr {
   using T = decltype(x);
   if constexpr (opcheck<std::ostream&> << opcheck<T>) {
@@ -394,6 +396,43 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   TORCH_CHECK(printed, "Can not print: incompatible type");
   return os;
 }
+
+#define DEFINE_LEFT_PPMM(opname, op)                                           \
+  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
+  /*but I can only do this in C++20 */                                         \
+  constexpr auto opname##_helper = [](auto x) constexpr {                      \
+    if constexpr (op opcheck<decltype(x)&>) {                                  \
+      return std::is_same_v<decltype(op x), decltype(x)&>;                     \
+    }                                                                          \
+    return false;                                                              \
+  };                                                                           \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename =                                                               \
+          std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
+  inline constexpr DT& operator op(DT& x) {                                    \
+    bool computed = false;                                                     \
+    DT::for_all_types([&computed, &x](auto* _) {                               \
+      using Type = std::remove_pointer_t<decltype(_)>;                         \
+      if constexpr (op opcheck<Type&>) {                                       \
+        if constexpr (std::is_same_v<                                          \
+                          decltype(op std::declval<Type&>()),                  \
+                          Type&>) {                                            \
+          if (x.template is<Type>()) {                                         \
+            op x.template as<Type>();                                          \
+            computed = true;                                                   \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    TORCH_CHECK(computed, "Can not compute ", #op, " : incompatible type");    \
+    return x;                                                                  \
+  }
+
+DEFINE_LEFT_PPMM(lpp, ++);
+DEFINE_LEFT_PPMM(lmm, --);
+// DEFINE_UNARY_SUFFIX_OP(spp, ++);
+// DEFINE_UNARY_SUFFIX_OP(smm, --);
 
 // legacy code below:
 
