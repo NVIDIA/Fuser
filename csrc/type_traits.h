@@ -128,6 +128,8 @@ struct OperatorChecker {
   // chosen. If not, then the compiler will find that the second candidate is
   // also a match by casting OperatorChecker to CastableFromOperatorChecker.
   // So the second candidate will be chosen.
+
+  // NOLINTBEGIN(cppcoreguidelines-c-copy-assignment-signature)
   template <typename T1>
   constexpr auto operator=(OperatorChecker<T1>) const
       -> decltype((std::declval<T>() = std::declval<T1>()), true) {
@@ -136,6 +138,7 @@ struct OperatorChecker {
   constexpr bool operator=(CastableFromOperatorChecker) const {
     return false;
   }
+  // NOLINTEND(cppcoreguidelines-c-copy-assignment-signature)
 
   template <
       typename T1 = int,
