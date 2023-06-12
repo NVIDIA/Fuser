@@ -174,6 +174,10 @@ struct DynamicType {
     TORCH_CHECK(ret.has_value(), "Cannot cast to ", typeid(T).name());
     return ret.value();
   }
+
+  // Intentionally not overloading operator-> because it only makes sense when
+  // returning pointers, however, if we have a DynamicType that can be either a
+  // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
 };
 
 #define DEFINE_BINARY_OP(opname, op)                                        \
