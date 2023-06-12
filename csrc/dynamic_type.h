@@ -473,6 +473,25 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #undef DEFINE_RIGHT_PPMM
 
+// TODO: clang can not handle assignment operators for opcheck correctly, so we
+// are not adding them for now. In the future, when clang's bug is fixed, we can
+// add them.
+// DEFINE_ASSIGNMENT_OP(=);
+// DEFINE_ASSIGNMENT_OP(+=);
+// DEFINE_ASSIGNMENT_OP(-=);
+// DEFINE_ASSIGNMENT_OP(*=);
+// DEFINE_ASSIGNMENT_OP(/=);
+// DEFINE_ASSIGNMENT_OP(%=);
+// DEFINE_ASSIGNMENT_OP(&=);
+// DEFINE_ASSIGNMENT_OP(|=);
+// DEFINE_ASSIGNMENT_OP(^=);
+// DEFINE_ASSIGNMENT_OP(<<=);
+// DEFINE_ASSIGNMENT_OP(>>=);
+
+// Intentionally not overloading operator comma",". This operator is rarely
+// overloaded, and the automatically defined version by the compiler usually
+// does what we want.
+
 // legacy code below:
 
 class TORCH_CUDA_CU_API EvaluatorValue {
