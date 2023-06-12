@@ -431,8 +431,47 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
 
 DEFINE_LEFT_PPMM(lpp, ++);
 DEFINE_LEFT_PPMM(lmm, --);
-// DEFINE_UNARY_SUFFIX_OP(spp, ++);
-// DEFINE_UNARY_SUFFIX_OP(smm, --);
+
+#undef DEFINE_LEFT_PPMM
+
+#define DEFINE_RIGHT_PPMM(opname, op)                                          \
+  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
+  /*but I can only do this in C++20 */                                         \
+  constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
+    if constexpr (opcheck<decltype(x)&> op) {                                  \
+      return std::is_same_v<decltype(x op), decltype(y)>;                      \
+    }                                                                          \
+    return false;                                                              \
+  };                                                                           \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename = std::enable_if_t<any_check(                                   \
+          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+  inline constexpr DT operator op(DT& x, int) {                                \
+    DT ret;                                                                    \
+    DT::for_all_types([&ret, &x](auto* _) {                                    \
+      using Type = std::remove_pointer_t<decltype(_)>;                         \
+      if constexpr (opcheck<Type&> op) {                                       \
+        if constexpr (DT::template is_candidate_type<                          \
+                          decltype(std::declval<Type&>() op)>) {               \
+          if (x.template is<Type>()) {                                         \
+            ret = DT(x.template as<Type>() op);                                \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    TORCH_CHECK(                                                               \
+        !ret.template is<std::monostate>(),                                    \
+        "Can not compute ",                                                    \
+        #op,                                                                   \
+        " : incompatible type");                                               \
+    return ret;                                                                \
+  }
+
+DEFINE_RIGHT_PPMM(rpp, ++);
+DEFINE_RIGHT_PPMM(rmm, --);
+
+#undef DEFINE_RIGHT_PPMM
 
 // legacy code below:
 
