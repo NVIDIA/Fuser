@@ -697,6 +697,97 @@ std::string TernaryOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TernaryOp)
 
+ArrayConstruct::ArrayConstruct(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      !inputs.empty(), "Cannot create an array with no members.");
+  addOutput(output);
+  DataType input_dtype = DataType::Null;
+  for (auto in : inputs) {
+    addInput(in);
+    auto in_dtype_opt = in->getDataType();
+    TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+    if (input_dtype == DataType::Null) {
+      input_dtype = *in_dtype_opt;
+    } else {
+      TORCH_CHECK(
+          input_dtype == *in_dtype_opt,
+          "All inputs to ArrayConstruct must have the same data type");
+    }
+  }
+  auto expected_output_dtype =
+      ArrayOf{std::make_shared<DataType>(input_dtype), inputs.size()};
+  TORCH_CHECK(
+      output->getDataType() == expected_output_dtype,
+      "Output of ArrayConstruct must be an array of the same data type as the inputs");
+}
+
+std::string ArrayConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = {"
+                          << toDelimitedString(inputs()) << "}\n";
+  return ss.str();
+}
+
+std::string ArrayConstruct::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "{ " << toDelimitedInlineString(inputs()) << " }";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
+
+GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(array);
+  addInput(index);
+  TORCH_INTERNAL_ASSERT(
+      *(std::get<ArrayOf>(array->dtype().type).type) == output->dtype(),
+      "GetItem array input must have a data type");
+}
+
+std::string GetItem::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = " << array()->toString()
+                          << "[" << index()->toString() << "]\n";
+  return ss.str();
+}
+
+std::string GetItem::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "(" << array()->toInlineString() << ")[" << index()->toInlineString()
+     << "]";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
+
+TensorConstruct::TensorConstruct(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+}
+
+std::string TensorConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = TensorConstruct("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string TensorConstruct::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
+
 RNGOp::RNGOp(
     IrBuilderPasskey passkey,
     RNGOpType type,

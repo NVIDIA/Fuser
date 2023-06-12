@@ -457,6 +457,22 @@ std::string toDelimitedString(
   return ss.str();
 }
 
+template <typename ContainerOfStatement>
+std::string toDelimitedInlineString(
+    const ContainerOfStatement& container,
+    std::string delim = ", ") {
+  std::stringstream ss;
+  bool first_val = true;
+  for (const auto& item : container) {
+    if (!first_val) {
+      ss << delim;
+    }
+    ss << item->toInlineString();
+    first_val = false;
+  }
+  return ss.str();
+}
+
 template <typename... Args>
 class DebugPrintScope {
  public:
@@ -514,6 +530,15 @@ class KernelIndexTypeCompute {
  private:
   int64_t tensor_most_positive_index_ = 0;
 };
+
+template <typename>
+struct is_std_vector : std::false_type {};
+
+template <typename T, typename A>
+struct is_std_vector<std::vector<T, A>> : std::true_type {};
+
+template <typename T>
+constexpr auto is_std_vector_v = is_std_vector<T>::value;
 
 //! Alter an existing hash in order to combine it with a new hash in a way that
 //! is order-dependent and spreads bits over the entire range of a size_t.

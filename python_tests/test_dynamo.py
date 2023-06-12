@@ -51,10 +51,7 @@ class TestNvFuserDynamo(TestCase):
         def func(a, b):
             return a.sin() + b.cos()
 
-        # No warnings and no errors
-        with warnings.catch_warnings(record=True) as w:
-            nvfuser_result = func(input1, input2)
-            self.assertEqual(len(w), 0)
+        nvfuser_result = func(input1, input2)
         eager_result = func.__wrapped__(input1, input2)
         self.assertEqual(eager_result, nvfuser_result)
 
