@@ -188,9 +188,13 @@ struct DynamicType {
   // case of std::vector<int>. We need to think more about the interface before
   // implementing it.
 
-  // TODO, support ->* operator. This operator is rarely used, so we don't
+  // TODO: support ->* operator. This operator is rarely used, so we don't
   // implement it yet. But if in the future, it turns to be useful, we should
   // implement it.
+
+  // TODO: support operator(). This is not supported yet because it is the most
+  // difficulty one to implement because it can has arbitrary number of
+  // arguments. I believe it is doable, but I decide to leave it for future.
 };
 
 #define DEFINE_BINARY_OP(opname, op)                                        \
