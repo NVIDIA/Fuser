@@ -142,7 +142,7 @@ namespace {
 
 int64_t getSizeOfInputs(const std::vector<c10::IValue>& inputs) {
   int64_t bytes = 0;
-  for (auto inp : inputs) {
+  for (const auto& inp : inputs) {
     if (!inp.isTensor()) {
       continue;
     }
@@ -155,7 +155,7 @@ int64_t getSizeOfInputs(const std::vector<c10::IValue>& inputs) {
 
 int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
   int64_t bytes = 0;
-  for (auto tensor : outputs) {
+  for (const auto& tensor : outputs) {
     bytes += tensor.numel() *
         (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
   }
