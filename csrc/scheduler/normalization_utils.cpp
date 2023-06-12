@@ -625,7 +625,7 @@ int64_t partialReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
-int64_t getPersistentBufferBatches(
+int64_t getInnerOuterPersistentBufferBatches(
     const int64_t inner_vect,
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
