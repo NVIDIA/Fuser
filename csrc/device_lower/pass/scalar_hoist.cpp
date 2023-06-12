@@ -458,7 +458,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       // kernel, which can be either int64_t or int. Not very clean,
       // but this seems to be the quickest way to use the value type
       // as we don't have a scalar IR node for the value type.
-      auto dtype = *value->getDataType();
+      auto dtype = value->dtype();
       if (isIntegralType(dtype) && !isPointerType(dtype)) {
         value->resolveIndexDtype();
       }

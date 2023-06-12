@@ -2302,7 +2302,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("axes"),
-      py::arg("correction"),
+      py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
   nvf_ops.def(

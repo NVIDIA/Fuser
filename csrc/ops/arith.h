@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 
+#include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
@@ -769,5 +770,14 @@ TORCH_CUDA_CU_API TensorView* fusedMultiplySum(
     TensorView* tv_b,
     const std::vector<int>& axes,
     Val* init = nullptr);
+
+// Create a tensor view from the given value. The given value can be a single
+// scalar, an array of scalars, or a nested array of scalars.
+TensorView* tensor(Val* val);
+
+template <typename T>
+TensorView* tensor(const std::vector<T>& vals) {
+  return tensor(IrBuilder::arrayExpr(vals));
+}
 
 } // namespace nvfuser
