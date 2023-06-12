@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/util/Exception.h>
+#include <c10/util/irange.h>
 
 #include <iostream>
 #include <typeinfo>
@@ -73,9 +74,40 @@ class UnionFind {
   }
 
   //! Returns true only if other is same size and every set in this partition is
+  //! a subset of some set in other. This version does not do path compression.
+  template <typename OtherIndexType>
+  bool isRefinementOf(const UnionFind<OtherIndexType>& other) const {
+    if (size() != other.size()) {
+      return false;
+    }
+    // We do a brute-force search, caching the find() results as much as
+    // possible. If we find a pair of elements that are mapped in this but not
+    // in other return false
+    for (IndexType i = 0; i < size(); ++i) {
+      IndexType root_i_this = findConst(i);
+      IndexType root_i_other = other.findConst(i);
+      for (IndexType j = 0; j < size(); ++j) {
+        if (i == j) {
+          continue;
+        }
+        IndexType root_j_this = findConst(j);
+        if (root_i_this != root_j_this) {
+          continue;
+        }
+        // i and j are distinct equivalent items in "this"
+        IndexType root_j_other = (IndexType)other.findConst((OtherIndexType)j);
+        if (root_i_other != root_j_other) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  //! Returns true only if other is same size and every set in this partition is
   //! a subset of some set in other.
   template <typename OtherIndexType>
-  bool isRefinementOf(UnionFind<OtherIndexType> other) {
+  bool isRefinementOf(UnionFind<OtherIndexType>& other) {
     if (size() != other.size()) {
       return false;
     }
@@ -104,8 +136,43 @@ class UnionFind {
   }
 
   template <typename OtherIndexType>
-  bool operator<=(UnionFind<OtherIndexType> other) {
+  bool operator<=(UnionFind<OtherIndexType>& other) {
     return isRefinementOf(other);
+  }
+
+  template <typename OtherIndexType>
+  bool operator<=(const UnionFind<OtherIndexType>& other) const {
+    return isRefinementOf(other);
+  }
+
+  //! Returns true only if UnionFinds have the same size() and their equivalence
+  //! classes are the same. Note that the elements returned by find(a) maybe
+  //! different for two equal UnionFind objects. This operator does not perform
+  //! path compression on either operand.
+  template <typename OtherIndexType>
+  bool operator==(const UnionFind<OtherIndexType>& other) const {
+    if (size() != (IndexType)other.size()) {
+      return false;
+    }
+    // It suffices to check that for every element, the representative from this
+    // and the representative from other are mapped to one another by the
+    // _other_ UnionFind.
+    for (IndexType i : c10::irange(size())) {
+      auto a = findConst(i);
+      auto b = other.findConst((OtherIndexType)i);
+      // map other's class to ours and our class to other's
+      auto findb = findConst(b);
+      auto finda = other.findConst((OtherIndexType)a);
+      if (a != findb || finda != b) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  template <typename OtherIndexType>
+  bool operator!=(const UnionFind<OtherIndexType>& other) const {
+    return !operator==(other);
   }
 
   //! Resize the data-structure to equal or larger size than current
@@ -131,7 +198,24 @@ class UnionFind {
     return parent_.size();
   }
 
-  //! Determine root of element a
+  //! Determine root of element a without doing path compression
+  IndexType findConst(IndexType a) const {
+    TORCH_CHECK(
+        a < size(),
+        "Tried to find root of element ",
+        a,
+        " but total size of UnionFind is ",
+        size());
+    auto p = a;
+    auto root = parent_[p];
+    while (p != root) {
+      p = root;
+      root = parent_[p];
+    }
+    return root;
+  }
+
+  //! Determine root of element a and do path compression
   IndexType find(IndexType a) {
     TORCH_CHECK(
         a < size(),
@@ -167,6 +251,11 @@ class UnionFind {
     }
 
     return root;
+  }
+
+  //! Test whether two elements are equivalent without path compression
+  bool equivConst(IndexType a, IndexType b) const {
+    return findConst(a) == findConst(b);
   }
 
   //! Test whether two elements are equivalent
