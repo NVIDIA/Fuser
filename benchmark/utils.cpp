@@ -138,15 +138,45 @@ std::string toString(LaunchParams lparams) {
   return ss.str();
 }
 
-void runBenchmarkIterations(
+namespace {
+
+int64_t getSizeOfInputs(const std::vector<c10::IValue>& inputs) {
+  int64_t bytes = 0;
+  for (const auto& inp : inputs) {
+    if (!inp.isTensor()) {
+      continue;
+    }
+    const auto& inp_tensor = inp.toTensor();
+    bytes += inp_tensor.numel() *
+        (int64_t)dataTypeSize(aten_to_data_type(inp_tensor.scalar_type()));
+  }
+  return bytes;
+}
+
+int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
+  int64_t bytes = 0;
+  for (const auto& tensor : outputs) {
+    bytes += tensor.numel() *
+        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
+  }
+  return bytes;
+}
+} // namespace
+
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
   fusion_executor_cache->profile(true);
 
+  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+
   // Segment and compile the fusion
-  fusion_executor_cache->runFusionWithInputs(aten_inputs);
+  {
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    io_bytes += getSizeOfOutputs(cg_outputs);
+  }
 
   bool segmented =
       fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
@@ -192,15 +222,24 @@ void runBenchmarkIterations(
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  return io_bytes;
 }
 
-void runBenchmarkIterations(
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutor* fusion_executor,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  fusion_executor->runFusion(aten_inputs, launch_constraints, compile_params);
+  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+  {
+    // Warm-up run
+    auto cg_outputs = fusion_executor->runFusion(
+        aten_inputs, launch_constraints, compile_params);
+    io_bytes += getSizeOfOutputs(cg_outputs);
+  }
+
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
@@ -219,6 +258,8 @@ void runBenchmarkIterations(
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  return io_bytes;
 }
 
 namespace executorCache {

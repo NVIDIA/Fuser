@@ -199,8 +199,7 @@ bool compatibleType(const torch::jit::Value* val) {
 
 bool checkInputTensorTypes(const torch::jit::Node* node) {
   for (const auto i : c10::irange(node->inputs().size())) {
-    const auto& val = node->inputs()[i];
-    if (!compatibleType(val)) {
+    if (!compatibleType(node->inputs().at(i))) {
       // special case on aten::_batch_norm_impl_index_backward, the 11th output
       // is going to be discarded, so no need to check data type there.
       if (node->kind() ==
@@ -217,8 +216,7 @@ bool checkInputTensorTypes(const torch::jit::Node* node) {
 
 bool checkOutputTensorTypes(const torch::jit::Node* node) {
   for (const auto i : c10::irange(node->outputs().size())) {
-    const auto& val = node->outputs()[i];
-    if (!compatibleType(val)) {
+    if (!compatibleType(node->outputs().at(i))) {
       // special case on aten::_batch_norm_impl_index, the 4th output
       // is going to be discarded, so no need to check data type there.
       if (node->kind() ==
