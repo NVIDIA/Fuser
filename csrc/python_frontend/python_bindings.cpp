@@ -533,10 +533,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          PrimDataType dtype) -> Scalar {                                                       \
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          self.defineRecord(new ScalarRecord<double>(                                          \
+              {self.recordingState(out())},                                                    \
+              serde::RecordType_ScalarInput,                                                   \
+              std::nullopt,                                                                    \
+              dtype));                                                                         \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
@@ -551,10 +557,16 @@ void initNvFuserPythonBindings(PyObject* module) {
         TORCH_WARN_ONCE(                                                                       \
             "Deprecating define_constant functions in favor of define_scalar for constants."); \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          self.defineRecord(new ScalarRecord<double>(                                          \
+              {self.recordingState(out())},                                                    \
+              serde::RecordType_ScalarInput,                                                   \
+              std::nullopt,                                                                    \
+              dtype));                                                                         \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
