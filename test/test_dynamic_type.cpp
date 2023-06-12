@@ -119,7 +119,10 @@ static_assert(opcheck<int> >= opcheck<float>);
 static_assert(!(opcheck<int> >= opcheck<SomeType>));
 
 #if !defined(__clang__)
-// TODO: clang can not handle assignment operators well
+// clang is incorrectly assuming that T& = must also return a T&, which is
+// wrong. I never see such a restriction in the standard. In opcheck, all
+// operators are by design intentionally returning a bool, regardless of the
+// original semantics of that operator.
 
 // Assignment operators
 static_assert(opcheck<int&> = opcheck<int>);
@@ -559,7 +562,7 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Can not compute ")));
-    static_assert(!(opcheck<SomeTypes&>++));
+    static_assert(!(opcheck<SomeTypes&> ++));
   }
   // x--
   {
@@ -581,9 +584,44 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<c10::Error>(
             ::testing::HasSubstr("Can not compute ")));
-    static_assert(!(opcheck<SomeTypes&>--));
+    static_assert(!(opcheck<SomeTypes&> --));
   }
 }
+
+#define TEST_ASSIGN_OP(op, assign_op, name)                \
+  TEST_F(DynamicTypeTest, name) {                          \
+    IntSomeType x(299792458);                              \
+    auto& y = (x += 2);                                    \
+    EXPECT_EQ(x.as<int>(), 299792458 + 2);                 \
+    EXPECT_EQ(y.as<int>(), 299792458 + 2);                 \
+    EXPECT_EQ(&x, &y);                                     \
+    EXPECT_THAT(                                           \
+        []() {                                             \
+          IntSomeType x;                                   \
+          x += 1;                                          \
+        },                                                 \
+        ::testing::ThrowsMessage<c10::Error>(              \
+            ::testing::HasSubstr("Can not compute ")));    \
+    EXPECT_THAT(                                           \
+        []() {                                             \
+          IntSomeType x(SomeType{});                       \
+          x += 1;                                          \
+        },                                                 \
+        ::testing::ThrowsMessage<c10::Error>(              \
+            ::testing::HasSubstr("Can not compute ")));    \
+    static_assert(!(opcheck<SomeTypes&> += opcheck<int>)); \
+  }
+
+TEST_ASSIGN_OP(+, +=, AddAssign)
+TEST_ASSIGN_OP(-, -=, MinusAssign);
+TEST_ASSIGN_OP(*, *=, MulAssign);
+TEST_ASSIGN_OP(/, /=, DivAssign);
+TEST_ASSIGN_OP(%, %=, ModAssign);
+TEST_ASSIGN_OP(&, &=, AndAssign);
+TEST_ASSIGN_OP(|, |=, OrAssign);
+TEST_ASSIGN_OP(^, ^=, XorAssign);
+TEST_ASSIGN_OP(<<, <<=, LShiftAssign);
+TEST_ASSIGN_OP(>>, >>=, RShiftAssign);
 
 #if defined(__clang__)
 #pragma clang diagnostic pop

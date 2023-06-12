@@ -209,6 +209,15 @@ struct DynamicType {
   // arguments. I believe it is doable, but I decide to leave it for future.
 };
 
+template <typename T>
+struct is_dynamic_type : std::false_type {};
+
+template <typename... Ts>
+struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
+
+template <typename T>
+constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
+
 #define DEFINE_BINARY_OP(opname, op)                                        \
   /*TODO: we should inline the definition of lambdas into enable_if,*/      \
   /*but I can only do this in C++20 */                                      \
@@ -506,19 +515,26 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #undef DEFINE_RIGHT_PPMM
 
-// TODO: clang can not handle assignment operators for opcheck correctly, so
-// we are not adding them for now. In the future, when clang's bug is fixed,
-// we can add them.
-// DEFINE_ASSIGNMENT_OP(+=);
-// DEFINE_ASSIGNMENT_OP(-=);
-// DEFINE_ASSIGNMENT_OP(*=);
-// DEFINE_ASSIGNMENT_OP(/=);
-// DEFINE_ASSIGNMENT_OP(%=);
-// DEFINE_ASSIGNMENT_OP(&=);
-// DEFINE_ASSIGNMENT_OP(|=);
-// DEFINE_ASSIGNMENT_OP(^=);
-// DEFINE_ASSIGNMENT_OP(<<=);
-// DEFINE_ASSIGNMENT_OP(>>=);
+#define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
+  template <                                                     \
+      typename DT,                                               \
+      typename T,                                                \
+      typename = std::enable_if_t<                               \
+          is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
+  inline constexpr DT& operator assign_op(DT& x, const T& y) {   \
+    return x = x op y;                                           \
+  }
+
+DEFINE_ASSIGNMENT_OP(+, +=);
+DEFINE_ASSIGNMENT_OP(-, -=);
+DEFINE_ASSIGNMENT_OP(*, *=);
+DEFINE_ASSIGNMENT_OP(/, /=);
+DEFINE_ASSIGNMENT_OP(%, %=);
+DEFINE_ASSIGNMENT_OP(&, &=);
+DEFINE_ASSIGNMENT_OP(|, |=);
+DEFINE_ASSIGNMENT_OP(^, ^=);
+DEFINE_ASSIGNMENT_OP(<<, <<=);
+DEFINE_ASSIGNMENT_OP(>>, >>=);
 
 // Intentionally not overloading operator comma",". This operator is rarely
 // overloaded, and the automatically defined version by the compiler usually
