@@ -178,6 +178,19 @@ struct DynamicType {
   // Intentionally not overloading operator-> because it only makes sense when
   // returning pointers, however, if we have a DynamicType that can be either a
   // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
+
+  // Intentionally not supporting operator[], because this has similar issue as
+  // operator* for requiring reference type to be in the type list, which is not
+  // allowed by the C++ standard. On the other hand, instead of supporting
+  // things like std::vector<int> being in the type list, we are more interested
+  // in having recursive dynamic types, i.e. std::vector<DynamicType> being in
+  // the type list. In this case, operator[] will behave differently from the
+  // case of std::vector<int>. We need to think more about the interface before
+  // implementing it.
+
+  // TODO, support ->* operator. This operator is rarely used, so we don't
+  // implement it yet. But if in the future, it turns to be useful, we should
+  // implement it.
 };
 
 #define DEFINE_BINARY_OP(opname, op)                                        \
@@ -369,8 +382,8 @@ DEFINE_UNARY_OP(lnot, !);
 #undef DEFINE_UNARY_OP
 
 // Printing
-// TODO: we should inline the definition of opname##_helper into enable_if, but
-// I can only do this in C++20
+// TODO: we should inline the definition of can_print into enable_if, but I can
+// only do this in C++20
 constexpr auto can_print = [](auto x) constexpr {
   using T = decltype(x);
   if constexpr (opcheck<std::ostream&> << opcheck<T>) {
@@ -477,11 +490,9 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #undef DEFINE_RIGHT_PPMM
 
-// TODO: clang can not handle assignment operators for opcheck correctly, so we
-// are not adding them for now. In the future, when clang's bug is fixed, we can
-// add them.
-// DEFINE_ASSIGNMENT_OP(=);
-// DEFINE_ASSIGNMENT_OP(+=);
+// TODO: clang can not handle assignment operators for opcheck correctly, so
+// we are not adding them for now. In the future, when clang's bug is fixed,
+// we can add them. DEFINE_ASSIGNMENT_OP(=); DEFINE_ASSIGNMENT_OP(+=);
 // DEFINE_ASSIGNMENT_OP(-=);
 // DEFINE_ASSIGNMENT_OP(*=);
 // DEFINE_ASSIGNMENT_OP(/=);
