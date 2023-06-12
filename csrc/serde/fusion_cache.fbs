@@ -97,10 +97,7 @@ enum RecordType : int {
     ScalarBool,
     ScalarComplexDouble,
     ScalarDouble,
-    ScalarBoolInput,
-    ScalarIntInput,
-    ScalarDoubleInput,
-    ScalarComplexInput,
+    ScalarInput,
     ScalarLong,
     SliceOp,
     SqueezeOp,
@@ -186,7 +183,7 @@ table TensorShape {
   shape : [long];
 }
 
-// Data for Scalar Inputs
+// Data for Scalar Input
 table ScalarInput {
   dtype: DataType;
 }

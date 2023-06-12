@@ -1933,7 +1933,7 @@ struct ScalarRecord : RecordFunctor {
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const ScalarRecord<ValueType>*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       if (result) {
         if (value_.has_value()) {
