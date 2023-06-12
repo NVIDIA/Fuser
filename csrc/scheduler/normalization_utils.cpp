@@ -631,7 +631,8 @@ int64_t getInnerOuterPersistentBufferBatches(
     const int64_t outer_dim_numel,
     const int64_t warpSize) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
-  // with a constant batch size of 1
+  // with a constant batch size of 1. See Step 5 of
+  // innerOuterPersistentHeuristic
   if (inner_dim_numel <= 1024l) {
     return 1l;
   }
