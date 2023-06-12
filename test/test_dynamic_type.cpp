@@ -470,6 +470,28 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
           ::testing::HasSubstr("Can not compute ")));
 }
 
+TEST_F(DynamicTypeTest, Printing) {
+  std::stringstream ss;
+  ss << DoubleInt64Bool(299792458L) << ", " << DoubleInt64Bool(3.14159) << ", "
+     << DoubleInt64Bool(true);
+  EXPECT_EQ(ss.str(), "299792458, 3.14159, 1");
+
+  std::stringstream ss2;
+  static_assert(opcheck<std::stringstream&> << opcheck<IntSomeType>);
+  ss2 << IntSomeType(299792458);
+  EXPECT_EQ(ss2.str(), "299792458");
+
+  EXPECT_THAT(
+      [&]() { ss << IntSomeType(); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not print")));
+  EXPECT_THAT(
+      [&]() { ss << IntSomeType(SomeType{}); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Can not print")));
+  static_assert(!(opcheck<std::stringstream&> << opcheck<SomeTypes>));
+}
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

@@ -126,9 +126,6 @@ namespace nvfuser {
 template <typename... Ts>
 struct DynamicType;
 
-// template <typename... Ts>
-// std::ostream& operator<<(std::ostream& os, const DynamicType<Ts...>& dt);
-
 template <typename... Ts>
 // not using template <typename... Ts> to make sure there is at least one type
 struct DynamicType {
@@ -366,6 +363,37 @@ DEFINE_UNARY_OP(lnot, !);
 // DEFINE_UNARY_OP(mm, --);
 // DEFINE_UNARY_SUFFIX_OP(spp, ++);
 // DEFINE_UNARY_SUFFIX_OP(smm, --);
+
+// Printing
+constexpr auto can_print = [](auto x) constexpr {
+  using T = decltype(x);
+  if constexpr (opcheck<std::ostream&> << opcheck<T>) {
+    return std::
+        is_same_v<decltype(std::declval<std::ostream&>() << x), std::ostream&>;
+  }
+  return false;
+};
+template <
+    typename DT,
+    typename = std::enable_if_t<any_check(can_print, DT::types_as_tuple)>>
+std::ostream& operator<<(std::ostream& os, const DT& dt) {
+  bool printed = false;
+  DT::for_all_types([&printed, &os, &dt](auto* _) {
+    using T = std::remove_pointer_t<decltype(_)>;
+    if constexpr (opcheck<std::ostream&> << opcheck<T>) {
+      if constexpr (std::is_same_v<
+                        decltype(os << std::declval<T>()),
+                        std::ostream&>) {
+        if (dt.template is<T>()) {
+          os << dt.template as<T>();
+          printed = true;
+        }
+      }
+    }
+  });
+  TORCH_CHECK(printed, "Can not print: incompatible type");
+  return os;
+}
 
 // legacy code below:
 
