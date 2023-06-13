@@ -13,12 +13,15 @@ from pytest_input_generators import (
     _elementwise_unary_torch,
     define_tensor_generator,
     define_tensor_error_generator,
+    index_select_generator,
+    index_select_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
     var_mean_generator,
 )
 from pytest_utils import float_complex_dtypes
+from functools import partial
 
 eps = 1e-2
 
@@ -71,6 +74,32 @@ normalization_ops.append(var_mean_opinfo)
 """ Start Shape Operations """
 
 shape_ops = []
+
+# torch.gather(input: Tensor, dim: int, index: LongTensor)
+# Tensor arg1, Tensor index, int64_t dim
+# * input and index tensors have same ndims.
+#
+# torch.take_along_dim(input: Tensor, indices: LongTensor, dim: int)
+# Tensor arg1, Tensor index, int64_t dim
+# * input and index tensors must match size along dim axis.
+# * designed to work with argmax and argsort.
+# * If no dim argument, flatten tensors.
+
+
+def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: int):
+    return fn(input, dim, index)
+
+
+index_select_opinfo = OpInfo(
+    lambda fd: fd.ops.index_select,
+    "index_select",
+    sample_input_generator=index_select_generator,
+    error_input_generator=index_select_error_generator,
+    reference=partial(gather_wrapper, torch.index_select),
+    symbolic_parameter_list=(True, True, False),
+)
+shape_ops.append(index_select_opinfo)
+
 
 cat_opinfo = OpInfo(
     lambda fd: fd.ops.cat,

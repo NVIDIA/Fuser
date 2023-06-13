@@ -47,8 +47,8 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         RuntimeError,
         "Attempting to concatenate empty list of tensors",
     )
-    positive_axis = (([(1,), (2,)], 1), RuntimeError, "Invalid dimension to cat")
-    negative_axis = (([(2,), (2,)], -2), RuntimeError, "Invalid dimension to cat")
+    positive_dim = (([(1,), (2,)], 1), RuntimeError, "Invalid dimension to cat")
+    negative_dim = (([(2,), (2,)], -2), RuntimeError, "Invalid dimension to cat")
     # All tensors must have same number of dimension"
     ndims_mismatch = (
         ([(2,), (2, 3)], 0),
@@ -60,8 +60,8 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
 
     error_cases = [
         empty_input_tensors,
-        positive_axis,
-        negative_axis,
+        positive_dim,
+        negative_dim,
         ndims_mismatch,
         shape_mismatch,
     ]
@@ -214,6 +214,73 @@ def define_tensor_error_generator(
     )
     for es in error_cases:
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
+
+
+# index_select_generator,
+def index_select_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    # a.shape, dim, b.shape
+    cases = (
+        ((4, 2, 3), 0, (8)),
+        ((4, 2, 3), 1, (7)),
+        ((4, 2, 3), 2, (2)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3)),
+        ((4, 1), 1, (5)),
+        ((1, 0, 3), 0, (8)),
+    )
+
+    for shape_a, dim, shape_b in cases:
+        for index_dtype in [torch.int, torch.long]:
+            a = make_arg(shape_a)
+            b = make_index(shape_b, low=0, high=shape_a[dim], dtype=index_dtype)
+            yield SampleInput(a, b, dim)
+
+
+def index_select_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.index_select(input: Tensor, dim: int, index: LongTensor)
+    # dim is within bounds
+    # index is a 1D vector
+    # index array can't have zero elements
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    input_shape = (4, 2)
+    index_shape = (8,)
+
+    a = make_arg(input_shape)
+
+    # dim, exception type, exception string
+    positive_axis = (2, RuntimeError, "index_select on invalid axis")
+    negative_axis = (-3, RuntimeError, "index_select on invalid axis")
+
+    error_cases = [
+        positive_axis,
+        negative_axis,
+    ]
+
+    for dim, ex_type, ex_str in error_cases:
+        b = make_index(index_shape, low=0, high=10, dtype=torch.long)
+        yield SampleInput(a, b, dim), ex_type, ex_str
+
+    # TODO add index dtype check
+    # b = make_index(index_shape, low=0, high=input_shape[0], dtype=torch.float)
+    # yield SampleInput(a, b, 0), RuntimeError, "index tensor can only be int or long dtype."
+
+    # TODO add index out-of-bounds check
+    # b = make_index(index_shape, low=10, high=100, dtype=torch.long)
+    # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
 
 # TODO: add stride testing
