@@ -216,7 +216,80 @@ def define_tensor_error_generator(
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
-# index_select_generator,
+def take_along_axis_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
+    )
+
+    # a.shape, dim, b.shape
+    cases = (
+        ((4, 2, 3), 0, (8, 2, 3)),
+        ((4, 2, 3), 1, (4, 1, 3)),
+        ((4, 2, 3), 2, (4, 2, 5)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3, 1)),
+        ((4, 1), 1, (4, 5)),
+    )
+
+    for shape_a, dim, shape_b in cases:
+        a = make_arg(shape_a)
+        b = make_index(shape_b, low=0, high=shape_a[dim])
+        yield SampleInput(a, b, dim)
+
+
+def gather_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.gather(input: Tensor, dim: int, index: LongTensor)
+    # * input and index tensors have same ndims.
+    # * dim is within bounds
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
+    )
+
+    input_shape = (4, 2)
+    valid_index_shape = (3, 1)
+    invalid_index_shape = (5, 3)
+
+    a = make_arg(input_shape)
+
+    # dim, exception type, exception string
+    positive_axis = (2, RuntimeError, "Tensor arguments have dimension")
+    negative_axis = (-3, RuntimeError, "Tensor arguments have dimension")
+
+    error_cases = [
+        positive_axis,
+        negative_axis,
+    ]
+
+    for dim, ex_type, ex_str in error_cases:
+        b = make_index(valid_index_shape, low=0, high=10, dtype=torch.long)
+        yield SampleInput(a, b, dim), ex_type, ex_str
+
+    # TODO add index dtype check
+    # b = make_index(valid_index_shape, low=0, high=input_shape[0], dtype=torch.float)
+    # yield SampleInput(a, b, 0), RuntimeError, "index tensor can only be int or long dtype."
+
+    # TODO add index out-of-bounds check
+    # b = make_index(valid_index_shape, low=10, high=100, dtype=torch.long)
+    # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
+
+    # TODO add invalid index shape
+    # b = make_index(invalid_index_shape, low=0, high=invalid_index_shape[0], dtype=torch.long)
+    # index_dim_ex_str =" Expected dimension of index tensor to be smaller than input tensor except for specified axis"
+    # yield SampleInput(a, b, 0), RuntimeError, index_dim_ex_str
+
+
 def index_select_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -248,9 +321,9 @@ def index_select_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # torch.index_select(input: Tensor, dim: int, index: LongTensor)
-    # dim is within bounds
-    # index is a 1D vector
-    # index array can't have zero elements
+    # * dim is within bounds
+    # * index is a 1D vector
+    # * index array can't have zero elements
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
