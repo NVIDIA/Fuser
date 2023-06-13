@@ -2258,6 +2258,21 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
 
+    def test_input_scalar(self):
+        inputs = [
+            torch.randn((3,), dtype=torch.float32, device="cuda:0"),
+            0.1,
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar()
+            T1 = fd.ops.mul(T0, S1)
+            fd.add_output(T1)
+
+        # Just test that this executes, not that it's correct
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()
