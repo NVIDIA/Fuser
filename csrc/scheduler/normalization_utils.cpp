@@ -625,5 +625,55 @@ int64_t partialReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
+int64_t getInnerOuterPersistentBufferBatches(
+    const int64_t inner_vect,
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t warpSize) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1. See Step 5 of
+  // innerOuterPersistentHeuristic
+  if (inner_dim_numel <= 1024l) {
+    return 1l;
+  }
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
+      } else {
+        return 4l;
+      }
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
+    }
+    return 1l;
+  };
+  int64_t threads_per_block = warpSize / 4;
+  int64_t inner_batch = inner_dim_numel / inner_vect / threads_per_block;
+  const int64_t threads_per_block_max = inner_dim_numel >= 20480l ? 512l : 256l;
+  const int64_t batch_min = getMinimumBatch();
+  auto tryReduceBatch = [&](auto factor) -> bool {
+    return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
+        threads_per_block * factor <= threads_per_block_max;
+  };
+  while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
+    bool modified = false;
+    for (auto factor : {2, 3, 5}) {
+      if (tryReduceBatch(factor)) {
+        inner_batch /= factor;
+        threads_per_block *= factor;
+        modified = true;
+        break;
+      }
+    }
+    if (!modified) {
+      break;
+    }
+  }
+  return inner_batch;
+}
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
