@@ -82,7 +82,7 @@ __device__ void warpReduceTIDX(
     }
     // needs sync, otherwise other warps may access shared memory before this
     // reduction is done.
-    block_sync::sync<Aligned>();    
+    block_sync::sync<Aligned>();
   } else {
     reduction_op(out, reduce_val);
   }
