@@ -13,7 +13,7 @@ from pytest_core import OpInfo, SampleInput, ErrorSample
 from nvfuser import DataType
 
 
-def bcast_error_generator(
+def broadcast_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # jax.lax.broadcast(operand, sizes)
@@ -48,7 +48,7 @@ def bcast_error_generator(
         yield SampleInput(input_tensor, bcast_dims), ex_type, ex_str
 
 
-def bcast_in_dim_generator(
+def broadcast_in_dim_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     make_arg = partial(
@@ -72,7 +72,7 @@ def bcast_in_dim_generator(
         yield SampleInput(a, output_shape, bcast_dims)
 
 
-def bcast_in_dim_error_generator(
+def broadcast_in_dim_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # jax.lax.broadcast_in_dim(operand, shape, broadcast_dimensions)
