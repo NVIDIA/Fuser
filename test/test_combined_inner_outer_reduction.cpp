@@ -180,7 +180,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
     const int64_t n_elements_factor = warp_size / 4 * vectorization_factor;
     const int64_t inner_batch =
-        normalization_scheduler_utils::getPersistentBufferBatches(
+        normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
             vectorization_factor, feature_size, batch_size, warp_size);
     const int64_t max_batch = 7l;
     bool expect_segmentation =

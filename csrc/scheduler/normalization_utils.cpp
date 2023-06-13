@@ -675,7 +675,7 @@ int64_t getInnerOuterPersistentBufferBatches(
   return inner_batch;
 }
 
-int64_t getMaximumBatch(
+int64_t getMaximumInnerOuterPersistentBufferBatch(
     const int64_t total_buffer_bytes,
     const int64_t reduction_elements,
     const int64_t vectorization_factor) {

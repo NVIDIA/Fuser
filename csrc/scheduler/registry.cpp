@@ -1972,13 +1972,13 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
       // check batches of persistent buffer
       const int64_t batch_needed =
-          normalization_scheduler_utils::getPersistentBufferBatches(
+          normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
               (int64_t)vectorize_factor,
               properties.total_reduction_numel,
               properties.total_iteration_numel,
               warp_size);
-      const int64_t batch_available =
-          normalization_scheduler_utils::getMaximumBatch(
+      const int64_t batch_available = normalization_scheduler_utils::
+          getMaximumInnerOuterPersistentBufferBatch(
               persistent_buffer_size,
               properties.total_reduction_numel,
               (int64_t)vectorize_factor);
