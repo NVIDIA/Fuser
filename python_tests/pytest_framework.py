@@ -5,6 +5,7 @@
 
 import inspect
 import sys
+import os
 import torch
 from typing import Callable
 from pytest_utils import map_dtype_to_str
@@ -53,5 +54,10 @@ def run_test_fn(test_fn, opinfo, dtype, *args, **kwargs):
     try:
         test_fn(*args, **kwargs)
     except Exception as e:
+        # Raises exceptions that occur with pytest, and returns debug information when
+        # called otherwise
+        # NOTE: PYTEST_CURRENT_TEST is set by pytest
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            raise e
         return e, sys.exc_info(), test_fn, opinfo, dtype, args, kwargs
     return None

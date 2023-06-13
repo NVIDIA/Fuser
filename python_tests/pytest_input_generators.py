@@ -12,6 +12,65 @@ from torch.testing import make_tensor
 from pytest_core import OpInfo, SampleInput, ErrorSample
 from nvfuser import DataType
 
+
+def cat_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shapes, dim
+    cases = [
+        ([(3,)], 0),  # single tensor provided
+        # 1D
+        ([(2,), (3,)], 0),
+        ([(2,), (4,)], 0),
+        ([(0,), (2,)], 0),
+        ([(0,), (2,)], -1),
+        ([(2, 3), (2, 4)], 1),
+        ([(2, 3), (2, 4), (2, 5)], 1),
+    ]
+
+    for shapes, dim in cases:
+        yield SampleInput([make_arg(s) for s in shapes], dim)
+
+
+def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shapes, dim, exception type, exception string
+    empty_input_tensors = (
+        ([], 0),
+        RuntimeError,
+        "Attempting to concatenate empty list of tensors",
+    )
+    positive_axis = (([(1,), (2,)], 1), RuntimeError, "Invalid dimension to cat")
+    negative_axis = (([(2,), (2,)], -2), RuntimeError, "Invalid dimension to cat")
+    # All tensors must have same number of dimension"
+    ndims_mismatch = (
+        ([(2,), (2, 3)], 0),
+        RuntimeError,
+        "Unexpected number of dimensions",
+    )
+    # All tensors must have same shape except for the cat dimension
+    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
+
+    error_cases = [
+        empty_input_tensors,
+        positive_axis,
+        negative_axis,
+        ndims_mismatch,
+        shape_mismatch,
+    ]
+
+    for case, ex_type, ex_str in error_cases:
+        shapes, dim = case
+        yield SampleInput([make_arg(s) for s in shapes], dim), ex_type, ex_str
+
+
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(
     op: OpInfo,

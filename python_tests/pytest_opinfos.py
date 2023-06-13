@@ -7,6 +7,8 @@ import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_input_generators import (
+    cat_generator,
+    cat_error_generator,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     define_tensor_generator,
@@ -69,6 +71,16 @@ normalization_ops.append(var_mean_opinfo)
 """ Start Shape Operations """
 
 shape_ops = []
+
+cat_opinfo = OpInfo(
+    lambda fd: fd.ops.cat,
+    "cat",
+    sample_input_generator=cat_generator,
+    error_input_generator=cat_error_generator,
+    reference=torch.cat,
+    symbolic_parameter_list=(True, False),
+)
+shape_ops.append(cat_opinfo)
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,

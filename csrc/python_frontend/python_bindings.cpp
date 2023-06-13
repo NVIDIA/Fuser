@@ -1866,7 +1866,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("tensors"),
-      py::arg("dim"),
+      py::arg("dim") = 0,
       py::return_value_policy::reference);
   nvf_ops.def(
       "index_select",
