@@ -513,6 +513,10 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
+            // ScalarRecord<double> is used for all input scalars. The template
+            // type is unused, but it is important that we ensure that all input
+            // scalars, regardless of dtype, make use of the same template type,
+            // so we standardize on double.
             self.defineRecord(new ScalarRecord<double>(
                 {self.recordingState(out())},
                 serde::RecordType_ScalarInput,
@@ -523,7 +527,12 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
 
-// This is the canonical version of define_scalar
+// Below is the canonical version of define_scalar. When the `value` argument is
+// omitted, the definition above will be used. However, when an explicit value
+// of `None` is provided, one of the definitions below will be used instead. In
+// such case, we must ensure that the standard template argument `double` is
+// used for all input scalars, in contrast to `CType` corresponding to the
+// default `dtype`.
 #define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
     Nvfuser_DType, Serde_RType, CType)                                                         \
   fusion_def.def(                                                                              \
@@ -533,10 +542,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          PrimDataType dtype) -> Scalar {                                                       \
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          self.defineRecord(new ScalarRecord<double>(                                          \
+              {self.recordingState(out())},                                                    \
+              serde::RecordType_ScalarInput,                                                   \
+              std::nullopt,                                                                    \
+              dtype));                                                                         \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
@@ -551,10 +566,16 @@ void initNvFuserPythonBindings(PyObject* module) {
         TORCH_WARN_ONCE(                                                                       \
             "Deprecating define_constant functions in favor of define_scalar for constants."); \
         Scalar out = self.defineScalar();                                                      \
-        auto rtype =                                                                           \
-            value.has_value() ? Serde_RType : serde::RecordType_ScalarInput;                   \
-        self.defineRecord(new ScalarRecord<CType>(                                             \
-            {self.recordingState(out())}, rtype, value, dtype));                               \
+        if (value.has_value()) {                                                               \
+          self.defineRecord(new ScalarRecord<CType>(                                           \
+              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
+        } else {                                                                               \
+          self.defineRecord(new ScalarRecord<double>(                                          \
+              {self.recordingState(out())},                                                    \
+              serde::RecordType_ScalarInput,                                                   \
+              std::nullopt,                                                                    \
+              dtype));                                                                         \
+        }                                                                                      \
         return out;                                                                            \
       },                                                                                       \
       py::arg("value"),                                                                        \
@@ -2282,7 +2303,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("axes"),
-      py::arg("correction"),
+      py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
