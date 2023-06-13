@@ -195,6 +195,9 @@ int64_t getInnerOuterPersistentBufferBatches(
 //! reserved for indexing and other purposes. So, each thread can use up to 215
 //! registers for persistent buffer. Calculate number of buffer batches using
 //! these 215 registers.
+//! total_buffer_bytes is the total size of persistent buffers in bytes.
+//! reduction_elements is the number of elements in the reduction domain.
+//! vectorization_factor is the vectorization factor of inputs and outputs.
 int64_t getMaximumInnerOuterPersistentBufferBatch(
     const int64_t total_buffer_bytes,
     const int64_t reduction_elements,

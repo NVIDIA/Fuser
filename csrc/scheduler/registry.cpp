@@ -1932,7 +1932,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     auto properties = scheduler_utils::getReductionProperties(
         fusion, runtime_info, reference_tv);
 
-    const int64_t warp_size = at::cuda::warp_size();
+    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
     if (!properties.fastest_dim_reduction) {
       return canScheduleRunTimeOuter(
@@ -1970,18 +1970,27 @@ class PersistentKernelScheduler : public SchedulerEntry {
         return false;
       }
 
-      // check batches of persistent buffer
+      // batch_needed is the number of batches calculated based on current
+      // heuristics using the vectorize_factor, reduction_numel and
+      // iteration_numel
       const int64_t batch_needed =
           normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
               (int64_t)vectorize_factor,
               properties.total_reduction_numel,
               properties.total_iteration_numel,
               warp_size);
+
+      // batch_available is the number of batches that can be allocated based on
+      // avilable registers, buffer size, reduction number, and vectorization
+      // factor
       const int64_t batch_available = normalization_scheduler_utils::
           getMaximumInnerOuterPersistentBufferBatch(
               persistent_buffer_size,
               properties.total_reduction_numel,
               (int64_t)vectorize_factor);
+
+      // if batch_needed is larger than batch_available, we will have register
+      // spills
       if (batch_needed > batch_available) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
