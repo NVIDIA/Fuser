@@ -11,6 +11,8 @@ from pytest_input_generators import (
     _elementwise_unary_torch,
     define_tensor_generator,
     define_tensor_error_generator,
+    define_vector_generator,
+    define_vector_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
@@ -33,6 +35,18 @@ define_tensor_opinfo = OpInfo(
     is_fusion_input_op=True,
 )
 fusion_input_ops.append(define_tensor_opinfo)
+
+# NOTE: this operation only supports vectors of integers that represent
+# tensor shapes and is not a general interface for defining vectors of 
+# data.  Vectors of data should be handled with a 1D `define_tensor`.
+define_vector_opinfo = OpInfo(
+    lambda fd: fd.define_vector,
+    "define_vector",
+    sample_input_generator=define_vector_generator,
+    error_input_generator=define_vector_error_generator,
+    is_fusion_input_op=True,
+)
+fusion_input_ops.append(define_vector_opinfo)
 
 """ End Fusion Input Operations """
 
