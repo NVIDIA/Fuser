@@ -243,12 +243,16 @@ def take_along_axis_generator(
         yield SampleInput(a, b, dim)
 
 
-def gather_error_generator(
+def take_along_axis_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # torch.gather(input: Tensor, dim: int, index: LongTensor)
     # * input and index tensors have same ndims.
+    # * index tensors must be smaller than input tensor along all dims except specified axis.
     # * dim is within bounds
+    #
+    # torch.take_along_dim(input: Tensor, indices: LongTensor, dim: int)
+    # * If no dim argument, flatten tensors.
 
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
@@ -259,7 +263,8 @@ def gather_error_generator(
 
     input_shape = (4, 2)
     valid_index_shape = (3, 1)
-    invalid_index_shape = (5, 3)
+    too_many_dims_index_shape = (5, 3)
+    larger_index_shape = (5, 3)
 
     a = make_arg(input_shape)
 
@@ -276,18 +281,36 @@ def gather_error_generator(
         b = make_index(valid_index_shape, low=0, high=10, dtype=torch.long)
         yield SampleInput(a, b, dim), ex_type, ex_str
 
-    # TODO add index dtype check
+    # TODO FIX
     # b = make_index(valid_index_shape, low=0, high=input_shape[0], dtype=torch.float)
     # yield SampleInput(a, b, 0), RuntimeError, "index tensor can only be int or long dtype."
 
-    # TODO add index out-of-bounds check
+    # TODO FIX
     # b = make_index(valid_index_shape, low=10, high=100, dtype=torch.long)
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
-    # TODO add invalid index shape
-    # b = make_index(invalid_index_shape, low=0, high=invalid_index_shape[0], dtype=torch.long)
-    # index_dim_ex_str =" Expected dimension of index tensor to be smaller than input tensor except for specified axis"
-    # yield SampleInput(a, b, 0), RuntimeError, index_dim_ex_str
+    # TODO FIX
+    # b = make_index(
+    #    larger_index_shape, low=0, high=larger_index_shape[0], dtype=torch.long
+    # )
+    # yield (
+    #    SampleInput(a, b, 0),
+    #    RuntimeError,
+    #    "Expected dimension of index tensor to be smaller than input tensor except for specified axis",
+    # )
+
+    # TODO FIX
+    # b = make_index(
+    #    too_many_dims_index_shape,
+    #    low=0,
+    #    high=too_many_dims_index_shape[0],
+    #    dtype=torch.long,
+    # )
+    # yield (
+    #    SampleInput(a, b, 0),
+    #    RuntimeError,
+    #    "input and indices should have the same number of dimensions",
+    # )
 
 
 def index_select_generator(

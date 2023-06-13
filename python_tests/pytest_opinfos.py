@@ -13,13 +13,13 @@ from pytest_input_generators import (
     _elementwise_unary_torch,
     define_tensor_generator,
     define_tensor_error_generator,
-    gather_error_generator,
     index_select_generator,
     index_select_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
     take_along_axis_generator,
+    take_along_axis_error_generator,
     var_mean_generator,
 )
 from pytest_utils import float_complex_dtypes
@@ -77,23 +77,26 @@ normalization_ops.append(var_mean_opinfo)
 
 shape_ops = []
 
-# torch.take_along_dim(input: Tensor, indices: LongTensor, dim: int)
-# Tensor arg1, Tensor index, int64_t dim
-# * input and index tensors must match size along dim axis.
-# * designed to work with argmax and argsort.
-# * If no dim argument, flatten tensors.
-
-
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
 def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: int):
     return fn(input, dim, index)
 
 
+take_along_axis_opinfo = OpInfo(
+    lambda fd: fd.ops.take_along_axis,
+    "take_along_dim",
+    sample_input_generator=take_along_axis_generator,
+    error_input_generator=take_along_axis_error_generator,
+    reference=torch.take_along_dim,
+    symbolic_parameter_list=(True, True, False),
+)
+shape_ops.append(take_along_axis_opinfo)
+
 gather_opinfo = OpInfo(
     lambda fd: fd.ops.gather,
     "gather",
     sample_input_generator=take_along_axis_generator,
-    error_input_generator=gather_error_generator,
+    error_input_generator=take_along_axis_error_generator,
     reference=partial(gather_wrapper, torch.gather),
     symbolic_parameter_list=(True, True, False),
 )
