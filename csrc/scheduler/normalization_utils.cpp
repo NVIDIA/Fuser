@@ -693,7 +693,11 @@ std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
   }
   TORCH_INTERNAL_ASSERT(
       inner_batch >= batch_min,
-      "Batch size is larger than expected! Please report this issue");
+      "Batch size is larger than expected! Please report this issue.",
+      " inner_batch = ",
+      inner_batch,
+      ", batch_min = ",
+      batch_min);
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
   if (inner_batch <= batch_max) {
     return inner_batch;
