@@ -186,8 +186,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 //! Additionally, we check inputs since they might actually be disconnected from
 //! outputs.
 std::vector<EmptyTensorDescriptor> findEmptyTensors(
-    Fusion* fusion,
     ExpressionEvaluator* expr_eval) {
+  auto fusion = FusionGuard::getCurFusion();
   std::vector<EmptyTensorDescriptor> empty_tensors;
   std::vector<Val*> vals(fusion->inputs());
   vals.insert(vals.end(), fusion->outputs().begin(), fusion->outputs().end());
@@ -203,6 +203,7 @@ std::vector<EmptyTensorDescriptor> findEmptyTensors(
     if (visited.find(tv) != visited.end()) {
       continue;
     }
+    visited.insert(tv);
 
     std::vector<size_t> empty_axes;
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -253,7 +254,12 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   bool has_empty_tensor = false;
   for (auto ext : initial_info_->getDynamicExtentVals()) {
-    if (expr_eval->evaluate(ext).value().as<int64_t>() == 0) {
+    auto ext_opt = expr_eval->evaluate(ext);
+    TORCH_INTERNAL_ASSERT(
+        ext_opt.has_value(),
+        "Could not evaluate dynamic extent: ",
+        ext->toString());
+    if (ext_opt.value().as<int64_t>() == 0) {
       has_empty_tensor = true;
       break;
     }
@@ -261,7 +267,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   // Find a minimal set of empty tensors to replace with full() calls
   // NOTE: this does a backward traversal from outputs.
   if (has_empty_tensor) {
-    empty_tensors_ = findEmptyTensors(initial_info_->fusion(), expr_eval);
+    empty_tensors_ = findEmptyTensors(expr_eval);
   }
 }
 
@@ -462,6 +468,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
     TORCH_INTERNAL_ASSERT(
         fusion == info->fusion(),
         "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
+    FusionGuard fg(fusion);
     concretize();
   }
 
@@ -474,7 +481,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   //! Modify the Fusion by replacing tv with output of full() expression in
   //! outputs and all uses.
-  TensorView* replaceEmpty(
+  TensorView* replaceWithFull(
       TensorView* tv,
       std::vector<Val*>& new_shape,
       Val* fill_value = nullptr);
@@ -516,7 +523,8 @@ void DynamicTransformConcretizer::concretize() {
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
-  // Concretize empty tensors last.
+  // Concretize empty tensors last in case some empty tensor are fed into
+  // replaced dynamic ops.
   removeEmptyBranches();
 
   // Finally, propagate concretized domains
@@ -541,6 +549,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     for (auto ax : empty_tv_descr.empty_axes) {
       // Hard-code zero extent for empty axes. This lets us detect empty input
       // and output tensors during scheduling/execution.
+      registerConcretization(new_shape[ax], tv->fusion()->zeroVal());
       new_shape[ax] = tv->fusion()->zeroVal();
     }
 
@@ -554,7 +563,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     };
 
     // Given a TensorView, get a shape with hard-coded zeroes
-    auto reduction_shape = [](TensorView* out_tv) -> std::vector<Val*> {
+    auto orig_shape = [](TensorView* out_tv) -> std::vector<Val*> {
       auto nored_axes =
           TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
       // Output shape is simply the same as the original reduction. If there
@@ -569,33 +578,73 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       return out_shape;
     };
 
-    // If expr is a ReductionOp or WelfordOp over some empty axes, replace it
-    // with a call to full().
+    std::unordered_map<TensorView*, TensorView*> replaced;
+    auto maybeReplaced = [&replaced](TensorView* tv) -> TensorView* {
+      auto it = replaced.find(tv);
+      if (it == replaced.end()) {
+        return tv;
+      }
+      return it->second;
+    };
+
+    // Replace uses whose outputs might not be empty. Many expressions are
+    // guaranteed to have empty outputs if any of the inputs are empty; for
+    // example simple unary or binary ops. In those cases, we don't need to
+    // doctor the Fusion since they will have an empty tensor downstream which
+    // will cut off their dependence, resulting in those uses becoming dead
+    // code.
+    //
+    // Other expressions can convert an empty tensor into a non-empty tensor;
+    // particularly pad, cat, and reduction ops. These ops might have
+    // non-empty outputs so in order to guarantee that all (non- input or
+    // output) tensors are removed, we need to replace those ops with an
+    // equivalent that does not have any empty inputs.
     for (auto use : tv->uses()) {
+      // If use is a ReductionOp or WelfordOp over some empty axes, replace it
+      // with a call to full().
       if (auto rop = dynamic_cast<ReductionOp*>(use)) {
-        auto out = rop->out()->as<TensorView>();
+        auto out = maybeReplaced(rop->out()->as<TensorView>());
         if (hasEmptyRootReductionAxis(out)) {
-          auto out_shape = reduction_shape(out);
-          replaceEmpty(out, out_shape);
+          auto out_shape = orig_shape(out);
+          replaced[out] = replaceWithFull(out, out_shape);
         }
       } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
-        auto avg = wop->outAvg()->as<TensorView>();
-        auto var = wop->outVar()->as<TensorView>();
-        auto N = wop->outN()->as<TensorView>();
+        auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
+        auto var = maybeReplaced(wop->outVar()->as<TensorView>());
+        auto N = maybeReplaced(wop->outN()->as<TensorView>());
         if (hasEmptyRootReductionAxis(avg)) {
-          auto out_shape = reduction_shape(avg);
+          auto out_shape = orig_shape(avg);
           auto nan = IrBuilder::create<Double>(0.0 / 0.0);
-          replaceEmpty(avg, out_shape, nan);
-          replaceEmpty(var, out_shape, nan);
-          replaceEmpty(N, out_shape);
+          replaced[avg] = replaceWithFull(avg, out_shape, nan);
+          replaced[var] = replaceWithFull(var, out_shape, nan);
+          replaced[N] = replaceWithFull(N, out_shape);
         }
+      } else if (auto pop = dynamic_cast<PadOp*>(use)) {
+        auto out = maybeReplaced(pop->out()->as<TensorView>());
+        auto out_shape = orig_shape(out);
+        // Wherever there is a zero in the input, we will replace the original
+        // output extent so that we no longer reference the now-zero input
+        // extent
+        for (auto i : empty_tv_descr.empty_axes) {
+          auto pad_widths = pop->getPadWidths((int)i);
+          out_shape[i] = add(pad_widths.first, pad_widths.second);
+        }
+        replaced[out] = replaceWithFull(out, out_shape, pop->value());
       }
+      //} else if (auto cop = dynamic_cast<CatOp*>(use)) {
+      //}
     }
-    replaceEmpty(tv, new_shape);
+    if (tv->isFusionInput()) {
+      // OptOutMutator::mutate(tv) merely changes the TensorDomain of tv without
+      // actually replacing tv itself.
+      OptOutMutator::mutate(tv);
+    } else {
+      replaced[tv] = replaceWithFull(tv, new_shape);
+    }
   }
 }
 
-TensorView* DynamicTransformConcretizer::replaceEmpty(
+TensorView* DynamicTransformConcretizer::replaceWithFull(
     TensorView* tv,
     std::vector<Val*>& new_shape,
     Val* fill_value) {
@@ -630,6 +679,10 @@ TensorView* DynamicTransformConcretizer::replaceEmpty(
 
   registerConcretization(tv, mut_tv);
   OptOutMutator::mutate(tv);
+
+  for (auto use : tv->uses()) {
+    ir_utils::replaceValInExpr(use, tv, mut_tv);
+  }
 
   if (tv->isFusionInput()) {
     tv->fusion()->replaceInput(tv, mut_tv);
