@@ -4,7 +4,6 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format on
 namespace nvfuser.serde;
 
 // This indicates the flatbuffer compatibility. The number will bump up when a
@@ -141,8 +140,26 @@ union RecordData {
   VectorLong,
 }
 
+// The ArgAbstractData union holds the attribute information for each ArgAbstract.
+union ArgAbstractData {
+  Bool,
+  ComplexDouble,
+  Double,
+  Long,
+  PhiloxCudaState,
+  ScalarCpu,
+  TensorArg,
+}
+
 // =====================================================================================
 // Basic data tables
+
+// The State struct represents each scalar and tensor value.
+// e.g., all input, output and intermediate values in the fusion.
+struct State {
+  index: int;
+  type: StateType;
+}
 
 // Data for Constant Bool
 table Bool {
@@ -188,8 +205,79 @@ table ScalarInput {
   dtype: DataType;
 }
 
+// =====================================================================================
+// Tables for KernelArgumentHolder used in FusionExecutor
+
+// The ScalarCpu is represented by a fixed size array of raw bytes.
+table ScalarCpu {
+  instance : [byte];
+  size : ulong;
+}
+
+// Data of PhiloxCudaState
+table PhiloxCudaState {
+  seed : ulong;
+  offset : ulong;
+}
+
+// Data of TensorArg
+table TensorArg {
+  ptr : ulong;
+  sizes : [long];
+  strides : [long];
+  dtype: DataType;
+  is_int_index_mode : bool;
+  index_type_resolved : bool;
+}
+
+// This table corresponds with a given ArgAbstract object.
+table ArgAbstract {
+  data : ArgAbstractData;
+}
+
+table KernelArgumentHolder {
+  arguments : [ArgAbstract];
+  device_index : byte;
+  cache_id : ulong;
+}
+
 //
 // =====================================================================================
+// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry used in FusionExecutor
+
+table LaunchParams {
+  gdimx : long;
+  gdimy : long;
+  gdimz : long;
+  bdimx : long;
+  bdimy : long;
+  bdimz : long;
+  smem : long;
+  output_sizes : [TensorShape];
+}
+
+table GlobalBufferInfo {
+  tv : long = -1;
+  sizes : [long];
+  strides : [long];
+  dtype : DataType;
+  zero_init : bool;
+  is_profile_buffer : bool;
+}
+
+table ExecutorEntry {
+    init : bool;
+    launch_params : LaunchParams;
+    // Aliased output and input mappings
+    output_aliases : [int];
+    input_aliases : [int];
+    outputs : [GlobalBufferInfo];
+    intermediates : [GlobalBufferInfo];
+    rand_offset : ulong;
+}
+
+// =====================================================================================
+// RecordData tables for RecordFunctor objects
 
 // Data for BatchNormOpRecord
 table BatchNorm {
@@ -307,19 +395,64 @@ table VectorLong {
   dtype: DataType;
 }
 
-//
 // =====================================================================================
+//
 
-// The State struct represents each scalar and tensor value.
-// e.g., all input, output and intermediate values in the fusion.
-struct State {
-  index: int;
-  type: StateType;
+table FusionExecutor {
+  device_smem_limit: long;
+  block_size_high_water_mark: long;
+  maxrregcount_high_water_mark: long;
+  warp_size: long;
+  fusion_id: long;
+  fusion_id_counter : long;
+  kernel_code : string;
+  executor_entry_lookup_keys : [ulong];
+  executor_entry_lookup_values : [ExecutorEntry];
 }
 
-// RecordFunctor is represents operations in the Fusion. It is a node in the
-// graph with input and output edges. Some operations require storing extra
-// attributes in the RecordData field.
+// The unscheduled fusion is defined by traversing Trie in FusionCache.
+table FusionKernelRuntime {
+  args : KernelArgumentHolder;
+  executors : [FusionExecutor];
+}
+
+struct EncodingEntry {
+  id: ulong;
+  lru_iter: ulong;
+}
+
+table InputsIdLookup {
+  max_cache_size : ulong;
+  current_id : ulong;
+  lru_cache : [string];
+
+  // This field defines map<std::string, EncodingEntry> encoding_lookup
+  encoding_lookup_keys : [string];
+  encoding_lookup_values : [EncodingEntry];
+}
+
+// This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
+table KernelRuntimes {
+  device_id : ulong;
+  has_dynamic_transform_info : bool;
+  runtimes : [FusionKernelRuntime];
+}
+
+// The unscheduled fusion is defined by traversing Trie in FusionCache.
+table FusionExecutorCache {
+  inputs_cache : InputsIdLookup;
+
+  // This field represents a map<size_t, vector<FusionKernelRuntime>>.
+  kernel_runtimes : [KernelRuntimes];
+
+  // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
+  kernel_cache_keys : [ulong];
+  // indices into kernel_runtime_values
+  kernel_cache_values : [ulong];
+}
+
+// RecordFunctor is represents operations in the Fusion. It is a node in the graph with input and output edges.
+// Some operations require storing extra attributes in the RecordData field.
 table RecordFunctor {
   args: [State];
   outputs: [State];
@@ -338,15 +471,19 @@ table TrieNode {
   is_terminal: bool;
 }
 
+
 // The fusion cache is a prefix tree (trie) of records that caches fusions in
 // its leaves. For serialization, we flatten the trie structure using
 // breadth-first search.
 //
-// TODO serialize Fusion cpp container
+// TODO We skipped these fields required for user-defined schedulers
+// * fusion_schedules
+// * user_def_input_encodings
 table FusionCache {
   max_fusions: ulong;
   structure: [TrieNode];
   terminal_nodes: [ulong];
+  auto_gen_schedules : [FusionExecutorCache];
 }
 
 root_type FusionCache;
