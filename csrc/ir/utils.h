@@ -13,9 +13,7 @@
 #include <iterator>
 #include <unordered_map>
 
-namespace nvfuser {
-
-namespace ir_utils {
+namespace nvfuser::ir_utils {
 
 // Replace values in fusion using ValReplacementMutator
 void replaceValue(
@@ -447,5 +445,14 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
   return producers[0];
 }
 
-} // namespace ir_utils
-} // namespace nvfuser
+//! Check and return a cycle found in fusion, search starts from `to` and ends
+//! at `from`
+std::vector<Statement*> checkCycle(
+    Fusion* fusion,
+    const std::unordered_set<Statement*>& from,
+    const std::vector<Val*>& to);
+
+//! Check and return a cycle found in fusion
+std::vector<Statement*> checkCycle(Fusion* fusion);
+
+} // namespace nvfuser::ir_utils

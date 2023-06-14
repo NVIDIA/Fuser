@@ -134,6 +134,7 @@ bool isTvOp(const Expr* expr) {
           UnaryOp,
           BinaryOp,
           TernaryOp,
+          TensorConstruct,
           SelectOp,
           IndexSelectOp,
           TorchGatherOp,
