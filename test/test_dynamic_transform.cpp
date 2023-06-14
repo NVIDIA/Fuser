@@ -956,7 +956,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
 
       // Test zero-dimensional input
       //{{3, 0}, {0, 0}, false}, // SIGFPE (see #264 above)
-      {{3, 0}, {1, 1}, false},
+      {{3, 0}, {1, 1}, true}, // zero-dimensional concretizes differently
       //{{3, 0}, {-1, 1}, false}, // SIGFPE (see #264 above)
   };
   // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
