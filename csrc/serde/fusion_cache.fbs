@@ -408,6 +408,9 @@ table FusionExecutor {
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
+  // Is this kernel being compiled with int32 or int64 indexing. This
+  // information is required to resolve DataType::Index
+  index_type : DataType;
 }
 
 // The unscheduled fusion is defined by traversing Trie in FusionCache.

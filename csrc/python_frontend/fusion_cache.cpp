@@ -301,6 +301,7 @@ TrieNode* FusionCache::rootTriePtr() {
 }
 
 void FusionCache::serialize(std::string filename) const {
+  FUSER_PERF_SCOPE("FusionCache::Serialize");
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -341,21 +342,37 @@ void FusionCache::serialize(std::string filename) const {
   }
 
   // 4. Map the terminal nodes to their BFS positions.
+  // 5. Serialize each FusionExecutorCache for each fusion.
   std::vector<size_t> terminal_node_idx;
   terminal_node_idx.reserve(terminal_nodes_.size());
+
+  using fb_fusion_executor_cache =
+      flatbuffers::Offset<serde::FusionExecutorCache>;
+  std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
+  fb_auto_gen_schedules.reserve(terminal_nodes_.size());
+
   for (auto node : terminal_nodes_) {
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
+
+    auto schedule = queryFusionSchedules(node->fusion_id);
+    auto serialized_schedule = schedule->auto_gen_schedules->serialize(builder);
+    fb_auto_gen_schedules.push_back(serialized_schedule);
   }
 
-  // 5. Build FusionCache flatbuffer object
+  // 6. Build FusionCache flatbuffer object
   // table FusionCache {
   //  max_fusions: ulong;
   //  structure: [TrieNode];
   //  terminal_nodes: [ulong];
+  // auto_gen_schedules : [FusionExecutorCache];
   // }
   auto fusion_cache = serde::CreateFusionCacheDirect(
-      builder, max_fusions_, &fb_nodes, &terminal_node_idx);
+      builder,
+      max_fusions_,
+      &fb_nodes,
+      &terminal_node_idx,
+      &fb_auto_gen_schedules);
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -408,7 +425,9 @@ void FusionCache::deserialize(std::string filename) {
   //  max_fusions: ulong;
   //  structure: [TrieNode];
   //  terminal_nodes: [ulong];
+  // auto_gen_schedules : [FusionExecutorCache];
   // }
+  FUSER_PERF_SCOPE("FusionCache::deserialize");
   TORCH_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
@@ -508,8 +527,14 @@ void FusionCache::deserialize(std::string filename) {
   }
 
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : *fusion_cache_buffer->terminal_nodes()) {
-    terminal_nodes_.push_back(bfs_order.at(idx));
+  for (auto idx : c10::irange(fusions_.size())) {
+    auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
+    auto trie_node = bfs_order.at(node_idx);
+    terminal_nodes_.push_back(trie_node);
+
+    auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
+    auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
+    fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
   }
 }
 

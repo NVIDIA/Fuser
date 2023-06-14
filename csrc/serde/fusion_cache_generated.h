@@ -3149,7 +3149,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_FUSION_ID_COUNTER = 14,
     VT_KERNEL_CODE = 16,
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
-    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20
+    VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
+    VT_INDEX_TYPE = 22
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3178,6 +3179,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *>(VT_EXECUTOR_ENTRY_LOOKUP_VALUES);
   }
+  nvfuser::serde::DataType index_type() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_DEVICE_SMEM_LIMIT, 8) &&
@@ -3193,6 +3197,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyOffset(verifier, VT_EXECUTOR_ENTRY_LOOKUP_VALUES) &&
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
+           VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
            verifier.EndTable();
   }
 };
@@ -3228,6 +3233,9 @@ struct FusionExecutorBuilder {
   void add_executor_entry_lookup_values(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values) {
     fbb_.AddOffset(FusionExecutor::VT_EXECUTOR_ENTRY_LOOKUP_VALUES, executor_entry_lookup_values);
   }
+  void add_index_type(nvfuser::serde::DataType index_type) {
+    fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
+  }
   explicit FusionExecutorBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3249,7 +3257,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     int64_t fusion_id_counter = 0,
     ::flatbuffers::Offset<::flatbuffers::String> kernel_code = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0) {
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
@@ -3257,6 +3266,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
+  builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
   builder_.add_kernel_code(kernel_code);
@@ -3273,7 +3283,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     int64_t fusion_id_counter = 0,
     const char *kernel_code = nullptr,
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
-    const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr) {
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys) : 0;
   auto executor_entry_lookup_values__ = executor_entry_lookup_values ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>(*executor_entry_lookup_values) : 0;
@@ -3287,7 +3298,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       fusion_id_counter,
       kernel_code__,
       executor_entry_lookup_keys__,
-      executor_entry_lookup_values__);
+      executor_entry_lookup_values__,
+      index_type);
 }
 
 struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

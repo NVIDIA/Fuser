@@ -14,6 +14,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -111,7 +112,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
+  bool isCompiled() const {
     return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
   };
 
@@ -256,6 +257,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs);
 
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  void deserialize(const serde::FusionExecutor* buffer, Fusion* fusion);
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -311,6 +317,19 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data,
+      int64_t tv_position) const;
+
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
