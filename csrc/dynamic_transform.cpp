@@ -72,6 +72,15 @@ std::string DynamicTransformInitialInfo::toString() const {
   for (const auto& op : dynamic_resized_ids_) {
     ss << indent << indent << op->toString() << "\n";
   }
+  ss << indent << "Dynamic extent Vals:\n";
+  for (const auto& v : dynamic_extent_vals_) {
+    ss << indent << indent << v->toString() << "\n";
+  }
+  ss << indent << "Name to TensorView mapping:\n";
+  for (const auto& kv : name_to_tensorview_) {
+    ss << indent << indent << kv.first << " => " << kv.second->toString()
+       << "\n";
+  }
   ss << indent << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
     ss << indent << indent << v->toString() << "\n";
