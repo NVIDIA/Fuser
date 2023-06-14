@@ -181,19 +181,25 @@ int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
 
-//! Calculate the persistent buffer batches in each thread.
+//! Calculate the persistent buffer batches and threads per block.
 //! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
 //! gradually reduce to small values but not smaller than a threshold determined
 //! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
 //! smaller than the maximum allowed batch which is determined by the avilable
 //! registers, this function will return that batch value. Otherwise, it will
-//! return nullopt.
-std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
+//! return nullopt except when enforce_return_valid is true where it will return
+//! whatever the batch value is. This is a special case for layer norm backward
+//! with dypte of float where we enforce persistent buffer projection and allows
+//! large register spills to avoid fusion segmentation. see
+//! getPersistentHeuristics() for more details.
+std::pair<std::optional<int64_t>, int64_t>
+getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size);
+    const int64_t warp_size,
+    const bool enforce_return_valid);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

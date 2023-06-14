@@ -192,9 +192,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
             batch_size,
             persistent_bytes_per_row,
             vectorization_factor,
-            warp_size);
+            warp_size,
+            false);
     bool expect_segmentation =
-        feature_size % n_elements_factor || !opt_inner_batch.has_value();
+        feature_size % n_elements_factor || !opt_inner_batch.first.has_value();
 
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(

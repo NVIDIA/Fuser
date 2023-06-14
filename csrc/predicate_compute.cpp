@@ -343,6 +343,10 @@ Bool* PredicateCompute::getInlinePredicate(
   // If outputs are registers, no need to predicate for threads
   if (isOutputLocal(expr)) {
     thread_pred = gpu_lower->kernel()->trueVal();
+    // If it is a initilization op, return immediately.
+    if (ir_utils::isTensorScalarFillOp(expr)) {
+      return thread_pred;
+    }
   }
 
   if (loops.empty()) {
