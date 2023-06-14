@@ -184,23 +184,16 @@ int64_t partialReductionBufferSize(
 //! Calculate the persistent buffer batches in each thread.
 //! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
 //! gradually reduce to small values but not smaller than a threshold determined
-//! by inner_dim_numel and outer_dim_numel.
-int64_t getInnerOuterPersistentBufferBatches(
-    const int64_t inner_vect,
+//! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
+//! smaller than the maximum allowed batch which is determined by the avilable
+//! registers, this function will return that batch value. Otherwise, it will
+//! return nullopt.
+std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t warpSize);
+    const int64_t persistent_buffer_size,
+    const int64_t vectorize_factor,
+    const int64_t warp_size);
 
-//! Each thread can use a maximum of 255 registers, and assume 40 of them are
-//! reserved for indexing and other purposes. So, each thread can use up to 215
-//! registers for persistent buffer. Calculate number of buffer batches using
-//! these 215 registers.
-//! total_buffer_bytes is the total size of persistent buffers in bytes.
-//! reduction_elements is the number of elements in the reduction domain.
-//! vectorization_factor is the vectorization factor of inputs and outputs.
-int64_t getMaximumInnerOuterPersistentBufferBatch(
-    const int64_t total_buffer_bytes,
-    const int64_t reduction_elements,
-    const int64_t vectorization_factor);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

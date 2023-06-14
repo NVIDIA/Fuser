@@ -1972,12 +1972,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
-      if (!checkPersistentBufferBatch(
-              properties.total_reduction_numel,
-              properties.total_iteration_numel,
-              persistent_buffer_size,
-              (int64_t)vectorize_factor,
-              warp_size)) {
+      if (!normalization_scheduler_utils::
+               getOptionalInnerOuterPersistentBufferBatches(
+                   properties.total_reduction_numel,
+                   properties.total_iteration_numel,
+                   persistent_buffer_size,
+                   (int64_t)vectorize_factor,
+                   warp_size)
+                   .has_value()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "Required batch number is larger than available batch number! Will cause register spills!");
@@ -2191,34 +2193,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     return std::make_pair(
         persistent_buffer_size, available_persistent_buffer_size);
-  }
-
-  static bool checkPersistentBufferBatch(
-      const int64_t total_reduction_numel,
-      const int64_t total_iteration_numel,
-      const int64_t persistent_buffer_size,
-      const int64_t vectorize_factor,
-      const int64_t warp_size) {
-    // batch_needed is the number of batches calculated based on current
-    // heuristics using the vectorize_factor, reduction_numel and
-    // iteration_numel
-    const int64_t batch_needed =
-        normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
-            vectorize_factor,
-            total_reduction_numel,
-            total_iteration_numel,
-            warp_size);
-
-    // batch_available is the number of batches that can be allocated based on
-    // avilable registers, buffer size, reduction number, and vectorization
-    // factor
-    const int64_t batch_available = normalization_scheduler_utils::
-        getMaximumInnerOuterPersistentBufferBatch(
-            persistent_buffer_size, total_reduction_numel, vectorize_factor);
-
-    // pass check if batch_needed is less than or equal to batch_available
-    // so we can avoid register spills
-    return batch_needed <= batch_available;
   }
 
   static bool canScheduleRunTimeOuter(

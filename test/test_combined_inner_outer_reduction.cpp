@@ -179,12 +179,22 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     }
     const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
     const int64_t n_elements_factor = warp_size / 4 * vectorization_factor;
-    const int64_t inner_batch =
-        normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
-            vectorization_factor, feature_size, batch_size, warp_size);
-    const int64_t max_batch = 7l;
+    // valid for this specific layer_norm backward fusion
+    // Half: 2 floats + 3 halfs
+    // Float: 2 floats + 3 floats
+    const int64_t persistent_bytes_per_element =
+        dtype == DataType::Half ? 14 : 20;
+    const int64_t persistent_bytes_per_row =
+        persistent_bytes_per_element * feature_size;
+    const auto opt_inner_batch = normalization_scheduler_utils::
+        getOptionalInnerOuterPersistentBufferBatches(
+            feature_size,
+            batch_size,
+            persistent_bytes_per_row,
+            vectorization_factor,
+            warp_size);
     bool expect_segmentation =
-        feature_size % n_elements_factor || inner_batch > max_batch;
+        feature_size % n_elements_factor || !opt_inner_batch.has_value();
 
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(

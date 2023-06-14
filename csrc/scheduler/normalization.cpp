@@ -123,9 +123,15 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   iop.inner_vect = (int64_t)vectorize_factor;
-  iop.inner_batch =
-      normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
-          iop.inner_vect, inner_dim_numel, outer_dim_numel, dev_prop->warpSize);
+  auto opt_inner_batch = normalization_scheduler_utils::
+      getOptionalInnerOuterPersistentBufferBatches(
+          inner_dim_numel,
+          outer_dim_numel,
+          max_persistent_buffer_size,
+          iop.inner_vect,
+          dev_prop->warpSize);
+  TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
+  iop.inner_batch = opt_inner_batch.value();
   int64_t threads_per_block =
       inner_dim_numel / iop.inner_vect / iop.inner_batch;
   TORCH_INTERNAL_ASSERT(
