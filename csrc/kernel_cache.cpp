@@ -620,9 +620,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
     // the purposes of computing the concretization info.
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // concretize fusion_ for use in this runtime
-    FusionGuard fg(conc_fusion.get());
     if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
@@ -645,6 +642,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->printMath();
       }
     }
+    FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
