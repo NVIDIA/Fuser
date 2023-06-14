@@ -145,6 +145,36 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
+std::string FusionDefinition::toGraphviz(
+    IrGraphGenerator::DetailLevel detail_level) const {
+  TORCH_CHECK(
+      id().has_value(), "Cannot create graphviz until definition is complete.");
+
+  auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  Fusion* fusion = scheds->auto_gen_schedules->fusion();
+
+  if (detail_level != IrGraphGenerator::DetailLevel::ComputeOnly) {
+    // When schedule is shown, we need to actually process each segment of a
+    // segmented Fusion
+    auto kernel_runtime =
+        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
+    // TODO: handle segmented fusions here
+    if (kernel_runtime->isSegmented()) {
+      std::cout << "Segmented" << std::endl;
+    } else {
+      std::cout << "Not segmented" << std::endl;
+    }
+  }
+
+  TORCH_CHECK(
+      fusion != nullptr, "Could not get Fusion from FusionExecutorCache");
+
+  FusionGuard::setCurFusion(fusion);
+
+  return IrGraphGenerator(fusion, detail_level).generate();
+}
+
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,

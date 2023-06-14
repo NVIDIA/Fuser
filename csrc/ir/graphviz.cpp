@@ -25,15 +25,18 @@ class IrNodeLabel final : private OptInConstDispatch {
  public:
   static std::string gen(
       const Statement* node,
+      const IrGraphGenerator::Config& config,
       DetailLevel detail_level = DetailLevel::Basic) {
-    IrNodeLabel generator(detail_level);
+    IrNodeLabel generator(config, detail_level);
     generator.OptInConstDispatch::handle(node);
     return generator.label_.str();
   }
 
  private:
-  explicit IrNodeLabel(DetailLevel detail_level)
-      : detail_level_(detail_level) {}
+  explicit IrNodeLabel(
+      const IrGraphGenerator::Config& config,
+      IrGraphGenerator::DetailLevel detail_level)
+      : config_(config), detail_level_(detail_level) {}
 
   ~IrNodeLabel() final = default;
 
@@ -41,7 +44,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (b->isSymbolic()) {
       label_ << "b" << b->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showValuesOfConstants) {
         label_ << "b" << b->name() << "=";
       }
       label_ << *b->value();
@@ -52,7 +55,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (d->isSymbolic()) {
       label_ << typePrefix(d->getDataType().value()) << d->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showValuesOfConstants) {
         label_ << typePrefix(d->getDataType().value()) << d->name() << "=";
       }
       label_ << *d->value();
@@ -63,7 +66,7 @@ class IrNodeLabel final : private OptInConstDispatch {
     if (i->isSymbolic()) {
       label_ << "i" << i->name();
     } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
+      if (config_.showValuesOfConstants) {
         label_ << "i" << i->name() << "=";
       }
       label_ << *i->value();
@@ -77,18 +80,20 @@ class IrNodeLabel final : private OptInConstDispatch {
   void handle(const IterDomain* id) override {
     label_ << id->getIterType();
     label_ << id->getParallelType();
+    label_ << id->name();
 
     label_ << "(";
     if (!id->start()->isZeroInt()) {
-      label_ << IrNodeLabel::gen(id->start()) << " : ";
+      label_ << IrNodeLabel::gen(id->start(), config_, detail_level_) << " : ";
     }
-    label_ << IrNodeLabel::gen(id->extent());
+    label_ << IrNodeLabel::gen(id->extent(), config_, detail_level_);
     label_ << ")";
   }
 
   void handle(const Split* split) override {
     label_ << "Split(inner=" << (split->innerSplit() ? "true" : "false")
-           << ", factor=" << IrNodeLabel::gen(split->factor()) << ")";
+           << ", factor="
+           << IrNodeLabel::gen(split->factor(), config_, detail_level_) << ")";
   }
 
   void handle(const Merge* merge) override {
@@ -97,58 +102,16 @@ class IrNodeLabel final : private OptInConstDispatch {
 
  private:
   std::stringstream label_;
+  const IrGraphGenerator::Config& config_;
   const DetailLevel detail_level_;
 };
 
-// Small color palette from the X11 theme
-static const char* getColorFromIndex(size_t index) {
-  const size_t number_of_colors = 10;
-  index = index % number_of_colors;
-  switch (index) {
-    case 0: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "azure";
-    case 1: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "pink";
-    case 2: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "green";
-    case 3: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "grey";
-    case 4: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "yellow";
-    case 5: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "lavender";
-    case 6: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "cyan";
-    case 7: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "white";
-    case 8: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "magenta";
-    case 9: // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-      return "red";
-    default:
-      break;
-  }
-  return "";
-}
-
 } // anonymous namespace
 
-void IrGraphGenerator::print(
-    const Fusion* fusion,
-    const char* filename,
-    DetailLevel detail_level,
-    ExprColorMap* expr_color_map) {
+void IrGraphGenerator::print(const char* filename) {
   std::ofstream dot_file(filename);
   TORCH_CHECK(dot_file.good(), "Failed to open the IR graph file");
-  dot_file << toGraphviz(fusion, detail_level, expr_color_map);
-}
-
-std::string IrGraphGenerator::toGraphviz(
-    const Fusion* fusion,
-    DetailLevel detail_level,
-    ExprColorMap* expr_color_map) {
-  IrGraphGenerator ir_graph(fusion, detail_level, expr_color_map);
-  return ir_graph.generate();
+  dot_file << generate();
 }
 
 IrGraphGenerator::IrGraphGenerator(
@@ -197,12 +160,16 @@ void IrGraphGenerator::addArc(
   arcs_.push_back(arc_def.str());
 }
 
-void IrGraphGenerator::printExpr(const Expr* expr, const std::string& label) {
+void IrGraphGenerator::printExpr(
+    const Expr* expr,
+    const std::string& label,
+    const std::string& border_color) {
   graph_def_ << "    " << getid(expr) << " "
-             << "[label=\"" << label << "\", shape=Mrecord, color=blue, "
+             << "[label=\"" << label
+             << "\", shape=Mrecord, color=" << border_color << ", "
              << "style=filled, fillcolor=";
-  if (expr_color_map_ != nullptr && expr_color_map_->count(expr)) {
-    graph_def_ << getColorFromIndex(expr_color_map_->at(expr));
+  if (expr_color_map_.count(expr)) {
+    graph_def_ << colorToString(expr_color_map_.at(expr));
   } else {
     graph_def_ << "azure";
   }
@@ -219,40 +186,27 @@ std::string IrGraphGenerator::generate() {
   TORCH_CHECK(graph_def_.str().empty());
   TORCH_CHECK(visited_.empty());
 
-  // record detail level
-  graph_def_ << "// detail level: ";
-  switch (detail_level_) {
-    case DetailLevel::ComputeOnly:
-      graph_def_ << "compute only\n";
-      break;
-    case DetailLevel::Basic:
-      graph_def_ << "minimal\n";
-      break;
-    case DetailLevel::Explicit:
-      graph_def_ << "explicit\n";
-      break;
-    case DetailLevel::Verbose:
-      graph_def_ << "verbose\n";
-      break;
-    default:
-      TORCH_CHECK(!"Unexpected detail level");
-  }
+  // Record config
+  graph_def_ << "// config:" << std::endl;
+  graph_def_ << config_.toString(/*line_prefix*/ "//   ");
 
   graph_def_ << "digraph fusion_ir {\n"
              << "  node [shape=circle, color=gray];\n"
              << "  edge [color=black];\n";
 
   // Compute graph
-  generateComputeGraph();
+  if (config_.showComputeDef) {
+    generateComputeGraph();
+  }
 
   // Schedule graph
-  if (detail_level_ > DetailLevel::ComputeOnly) {
+  if (config_.showSchedule) {
     generateScheduleGraph();
   }
 
   // All expressions & values
   // (These are otherwise unreacheable (dead) nodes)
-  if (detail_level_ >= DetailLevel::Verbose) {
+  if (config_.showUnreachableNodes) {
     for (const auto* expr : fusion_->unordered_exprs()) {
       handle(expr);
     }
@@ -270,7 +224,12 @@ std::string IrGraphGenerator::generate() {
 
   // Make sure that all referenced nodes have been visited
   for (const auto& kv : id_map_) {
-    TORCH_CHECK(visited(kv.first));
+    TORCH_CHECK(
+        visited(kv.first),
+        kv.first->toString(),
+        " = ",
+        kv.second,
+        " was referenced but is not yet visited");
   }
 
   return graph_def_.str();
@@ -278,7 +237,7 @@ std::string IrGraphGenerator::generate() {
 
 void IrGraphGenerator::generateComputeGraph() {
   graph_def_ << "  subgraph cluster_compute {\n"
-             << "    label=\"compute\";\n"
+             << "    label=\"Compute Definition\";\n"
              << "    style=dashed;\n";
 
   // Inputs
@@ -296,7 +255,7 @@ void IrGraphGenerator::generateComputeGraph() {
 
 void IrGraphGenerator::generateScheduleGraph() {
   graph_def_ << "  subgraph cluster_schedule {\n"
-             << "    label=\"schedule\";\n"
+             << "    label=\"Schedule\";\n"
              << "    style=dashed;\n";
 
   // Connect TensorView with their TensorDomain
@@ -340,15 +299,53 @@ void IrGraphGenerator::handle(const Expr* e) {
   if (!visited(e)) {
     visited_.insert(e);
 
-    // node
-    printExpr(e, e->getGraphvizLabel());
+    // Determine whether this is an IterDomain expression
+    // If so, we may want to skip some inputs
+    bool is_id_expr = false;
+    bool is_scalar_expr = true;
+    for (auto v : e->inputs()) {
+      if (v->isA<IterDomain>()) {
+        is_id_expr = true;
+      }
+      if (!v->isScalar()) {
+        is_scalar_expr = false;
+      }
+    }
+
+    // Default colors for non-IterDomain and non-Scalar expressions
+    std::string arc_style;
+    std::string border_color("blue");
+
+    // draw node for e
+    if (is_id_expr) {
+      arc_style = "[color=lightgray]";
+      border_color = "gray";
+      maybeSetExprColor(e, Color::LIGHTGRAY);
+    } else if (is_scalar_expr) {
+      arc_style = "[color=green]";
+      border_color = "green";
+      maybeSetExprColor(e, Color::WHITE);
+    }
+
+    printExpr(e, e->getGraphvizLabel(), border_color);
 
     // inputs & outputs
     for (auto v : e->inputs()) {
-      addArc(v, e);
+      if (!config_.showSchedule && is_id_expr && !v->isA<IterDomain>()) {
+        continue;
+      }
+      addArc(v, e, arc_style);
     }
     for (auto v : e->outputs()) {
-      addArc(e, v);
+      if (v->isA<TensorView>() && v->as<TensorView>()->domain()->hasRFactor()) {
+        handle(v); // handle(v) will also create getid(v) + "_root"
+
+        std::stringstream arc_def;
+        arc_def << getid(e) << " -> " << getid(v) << "_root";
+        arcs_.push_back(arc_def.str());
+      } else {
+        addArc(e, v, arc_style);
+      }
     }
   }
 }
@@ -363,62 +360,128 @@ void IrGraphGenerator::handle(const TensorDomain* td) {
 }
 
 void IrGraphGenerator::handle(const IterDomain* id) {
-  graph_def_ << "    " << getid(id) << " [label=\"" << IrNodeLabel::gen(id)
+  graph_def_ << "    " << getid(id) << " [label=\""
+             << IrNodeLabel::gen(id, config_, detail_level_)
              << "\", shape=cds, color=gray, fontsize=10];\n";
 
-  if (!id->start()->isZeroInt()) {
-    addArc(id->start(), id, "[color=gray]");
+  // Don't show starts or extents as nodes in high-level modes
+  if (config_.showSchedule) {
+    if (!id->start()->isZeroInt()) {
+      addArc(id->start(), id, "[color=gray]");
+    }
+    addArc(id->extent(), id, "[color=green]");
+  } else {
+    visited_.insert(id);
   }
-
-  addArc(id->extent(), id, "[color=gray]");
 }
 
 void IrGraphGenerator::handle(const Bool* b) {
-  printValue(b, IrNodeLabel::gen(b, detail_level_));
+  printValue(b, IrNodeLabel::gen(b, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const Double* d) {
-  printValue(d, IrNodeLabel::gen(d, detail_level_));
+  printValue(d, IrNodeLabel::gen(d, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const Int* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const ComplexDouble* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const NamedScalar* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+  printValue(i, IrNodeLabel::gen(i, config_, detail_level_));
 }
 
 void IrGraphGenerator::handle(const TensorView* tv) {
+  auto has_rfactor = tv->domain()->hasRFactor();
   std::stringstream label;
-  label << "{T" << tv->name() << "|";
-  label << "{";
-  bool first_axis = true;
-  for (auto iter_domain : tv->getLeafDomain()) {
-    if (first_axis) {
-      first_axis = false;
-    } else {
+  label << "{T" << tv->name() << (has_rfactor ? " (r-factor domain)" : "")
+        << "|{";
+  int axis = 0;
+  for (auto iter_domain : tv->domain()->rfactor()) {
+    if (axis != 0) {
       label << "|";
     }
-    label << IrNodeLabel::gen(iter_domain);
+    label << "<" << axis++ << "> "
+          << IrNodeLabel::gen(iter_domain, config_, detail_level_);
   }
   label << "}}";
 
   const bool is_input = inputs_.find(tv) != inputs_.end();
   const bool is_output = outputs_.find(tv) != outputs_.end();
 
-  const char* style = is_input ? "style=filled, fillcolor=palegreen"
-      : is_output              ? "style=filled, fillcolor=lightblue"
-                               : "style=filled, fillcolor=beige";
+  std::string root_color("beige");
+  std::string rfactor_color("pink");
+  std::string input_color("palegreen");
+  std::string output_color("lightblue");
+  std::string this_color = is_input ? input_color
+      : is_output                   ? output_color
+      : has_rfactor                 ? rfactor_color
+                                    : root_color;
+  std::string style = "style=filled, fillcolor=" + this_color;
 
   graph_def_ << "    " << getid(tv) << " [label=\"" << label.str()
-             << "\", shape=Mrecord, color=brown, " << style << "];\n";
+             << "\", shape=record, color=brown, " << style << "];\n";
 
   tensor_views_.push_back(tv);
+
+  // If the rfactor domain differs from root domain, then we show the root
+  // domain nearby and link it
+  if (tv->domain()->hasRFactor()) {
+    // TensorDomain contains multiple std::vector<IterDomain*> objects, and we
+    // don't currently have an IR for those vectors. If they were Statements,
+    // then we could handle them like other objects here. Instead, we'll just
+    // place the handling code for printing here.
+
+    // NOTE: since these are not statements, we also can't use getid, so we
+    // derive an object id from that of tv.
+    auto rootd_id = getid(tv) + "_root";
+
+    std::stringstream rootd_label;
+    std::string root_link_style("[color=lightgray]");
+    rootd_label << "{T" << tv->name() << " (root domain)|";
+    rootd_label << "{";
+    axis = 0;
+    for (auto iter_domain : tv->domain()->root()) {
+      handle(iter_domain);
+      if (axis != 0) {
+        rootd_label << "|";
+      }
+      rootd_label << "<" << axis << "> "
+                  << IrNodeLabel::gen(iter_domain, config_, detail_level_);
+
+      std::stringstream arc_def;
+      arc_def << rootd_id << ":" << axis << " -> " << getid(iter_domain) << " "
+              << root_link_style;
+      arcs_.push_back(arc_def.str());
+
+      axis++;
+    }
+    rootd_label << "}}";
+
+    // Add arcs from root domain to its IterDomains
+    axis = 0;
+    for (auto iter_domain : tv->domain()->rfactor()) {
+      handle(iter_domain);
+
+      if (const auto* def = iter_domain->definition()) {
+        handle(def);
+      }
+
+      std::stringstream arc_def;
+      arc_def << getid(iter_domain) << " -> " << getid(tv) << ":" << axis << " "
+              << root_link_style;
+      arcs_.push_back(arc_def.str());
+      axis++;
+    }
+
+    graph_def_ << "    " << rootd_id << " [label=\"" << rootd_label.str()
+               << "\", shape=record, color=brown, style=filled, fillcolor="
+               << root_color << "];\n";
+  }
 }
 
 } // namespace nvfuser

@@ -68,8 +68,8 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   FusionGuard fg(&fusion);
 
   // Make sure we can handle empty IRs
-  TORCH_CHECK(!IrGraphGenerator::toGraphviz(
-                   &fusion, IrGraphGenerator::DetailLevel::Basic)
+  TORCH_CHECK(!IrGraphGenerator(&fusion, IrGraphGenerator::DetailLevel::Basic)
+                   .generate()
                    .empty());
 
   // Construct an interesting IR
@@ -85,9 +85,10 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   TensorView* tv6 = add(tv2, tv2);
 
   // Another checkpoint before adding outputs
-  TORCH_CHECK(!IrGraphGenerator::toGraphviz(
-                   &fusion, IrGraphGenerator::DetailLevel::Explicit)
-                   .empty());
+  TORCH_CHECK(
+      !IrGraphGenerator(&fusion, IrGraphGenerator::DetailLevel::Explicit)
+           .generate()
+           .empty());
 
   fusion.addOutput(tv6);
 
@@ -99,9 +100,10 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   tv2->computeAt(tv6, 1);
 
   // Another checkpoint with more node types
-  TORCH_CHECK(!IrGraphGenerator::toGraphviz(
-                   &fusion, IrGraphGenerator::DetailLevel::ComputeOnly)
-                   .empty());
+  TORCH_CHECK(
+      !IrGraphGenerator(&fusion, IrGraphGenerator::DetailLevel::ComputeOnly)
+           .generate()
+           .empty());
 
   for (Val* val : fusion.vals()) {
     if (!val->isFusionInput() &&
@@ -112,8 +114,8 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   }
 
   // Final IR graph
-  TORCH_CHECK(!IrGraphGenerator::toGraphviz(
-                   &fusion, IrGraphGenerator::DetailLevel::Verbose)
+  TORCH_CHECK(!IrGraphGenerator(&fusion, IrGraphGenerator::DetailLevel::Verbose)
+                   .generate()
                    .empty());
 }
 
@@ -635,7 +637,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
   //    a valid, but unspecified state. This is similar to the
   //    standard library containers:
   //    https://en.cppreference.com/w/cpp/utility/move
-  //
+  // NOLINTBEGIN(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   TORCH_CHECK(fusion.unordered_exprs().empty());
   TORCH_CHECK(fusion.vals().empty());
   TORCH_CHECK(fusion.inputs().empty());
@@ -643,6 +645,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
 
   // clear() has no pre-conditions so it's valid to call on a moved-from object
   fusion.clear();
+  // NOLINTEND(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
 
   // Compare IR dumps
   std::stringstream another_ir;
