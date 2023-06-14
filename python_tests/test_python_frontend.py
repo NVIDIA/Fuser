@@ -59,7 +59,7 @@ def serde_check(test_fn: Callable):
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
         #    FusionCache.reset()
 
-        skip_serde = kwargs.pop("skip_serde_test", False)
+        skip_serde = kwargs.pop("skip_serde_check", False)
 
         # Run test to populate FusionCache
         result = test_fn(*args, **kwargs)
@@ -948,7 +948,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.relu(t0)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
@@ -1143,7 +1143,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.mul(t0, c0)
             fd.add_output(t1)
 
-        (n,), _ = self.exec_nvfuser(fusion_func, inputs)
+        (n,), _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
 
         eager_out = inputs[0] * (3.0 + 0.5j)
 
@@ -1447,7 +1447,7 @@ class TestNvFuserFrontend(TestCase):
                 t1 = fd.ops.add(t0, c0)
                 fd.add_output(t1, perm)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_test=True)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
             self.assertEqual(eager_out, nvf_out[0])
 
             nvf_stride = nvf_out[0].stride()
@@ -2069,12 +2069,15 @@ class TestNvFuserFrontend(TestCase):
                         partial(check, acts=inp), inp, new_fusion_expected=first_check
                     )
                 else:
+                    # It is necessary to skip these failing tests
+                    # so serialization/deserialization does not exhibit the same error across tests.
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
                         self.exec_nvfuser,
                         partial(check, acts=inp),
                         inp,
+                        skip_serde_check=True
                     )
             first_check = False
 
@@ -2091,8 +2094,9 @@ class TestNvFuserFrontend(TestCase):
 
         eager_out = inputs[0] + float("nan")
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
         self.assertEqual(eager_out, nvf_out[0])
+
 
     def test_def_op_in_schedule(self):
         """
@@ -2352,7 +2356,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         # Just test that this executes, not that it's correct
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
 
     def test_input_scalar(self):
         inputs = [
