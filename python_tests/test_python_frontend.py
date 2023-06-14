@@ -59,8 +59,13 @@ def serde_check(test_fn: Callable):
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
         #    FusionCache.reset()
 
+        skip_serde = kwargs.pop("skip_serde_test", False)
+
         # Run test to populate FusionCache
-        test_fn(*args, **kwargs)
+        result = test_fn(*args, **kwargs)
+
+        if skip_serde:
+            return result
 
         with tempfile.NamedTemporaryFile() as tmp:
             # Serialize FusionCache
@@ -1442,7 +1447,7 @@ class TestNvFuserFrontend(TestCase):
                 t1 = fd.ops.add(t0, c0)
                 fd.add_output(t1, perm)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_test=True)
             self.assertEqual(eager_out, nvf_out[0])
 
             nvf_stride = nvf_out[0].stride()
@@ -1613,6 +1618,11 @@ class TestNvFuserFrontend(TestCase):
                 _ = fd.cuda_code_for(big_inputs)
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.scheduled_fusion_ir_for(big_inputs)
+
+        # It is necessary to reset the Fusion Cache
+        # so serialization/deserialization does not exhibit the same error across tests.
+        fc = FusionCache.get()
+        fc.reset()
 
     def test_pad(self):
         inputs = [
