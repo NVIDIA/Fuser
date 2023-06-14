@@ -537,7 +537,6 @@ void DynamicTransformConcretizer::concretize() {
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
-  info_->initialInfo()->fusion()->printMath();
   for (const auto& empty_tv_descr : info_->getEmptyTensors()) {
     auto tv = info_->initialInfo()->lookUpTV(empty_tv_descr.tv_name);
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
