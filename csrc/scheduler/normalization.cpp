@@ -123,20 +123,25 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   iop.inner_vect = (int64_t)vectorize_factor;
-  auto opt_inner_batch = normalization_scheduler_utils::
+  const auto& batch_and_block_size = normalization_scheduler_utils::
       getOptionalInnerOuterPersistentBufferBatches(
           inner_dim_numel,
           outer_dim_numel,
           max_persistent_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
+  auto opt_inner_batch = batch_and_block_size.first;
   TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
   iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block =
-      inner_dim_numel / iop.inner_vect / iop.inner_batch;
+  int64_t threads_per_block = batch_and_block_size.second;
+
   TORCH_INTERNAL_ASSERT(
-      iop.inner_vect * iop.inner_batch * threads_per_block == inner_dim_numel,
-      " inner_dim_numel must be dividable by the multiplication of a quarter warp and vectorize_factor");
+      iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
+      " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
+  const int64_t factor_of_block_size = dev_prop->warpSize / 4;
+  TORCH_INTERNAL_ASSERT(
+      threads_per_block % factor_of_block_size == 0,
+      " threads_per_block must have a factor of warp_size / 4.");
 
   // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
   // from buffer size, then it is used to calculate threads_per_sm and gdimy.
@@ -170,9 +175,19 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4 : 2;
   iop.vectorization_factor_outer =
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-  iop.bdimx = scheduler_utils::roundUpPow2(
+  // threads_per_block starts from 8 and multiplied by 2, 3, or 5.
+  // round bdimx to multiple of 8 will increase the probability of
+  // bdimx * bdimy == threads_per_block.
+  iop.bdimx = scheduler_utils::roundUpPow2Or8(
       ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
-
+  while (threads_per_block % iop.bdimx) {
+    iop.bdimx += 8;
+    if (iop.bdimx > threads_per_block) {
+      // should never reach here
+      iop.bdimx = threads_per_block;
+      break;
+    }
+  }
   // Step-4, set OuterParams Reduction dim: bdimy.
   iop.bdimy = ceilDiv(threads_per_block, iop.bdimx);
 
@@ -249,6 +264,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     std::cerr << "\n===== Combined InnerOuter Reduction Stats ========\n"
               << "outer_dim_numel: " << outer_dim_numel << "\n"
               << "inner_dim_numel: " << inner_dim_numel << "\n"
+              << "max_persistent_buffer_size: " << max_persistent_buffer_size
+              << "\n"
               << "vectorize_factor_input: " << iop.inner_vect << "\n"
               << "vectorization_factor_tmp_gmem_write: "
               << iop.tmp_gmem_write_vect << "\n"

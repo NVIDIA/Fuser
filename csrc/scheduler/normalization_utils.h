@@ -181,14 +181,15 @@ int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
 
-//! Calculate the persistent buffer batches in each thread.
+//! Calculate the persistent buffer batches and threads per block.
 //! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
 //! gradually reduce to small values but not smaller than a threshold determined
 //! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
 //! smaller than the maximum allowed batch which is determined by the avilable
 //! registers, this function will return that batch value. Otherwise, it will
 //! return nullopt.
-std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
+std::pair<std::optional<int64_t>, int64_t>
+getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,

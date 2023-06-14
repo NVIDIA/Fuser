@@ -1979,7 +1979,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
                    persistent_buffer_size,
                    (int64_t)vectorize_factor,
                    warp_size)
-                   .has_value()) {
+                   .first.has_value()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "Required batch number is larger than available batch number! Will cause register spills!");
