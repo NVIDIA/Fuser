@@ -654,14 +654,14 @@ int64_t getInnerOuterPersistentBufferBatches(
   int64_t inner_batch = inner_dim_numel / inner_vect / threads_per_block;
   const int64_t threads_per_block_max = inner_dim_numel >= 20480l ? 512l : 256l;
   const int64_t batch_min = getMinimumBatch();
-  auto tryReduceBatch = [&](auto factor) -> bool {
+  auto canReduceBatch = [&](auto factor) -> bool {
     return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
         threads_per_block * factor <= threads_per_block_max;
   };
   while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
     bool modified = false;
     for (auto factor : {2, 3, 5}) {
-      if (tryReduceBatch(factor)) {
+      if (canReduceBatch(factor)) {
         inner_batch /= factor;
         threads_per_block *= factor;
         modified = true;
