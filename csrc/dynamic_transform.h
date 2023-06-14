@@ -80,6 +80,15 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return dynamic_resized_ids_;
   }
 
+  TensorView* lookUpTV(size_t tv_name) const {
+    auto it = name_to_tensorview_.find(tv_name);
+    TORCH_INTERNAL_ASSERT(
+        it != name_to_tensorview_.end(),
+        "Could not find TensorView with name ",
+        tv_name);
+    return it->second;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -97,6 +106,14 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
  private:
   DynamicTransformInitialInfo(Fusion* fusion) : fusion_(fusion) {}
+
+  // Holds mapping from the name() of a TensorView to its value. This is so that
+  // we can hold only the name of a tensor in conc_info and still be able to
+  // access a cloned TensorView. Holding pointers directly would not work in
+  // such a case since after cloning we no longer have a mapping between
+  // original Vals and cloned Vals. Note that the functionality offered by this
+  // map probably belongs in Fusion instead.
+  std::unordered_map<size_t, TensorView*> name_to_tensorview_;
 
  private:
   Fusion* fusion_ = nullptr;
@@ -123,11 +140,11 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
 //! Describes known empty dimensions in a TensorView's maybe RFactor domain
 struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
-  TensorView* tv;
+  size_t tv_name;
   std::vector<size_t> empty_axes;
 
   bool operator==(const EmptyTensorDescriptor& other) const {
-    return tv == other.tv && empty_axes == other.empty_axes;
+    return tv_name == other.tv_name && empty_axes == other.empty_axes;
   }
 
   bool operator!=(const EmptyTensorDescriptor& other) const {
@@ -142,7 +159,7 @@ struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
     }
     // We need to hash the tv address here, since we could conceivably find two
     // different tensors that are empty in the same axes.
-    hash ^= std::hash<TensorView*>()(tv);
+    hash ^= std::hash<size_t>()(tv_name);
     return hash;
   }
 };

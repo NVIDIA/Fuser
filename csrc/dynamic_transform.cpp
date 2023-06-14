@@ -39,6 +39,18 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
+  cloned_info.dynamic_extent_vals_.reserve(dynamic_extent_vals_.size());
+  for (const auto v : dynamic_extent_vals_) {
+    if (v) {
+      cloned_info.dynamic_extent_vals_.insert(ir_cloner.clone(v));
+    }
+  }
+  cloned_info.name_to_tensorview_.reserve(name_to_tensorview_.size());
+  for (const auto kv : name_to_tensorview_) {
+    if (kv.second) {
+      cloned_info.name_to_tensorview_[kv.first] = ir_cloner.clone(kv.second);
+    }
+  }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
     if (v) {
@@ -109,6 +121,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Detect dynamic IterDomain transforms when handling TensorViews
   void handle(TensorView* tv) override {
+    info_.name_to_tensorview_[tv->name()] = tv;
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->extent()->isConstScalar() || id->extent()->evaluateInt() == 0) {
@@ -201,7 +214,7 @@ std::vector<EmptyTensorDescriptor> findEmptyTensors(
       // Replace with full. Note that even if the definition was a FullOp, we
       // still mark this tensor for replacement, so that we can ensure the
       // empty axes are marked with constant zeroes
-      empty_tensors.push_back(EmptyTensorDescriptor{tv, empty_axes});
+      empty_tensors.push_back(EmptyTensorDescriptor{tv->name(), empty_axes});
       continue;
     }
     if (tv->definition()) {
@@ -408,7 +421,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::string indent = "  ";
   ss << indent << "Empty tensors:\n";
   for (const auto& kv : empty_tensors_) {
-    ss << indent << indent << kv.tv->toString()
+    ss << indent << indent << initial_info_->lookUpTV(kv.tv_name)->toString()
        << " has zero extent in these axes:";
     for (auto i : kv.empty_axes) {
       ss << " " << i;
@@ -507,8 +520,9 @@ void DynamicTransformConcretizer::concretize() {
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
+  info_->initialInfo()->fusion()->printMath();
   for (const auto& empty_tv_descr : info_->getEmptyTensors()) {
-    auto tv = empty_tv_descr.tv;
+    auto tv = info_->initialInfo()->lookUpTV(empty_tv_descr.tv_name);
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     std::vector<Val*> new_shape;
     new_shape.reserve(rfactor.size());
