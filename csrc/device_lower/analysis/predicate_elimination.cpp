@@ -582,6 +582,14 @@ class PredicateChcker : public IterVisitor {
       return;
     }
 
+    // If the input is predicted, then the reduction needs predicate.
+    // so the un-initilized input values in the else branch is reaplaced with
+    // rop->init().
+    if (non_predicated_exprs_.find(input_def) == non_predicated_exprs_.end()) {
+      needs_predicate_ = true;
+      return;
+    }
+
     // If input is not predicated, out-of-bound value may be
     // overwritten by a garbage value. However, it doesn't matter if
     // the input is also produced by another reduction. If the preceding
