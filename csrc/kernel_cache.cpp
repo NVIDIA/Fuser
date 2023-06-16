@@ -976,8 +976,8 @@ void FusionKernelRuntime::deserialize(
     scheduler_entry->schedule(fusion_to_run.get());
     fusions_.emplace_back(std::move(fusion_to_run));
 
-    executors_.at(idx).deserialize(
-        buffer->executors()->Get(idx), fusions_.back().get());
+    executors_.at(group_id).deserialize(
+        buffer->executors()->Get(group_id), fusions_.back().get());
   }
 }
 

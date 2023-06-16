@@ -2077,7 +2077,7 @@ class TestNvFuserFrontend(TestCase):
                         self.exec_nvfuser,
                         partial(check, acts=inp),
                         inp,
-                        skip_serde_check=True
+                        skip_serde_check=True,
                     )
             first_check = False
 
@@ -2096,7 +2096,6 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
-
 
     def test_def_op_in_schedule(self):
         """
@@ -2356,7 +2355,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         # Just test that this executes, not that it's correct
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     def test_input_scalar(self):
         inputs = [
