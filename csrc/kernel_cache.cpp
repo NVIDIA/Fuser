@@ -772,11 +772,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     }
 
     auto&& [device_id, dynamic_info] = config;
-    bool has_dynamic_transform_info = (dynamic_info == nullptr)
-        ? false
-        : dynamic_info->initialInfo()->hasDynamicTransforms();
     kernel_runtimes.push_back(CreateKernelRuntimesDirect(
-        builder, device_id, has_dynamic_transform_info, &runtimes));
+        builder, device_id, (dynamic_info != nullptr), &runtimes));
   }
 
   std::vector<size_t> kernel_cache_keys;

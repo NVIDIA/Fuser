@@ -948,7 +948,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.relu(t0)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
@@ -1143,7 +1143,7 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.mul(t0, c0)
             fd.add_output(t1)
 
-        (n,), _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
+        (n,), _ = self.exec_nvfuser(fusion_func, inputs)
 
         eager_out = inputs[0] * (3.0 + 0.5j)
 
@@ -2094,7 +2094,7 @@ class TestNvFuserFrontend(TestCase):
 
         eager_out = inputs[0] + float("nan")
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, skip_serde_check=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(eager_out, nvf_out[0])
 
 
