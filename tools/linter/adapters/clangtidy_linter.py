@@ -233,6 +233,7 @@ def main() -> None:
         stream=sys.stderr,
     )
 
+    args.binary = os.path.expanduser(args.binary)
     if not os.path.exists(args.binary):
         err_msg = LintMessage(
             path="<none>",
