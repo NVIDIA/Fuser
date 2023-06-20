@@ -1304,6 +1304,8 @@ void GroupDependencyAnalysis::mergeGroups(
       }
       // insert the new group as producer
       it.second->pushBack(merged);
+      // all producers of merged are now producers of `it`
+      mergeAllKnownProducersIntoFrom(it.first, merged);
     }
   }
 }
