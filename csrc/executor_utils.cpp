@@ -1058,20 +1058,19 @@ class NvrtcCompileDriver {
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
-
     size_t logsize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log(logsize, 0);
+    std::string log;
+    log.reserve(logsize);
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
+      TORCH_INTERNAL_ASSERT(
+          false, src, "\nCUDA NVRTC compile error: ", log.data());
     }
-
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log << std::endl;
+      std::cout << log.data() << std::endl;
     }
-
-    return log;
+    return std::string(log.data());
   }
 
  private:
