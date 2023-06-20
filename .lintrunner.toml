@@ -33,7 +33,6 @@ exclude_patterns = [
 command = [
     'python3',
     'tools/linter/adapters/clangformat_linter.py',
-    '--binary=.lintbin/clang-format',
     '--',
     '@{{PATHSFILE}}'
 ]
@@ -67,7 +66,6 @@ init_command = [
 command = [
     'python3',
     'tools/linter/adapters/clangtidy_linter.py',
-    '--binary=.lintbin/clang-tidy',
     '--build_dir=./build',
     '--',
     '@{{PATHSFILE}}'
