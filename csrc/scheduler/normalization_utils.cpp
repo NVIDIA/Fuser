@@ -631,7 +631,8 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size) {
+    const int64_t warp_size,
+    const bool enforce_return_valid) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1. See Step 5 of
   // innerOuterPersistentHeuristic
@@ -752,7 +753,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // without considering the overhead of fusion segmentation.
   const int64_t batch_max_reg_spill = batch_max + 3;
 
-  if (inner_batch <= batch_max_reg_spill) {
+  if (enforce_return_valid || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);

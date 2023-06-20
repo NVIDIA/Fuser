@@ -129,7 +129,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           outer_dim_numel,
           max_persistent_buffer_size,
           iop.inner_vect,
-          dev_prop->warpSize);
+          dev_prop->warpSize,
+          true);
   auto opt_inner_batch = batch_and_block_size.first;
   TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
   iop.inner_batch = opt_inner_batch.value();

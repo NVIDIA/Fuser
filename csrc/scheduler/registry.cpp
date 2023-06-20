@@ -1978,7 +1978,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
                    properties.total_iteration_numel,
                    persistent_buffer_size,
                    (int64_t)vectorize_factor,
-                   warp_size)
+                   warp_size,
+                   false)
                    .first.has_value()) {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
