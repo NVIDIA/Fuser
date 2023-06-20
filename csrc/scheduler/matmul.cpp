@@ -61,11 +61,11 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 auto check_concrete_static_dim = [](IterDomain* id) {
   TORCH_INTERNAL_ASSERT(
       !id->isBroadcast() && !id->isReduction(),
-      "no support on reduction or broadcast dims, but get ",
+      "no support for reduction or broadcast domains, but got ",
       id->toString());
   TORCH_INTERNAL_ASSERT(
       id->extent()->isConstInt(),
-      "swizzled dimensions need to be statically, but get ",
+      "swizzled dimension's extend must be known during scheduling, got ",
       id->toString());
 };
 
@@ -93,14 +93,15 @@ void swizzleSharedMemory(
   check_concrete_static_dim(shared_mem_tv->axis(-1 - shift));
 
   // Extract the constant sizes of the swizzled tile
-  const int tile_size_x = (int)shared_mem_tv->axis(-2)->extent()->evaluateInt();
-  const int tile_size_y = (int)shared_mem_tv->axis(-1)->extent()->evaluateInt();
+  const int64_t tile_size_x = shared_mem_tv->axis(-2)->extent()->evaluateInt();
+  const int64_t tile_size_y = shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
   if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
     // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
     // (i.e. float)
-    const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+    const int64_t data_type_size =
+        (int64_t)dataTypeSize(*shared_mem_tv->getDataType());
     TORCH_INTERNAL_ASSERT(data_type_size == 2 || data_type_size == 4);
 
     // ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
