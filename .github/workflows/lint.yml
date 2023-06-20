@@ -83,9 +83,6 @@ jobs:
           # Initialize lintrunner
           lintrunner init 2> /dev/null
 
-          which clang-format
-          which clang-tidy
-
           # Install dependencies
           sudo apt install -y libtinfo5
 
