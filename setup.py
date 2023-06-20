@@ -325,6 +325,8 @@ def main():
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
+            "contrib/*",
+            "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
             # "bin/nvfuser_tests",
