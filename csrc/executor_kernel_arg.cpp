@@ -679,6 +679,8 @@ void KernelArgumentHolder::deserialize(
 
   serde::ArgAbstractFactory arg_abstract_factory;
   for (auto fb_arg_abstract : *buffer->arguments()) {
+    TORCH_INTERNAL_ASSERT(
+        fb_arg_abstract != nullptr, "serde::ArgAbstract is nullptr.");
     arguments_.push_back(arg_abstract_factory.parse(
         fb_arg_abstract->data_type(), fb_arg_abstract));
   }

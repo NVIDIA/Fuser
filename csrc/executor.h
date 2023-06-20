@@ -327,7 +327,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data,
-      int64_t tv_position) const;
+      int64_t tv_position,
+      bool is_fusion_output) const;
 
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 

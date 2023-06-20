@@ -42,11 +42,11 @@ struct TensorShapeBuilder;
 struct ScalarInput;
 struct ScalarInputBuilder;
 
-struct ScalarCpu;
-struct ScalarCpuBuilder;
-
 struct PhiloxCudaState;
 struct PhiloxCudaStateBuilder;
+
+struct ScalarCpu;
+struct ScalarCpuBuilder;
 
 struct TensorArg;
 struct TensorArgBuilder;
@@ -1185,6 +1185,57 @@ inline ::flatbuffers::Offset<ScalarInput> CreateScalarInput(
   return builder_.Finish();
 }
 
+struct PhiloxCudaState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef PhiloxCudaStateBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SEED = 4,
+    VT_OFFSET = 6
+  };
+  uint64_t seed() const {
+    return GetField<uint64_t>(VT_SEED, 0);
+  }
+  uint64_t offset() const {
+    return GetField<uint64_t>(VT_OFFSET, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_SEED, 8) &&
+           VerifyField<uint64_t>(verifier, VT_OFFSET, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct PhiloxCudaStateBuilder {
+  typedef PhiloxCudaState Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_seed(uint64_t seed) {
+    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_SEED, seed, 0);
+  }
+  void add_offset(uint64_t offset) {
+    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_OFFSET, offset, 0);
+  }
+  explicit PhiloxCudaStateBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<PhiloxCudaState> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<PhiloxCudaState>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<PhiloxCudaState> CreatePhiloxCudaState(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t seed = 0,
+    uint64_t offset = 0) {
+  PhiloxCudaStateBuilder builder_(_fbb);
+  builder_.add_offset(offset);
+  builder_.add_seed(seed);
+  return builder_.Finish();
+}
+
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -1246,57 +1297,6 @@ inline ::flatbuffers::Offset<ScalarCpu> CreateScalarCpuDirect(
       _fbb,
       instance__,
       size);
-}
-
-struct PhiloxCudaState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef PhiloxCudaStateBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SEED = 4,
-    VT_OFFSET = 6
-  };
-  uint64_t seed() const {
-    return GetField<uint64_t>(VT_SEED, 0);
-  }
-  uint64_t offset() const {
-    return GetField<uint64_t>(VT_OFFSET, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<uint64_t>(verifier, VT_SEED, 8) &&
-           VerifyField<uint64_t>(verifier, VT_OFFSET, 8) &&
-           verifier.EndTable();
-  }
-};
-
-struct PhiloxCudaStateBuilder {
-  typedef PhiloxCudaState Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_seed(uint64_t seed) {
-    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_SEED, seed, 0);
-  }
-  void add_offset(uint64_t offset) {
-    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_OFFSET, offset, 0);
-  }
-  explicit PhiloxCudaStateBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<PhiloxCudaState> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<PhiloxCudaState>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<PhiloxCudaState> CreatePhiloxCudaState(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    uint64_t seed = 0,
-    uint64_t offset = 0) {
-  PhiloxCudaStateBuilder builder_(_fbb);
-  builder_.add_offset(offset);
-  builder_.add_seed(seed);
-  return builder_.Finish();
 }
 
 struct TensorArg FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1734,7 +1734,8 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_STRIDES = 8,
     VT_DTYPE = 10,
     VT_ZERO_INIT = 12,
-    VT_IS_PROFILE_BUFFER = 14
+    VT_IS_PROFILE_BUFFER = 14,
+    VT_IS_FUSION_OUTPUT = 16
   };
   int64_t tv() const {
     return GetField<int64_t>(VT_TV, -1LL);
@@ -1754,6 +1755,9 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   bool is_profile_buffer() const {
     return GetField<uint8_t>(VT_IS_PROFILE_BUFFER, 0) != 0;
   }
+  bool is_fusion_output() const {
+    return GetField<uint8_t>(VT_IS_FUSION_OUTPUT, 0) != 0;
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_TV, 8) &&
@@ -1764,6 +1768,7 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            VerifyField<uint8_t>(verifier, VT_ZERO_INIT, 1) &&
            VerifyField<uint8_t>(verifier, VT_IS_PROFILE_BUFFER, 1) &&
+           VerifyField<uint8_t>(verifier, VT_IS_FUSION_OUTPUT, 1) &&
            verifier.EndTable();
   }
 };
@@ -1790,6 +1795,9 @@ struct GlobalBufferInfoBuilder {
   void add_is_profile_buffer(bool is_profile_buffer) {
     fbb_.AddElement<uint8_t>(GlobalBufferInfo::VT_IS_PROFILE_BUFFER, static_cast<uint8_t>(is_profile_buffer), 0);
   }
+  void add_is_fusion_output(bool is_fusion_output) {
+    fbb_.AddElement<uint8_t>(GlobalBufferInfo::VT_IS_FUSION_OUTPUT, static_cast<uint8_t>(is_fusion_output), 0);
+  }
   explicit GlobalBufferInfoBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1808,12 +1816,14 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(
     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> strides = 0,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool zero_init = false,
-    bool is_profile_buffer = false) {
+    bool is_profile_buffer = false,
+    bool is_fusion_output = false) {
   GlobalBufferInfoBuilder builder_(_fbb);
   builder_.add_tv(tv);
   builder_.add_dtype(dtype);
   builder_.add_strides(strides);
   builder_.add_sizes(sizes);
+  builder_.add_is_fusion_output(is_fusion_output);
   builder_.add_is_profile_buffer(is_profile_buffer);
   builder_.add_zero_init(zero_init);
   return builder_.Finish();
@@ -1826,7 +1836,8 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
     const std::vector<int64_t> *strides = nullptr,
     nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
     bool zero_init = false,
-    bool is_profile_buffer = false) {
+    bool is_profile_buffer = false,
+    bool is_fusion_output = false) {
   auto sizes__ = sizes ? _fbb.CreateVector<int64_t>(*sizes) : 0;
   auto strides__ = strides ? _fbb.CreateVector<int64_t>(*strides) : 0;
   return nvfuser::serde::CreateGlobalBufferInfo(
@@ -1836,7 +1847,8 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
       strides__,
       dtype,
       zero_init,
-      is_profile_buffer);
+      is_profile_buffer,
+      is_fusion_output);
 }
 
 struct ExecutorEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

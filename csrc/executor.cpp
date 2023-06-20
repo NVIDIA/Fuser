@@ -1127,6 +1127,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       continue;
     }
     GlobalBufferInfo info;
+    info.tv = tv;
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, expr_eval);
@@ -1958,17 +1959,34 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   outputs_fb.reserve(data.outputs.size());
   for (const auto& buffer : data.outputs) {
     auto tv_iter = std::find(
-        fusion_->outputs().begin(), fusion_->outputs().end(), buffer.tv);
-    auto tv_position = (tv_iter == fusion_->outputs().end())
+        kernel()->outputs().cbegin(), kernel()->outputs().cend(), buffer.tv);
+    auto tv_position = (tv_iter == kernel()->outputs().cend())
         ? -1
-        : std::distance(fusion_->outputs().begin(), tv_iter);
-    outputs_fb.push_back(serialize(builder, buffer, tv_position));
+        : std::distance(kernel()->outputs().cbegin(), tv_iter);
+    outputs_fb.push_back(
+        serialize(builder, buffer, tv_position, true /* is_fusion_output */));
   }
 
   std::vector<fb_global_buffer_info> intermediates_fb;
   intermediates_fb.reserve(data.intermediates.size());
   for (const auto& buffer : data.intermediates) {
-    intermediates_fb.push_back(serialize(builder, buffer, -1));
+    auto match_tv_predicate = [buffer_tv = buffer.tv](const kir::Allocate* a) {
+      return a->buffer() == buffer_tv;
+    };
+
+    auto tv_iter = std::find_if(
+        kernel()->summary().global_allocations.cbegin(),
+        kernel()->summary().global_allocations.cend(),
+        match_tv_predicate);
+
+    auto tv_position =
+        (tv_iter == kernel()->summary().global_allocations.cend())
+        ? -1
+        : std::distance(
+              kernel()->summary().global_allocations.cbegin(), tv_iter);
+
+    intermediates_fb.push_back(
+        serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
 
   return CreateExecutorEntryDirect(
@@ -1985,7 +2003,8 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
 flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const GlobalBufferInfo& data,
-    int64_t tv_position = -1) const {
+    int64_t tv_position,
+    bool is_fusion_output) const {
   // table GlobalBufferInfo {
   //  tv : long;
   //  sizes : [long];
@@ -1993,6 +2012,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
   //  type : DataType;
   //  zero_init : bool;
   //  is_profile_buffer : bool;
+  //  is_fusion_output : bool;
   // }
   return serde::CreateGlobalBufferInfoDirect(
       builder,
@@ -2001,7 +2021,8 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       &data.strides,
       serde::mapToSerdeDtype(data.type),
       data.zero_init,
-      data.is_profile_buffer);
+      data.is_profile_buffer,
+      is_fusion_output);
 }
 
 void FusionExecutor::deserialize(
@@ -2053,6 +2074,8 @@ void FusionExecutor::deserialize(
           default_params,
           block_size_high_water_mark_,
           save_compiled_binary_);
+
+  TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
@@ -2099,15 +2122,23 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   //  dtype : DataType;
   //  zero_init : bool;
   //  is_profile_buffer : bool;
+  //  is_fusion_output : bool;
   // }
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
   GlobalBufferInfo info;
 
-  if (buffer->tv() != -1) {
+  TORCH_INTERNAL_ASSERT(
+      buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
+
+  if (buffer->is_fusion_output()) {
     auto out_val = fusion_->outputs().at(buffer->tv());
     TORCH_INTERNAL_ASSERT(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
+  } else {
+    auto out_val = kernel()->summary().global_allocations.at(buffer->tv());
+    TORCH_INTERNAL_ASSERT(out_val != nullptr);
+    info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
 
   for (auto dim_size : *buffer->sizes()) {

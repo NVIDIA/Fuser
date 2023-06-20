@@ -274,6 +274,7 @@ table GlobalBufferInfo {
   dtype : DataType;
   zero_init : bool;
   is_profile_buffer : bool;
+  is_fusion_output : bool;
 }
 
 // This table describes the cached ExecutorEntry for a kernel.

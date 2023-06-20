@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/EmptyTensor.h>
 #include <serde/arg_abstract_serde.h>
 #include <utils.h>
 
@@ -23,15 +24,25 @@ std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
 
 std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
     const serde::TensorArg* tensor) {
-  auto meta_tensor = at::detail::empty_strided_meta(
+  if (tensor->strides() != nullptr) {
+    auto meta_tensor = at::detail::empty_strided_meta(
+        parseVector(tensor->sizes()),
+        parseVector(tensor->strides()),
+        mapToAtenDtype(tensor->dtype()),
+        c10::nullopt,
+        c10::Device(c10::DeviceType::Meta, 0),
+        c10::nullopt);
+    return std::make_unique<TensorArgAbstract>(
+        at::Tensor(meta_tensor), tensor->ptr());
+  }
+  auto meta_tensor = at::empty(
       parseVector(tensor->sizes()),
-      parseVector(tensor->strides()),
       mapToAtenDtype(tensor->dtype()),
       c10::nullopt,
       c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt,
       c10::nullopt);
-  return std::make_unique<TensorArgAbstract>(
-      at::Tensor(meta_tensor), tensor->ptr());
+  return std::make_unique<TensorArgAbstract>(meta_tensor);
 }
 
 } // namespace
@@ -88,8 +99,7 @@ void ArgAbstractFactory::registerAllParsers() {
   registerParser(serde::ArgAbstractData_ScalarCpu, deserializeScalarCpu);
 
   auto deserializeTensorArg = [](const serde::ArgAbstract* buffer) {
-    auto tensor = buffer->data_as_TensorArg();
-    return getAbstractTensorArg(tensor);
+    return getAbstractTensorArg(buffer->data_as_TensorArg());
   };
   registerParser(serde::ArgAbstractData_TensorArg, deserializeTensorArg);
 }
