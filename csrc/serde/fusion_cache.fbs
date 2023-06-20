@@ -207,18 +207,18 @@ table ScalarInput {
 }
 
 // =====================================================================================
-// Tables for KernelArgumentHolder used in FusionExecutor
-
-// The ScalarCpu is represented by a fixed size array of raw bytes.
-table ScalarCpu {
-  instance : [byte];
-  size : ulong;
-}
+// Tables for ArgAbstract, PhiloxCudaState, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
 
 // Data of PhiloxCudaState
 table PhiloxCudaState {
   seed : ulong;
   offset : ulong;
+}
+
+// The ScalarCpu is represented by a fixed size array of raw bytes.
+table ScalarCpu {
+  instance : [byte];
+  size : ulong;
 }
 
 // Data of TensorArg.
