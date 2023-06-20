@@ -22,6 +22,7 @@ namespace {
 // thread_local variable used only for debugging/testing
 thread_local bool overwrite_disable_fma = false;
 
+// TODO: Remove as it's copied to options.cpp
 // OptionEnum must be an enum like DebugDumpOption
 template <typename OptionEnum>
 auto parseEnvOptions(
@@ -185,24 +186,6 @@ const auto& getDisableOptions() {
   return options;
 }
 
-auto parseEnableOptions() {
-  const std::unordered_map<std::string, EnableOption> available_options = {
-      {"complex", EnableOption::Complex},
-      {"kernel_profile", EnableOption::KernelProfile},
-      {"linear_decomposition", EnableOption::LinearDecomposition},
-      {"conv_decomposition", EnableOption::ConvDecomposition},
-      {"graph_op_fusion", EnableOption::GraphOp},
-      {"kernel_db", EnableOption::KernelDb},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill}};
-
-  return parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
-}
-
-const auto& getEnableOptions() {
-  static const auto options = parseEnableOptions();
-  return options;
-}
-
 } // namespace
 
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
@@ -336,10 +319,6 @@ bool isOptionDisabled(DisableOption option) {
   return getDisableOptions().count(option);
 }
 
-bool isOptionEnabled(EnableOption option) {
-  return getEnableOptions().count(option);
-}
-
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
   return getDebugDumpOptions().at(option);
 }
@@ -347,10 +326,6 @@ const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
 const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option) {
   return getDisableOptions().at(option);
-}
-
-const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
-  return getEnableOptions().at(option);
 }
 
 bool useFallback() {

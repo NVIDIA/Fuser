@@ -10,6 +10,8 @@
 #include <ATen/ATen.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
+
+#include <options.h>
 #include <type.h>
 
 #include <deque>
@@ -140,24 +142,6 @@ TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option);
 
-//! Types of features to enable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_ENABLE` environment variable
-//!
-enum class EnableOption {
-  Complex, //! Enable complex support on python
-  KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
-  KernelDb, //! Enable Kernel Database
-  WarnRegisterSpill, //! Enable warnings of register spill
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option);
 TORCH_CUDA_CU_API int64_t
 getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
