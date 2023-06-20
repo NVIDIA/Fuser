@@ -87,7 +87,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   // get the IValues corresponding to the stage's input
   std::vector<c10::IValue> stage_input_IValues;
   for (auto& input_val : stage->inputs()) {
-    stage_input_IValues.push_back(val_to_IValue[input_val]);
+    stage_input_IValues.push_back(val_to_IValue_[input_val]);
   }
 
   // Run the lowering and compilation step if we haven't compiled yet.
@@ -125,7 +125,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   // Bind context tensors to the actual kernel outputs:
   for (auto output_idx : c10::irange(stage->outputs().size())) {
     // Fill tensor data or placeholder to context.
-    val_to_IValue[stage->outputs().at(output_idx)] = outputs.at(output_idx);
+    val_to_IValue_[stage->outputs().at(output_idx)] = outputs.at(output_idx);
   }
 }
 
@@ -162,8 +162,8 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     auto nbr_srcs = sender_ranks.size();
     auto nbr_dests_per_comm = receiver_ranks.size() / nbr_srcs;
     auto remainder = receiver_ranks.size() % nbr_srcs;
-    int j = 0;
-    for (auto i : c10::irange(nbr_srcs)) {
+    auto j = 0;
+    for (size_t i : c10::irange(nbr_srcs)) {
       SendRecvDescriptor communication;
       auto src = sender_ranks.at(i);
       communication.team = {src};
@@ -179,7 +179,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
 
   auto input_val = c->in();
   auto output_val = c->out();
-  std::vector<at::Tensor> tensor = {val_to_IValue.at(input_val).toTensor()};
+  std::vector<at::Tensor> tensor = {val_to_IValue_.at(input_val).toTensor()};
 
   /* perform the needed communications. For now everything is translated as
      send/recv.
@@ -192,7 +192,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }
   }
-  val_to_IValue[output_val] = (c10::IValue)(tensor[0]);
+  val_to_IValue_[output_val] = (c10::IValue)(tensor[0]);
 }
 
 std::vector<at::Tensor> PipelineExecutor::runWithInput(
@@ -204,7 +204,7 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
 
   // process input values input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue[runtime_.pipeline_->inputs().at(input_idx)] =
+    val_to_IValue_[runtime_.pipeline_->inputs().at(input_idx)] =
         inputs.at(input_idx);
   }
 
@@ -214,7 +214,7 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
   for (auto output_val : runtime_.pipeline_->outputs()) {
-    outputs.push_back(val_to_IValue[output_val].toTensor());
+    outputs.push_back(val_to_IValue_[output_val].toTensor());
   }
 
   return outputs;

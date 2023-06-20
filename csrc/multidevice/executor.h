@@ -54,7 +54,7 @@ class PipelineExecutor : public IterVisitor {
       std::vector<c10::IValue> stage_input);
 
   // Stores concrete computed values,
-  std::unordered_map<Val*, c10::IValue> val_to_IValue;
+  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // Compiled kernels from multi_stage_fusion_
   std::unordered_map<PipelineStage*, CompiledKernelPtr> compiled_kernels_;

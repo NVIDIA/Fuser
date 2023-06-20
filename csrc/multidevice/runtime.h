@@ -65,7 +65,7 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
     return comm_;
   }
 
-  // Returns the Communicator
+  // Returns the Pipeline
   auto pipeline() const {
     return pipeline_;
   }

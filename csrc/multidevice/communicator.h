@@ -13,6 +13,9 @@ namespace nvfuser {
    Backend. This class contains inter-process information, such as the rank, the
    world size, as well as the Process Group that can be called to perform
    inter-process communications
+
+   Only one node configuration is supported for now.
+   TODO: extend to multinode.
 */
 
 // Supported backends. TODO: only tested with nccl for now
@@ -34,10 +37,8 @@ class Communicator {
 
   // returns the flattenend list of ranks of the communicator
   auto ranks() const {
-    std::vector<RankType> ret;
-    for (auto rank : c10::irange(size())) {
-      ret.push_back(static_cast<RankType>(rank));
-    }
+    std::vector<RankType> ret(size());
+    std::iota(ret.begin(), ret.end(), 0);
     return ret;
   }
 
@@ -56,8 +57,8 @@ class Communicator {
   // stores the process group backend
  private:
   RankType rank_;
-  size_t size_;
-  c10::intrusive_ptr<c10d::Backend> pg_; // TODO: put in private
+  int64_t size_;
+  c10::intrusive_ptr<c10d::Backend> pg_;
 };
 
 } // namespace nvfuser

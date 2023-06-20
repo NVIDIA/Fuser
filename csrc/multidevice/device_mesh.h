@@ -20,26 +20,26 @@ namespace nvfuser {
 */
 class DeviceMesh final {
  public:
-  /* return the flatten vector of device indices */
+  // return the flatten vector of device indices
   const auto& deviceIndices() const {
     return deviceIndices_;
   }
 
-  /* return the shape of the mesh */
+  // return the shape of the mesh
   const auto& dimensions() const {
     return dimensions_;
   }
 
-  /* return the total length of the mesh */
-  size_t size() const {
-    size_t ret = 1;
+  // return the total length of the mesh
+  int64_t size() const {
+    int64_t ret = 1;
     for (auto dimension : dimensions_) {
       ret *= dimension;
     }
     return ret;
   }
 
-  /* set the attributes of the mesh */
+  // set the attributes of the mesh
   void set(
       std::vector<DeviceIdxType> deviceIndices,
       std::vector<DimensionType> dimensions) {
@@ -55,14 +55,17 @@ class DeviceMesh final {
   }
 
  private:
-  /* returns whether the mesh is valid */
+  /*
+    returns whether the mesh is valid, i.e., its size is strictly positive and
+    the size matches the number of device indices.
+  */
   bool validate(std::vector<DeviceIdxType> deviceIndices) {
-    return (size() == deviceIndices.size() && size() > 0);
+    return (size() == static_cast<int64_t>(deviceIndices.size()) && size() > 0);
   }
 
-  /* stores the device indices */
+  // stores the device indices
   std::vector<DeviceIdxType> deviceIndices_;
-  /* stores the mesh shape */
+  // stores the mesh shape
   std::vector<DimensionType> dimensions_;
 };
 

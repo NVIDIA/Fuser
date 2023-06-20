@@ -54,11 +54,8 @@ class TORCH_CUDA_CU_API PipelineStage : public Expr {
   bool sameAs(const Statement* other) const override;
 
   const PipelineStageDescriptor* descriptor() const {
-    return descriptor_;
+    return attribute(0)->as<Attribute<const PipelineStageDescriptor*>>()->value;
   }
-
- private:
-  const PipelineStageDescriptor* descriptor_;
 };
 
 /*
@@ -103,8 +100,7 @@ class TORCH_CUDA_CU_API PipelineVal : public Val {
 
 /*
   PipelineCommunication is a unary operation between two PipelineVals
-  It represents the inter-device data transfers of tensors in-between two
-  PipelineStages
+  It represents the data communication in-between two PipelineStages
 */
 class TORCH_CUDA_CU_API PipelineCommunication : public Expr {
  public:

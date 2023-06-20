@@ -20,7 +20,7 @@ PipelineStage::PipelineStage(
     const PipelineStageDescriptor* descriptor,
     ValSet input_vals,
     ValSet output_vals)
-    : Expr(passkey), descriptor_(descriptor) {
+    : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<Pipeline>(),
       "IR type only valid for Pipeline container.");
@@ -35,6 +35,9 @@ PipelineStage::PipelineStage(
     addInput(v);
     v->as<PipelineVal>()->setStage(this);
   }
+
+  addAttribute(IrBuilder::create<Attribute<const PipelineStageDescriptor*>>(
+      passkey.ir_container_, descriptor));
 }
 
 std::string PipelineStage::toString(int indent_size) const {
@@ -64,7 +67,7 @@ bool PipelineStage::sameAs(const Statement* other) const {
   if (!Expr::sameAs(other)) {
     return false;
   }
-  return descriptor_ == other->as<PipelineStage>()->descriptor();
+  return descriptor() == other->as<PipelineStage>()->descriptor();
 }
 
 PipelineCommunication::PipelineCommunication(

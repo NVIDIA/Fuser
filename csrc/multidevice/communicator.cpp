@@ -8,14 +8,18 @@
 #ifdef USE_DISTRIBUTED
 
 #include <multidevice/communicator.h>
+#ifdef USE_C10D_GLOO
 #include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
+#endif
+#ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
+#endif
 
 namespace nvfuser {
 
 // Parse the environment to retrieve MPI rank and MPI world size and sets rank
 // and size accordingly Returns 0 in case of success, 1 otherwise
-int parseEnv(RankType& rank, size_t& size) {
+int parseEnv(RankType& rank, int64_t& size) {
   char* env = nullptr;
 
   // retrieves the rank of the current process
@@ -45,7 +49,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
     ::c10::intrusive_ptr<c10d::TCPStore> store,
     RankType rank,
-    size_t size) {
+    int64_t size) {
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::nccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();

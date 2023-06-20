@@ -117,6 +117,7 @@ void testValidateMultidevice(
    Then simply run the tests on several processes, for example using mpirun,
    e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
    --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
+   For now, we only support setups with one node.
 */
 
 TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
