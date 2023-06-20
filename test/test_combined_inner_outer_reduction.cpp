@@ -161,49 +161,8 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
-    // In combined_inner_outer_reduction, the inner dim should be a
-    // multiplication of a quarter warp and vectorization factor. Otherwise,
-    // will use segregated version, see checkCombinedReductionShape.
-    int64_t feature_size = 1;
-    for (auto s : norm_shape) {
-      feature_size *= s;
-    }
-    int64_t batch_size = 1;
-    for (auto s : batch_shape) {
-      batch_size *= s;
-    }
-    int64_t vectorization_factor = 16l / dataTypeSize(dtype);
-    // try 8, 4, 2, 1
-    while (feature_size % vectorization_factor) {
-      vectorization_factor /= 2;
-    }
-    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
-    const int64_t n_elements_factor = warp_size / 4 * vectorization_factor;
-    // valid for this specific layer_norm backward fusion
-    // Half: 2 floats + 3 halfs
-    // Float: 2 floats + 3 floats
-    const int64_t persistent_bytes_per_element =
-        dtype == DataType::Half ? 14 : 20;
-    const int64_t persistent_bytes_per_row =
-        persistent_bytes_per_element * feature_size;
-    const auto opt_inner_batch = normalization_scheduler_utils::
-        getOptionalInnerOuterPersistentBufferBatches(
-            feature_size,
-            batch_size,
-            persistent_bytes_per_row,
-            vectorization_factor,
-            warp_size,
-            false);
-    bool expect_segmentation =
-        feature_size % n_elements_factor || !opt_inner_batch.first.has_value();
-
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    TORCH_CHECK(
-        expect_segmentation == is_segmented,
-        "Fusion segmentation is different from expected!, expected: ",
-        expect_segmentation,
-        ", actual: ",
-        is_segmented);
+    TORCH_CHECK(!is_segmented, "Fusion segmentation is segmented!");
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -275,7 +234,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}};
+      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;

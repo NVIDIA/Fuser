@@ -135,14 +135,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
   iop.inner_batch = opt_inner_batch.value();
   int64_t threads_per_block = batch_and_block_size.second;
-
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
       " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
-  const int64_t factor_of_block_size = dev_prop->warpSize / 4;
-  TORCH_INTERNAL_ASSERT(
-      threads_per_block % factor_of_block_size == 0,
-      " threads_per_block must have a factor of warp_size / 4.");
 
   // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
   // from buffer size, then it is used to calculate threads_per_sm and gdimy.
@@ -173,7 +168,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
   // gdimy (already done) The partial outer reduction result is stored in tmp
   // gmem, set the vectorization factor for write and read
-  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4 : 2;
+  const int64_t workload_per_thread = inner_dim_numel >= 4096
+      ? std::min(4l, iop.inner_vect)
+      : std::min(2l, iop.inner_vect);
   iop.vectorization_factor_outer =
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
   // threads_per_block starts from 8 and multiplied by 2, 3, or 5.
@@ -203,7 +200,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
     // Step-1, InnerParams, Reduction dim: inner_vect(reuse), inner_batch, bdimx
     iop.inner_batch = 1;
-    iop.bdimx = inner_dim_numel / iop.inner_vect;
+    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
     reg_per_thread =
@@ -217,10 +214,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // bdimy, gdimy (in previous step). vectorization_factor_outer is set to 2
     // as a small workload per thread is preferred for small sizes and we only
     // process vectorized cases.
-    iop.bdimy = std::min(
-        ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy),
-        scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx));
-    iop.bdimy = iop.bdimy;
+    iop.bdimy = scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
 

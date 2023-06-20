@@ -670,8 +670,9 @@ getOptionalInnerOuterPersistentBufferBatches(
   };
 
   int64_t threads_per_block = warp_size / 4;
-  const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
-  int64_t inner_batch = after_vectorization / threads_per_block;
+  const int64_t after_vectorization =
+      ceilDiv(inner_dim_numel, vectorize_factor);
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
   const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
   const int64_t batch_min = getMinimumBatch();
