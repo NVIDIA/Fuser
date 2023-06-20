@@ -199,7 +199,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--binary",
-        default="clang-tidy",
+        required=True,
         help="clang-tidy binary path",
     )
     parser.add_argument(

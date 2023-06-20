@@ -172,7 +172,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--binary",
-        default="clang-format",
+        required=True,
         help="clang-format binary path",
     )
     parser.add_argument(
