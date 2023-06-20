@@ -70,40 +70,57 @@ auto check_concrete_static_dim = [](IterDomain* id) {
 };
 
 //! Automatically generates the shared memory swizzled data layout
-//!  for matmul mainloop.
+//!  for matmul mainloop and epilogue.
 //! The shared mem datalayout is always 2D currently, and this utility
 //!  function assumes that the innermost 2 dimensions on shared_mem_tv
 //!  are the ones begin swizzled.
-void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
+//! The shift parameter is added for the transform of MMA results to skip the
+//! K axis and will also skip the actual swizzle. This is to ensure a same
+//! transform history between the MMA result tensor and the epilogue shared
+//! memory tensor so the corresponding domains of these two tensors can be
+//! mapped.
+void swizzleSharedMemory(
+    TensorView* shared_mem_tv,
+    const MatmulParams& params,
+    const int shift) {
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
   TORCH_INTERNAL_ASSERT(
       shared_mem_tv->nDims() >= 2,
       "At least 2D input needed for swizzling, but get ",
       shared_mem_tv->toString());
-  check_concrete_static_dim(shared_mem_tv->axis(-2));
-  check_concrete_static_dim(shared_mem_tv->axis(-1));
+  check_concrete_static_dim(shared_mem_tv->axis(-2 - shift));
+  check_concrete_static_dim(shared_mem_tv->axis(-1 - shift));
 
   // Extract the constant sizes of the swizzled tile
   const int tile_size_x = (int)shared_mem_tv->axis(-2)->extent()->evaluateInt();
   const int tile_size_y = (int)shared_mem_tv->axis(-1)->extent()->evaluateInt();
 
   if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
-    // TODO: right now, we are assuming ldmatrix access, which only supports
-    // sizeof(T) == 16bit (i.e. half/bfloat16) load according to offical doc:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
-    // In the future, when we start adding support for tf32(different macro),
-    // fp32(ffma), double, int8, fp8, etc. we need to update this function.
-    TORCH_INTERNAL_ASSERT(dataTypeSize(*shared_mem_tv->getDataType()) == 2);
+    // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
+    // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
+    // (i.e. float)
+    const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+    TORCH_INTERNAL_ASSERT(data_type_size == 2 || data_type_size == 4);
 
-    // ldmatrix loads a ldmatrix_rows x ldmatrix_cols = 8 x 8 matrix each time,
-    constexpr int64_t ldmatrix_rows = 8;
-    constexpr int64_t ldmatrix_cols = 8;
+    // ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+    // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+    // Each thread vectorized write 2 items, so 8 items per row.
+    //--0--1--2--3
+    //--4--5--6--7
+    //--8--9--10-11
+    //--12-13-14-15
+    //--16-17-18-19
+    //--20-21-22-23
+    //--24-25-26-27
+    //--28-29-30-31
+    constexpr int64_t n_rows = 8;
+    constexpr int64_t n_cols = 8;
 
     // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
     TORCH_INTERNAL_ASSERT(
-        tile_size_x >= ldmatrix_rows && tile_size_x % ldmatrix_rows == 0 &&
-            tile_size_y >= ldmatrix_cols && tile_size_y % ldmatrix_cols == 0,
+        tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
+            tile_size_y >= n_cols && tile_size_y % n_cols == 0,
         "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
         tile_size_x,
         "x",
@@ -147,11 +164,10 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      * has 8 rows, and each row has exactly one unit.
      */
 
-    constexpr int64_t items_per_unit = ldmatrix_cols;
-    constexpr int64_t bytes_per_unit =
-        items_per_unit * primDataTypeSize(DataType::Half);
-    constexpr int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
-    constexpr int64_t num_megabanks = smem_banks / words_per_unit;
+    constexpr int64_t items_per_unit = n_cols;
+    const int64_t bytes_per_unit = items_per_unit * data_type_size;
+    const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
+    const int64_t num_megabanks = smem_banks / words_per_unit;
 
     /* In the following example, each CTA tile contains 2 rows and 3 colums of
      * matrices, each 8x8 size:
@@ -171,7 +187,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     /* So the bank conflicting problem is now converted to the following game:
      *   I have a clock that has one pointer and `num_megabanks` ticks. I start
      *   my game by making my pointer pointing to somewhere, and turn forward
-     *   the pointer `ldmatrix_rows` times, each time by `row_stride` ticks.
+     *   the pointer `n_rows` times, each time by `row_stride` ticks.
      * This problem can be well modeled by modular arithmetic in number theory
      * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
      * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
@@ -289,7 +305,7 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
 
     int64_t repeated_pattern_size = num_megabanks / g;
 
-    if (repeated_pattern_size >= ldmatrix_rows) {
+    if (repeated_pattern_size >= n_rows) {
       return; // No need to swizzle in this case.
     }
 
@@ -353,46 +369,56 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
     //   -2   -1
     // [row, col]
     TORCH_INTERNAL_ASSERT(
-        tile_size_x % ldmatrix_rows == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-2, ldmatrix_rows);
+        tile_size_x % n_rows == 0, "Partial matrices not supported");
+    shared_mem_tv->split(-2 - shift, n_rows);
     TORCH_INTERNAL_ASSERT(
-        tile_size_y % ldmatrix_cols == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-1, ldmatrix_cols);
+        tile_size_y % n_cols == 0, "Partial matrices not supported");
+    shared_mem_tv->split(-1 - shift, n_cols);
     //     -4        -3      -2         -1
     // [matrix id, matrix, matrix id, matrix]
     TORCH_INTERNAL_ASSERT(
-        ldmatrix_rows % repeated_pattern_size == 0,
-        "ldmatrix_rows is assumed to be a multiple of repeated_pattern_size");
-    shared_mem_tv->split(-3, repeated_pattern_size);
+        n_rows % repeated_pattern_size == 0,
+        "n_rows is assumed to be a multiple of repeated_pattern_size");
+    if (repeated_pattern_size > 1) {
+      shared_mem_tv->split(-3 - shift, repeated_pattern_size);
+    }
     //     -5        -4      -3       -2         -1
     // [matrix id, repeat, pattern, matrix id, matrix]
-    int64_t swizzle_period = ldmatrix_rows / repeated_pattern_size;
-    TORCH_INTERNAL_ASSERT(
-        tile_size_y % (swizzle_period * ldmatrix_cols) == 0,
-        "need aperiodic swizzle config for tile size ",
-        tile_size_x,
-        "x",
-        tile_size_y,
-        "with units ",
-        ldmatrix_rows,
-        "x",
-        ldmatrix_cols);
-    shared_mem_tv->split(-2, swizzle_period);
+    int64_t swizzle_period = n_rows / repeated_pattern_size;
+    if (!shift) {
+      TORCH_INTERNAL_ASSERT(
+          tile_size_y % (swizzle_period * n_cols) == 0,
+          "need aperiodic swizzle config for tile size ",
+          tile_size_x,
+          "x",
+          tile_size_y,
+          "with units ",
+          n_rows,
+          "x",
+          n_cols);
+    }
+
+    shared_mem_tv->split(-2 - shift, swizzle_period);
     //     -6        -5      -4            -3           -2         -1
     // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix]
     // swizzle repeat with pattern id to make repeat no longer repeat
-    if (isPowOf2(swizzle_period)) {
-      shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
-    } else {
-      shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, -5, -2);
+    if (!shift) {
+      int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
+      if (isPowOf2(swizzle_period)) {
+        shared_mem_tv->swizzle(Swizzle2DType::XOR, swizzle_axis0, -2);
+      } else {
+        shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, swizzle_axis0, -2);
+      }
     }
 
     // Merge back the tile for subsequent vectorization scheduling
     //  TODO: could potentially simplify away the merges
-    shared_mem_tv->merge(-6);
-    shared_mem_tv->merge(-5);
-    shared_mem_tv->merge(-3);
-    shared_mem_tv->merge(-2);
+    if (repeated_pattern_size > 1) {
+      shared_mem_tv->merge(-6 - shift);
+    }
+    shared_mem_tv->merge(-5 - shift);
+    shared_mem_tv->merge(-3 - shift);
+    shared_mem_tv->merge(-2 - shift);
   } else if (isVolta(params.mma_macro)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma
@@ -415,7 +441,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
-  prologSwizzle(shared_mem_tv, params);
+  swizzleSharedMemory(shared_mem_tv, params, 0);
 
   // Assuming we are always vectorizing smem write by 128b at the moment:
   //   TODO: would need a data-type and alignment dependent interface
@@ -434,87 +460,6 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
       {},
       scheduler_utils::BoundedDirectionalTransformPropagator::Options()
           .propagateParallelType());
-}
-
-//! swizzle the shared mem data layout using a same method in prologSwizzle.
-//! The shift parameter is added for the transform of MMA results to skip the
-//! K axis and will skip the actual swizzle. This is to ensure a same transform
-//! history between the MMA result tensor and the epilogue shared memory tensor
-//! so the corresponding domains of these two tensors can be mapped. This
-//! function may be merged with prologSwizzle as they are using a same method.
-int epilogSwizzle(
-    TensorView* shared_mem_tv,
-    const MatmulParams& params,
-    const int shift = 0) {
-  check_concrete_static_dim(shared_mem_tv->axis(-2 - shift));
-  check_concrete_static_dim(shared_mem_tv->axis(-1 - shift));
-  // Extract the constant sizes of the swizzled tile, e.g. 128 x 128
-  const int tile_size_x =
-      (int)shared_mem_tv->axis(-2 - shift)->extent()->evaluateInt();
-  const int tile_size_y =
-      (int)shared_mem_tv->axis(-1 - shift)->extent()->evaluateInt();
-  constexpr int n_rows = 8;
-  constexpr int n_cols = 8;
-  constexpr int smem_bytes_per_word = 4;
-  constexpr int smem_banks = 32;
-  // Threads in a warp is organized as 8 rows x 4 columns
-  // Each thread vectorized write 2 items, so 8 items per row
-  //--0--1--2--3
-  //--4--5--6--7
-  //--8--9--10-11
-  //--12-13-14-15
-  //--16-17-18-19
-  //--20-21-22-23
-  //--24-25-26-27
-  //--28-29-30-31
-  constexpr int items_per_unit = n_cols;
-  constexpr int bytes_per_unit =
-      items_per_unit * primDataTypeSize(DataType::Float);
-  constexpr int words_per_unit = bytes_per_unit / smem_bytes_per_word;
-  constexpr int num_megabanks = smem_banks / words_per_unit;
-
-  int row_stride = tile_size_y / items_per_unit;
-  int row_stride_znz = row_stride % num_megabanks;
-  int g = std::gcd(num_megabanks, row_stride_znz);
-
-  int repeated_pattern_size = num_megabanks / g;
-  TORCH_INTERNAL_ASSERT(
-      tile_size_y % n_cols == 0, "Partial matrices not supported");
-  //     -4        -3      -2         -1
-  // [matrix id, matrix, matrix id, matrix]
-  TORCH_INTERNAL_ASSERT(
-      n_rows % repeated_pattern_size == 0,
-      "n_rows is assumed to be a multiple of repeated_pattern_size");
-  //     -5        -4      -3       -2         -1
-  // [matrix id, repeat, pattern, matrix id, matrix]
-  int swizzle_period = n_rows / repeated_pattern_size;
-  TORCH_INTERNAL_ASSERT(
-      tile_size_y % (swizzle_period * n_cols) == 0,
-      "need aperiodic swizzle config for tile size ",
-      tile_size_x,
-      "x",
-      tile_size_y,
-      "with units ",
-      n_rows,
-      "x",
-      n_cols);
-  shared_mem_tv->split(-2 - shift, n_rows);
-  shared_mem_tv->split(-1 - shift, n_cols);
-  if (repeated_pattern_size > 1) {
-    shared_mem_tv->split(-3 - shift, repeated_pattern_size);
-  }
-  shared_mem_tv->split(-2 - shift, swizzle_period);
-
-  if (!shift) {
-    int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
-    if (isPowOf2(swizzle_period)) {
-      shared_mem_tv->swizzle(Swizzle2DType::XOR, swizzle_axis0, -2);
-    } else {
-      shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, swizzle_axis0, -2);
-    }
-  }
-
-  return repeated_pattern_size;
 }
 
 void schedule_output_tensor(
@@ -608,10 +553,7 @@ void scheduleEpilog(
   mma_utils::orderTiledConcreteIdAsRoot(c_smem);
 
   // Swizzle the shared memory data layout
-  int repeated_pattern_size = epilogSwizzle(c_smem, params);
-
-  // Merge back the tile for subsequent vectorization scheduling
-  mergeBackAfterSwizzleTransform(c_smem, repeated_pattern_size);
+  swizzleSharedMemory(c_smem, params, 0);
 
   // Actual schedule
   schedule_epilogue_tensor(c_smem, gemm_tile);
@@ -833,9 +775,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // here, needs to shift by 1 to axis -2 and -3 to skip
     // the K axis. Merge back to original form after this swizzle
     // walk through.
-    const int shift = 1;
-    int repeat_pattern = epilogSwizzle(mma_result, params, shift);
-    mergeBackAfterSwizzleTransform(mma_result, repeat_pattern, shift);
+    swizzleSharedMemory(mma_result, params, 1);
   }
 
   // Schedule warp tile
