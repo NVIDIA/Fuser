@@ -30,12 +30,11 @@ enum class EnableOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+//! The base template class for the options such as EnableOption
 template <typename OptionEnum>
 class Options {
  public:
   Options() = default;
-
-  // Options(const Options& other_opts): options_(other_opts.options_) {}
 
   bool has(OptionEnum option) const {
     return options_.count(option);
@@ -63,6 +62,7 @@ class TORCH_CUDA_CU_API EnableOptions : public Options<EnableOption> {
   EnableOptions();
 };
 
+//! Utility class to temporarily overrride the Enable options
 class TORCH_CUDA_CU_API EnableOptionsGuard {
  public:
   EnableOptionsGuard();
