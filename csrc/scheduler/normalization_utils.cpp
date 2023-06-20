@@ -661,8 +661,9 @@ getOptionalInnerOuterPersistentBufferBatches(
   //! in the reduction domain. vectorization_factor is the vectorization factor
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
-    int64_t register_per_batch = persistent_buffer_size / inner_dim_numel *
-        vectorize_factor / scheduler_utils::bytes_per_register;
+    int64_t register_per_batch = ceilDiv(
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
@@ -727,7 +728,8 @@ getOptionalInnerOuterPersistentBufferBatches(
     threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-
+  std::cout << "batch_max = " << batch_max << ", inner_batch = " << inner_batch
+            << ", inner_batch = " << inner_batch << std::endl;
   // If threads_per_block is smaller than threads_per_block_min, move
   // parallelism from inner_batch to threads_per_block. e.g. Initial
   // after_vectorization = 1344/8 = 168, threads_per_block = 8, inner_batch
@@ -752,7 +754,10 @@ getOptionalInnerOuterPersistentBufferBatches(
   // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
   // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
   // without considering the overhead of fusion segmentation.
-  const int64_t batch_max_reg_spill = batch_max + 3;
+  // If not vectorized, the register usage is higher than vectorized version.
+  // Stop allowing extra register spills. Inspired by feature size 14301 fp16.
+  const int64_t batch_max_reg_spill =
+      vectorize_factor > 1 ? batch_max + 3 : batch_max;
 
   if (enforce_return_valid || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
