@@ -23,14 +23,15 @@ std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
 
 std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
     const serde::TensorArg* tensor) {
-  auto meta_tensor = at::empty(
+  auto meta_tensor = at::detail::empty_strided_meta(
       parseVector(tensor->sizes()),
+      parseVector(tensor->strides()),
       mapToAtenDtype(tensor->dtype()),
       c10::nullopt,
       c10::Device(c10::DeviceType::Meta, 0),
-      c10::nullopt,
       c10::nullopt);
-  return std::make_unique<TensorArgAbstract>(meta_tensor);
+  return std::make_unique<TensorArgAbstract>(
+      at::Tensor(meta_tensor), tensor->ptr());
 }
 
 } // namespace
@@ -40,6 +41,14 @@ void ArgAbstractFactory::registerAllParsers() {
     return std::make_unique<BoolArg>(buffer->data_as_Bool()->value());
   };
   registerParser(serde::ArgAbstractData_Bool, deserializeBool);
+
+  auto deserializeComplexDouble = [](const serde::ArgAbstract* buffer) {
+    auto data = buffer->data_as_ComplexDouble();
+    c10::complex<double> number{data->real(), data->imag()};
+    return std::make_unique<ComplexDoubleArg>(number);
+  };
+  registerParser(
+      serde::ArgAbstractData_ComplexDouble, deserializeComplexDouble);
 
   auto deserializeDouble = [](const serde::ArgAbstract* buffer) {
     return std::make_unique<DoubleArg>(buffer->data_as_Double()->value());
@@ -57,14 +66,6 @@ void ArgAbstractFactory::registerAllParsers() {
     return std::make_unique<PhiloxCudaStateArg>(state);
   };
   registerParser(serde::ArgAbstractData_PhiloxCudaState, deserializePhilox);
-
-  auto deserializeComplexDouble = [](const serde::ArgAbstract* buffer) {
-    auto data = buffer->data_as_ComplexDouble();
-    c10::complex<double> number{data->real(), data->imag()};
-    return std::make_unique<ComplexDoubleArg>(number);
-  };
-  registerParser(
-      serde::ArgAbstractData_ComplexDouble, deserializeComplexDouble);
 
   auto deserializeScalarCpu = [](const serde::ArgAbstract* buffer) {
     auto scalar = buffer->data_as_ScalarCpu();

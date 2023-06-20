@@ -230,9 +230,18 @@ struct BoolArg : public ArgAbstract {
 
 struct TensorArgAbstract : ArgAbstract {
   at::Tensor tensor_;
+  size_t pointer_address_;
 
-  TensorArgAbstract(at::Tensor tensor) : tensor_(std::move(tensor)) {}
+  TensorArgAbstract(at::Tensor tensor)
+      : tensor_(std::move(tensor)),
+        pointer_address_{(size_t)tensor_.data_ptr()} {}
   TensorArgAbstract(const TensorArgAbstract&) = default;
+
+  // During serialization, the pointer address is stored as ulong value.
+  // Upon deserialization, we generate a metadata tensor and return the pointer
+  // address directly.
+  TensorArgAbstract(at::Tensor tensor, size_t pointer_address)
+      : tensor_(std::move(tensor)), pointer_address_{pointer_address} {}
 
   int64_t getRank() const {
     return tensor_.ndimension();
@@ -258,7 +267,7 @@ struct TensorArgAbstract : ArgAbstract {
   }
 
   size_t getPointerAddress() const {
-    return (size_t)tensor_.data_ptr();
+    return pointer_address_;
   }
 
   DataType getDataType() const {

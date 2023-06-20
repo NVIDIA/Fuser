@@ -27,8 +27,7 @@ enum DataType : int {
     None
 }
 
-// The StateType enum is used to indicate the whether the state object is a
-// Scalar or Tensor.
+// The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType : int {
     Tensor = 0,
     Scalar,
@@ -36,6 +35,8 @@ enum StateType : int {
     None,
 }
 
+// The Contiguity enum shows whether a tensor dimension is contiguous
+// with the dimension to its right.
 enum Contiguity : int {
     Strided = 0,
     Contiguous,
@@ -206,13 +207,7 @@ table ScalarInput {
 }
 
 // =====================================================================================
-// Tables for KernelArgumentHolder used in FusionExecutor
-
-// The ScalarCpu is represented by a fixed size array of raw bytes.
-table ScalarCpu {
-  instance : [byte];
-  size : ulong;
-}
+// Tables for ArgAbstract, PhiloxCudaState, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
 
 // Data of PhiloxCudaState
 table PhiloxCudaState {
@@ -220,7 +215,16 @@ table PhiloxCudaState {
   offset : ulong;
 }
 
-// Data of TensorArg
+// The ScalarCpu is represented by a fixed size array of raw bytes.
+table ScalarCpu {
+  instance : [byte];
+  size : ulong;
+}
+
+// Data of TensorArg.
+// The original cpp TensorArg holds real data.
+// However, only a metadata tensor is returned upon deserialization.
+// The ptr parameter is used to determine vectorization during scheduling.
 table TensorArg {
   ptr : ulong;
   sizes : [long];
@@ -235,6 +239,7 @@ table ArgAbstract {
   data : ArgAbstractData;
 }
 
+// This table holds multiple ArgAbstract objects.
 table KernelArgumentHolder {
   arguments : [ArgAbstract];
   device_index : byte;
@@ -245,6 +250,7 @@ table KernelArgumentHolder {
 // =====================================================================================
 // Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry used in FusionExecutor
 
+// This table holds the cached launch parameters for a kernel.
 table LaunchParams {
   gdimx : long;
   gdimy : long;
@@ -256,6 +262,11 @@ table LaunchParams {
   output_sizes : [TensorShape];
 }
 
+// This table describes the cached global buffers for a kernel.
+// The original cpp GlobalBufferInfo contains a TensorView pointer.
+// For this table, we represent the pointer with an integer position.
+// For output tensors, we use its position in the fusion outputs.
+// For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
   tv : long = -1;
   sizes : [long];
@@ -265,6 +276,7 @@ table GlobalBufferInfo {
   is_profile_buffer : bool;
 }
 
+// This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
     init : bool;
     launch_params : LaunchParams;
@@ -398,6 +410,7 @@ table VectorLong {
 // =====================================================================================
 //
 
+// Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
   device_smem_limit: long;
   block_size_high_water_mark: long;
@@ -413,17 +426,22 @@ table FusionExecutor {
   index_type : DataType;
 }
 
+// Each FusionKernelRuntime represents a concretized, segmented Fusion.
+// We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
+// Each fusion segment is given a FusionExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
   args : KernelArgumentHolder;
   executors : [FusionExecutor];
 }
 
+// EncodingEntry for InputsIdLookup LRU cache.
 struct EncodingEntry {
   id: ulong;
   lru_iter: ulong;
 }
 
+// This table is a LRU cache containing input arguments known by the FusionExecutorCache.
 table InputsIdLookup {
   max_cache_size : ulong;
   current_id : ulong;
@@ -441,6 +459,7 @@ table KernelRuntimes {
   runtimes : [FusionKernelRuntime];
 }
 
+// This table describes the FusionExecutorCache.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
   inputs_cache : InputsIdLookup;
@@ -454,7 +473,7 @@ table FusionExecutorCache {
   kernel_cache_values : [ulong];
 }
 
-// RecordFunctor is represents operations in the Fusion. It is a node in the graph with input and output edges.
+// RecordFunctor represents operations in the Fusion. It is a node in the graph with input and output edges.
 // Some operations require storing extra attributes in the RecordData field.
 table RecordFunctor {
   args: [State];
@@ -473,7 +492,6 @@ table TrieNode {
   visits: ulong;
   is_terminal: bool;
 }
-
 
 // The fusion cache is a prefix tree (trie) of records that caches fusions in
 // its leaves. For serialization, we flatten the trie structure using
