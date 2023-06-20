@@ -90,13 +90,14 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // dim is fully parallelized, the buffer size of each thread equals the total
   // buffer size divide by inner_dim_numel.
   auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
-    constexpr int64_t overhead_register = 40;
     constexpr int64_t bytes_per_register = 4;
     const int64_t persistent_buffer_size =
         max_persistent_buffer_size / inner_dim_numel * batch_mul_vect;
     const int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register + overhead_register;
-    return std::min(estimated_register_count, (int64_t)255);
+        persistent_buffer_size / bytes_per_register +
+        scheduler_utils::register_overhead;
+    return std::min(
+        estimated_register_count, scheduler_utils::max_registers_per_thread);
   };
 
   auto getBlocksPerSM = [&](const int64_t threads_per_sm,
@@ -122,9 +123,15 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   iop.inner_vect = (int64_t)vectorize_factor;
-  iop.inner_batch =
-      normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
-          iop.inner_vect, inner_dim_numel, outer_dim_numel, dev_prop->warpSize);
+  auto opt_inner_batch = normalization_scheduler_utils::
+      getOptionalInnerOuterPersistentBufferBatches(
+          inner_dim_numel,
+          outer_dim_numel,
+          max_persistent_buffer_size,
+          iop.inner_vect,
+          dev_prop->warpSize);
+  TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
+  iop.inner_batch = opt_inner_batch.value();
   int64_t threads_per_block =
       inner_dim_numel / iop.inner_vect / iop.inner_batch;
   TORCH_INTERNAL_ASSERT(
@@ -596,7 +603,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
               4l >
-          255l * 3l &&
+          scheduler_utils::max_registers_per_thread * 3l &&
       bdimx * bdimy * bdimz * 2l <= max_threads_in_block &&
       batches_per_block_inner_reduction >
           batches_per_block_inner_reduction_max) {
@@ -607,7 +614,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
               4l >
-          255l * 3l &&
+          scheduler_utils::max_registers_per_thread * 3l &&
       bdimx * bdimy * bdimz * 2l <= device_max_threads_per_multiprocessor &&
       batches_per_block_outer_reduction >= 2l) {
     batches_per_block_outer_reduction /= 2l;
@@ -625,7 +632,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
   // usage register per thread is estimated as overhead + buffer_size /
   // bytes_per_register
-  int64_t nvrtc_register_per_thread = 255;
+  int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
   const int64_t blocksPerKernel = godim;
   // register estimation is only valid for vectorized gmem access
   // we've seen unexpectedly high register counts with vectorization factor less
@@ -650,9 +657,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     // estimated_register_num = 42,  44,  56,   72,   104
     // safe for both v100 & a100
     constexpr int64_t bytes_per_register = 4;
-    constexpr int64_t overhead_register = 40;
     int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register + overhead_register;
+        persistent_buffer_size / bytes_per_register +
+        scheduler_utils::register_overhead;
 
     // check occupancy using blocks per sm
     const int64_t threads_per_block =
@@ -1075,7 +1082,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // Register pressure is really high per thread and using less than
   // maximum threads, decrease batches per block by a factor of 2
-  if ((batches_per_block * inner_reduction_unroll_factor * 4l > 255l * 3l &&
+  if ((batches_per_block * inner_reduction_unroll_factor * 4l >
+           scheduler_utils::max_registers_per_thread * 3l &&
        bdimx * bdimy * 2l <= device_max_threads_per_multiprocessor)) {
     batches_per_block /= 2;
   }
