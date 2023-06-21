@@ -1088,10 +1088,7 @@ IterDomain* projectIdToRoot(
         }
       }
     } else if (expr->isA<Resize>()) {
-      auto resize = expr->as<Resize>();
-      if (resize->out() == projected_id) {
-        projected_id = resize->in();
-      }
+      projected_id = nullptr;
     } else {
       TORCH_INTERNAL_ASSERT(
           false, "Didn't recognize the iterdomain expression: ", expr);
@@ -1145,10 +1142,7 @@ IterDomain* projectIdToRFactor(
         projected_id = split->inner();
       }
     } else if (expr->isA<Resize>()) {
-      auto resize = expr->as<Resize>();
-      if (resize->in() == projected_id) {
-        projected_id = resize->out();
-      }
+      projected_id = nullptr;
     } else {
       TORCH_INTERNAL_ASSERT(
           false, "Didn't recognize the iterdomain expression: ", expr);
