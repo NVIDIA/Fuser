@@ -995,7 +995,36 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
 }
 
 // Test that empty input to cat is concretized away
-TEST_F(NVFuserTest, FusionDynamicEmptyCat_CUDA) {
+TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = cat({tv0, tv1, tv2}, 0);
+
+  fusion.addOutput(tv3);
+
+  // Check correctness
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({5}, options);
+  at::Tensor at1 = at::randn({0}, options);
+  at::Tensor at2 = at::randn({3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at3 = at::cat({at0, at1, at2}, 0);
+  testValidate(&fusion, outputs, aten_inputs, {at3}, __LINE__, __FILE__);
+}
+
+// Test that empty input to cat is concretized away
+TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
