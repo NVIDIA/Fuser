@@ -1973,18 +1973,15 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     auto match_tv_predicate = [buffer_tv = buffer.tv](const kir::Allocate* a) {
       return a->buffer() == buffer_tv;
     };
-
     auto tv_iter = std::find_if(
         kernel()->summary().global_allocations.cbegin(),
         kernel()->summary().global_allocations.cend(),
         match_tv_predicate);
-
     auto tv_position =
         (tv_iter == kernel()->summary().global_allocations.cend())
         ? -1
         : std::distance(
               kernel()->summary().global_allocations.cbegin(), tv_iter);
-
     intermediates_fb.push_back(
         serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
@@ -2044,13 +2041,6 @@ void FusionExecutor::deserialize(
   // }
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
-  auto default_params = CompileParams();
-  default_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  lowered_ = std::make_unique<GpuLower>(fusion, default_params);
-  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  fusion_ = lowered_->kernel()->as<Fusion>();
-  setUsedTVs();
-
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
@@ -2064,6 +2054,17 @@ void FusionExecutor::deserialize(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
+
+  // KernelDB query checks kernel_code string and compile_params before
+  // copying cubin.
+  auto default_params = CompileParams();
+  default_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
+  default_params.maxrregcount = maxrregcount_high_water_mark_;
+
+  lowered_ = std::make_unique<GpuLower>(fusion, default_params);
+  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
+  fusion_ = lowered_->kernel()->as<Fusion>();
+  setUsedTVs();
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
