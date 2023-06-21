@@ -2467,6 +2467,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
