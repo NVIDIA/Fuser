@@ -60,8 +60,6 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 3, 4
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(tv1->axis(0)->extent(), 3);
-    expr_eval.bind(tv1->axis(1)->extent(), 4);
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, 4);
 
@@ -80,10 +78,15 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 3, -1
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(tv1->axis(0)->extent(), 3);
-    expr_eval.bind(tv1->axis(1)->extent(), 4);
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, -1);
+
+    // In this case, if we do not bind tv1->axis(1)->extent(), we get a failure
+    // to evaluate it when checking whether tv1 is empty. It is possible to
+    // infer that it is not empty in this case, but it would require replicating
+    // some of the ExpressionEvaluator::propagateBoundValuesThroughExactMaps()
+    // functionality inside concretization, which is not implemented.
+    expr_eval.bind(tv1->axis(1)->extent(), 4);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -100,8 +103,6 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 5, -1
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(tv1->axis(0)->extent(), 5);
-    expr_eval.bind(tv1->axis(1)->extent(), 3);
     expr_eval.bind(reshape_shape0, 5);
     expr_eval.bind(reshape_shape1, -1);
 
