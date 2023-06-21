@@ -60,6 +60,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 3, 4
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
+    expr_eval.bind(tv1->axis(0)->extent(), 3);
+    expr_eval.bind(tv1->axis(1)->extent(), 4);
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, 4);
 
@@ -78,6 +80,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 3, -1
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
+    expr_eval.bind(tv1->axis(0)->extent(), 3);
+    expr_eval.bind(tv1->axis(1)->extent(), 4);
     expr_eval.bind(reshape_shape0, 3);
     expr_eval.bind(reshape_shape1, -1);
 
@@ -96,6 +100,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     // output: 5, -1
     expr_eval.bind(tv0->axis(0)->extent(), 4);
     expr_eval.bind(tv0->axis(1)->extent(), 3);
+    expr_eval.bind(tv1->axis(0)->extent(), 5);
+    expr_eval.bind(tv1->axis(1)->extent(), 3);
     expr_eval.bind(reshape_shape0, 5);
     expr_eval.bind(reshape_shape1, -1);
 
