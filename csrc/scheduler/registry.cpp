@@ -1921,24 +1921,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
         outer_reduction = true;
       }
     }
-    if (inner_reduction && outer_reduction) {
-      // get vectorize_factor, same process to that in getPersistentHeuristics
-      auto reduced_tv = ir_utils::getSoleProducerTv(first_inner_reduction_tv);
-      auto properties = scheduler_utils::getReductionProperties(
-          fusion, runtime_info, first_inner_reduction_tv);
-      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          reduced_tv,
-          data_cache,
-          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-      if (!checkCombinedReductionShape(
-              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
-        return false;
-      }
-    }
+
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
@@ -1948,6 +1931,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     auto properties = scheduler_utils::getReductionProperties(
         fusion, runtime_info, reference_tv);
+
+    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
     if (!properties.fastest_dim_reduction) {
       return canScheduleRunTimeOuter(
@@ -1969,11 +1954,42 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
+    if (inner_reduction && outer_reduction) {
+      // get vectorize_factor, same process to that in getPersistentHeuristics
+      auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      if (!checkCombinedReductionShape(
+              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
+        return false;
+      }
+
+      // check if we can schedule the combined reductions with a reasonable
+      // batch size without register spills.
+      if (!normalization_scheduler_utils::
+               getOptionalInnerOuterPersistentBufferBatches(
+                   properties.total_reduction_numel,
+                   properties.total_iteration_numel,
+                   persistent_buffer_size,
+                   (int64_t)vectorize_factor,
+                   warp_size)
+                   .has_value()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "Required batch number is larger than available batch number! Will cause register spills!");
+        return false;
+      }
+    }
+
     const int64_t device_max_threads_per_multiprocessor =
         (int64_t)at::cuda::getCurrentDeviceProperties()
             ->maxThreadsPerMultiProcessor;
-
-    const int64_t warp_size = at::cuda::warp_size();
 
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
@@ -2451,6 +2467,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
