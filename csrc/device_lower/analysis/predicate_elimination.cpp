@@ -367,7 +367,8 @@ class PredicateChcker : public IterVisitor {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto consumer_id : consumer_tv->getLeafDomain()) {
         if (!consumer_id->isThreadDim() ||
-            parallel_dimension_map.isExact(consumer_id->getParallelType())) {
+            parallel_dimension_map.isExact(consumer_id->getParallelType()) ||
+            consumer_id->isBroadcast()) {
           continue;
         }
         // Look for a leaf producer ID that is parallelized with the
