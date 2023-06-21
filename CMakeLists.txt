@@ -458,6 +458,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   if(NOT MSVC)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
+  target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/flatbuffers)
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 
