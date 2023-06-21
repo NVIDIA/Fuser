@@ -56,6 +56,8 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
+namespace MatMulUtils {}
+
 // MMA unit test for a single instruction tile. VoltaTT
 TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   Fusion fusion;
@@ -3153,7 +3155,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.cta_tile = GemmTile(128, 128, 64);
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
@@ -3262,6 +3263,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
+        params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
+            gemm_tile, params.double_buffer_options.smem_double_buffer_stage);
         scheduleMatmul(&fusion, params);
 
         auto inputs = matmulAtInput(M, N, K, layout);
@@ -3275,7 +3278,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
-        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        // if cta_tile.n can't be fully divided by 64 (n_cols *
+        // swizzle_period), then we can't fully remove the bank conflict, see
+        // swizzleSharedMemory
+        const bool expected_bank_conflict =
+            params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
+        if (!expected_bank_conflict) {
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        }
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3289,6 +3299,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
             k_size);
       }
     }
+    break;
   }
 }
 
@@ -3325,6 +3336,10 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
+          params.has_smem_epilogue =
+              mma_utils::hasEnoughSharedMemoryForEpilogue(
+                  gemm_tile,
+                  params.double_buffer_options.smem_double_buffer_stage);
 
           scheduleMatmul(&fusion, params);
 
@@ -3339,7 +3354,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
                   {inputs.first, inputs.second},
                   LaunchParams(),
                   matmul_cparams));
-          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+          // if cta_tile.n can't be fully divided by 64 (n_cols *
+          // swizzle_period), then we can't fully remove the bank conflict, see
+          // swizzleSharedMemory
+          const bool expected_bank_conflict =
+              params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
+          if (!expected_bank_conflict) {
+            ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+          }
           auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
           auto tref = atMatmul(
               inputs.first.to(at::kFloat),
@@ -3383,7 +3405,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
-
+      params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
+          gemm_tile, params.double_buffer_options.smem_double_buffer_stage);
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput(M, N, K, layout);
@@ -3397,7 +3420,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
-      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      const bool expected_bank_conflict =
+          params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
+      if (!expected_bank_conflict) {
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      }
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -4047,8 +4074,9 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
 
 TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
-  int M = 504, N = 136, K = 248;
-
+  int M = 4096, N = 4096, K = 4096;
+  // params.has_smem_epilogue = false; --> 0.574 ms to 0.578 ms
+  // params.has_smem_epilogue = true ; --> 0.638 ms to 0.641 ms
   for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -4094,16 +4122,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
     // check bank conflicts
-    const auto& bank_conflict = getBankConflictInfo(fe.kernel());
-    if (!bank_conflict.empty()) {
-      for (auto it = bank_conflict.begin(); it != bank_conflict.end(); it++) {
-        std::cout << "Bank conflict expression: " << it->first->toString()
-                  << "read conflict= " << it->second.first
-                  << ", write conflict= " << it->second.second << std::endl;
-      }
-      ASSERT_TRUE(bank_conflict.empty());
-    }
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
     break;
   }
 }

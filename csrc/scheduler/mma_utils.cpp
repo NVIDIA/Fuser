@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/printer.h>
@@ -14,10 +15,34 @@
 #include <scheduler/utils.h>
 #include <variant>
 #include "mma_type.h"
-
 namespace nvfuser {
 
 namespace mma_utils {
+
+bool hasEnoughSharedMemoryForEpilogue(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage) {
+  auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  const int64_t device_smem_limit = (int64_t)properties->sharedMemPerBlockOptin;
+
+  // see scheduleContiguousVectorLoad
+  const int64_t vector_word = 8;
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const int64_t round_to_factor =
+      warp_dims.m * warp_dims.n * warp_dims.k * 32 * vector_word;
+  const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
+      dataTypeSize(DataType::Half) * smem_double_buffer_stage;
+  const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
+      dataTypeSize(DataType::Half) * smem_double_buffer_stage;
+  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+      dataTypeSize(DataType::Float);
+  int64_t smem_size = smem_a + smem_b + smem_c;
+
+  return smem_size <= device_smem_limit;
+}
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // Assumes
@@ -430,7 +455,9 @@ void checkDimSize(
         ":",
         id->extent()->evaluateInt(),
         "vs",
-        expect[axis_index]);
+        expect[axis_index],
+        "\n for tv: ",
+        tv->toString());
   }
 }
 
@@ -691,6 +718,13 @@ void validateMmaRootInnerMNK(
 //!  swizzles to the right axes.
 //! This check will be relaxed as we build out the mma usage patterns.
 void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
+  auto is_mma_output =
+      tv->definition() != nullptr && tv->definition()->isA<MmaOp>();
+  // This function is also used to transform epilogue tensor. It is not a mma
+  // output and can skip the following checks.
+  if (!is_mma_output) {
+    return;
+  }
   auto mma = options.mmaOp();
   auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
