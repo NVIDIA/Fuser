@@ -2215,7 +2215,7 @@ TEST_F(NVFuserTest, SliceVectorization) {
   auto ref = t0.narrow(0, 1, N) + t1;
 
   // testValidate does not check that dtypes match
-  TORCH_CHECK(cg_outputs[0].dtype() == ref.dtype());
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
