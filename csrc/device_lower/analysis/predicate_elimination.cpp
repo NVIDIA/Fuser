@@ -201,7 +201,8 @@ class PredicateChcker : public IterVisitor {
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
         needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
-        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
+        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
+        predicateNonExactConsumerParallelType(expr);
 
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
@@ -345,6 +346,43 @@ class PredicateChcker : public IterVisitor {
         if (producer->getMemoryType() == MemoryType::Shared ||
             consumer->getMemoryType() == MemoryType::Shared) {
           if (needSharedMemPredicate(producer, consumer)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // If a consumer is parallelized by a non-unique parallel type but
+  // the producer is not parallelized by that type, the predicate
+  // can't be eliminated as the producer buffer is allocated with the
+  // exact size of the domains, which can be smaller than the extent
+  // of the non-unique parallel type.
+  bool predicateNonExactConsumerParallelType(Expr* expr) const {
+    const auto& parallel_dimension_map =
+        GpuLower::current()->parallelDimensionMap();
+    for (auto consumer_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      for (auto consumer_id : consumer_tv->getLeafDomain()) {
+        if (!consumer_id->isThreadDim() ||
+            parallel_dimension_map.isExact(consumer_id->getParallelType())) {
+          continue;
+        }
+        // Look for a leaf producer ID that is parallelized with the
+        // same type. Otherwise, the size of the producer buffer may
+        // be smaller than the extent of the parallel type, and thus
+        // it needs to be predicated.
+        for (auto producer_tv :
+             ir_utils::filterByType<TensorView>(expr->inputs())) {
+          if (std::none_of(
+                  producer_tv->getLeafDomain().begin(),
+                  producer_tv->getLeafDomain().end(),
+                  [&](auto producer_id) {
+                    return producer_id->getParallelType() ==
+                        consumer_id->getParallelType();
+                  })) {
             return true;
           }
         }
