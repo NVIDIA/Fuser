@@ -61,9 +61,9 @@
 //  - operator+(CustomType, CustomType2)
 //  - operator+(CustomType2, CustomType)
 //  - operator+(CustomType2, CustomType2)
-// So we decide decide to not create the operator+ for Custom12.
+// So we decide to not create the operator+ for Custom12.
 //
-// Also, beside requiring operator+(T1, T2) to be defined for some T1 and T2 in
+// Also, besides requiring operator+(T1, T2) to be defined for some T1 and T2 in
 // the type list, it is also required that the result type of operator+(T1, T2)
 // is also in the type list. For example, if you have:
 //   struct bfloat16_zero {}; struct half_zero {};
