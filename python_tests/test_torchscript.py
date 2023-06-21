@@ -298,7 +298,7 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertEqual(g, jit_g)
         # check gradients
-        for (t, ref_t) in zip(args, ref_args):
+        for t, ref_t in zip(args, ref_args):
             if has_grad(t):
                 self.assertEqual(ref_t.grad, t.grad)
         self.assertGraphContainsExactly(
@@ -421,7 +421,6 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     def test_reduction_dtypes_axis(self):
-
         for op in [torch.sum, torch.mean, torch.amax, torch.var, torch.std]:
             for dtype in [torch.float16, torch.float32, torch.double]:
                 for axis in [-1, 2, 0]:
@@ -453,7 +452,6 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     def test_variance(self):
-
         for op in [torch.var, torch.std]:
             for dtype in [torch.float16, torch.float32, torch.double]:
                 for axis in [-2, -1, 2, 1]:
@@ -6396,7 +6394,6 @@ class TestCudaFuserOpInfo(TestCudaFuserOpInfoParent):
         variant_sample_pairs = get_traced_sample_variant_pairs(device, dtype, op)
 
         for variant, sample in variant_sample_pairs:
-
             trace = create_traced_fn(self, variant, cache_traced_fn=True)
             trace(*clone_inputs((sample.input, *sample.args)), **sample.kwargs)
             trace(*clone_inputs((sample.input, *sample.args)), **sample.kwargs)
