@@ -542,6 +542,7 @@ void DynamicTransformConcretizer::concretize() {
 }
 
 void DynamicTransformConcretizer::removeEmptyBranches() {
+  auto fusion = FusionGuard::getCurFusion();
   for (const auto& empty_tv_descr : info_->getEmptyTensors()) {
     auto tv = info_->initialInfo()->lookUpTV(empty_tv_descr.tv_name);
     auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -553,8 +554,8 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     for (auto ax : empty_tv_descr.empty_axes) {
       // Hard-code zero extent for empty axes. This lets us detect empty input
       // and output tensors during scheduling/execution.
-      registerConcretization(new_shape[ax], tv->fusion()->zeroVal());
-      new_shape[ax] = tv->fusion()->zeroVal();
+      registerConcretization(new_shape[ax], fusion->zeroVal());
+      new_shape[ax] = fusion->zeroVal();
     }
 
     auto hasEmptyRootReductionAxis = [&empty_tv_descr](TensorView* out_tv) {
@@ -694,11 +695,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         }
       }
     }
-    if (tv->isFusionInput()) {
-      // OptOutMutator::mutate(tv) merely changes the TensorDomain of tv without
-      // actually replacing tv itself.
-      OptOutMutator::mutate(tv);
-    } else {
+    if (!tv->isFusionInput()) {
       replaced[tv] = replaceWithFull(tv, new_shape);
     }
   }
