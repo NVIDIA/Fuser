@@ -9181,7 +9181,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
 
   // generate persistent kernel
   auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+  ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
   schedulePersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
@@ -9199,9 +9199,8 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
   std::string output = testing::internal::GetCapturedStdout();
-  TORCH_CHECK(
-      output.find("Register spill detected") != std::string::npos,
-      "Register spill is not captured!");
+  ASSERT_NE(output.find("Register spill detected"), std::string::npos)
+      << "Register spill is not captured!";
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

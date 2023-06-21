@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+#include <options.h>
 #include <utils.h>
 
 #include <cstdlib>

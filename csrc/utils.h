@@ -11,7 +11,6 @@
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <options.h>
 #include <type.h>
 
 #include <deque>

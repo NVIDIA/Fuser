@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 
 #include <c10/macros/Export.h>
 

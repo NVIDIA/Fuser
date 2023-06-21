@@ -11,6 +11,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 
 #include <device_lower/pass/index.h>
