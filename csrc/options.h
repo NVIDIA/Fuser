@@ -38,17 +38,17 @@ enum class EnableOption {
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
+  ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
   IndexHoist, //! Disable index hoisting
-  ExprSimplify, //! Disable expression simplifier
+  MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
   PredicateElimination, //! Disable predicate elimination
-  WelfordVectorization, //! Disable vectorizaton of Welford ops
-  MagicZero, //! Disable nvfuser_zero
   VarNameRemapping, //! Disable variable name remapping
+  WelfordVectorization, //! Disable vectorizaton of Welford ops
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -75,66 +75,60 @@ class Options {
     options_.erase(option_type);
   }
 
+  static std::unordered_map<OptionEnum, std::vector<std::string>>
+  getOptionsFromEnv();
+
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
 };
 
-class TORCH_CUDA_CU_API EnableOptions : public Options<EnableOption> {
- public:
-  EnableOptions();
-};
+template <>
+std::unordered_map<EnableOption, std::vector<std::string>> Options<
+    EnableOption>::getOptionsFromEnv();
 
-class TORCH_CUDA_CU_API DisableOptions : public Options<DisableOption> {
- public:
-  DisableOptions();
-};
-
-// used only for testing/debugging
-class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
- public:
-  ThreadLocalFmaDisableOverwrite(bool flag = true);
-  ~ThreadLocalFmaDisableOverwrite();
-
- private:
-  bool old_flag_;
-};
-
-//! Utility class to temporarily overrride the Enable options,
-//! including those provided by the environment variable
-class TORCH_CUDA_CU_API EnableOptionsGuard {
- public:
-  EnableOptionsGuard();
-
-  ~EnableOptionsGuard();
-
-  static EnableOptions& getCurOptions();
-
- private:
-  EnableOptions prev_options_;
-};
+using EnableOptions = Options<EnableOption>;
 
 TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
 
 TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
     EnableOption option);
 
-//! Utility class to temporarily overrride the Disable options,
-//! including those provided by the environment variable
-class TORCH_CUDA_CU_API DisableOptionsGuard {
- public:
-  DisableOptionsGuard();
+template <>
+std::unordered_map<DisableOption, std::vector<std::string>> Options<
+    DisableOption>::getOptionsFromEnv();
 
-  ~DisableOptionsGuard();
-
-  static DisableOptions& getCurOptions();
-
- private:
-  DisableOptions prev_options_;
-};
+using DisableOptions = Options<DisableOption>;
 
 TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
 
 TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option);
+
+//! Utility class to temporarily overrride the Enable options,
+//! including those provided by the environment variable
+template <typename OptionEnum>
+class TORCH_CUDA_CU_API OptionsGuard {
+ public:
+  OptionsGuard() : prev_options_(getCurOptions()) {}
+
+  ~OptionsGuard() {
+    getCurOptions() = prev_options_;
+  }
+
+  static Options<OptionEnum>& getCurOptions();
+
+ private:
+  Options<OptionEnum> prev_options_;
+};
+
+template <>
+Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
+
+template <>
+Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
+
+using EnableOptionsGuard = OptionsGuard<EnableOption>;
+
+using DisableOptionsGuard = OptionsGuard<DisableOption>;
 
 } // namespace nvfuser

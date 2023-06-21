@@ -97,7 +97,9 @@ auto parseEnvOptions(
 
 } // namespace
 
-EnableOptions::EnableOptions() {
+template <>
+std::unordered_map<EnableOption, std::vector<std::string>> Options<
+    EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"complex", EnableOption::Complex},
       {"conv_decomposition", EnableOption::ConvDecomposition},
@@ -107,10 +109,12 @@ EnableOptions::EnableOptions() {
       {"linear_decomposition", EnableOption::LinearDecomposition},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
-  options_ = parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
+  return parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
 }
 
-DisableOptions::DisableOptions() {
+template <>
+std::unordered_map<DisableOption, std::vector<std::string>> Options<
+    DisableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DisableOption> available_options = {
       {"compile_to_sass", DisableOption::CompileToSass},
       {"expr_simplify", DisableOption::ExprSimplify},
@@ -131,6 +135,8 @@ DisableOptions::DisableOptions() {
     TORCH_WARN(
         "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
   }
+
+  return options;
 }
 
 namespace {
@@ -143,40 +149,24 @@ EnableOptions active_enable_options;
 
 DisableOptions active_disable_options;
 
-// thread_local variable used only for debugging/testing
-thread_local bool overwrite_disable_fma = false;
-
 } // namespace
 
-EnableOptionsGuard::EnableOptionsGuard()
-    : prev_options_(active_enable_options) {}
-
-EnableOptionsGuard::~EnableOptionsGuard() {
-  active_enable_options = prev_options_;
+template <>
+Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions() {
+  return active_enable_options;
 }
 
-EnableOptions& EnableOptionsGuard::getCurOptions() {
-  return active_enable_options;
+template <>
+Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions() {
+  return active_disable_options;
 }
 
 bool isOptionEnabled(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().has(option);
 }
 
-const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option) {
+const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().getArgs(option);
-}
-
-DisableOptionsGuard::DisableOptionsGuard()
-    : prev_options_(active_disable_options) {}
-
-DisableOptionsGuard::~DisableOptionsGuard() {
-  active_disable_options = prev_options_;
-}
-
-DisableOptions& DisableOptionsGuard::getCurOptions() {
-  return active_disable_options;
 }
 
 bool isOptionDisabled(DisableOption option) {
@@ -190,16 +180,5 @@ const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option) {
   return DisableOptionsGuard::getCurOptions().getArgs(option);
 }
-
-ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
-    : old_flag_{overwrite_disable_fma} {
-  overwrite_disable_fma = flag;
-}
-
-ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
-  overwrite_disable_fma = old_flag_;
-}
-
-
 
 } // namespace nvfuser
