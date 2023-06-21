@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
@@ -486,6 +487,10 @@ class DynamicTransformConcretizer : public OptOutMutator {
       std::vector<Val*>& new_shape,
       Val* fill_value = nullptr);
 
+  //! Replace a TensorView with a new one in all uses, and in inputs and
+  //! outputs.
+  void replaceTV(TensorView* old_tv, TensorView* new_tv);
+
   void concretizeReshape();
 
   void concretizeResize();
@@ -620,18 +625,74 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         }
       } else if (auto pop = dynamic_cast<PadOp*>(use)) {
         auto out = maybeReplaced(pop->out()->as<TensorView>());
-        auto out_shape = orig_shape(out);
-        // Wherever there is a zero in the input, we will replace the original
-        // output extent so that we no longer reference the now-zero input
-        // extent
-        for (auto i : empty_tv_descr.empty_axes) {
-          auto pad_widths = pop->getPadWidths((int)i);
-          out_shape[i] = add(pad_widths.first, pad_widths.second);
+
+        // A cat op can have input empty tensors and still output a non-empty
+        // tensor. This is only possible if there is more than one input, so we
+        // only need to handle those cases. We find the non-empty inputs to cat
+        // then replace with another cat (or `set` if n=1).
+        //
+        // [Detecting cat ops]
+        // The `cat` function creates a CatOp object, but its inputs() are not
+        // the original inputs. Rather, they are the inputs after padding to the
+        // output extent in the concatenated dimension. Thus, in the IR graph,
+        // instead of the following:
+        //
+        //    T0  T1   T2
+        //      \  |  /
+        //       CatOp
+        //         |
+        //        T3
+        //
+        // a cat is represented as:
+        //    T0    T1    T2
+        //     |     |     |
+        //   PadOp PadOp PadOp
+        //       \   |   /
+        //         CatOp
+        //           |
+        //          T3
+        if (pop->out()->uses().size() == 1 &&
+            pop->out()->uses()[0]->isA<CatOp>()) {
+          auto cop = pop->out()->uses()[0]->as<CatOp>();
+          std::vector<TensorView*> nonempty_inputs;
+          for (auto inp : cop->inputs()) {
+            // Each "input" to CatOp is a pad() of the corresponding _actual_
+            // input. Here we peel off the pad op to collect the non-padded cat
+            // inputs.
+            auto padded_inp_tv = inp->as<TensorView>();
+            TORCH_INTERNAL_ASSERT(
+                padded_inp_tv->definition() &&
+                    padded_inp_tv->definition()->isA<PadOp>(),
+                "Input to cat should have definition that is a PadOp");
+            auto inp_tv = padded_inp_tv->definition()
+                              ->as<PadOp>()
+                              ->in()
+                              ->as<TensorView>();
+
+            if (inp_tv != tv) {
+              // we could remove other empty tensors here while we're at it.
+              // They will get removed by further passes anyway though as tv
+              // ranges over all empty tensors.
+              nonempty_inputs.push_back(inp_tv);
+            }
+          }
+          auto old_cat = cop->output(0)->as<TensorView>();
+          auto new_cat = nonempty_inputs.size() == 1
+              ? set(nonempty_inputs[0])
+              : cat(nonempty_inputs, cop->concatenatedDim());
+          replaceTV(old_cat, new_cat);
+        } else { // Replace pads that are not part of CatOps with full()
+          auto out_shape = orig_shape(out);
+          // Wherever there is a zero in the input, we will replace the original
+          // output extent so that we no longer reference the now-zero input
+          // extent
+          for (auto i : empty_tv_descr.empty_axes) {
+            auto pad_widths = pop->getPadWidths((int)i);
+            out_shape[i] = add(pad_widths.first, pad_widths.second);
+          }
+          replaced[out] = replaceWithFull(out, out_shape, pop->value());
         }
-        replaced[out] = replaceWithFull(out, out_shape, pop->value());
       }
-      //} else if (auto cop = dynamic_cast<CatOp*>(use)) {
-      //}
     }
     if (tv->isFusionInput()) {
       // OptOutMutator::mutate(tv) merely changes the TensorDomain of tv without
@@ -675,23 +736,28 @@ TensorView* DynamicTransformConcretizer::replaceWithFull(
     }
     mut_tv = full(new_shape, fill_value, tv->getDataType().value());
   }
-
-  registerConcretization(tv, mut_tv);
-  OptOutMutator::mutate(tv);
-
-  for (auto use : tv->uses()) {
-    ir_utils::replaceValInExpr(use, tv, mut_tv);
-  }
-
-  if (tv->isFusionInput()) {
-    tv->fusion()->replaceInput(tv, mut_tv);
-  }
-
-  if (tv->isFusionOutput()) {
-    tv->fusion()->replaceOutput(tv, mut_tv);
-  }
+  replaceTV(tv, mut_tv);
 
   return mut_tv;
+}
+
+void DynamicTransformConcretizer::replaceTV(
+    TensorView* old_tv,
+    TensorView* new_tv) {
+  registerConcretization(old_tv, new_tv);
+  OptOutMutator::mutate(old_tv);
+
+  for (auto use : old_tv->uses()) {
+    ir_utils::replaceValInExpr(use, old_tv, new_tv);
+  }
+
+  if (old_tv->isFusionInput()) {
+    old_tv->fusion()->replaceInput(old_tv, new_tv);
+  }
+
+  if (old_tv->isFusionOutput()) {
+    old_tv->fusion()->replaceOutput(old_tv, new_tv);
+  }
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
