@@ -56,7 +56,6 @@ exclude_patterns = [
     'csrc/serde/fusion_cache_generated.h',
     'pytorch/**/*.cpp',
     'third_party/**',
-    '../**',
 ]
 
 init_command = [
