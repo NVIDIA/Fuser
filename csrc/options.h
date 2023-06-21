@@ -62,7 +62,8 @@ class TORCH_CUDA_CU_API EnableOptions : public Options<EnableOption> {
   EnableOptions();
 };
 
-//! Utility class to temporarily overrride the Enable options
+//! Utility class to temporarily overrride the Enable options,
+//! including those provided by the environment variable
 class TORCH_CUDA_CU_API EnableOptionsGuard {
  public:
   EnableOptionsGuard();

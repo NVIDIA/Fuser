@@ -110,7 +110,11 @@ EnableOptions::EnableOptions() {
   options_ = parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
 }
 
-static thread_local EnableOptions active_enable_options;
+// This may need to be thread local, or its modifications may need to
+// be protected by mutual exclusion for thread safety. At this
+// moment, the correctness of modifying option values has to be
+// guaranteed by the modifying code.
+static EnableOptions active_enable_options;
 
 EnableOptionsGuard::EnableOptionsGuard()
     : prev_options_(active_enable_options) {}
