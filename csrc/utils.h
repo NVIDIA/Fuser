@@ -49,67 +49,6 @@ int8_t getCommonDeviceCUDA(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
-//! Types of debug print-outs
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DUMP` environment variable
-//!
-enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
-  FusionIrConcretized, //!< Dump the Fusion IR after concretization
-  KernelIr, //!< Dump the compiler Kernel IR
-  ComputeAtMap, //!< Dump the computeAt map
-  CudaKernel, //!< Dump the generated CUDA C++ kernel code
-  CudaFull, //!< Dump the complete CUDA C++ code
-  CudaToFile, //!< Dump CUDA Strings to File
-  DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
-             //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
-  LaunchParam, //!< Dump the Launch parameters of kernel
-  FusionSegments, //!< Dump Segmented Fusion Graph
-  FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
-  FusionArgs, //!< Print the runtime fusion arguments
-  KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
-  FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
-  PrintPtxasLog, //!< Print the ptxas verbose log including register usage
-  BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
-  SchedulerDebug, //! Dump scheduler heuristic parameters
-  SchedulerVerbose, //! Dump detailed scheduler logging
-  ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
-  PerfDebugVerbose, //! When running kernels, print verbose information
-                    //! associated with what's running
-  PythonDefinition, //! Python Frontend Fusion Definition.
-  PythonFrontendDebug, //! Python Frontend debug information.
-  TransformPropagator, //! When running TransformPropagator, print propagation
-                       //! path and replay result
-  Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
-  Ptx, //! Dump compiled PTX
-  BankConflictInfo, //! Dump bank confliction info
-  SyncMap, //! RAW dependency info
-  LowerVerbose, //! Print all passes' transform in GpuLower::lower
-  ExprSimplification, //! Print all passes' transform in simplifyExpr
-  ExprSort, //! Print merging decisions on expression sorting
-  LoopRotation, //! Print loop rotation log
-  MatmulChecks, //! Print logs from tools around matmul scheduler used in
-                //! segmenter
-  Occupancy, // Dump occupancy
-  IndexType, //! Print the index type of the launched kernel
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
-    DebugDumpOption option);
-
-TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option);
-
 TORCH_CUDA_CU_API int64_t
 getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 

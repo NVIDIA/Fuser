@@ -98,6 +98,54 @@ auto parseEnvOptions(
 } // namespace
 
 template <>
+std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
+    DebugDumpOption>::getOptionsFromEnv() {
+  const std::unordered_map<std::string, DebugDumpOption> available_options = {
+      {"assert_memory_violation", DebugDumpOption::AssertMemoryViolation},
+      {"bank_conflict", DebugDumpOption::BankConflictInfo},
+      {"buffer_reuse_verbose", DebugDumpOption::BufferReuseInfo},
+      {"ca_map", DebugDumpOption::ComputeAtMap},
+      {"cubin", DebugDumpOption::Cubin},
+      {"cuda_full", DebugDumpOption::CudaFull},
+      {"cuda_kernel", DebugDumpOption::CudaKernel},
+      {"cuda_to_file", DebugDumpOption::CudaToFile},
+      {"debug_info", DebugDumpOption::DebugInfo},
+      {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
+      {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
+      {"expr_simplify", DebugDumpOption::ExprSimplification},
+      {"expr_sort", DebugDumpOption::ExprSort},
+      {"fusion_args", DebugDumpOption::FusionArgs},
+      {"fusion_ir", DebugDumpOption::FusionIr},
+      {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
+      {"fusion_ir_math", DebugDumpOption::FusionIrMath},
+      {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
+      {"halo", DebugDumpOption::Halo},
+      {"index_type", DebugDumpOption::IndexType},
+      {"kernel_args", DebugDumpOption::KernelArgs},
+      {"kernel_ir", DebugDumpOption::KernelIr},
+      {"launch_param", DebugDumpOption::LaunchParam},
+      {"loop_rotation", DebugDumpOption::LoopRotation},
+      {"lower_verbose", DebugDumpOption::LowerVerbose},
+      {"matmul_checks", DebugDumpOption::MatmulChecks},
+      {"occupancy", DebugDumpOption::Occupancy},
+      {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
+      {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
+      {"ptx", DebugDumpOption::Ptx},
+      {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
+      {"python_definition", DebugDumpOption::PythonDefinition},
+      {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
+      {"sass", DebugDumpOption::Sass},
+      {"segmented_fusion", DebugDumpOption::FusionSegments},
+      {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
+      {"scheduler_params", DebugDumpOption::SchedulerDebug},
+      {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
+      {"sync_map", DebugDumpOption::SyncMap},
+      {"transform_propagator", DebugDumpOption::TransformPropagator}};
+
+  return parseEnvOptions("PYTORCH_NVFUSER_DUMP", available_options);
+}
+
+template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
@@ -141,15 +189,23 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 namespace {
 
-// This may need to be thread local, or its modifications may need to
+// These may need to be thread local, or their modifications may need to
 // be protected by mutual exclusion for thread safety. At this
 // moment, the correctness of modifying option values has to be
 // guaranteed by the modifying code.
+
+DebugDumpOptions active_dump_options;
+
 EnableOptions active_enable_options;
 
 DisableOptions active_disable_options;
 
 } // namespace
+
+template <>
+Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions() {
+  return active_dump_options;
+}
 
 template <>
 Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions() {
@@ -161,6 +217,14 @@ Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions() {
   return active_disable_options;
 }
 
+bool isDebugDumpEnabled(DebugDumpOption option) {
+  return DebugDumpOptionsGuard::getCurOptions().has(option);
+}
+
+const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
+  return DebugDumpOptionsGuard::getCurOptions().getArgs(option);
+}
+
 bool isOptionEnabled(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().has(option);
 }
@@ -170,9 +234,6 @@ const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
 }
 
 bool isOptionDisabled(DisableOption option) {
-  if (option == DisableOption::Fma && overwrite_disable_fma) {
-    return true;
-  }
   return DisableOptionsGuard::getCurOptions().has(option);
 }
 
