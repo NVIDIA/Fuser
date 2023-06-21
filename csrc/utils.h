@@ -107,38 +107,6 @@ TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
     DebugDumpOption option);
 
-//! Types of features to disable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
-//!
-enum class DisableOption {
-  CompileToSass, //! Disable direct compilation to sass so the ptx can be
-                 //! examined
-  Fallback, //! Disable fallback
-  Fma, //! Disable FMA instructions
-  GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
-                              //! grouped grid welford kernel
-  IndexHoist, //! Disable index hoisting
-  ExprSimplify, //! Disable expression simplifier
-  Nvtx, //! Disable NVTX instrumentation
-  PredicateElimination, //! Disable predicate elimination
-  WelfordVectorization, //! Disable vectorizaton of Welford ops
-  MagicZero, //! Disable nvfuser_zero
-  VarNameRemapping, //! Disable variable name remapping
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-// used only for testing/debugging
-class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
- public:
-  ThreadLocalFmaDisableOverwrite(bool flag = true);
-  ~ThreadLocalFmaDisableOverwrite();
-
- private:
-  bool old_flag_;
-};
-
-TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
 TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option);
 

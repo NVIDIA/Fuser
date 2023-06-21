@@ -19,9 +19,6 @@ namespace nvfuser {
 
 namespace {
 
-// thread_local variable used only for debugging/testing
-thread_local bool overwrite_disable_fma = false;
-
 // TODO: Remove as it's copied to options.cpp
 // OptionEnum must be an enum like DebugDumpOption
 template <typename OptionEnum>
@@ -156,36 +153,6 @@ const auto& getDebugDumpOptions() {
   return options;
 }
 
-auto parseDisableOptions() {
-  const std::unordered_map<std::string, DisableOption> available_options = {
-      {"compile_to_sass", DisableOption::CompileToSass},
-      {"fallback", DisableOption::Fallback},
-      {"fma", DisableOption::Fma},
-      {"grouped_grid_welford_outer_opt",
-       DisableOption::GroupedGridWelfordOuterOpt},
-      {"index_hoist", DisableOption::IndexHoist},
-      {"expr_simplify", DisableOption::ExprSimplify},
-      {"nvtx", DisableOption::Nvtx},
-      {"predicate_elimination", DisableOption::PredicateElimination},
-      {"welford_vectorization", DisableOption::WelfordVectorization},
-      {"magic_zero", DisableOption::MagicZero},
-      {"var_name_remapping", DisableOption::VarNameRemapping}};
-
-  auto options = parseEnvOptions("PYTORCH_NVFUSER_DISABLE", available_options);
-
-  if (options.count(DisableOption::Fma)) {
-    TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
-  }
-
-  return options;
-}
-
-const auto& getDisableOptions() {
-  static const auto options = parseDisableOptions();
-  return options;
-}
-
 } // namespace
 
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
@@ -303,29 +270,8 @@ bool isDebugDumpEnabled(DebugDumpOption option) {
   return getDebugDumpOptions().count(option);
 }
 
-ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
-    : old_flag_{overwrite_disable_fma} {
-  overwrite_disable_fma = flag;
-}
-
-ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
-  overwrite_disable_fma = old_flag_;
-}
-
-bool isOptionDisabled(DisableOption option) {
-  if (option == DisableOption::Fma && overwrite_disable_fma) {
-    return true;
-  }
-  return getDisableOptions().count(option);
-}
-
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
   return getDebugDumpOptions().at(option);
-}
-
-const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option) {
-  return getDisableOptions().at(option);
 }
 
 bool useFallback() {

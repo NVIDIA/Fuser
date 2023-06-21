@@ -110,11 +110,43 @@ EnableOptions::EnableOptions() {
   options_ = parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
 }
 
+DisableOptions::DisableOptions() {
+  const std::unordered_map<std::string, DisableOption> available_options = {
+      {"compile_to_sass", DisableOption::CompileToSass},
+      {"expr_simplify", DisableOption::ExprSimplify},
+      {"fallback", DisableOption::Fallback},
+      {"fma", DisableOption::Fma},
+      {"grouped_grid_welford_outer_opt",
+       DisableOption::GroupedGridWelfordOuterOpt},
+      {"index_hoist", DisableOption::IndexHoist},
+      {"magic_zero", DisableOption::MagicZero},
+      {"nvtx", DisableOption::Nvtx},
+      {"predicate_elimination", DisableOption::PredicateElimination},
+      {"var_name_remapping", DisableOption::VarNameRemapping},
+      {"welford_vectorization", DisableOption::WelfordVectorization}};
+
+  auto options = parseEnvOptions("PYTORCH_NVFUSER_DISABLE", available_options);
+
+  if (options.count(DisableOption::Fma)) {
+    TORCH_WARN(
+        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
+  }
+}
+
+namespace {
+
 // This may need to be thread local, or its modifications may need to
 // be protected by mutual exclusion for thread safety. At this
 // moment, the correctness of modifying option values has to be
 // guaranteed by the modifying code.
-static EnableOptions active_enable_options;
+EnableOptions active_enable_options;
+
+DisableOptions active_disable_options;
+
+// thread_local variable used only for debugging/testing
+thread_local bool overwrite_disable_fma = false;
+
+} // namespace
 
 EnableOptionsGuard::EnableOptionsGuard()
     : prev_options_(active_enable_options) {}
@@ -130,5 +162,44 @@ EnableOptions& EnableOptionsGuard::getCurOptions() {
 bool isOptionEnabled(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().has(option);
 }
+
+const std::vector<std::string>& getEnableOptionArguments(
+    EnableOption option) {
+  return EnableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+DisableOptionsGuard::DisableOptionsGuard()
+    : prev_options_(active_disable_options) {}
+
+DisableOptionsGuard::~DisableOptionsGuard() {
+  active_disable_options = prev_options_;
+}
+
+DisableOptions& DisableOptionsGuard::getCurOptions() {
+  return active_disable_options;
+}
+
+bool isOptionDisabled(DisableOption option) {
+  if (option == DisableOption::Fma && overwrite_disable_fma) {
+    return true;
+  }
+  return DisableOptionsGuard::getCurOptions().has(option);
+}
+
+const std::vector<std::string>& getDisableOptionArguments(
+    DisableOption option) {
+  return DisableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
+    : old_flag_{overwrite_disable_fma} {
+  overwrite_disable_fma = flag;
+}
+
+ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
+  overwrite_disable_fma = old_flag_;
+}
+
+
 
 } // namespace nvfuser
