@@ -11,6 +11,7 @@
 #include <instrumentation.h>
 #include <kernel_db/kernel_db.h>
 #include <kernel_db/utils.h>
+#include <options.h>
 #include <utils.h>
 
 namespace nvfuser {
