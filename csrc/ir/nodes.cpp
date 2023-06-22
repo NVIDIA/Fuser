@@ -414,7 +414,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     if (op_type == UnaryOpType::Cast) {
       std::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
+      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       if (alsoBooleanOperator(op_type) &&
