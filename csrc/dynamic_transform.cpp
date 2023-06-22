@@ -12,6 +12,8 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
+#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -37,6 +39,12 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
+  cloned_info.dynamic_sliced_tvs_.reserve(dynamic_sliced_tvs_.size());
+  for (const auto v : dynamic_sliced_tvs_) {
+    if (v) {
+      cloned_info.dynamic_sliced_tvs_.push_back(ir_cloner.clone(v));
+    }
+  }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
     if (v) {
@@ -52,6 +60,10 @@ std::string DynamicTransformInitialInfo::toString() const {
   std::string indent = "  ";
   ss << indent << "Dynamic reshaped TensorViews:\n";
   for (const auto& op : dynamic_reshaped_tvs_) {
+    ss << indent << indent << op->toString() << "\n";
+  }
+  ss << indent << "Dynamic sliced TensorViews:\n";
+  for (const auto& op : dynamic_sliced_tvs_) {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Dynamic resized IterDomains:\n";
@@ -109,6 +121,12 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Detect dynamic IterDomain transforms when handling TensorViews
   void handle(TensorView* tv) override {
+    if (tv->definition() && tv->definition()->isA<SliceOp>()) {
+      if (tv->domain()->hasSymbolicAxis()) {
+        info_.dynamic_sliced_tvs_.push_back(tv);
+      }
+      return;
+    }
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
@@ -238,6 +256,72 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeSlices(
+    ExpressionEvaluator* expr_eval) {
+  const auto& sliced_tvs = initial_info_->getDynamicSlicedTensorViews();
+  for (auto tv_index : c10::irange(sliced_tvs.size())) {
+    auto out_tv = sliced_tvs.at(tv_index);
+    auto op = out_tv->definition()->as<SliceOp>();
+    auto inp_tv = op->in()->as<TensorView>();
+    const auto inp_dom =
+        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+    const auto ranges = op->getRanges();
+    std::vector<Concrete1DSliceDescriptor> slice_descs(inp_dom.size());
+    for (auto i : c10::irange(inp_dom.size())) {
+      const auto& range = ranges.at(i);
+
+      auto start_opt = expr_eval->evaluate(range.start);
+      TORCH_INTERNAL_ASSERT(
+          start_opt.has_value(),
+          "Could not evaluate start of slice range ",
+          range.start);
+      auto start = start_opt->as<int64_t>();
+
+      auto stop_opt = expr_eval->evaluate(range.stop);
+      TORCH_INTERNAL_ASSERT(
+          stop_opt.has_value(),
+          "Could not evaluate stop of slice range ",
+          range.stop);
+      auto stop = stop_opt->as<int64_t>();
+
+      auto step_opt = expr_eval->evaluate(range.step);
+      TORCH_INTERNAL_ASSERT(
+          step_opt.has_value(),
+          "Could not evaluate step of slice range ",
+          range.step);
+      auto step = step_opt->as<int64_t>();
+
+      TORCH_INTERNAL_ASSERT(step != 0, "Slice step must not be zero");
+      TORCH_INTERNAL_ASSERT(
+          step == 1, "Slicing with step != 1 is not currently supported");
+
+      auto extent_opt =
+          expr_eval->evaluate(inp_dom.at(i)->getMaybeExpandedExtent());
+      TORCH_INTERNAL_ASSERT(
+          extent_opt.has_value(),
+          "Could not evaluate slice input extent ",
+          inp_dom.at(i)->getMaybeExpandedExtent());
+      auto extent = extent_opt->as<int64_t>();
+
+      auto getBranch = [&extent](int64_t a) -> SliceIndexBranch {
+        if (a <= extent) {
+          return SliceIndexBranch::AlwaysZero;
+        } else if (a < 0) {
+          return SliceIndexBranch::Negative;
+        } else if (a < extent) {
+          return SliceIndexBranch::Positive;
+        } else {
+          return SliceIndexBranch::AlwaysExtent;
+        }
+      };
+      slice_descs[i].start_branch = getBranch(start);
+      slice_descs[i].stop_branch = getBranch(stop);
+      slice_descs[i].is_empty = (stop - start) * step <= 0;
+    }
+    slice_descriptors_.emplace_back(tv_index, slice_descs);
+  }
+}
+
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
   const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
@@ -341,6 +425,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeReshape();
 
+  void concretizeSlice();
+
   void concretizeResize();
 
   //! Use this instead of calling registerMutation directly, since it will also
@@ -372,6 +458,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
 void DynamicTransformConcretizer::concretize() {
   // First, concretize all dynamic reshape ops
   concretizeReshape();
+
+  // Concretize dynamic slices
+  concretizeSlice();
 
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
@@ -408,6 +497,92 @@ void DynamicTransformConcretizer::concretizeReshape() {
     if (incomplete_out_tv->isFusionOutput()) {
       incomplete_out_tv->fusion()->replaceOutput(
           incomplete_out_tv, concrete_reshape_out_tv);
+    }
+
+    info_->fusion()->removeVal(incomplete_out_tv);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeSlice() {
+  auto fusion = FusionGuard::getCurFusion();
+  for (const auto& [tv_index, slice_descs] : info_->getSliceDescriptors()) {
+    auto incomplete_out_tv =
+        info_->initialInfo()->getDynamicSlicedTensorViews().at(tv_index);
+    auto slice_op = incomplete_out_tv->definition()->as<SliceOp>();
+    auto inp_tv = slice_op->input(0)->as<TensorView>();
+
+    const auto& root_dom = incomplete_out_tv->getRootDomain();
+    // Create new rfactor domain with potentially newly-resized root IDs
+    std::vector<IterDomain*> new_rfactor(root_dom.size());
+
+    bool is_empty = false;
+    bool is_sliced = false;
+    const auto ranges = slice_op->getRanges();
+    auto map_index = [&fusion](
+                         SliceIndexBranch branch, Val* a, Val* extent) -> Val* {
+      if (branch == SliceIndexBranch::AlwaysExtent) {
+        return extent;
+      } else if (branch == SliceIndexBranch::Negative) {
+        return SimplifyingIrBuilder::negExpr(a);
+      } else if (branch == SliceIndexBranch::Positive) {
+        return a;
+      } else {
+        return fusion->zeroVal();
+      }
+    };
+    std::vector<Slice> new_ranges;
+    new_ranges.reserve(ranges.size());
+    for (auto i : c10::irange(root_dom.size())) {
+      auto desc = slice_descs.at(i);
+      if (desc.is_empty) {
+        is_empty = true;
+        // Use 0:0:1 as the canonical empty slice.
+        new_ranges.push_back(
+            {fusion->zeroVal(), fusion->zeroVal(), fusion->oneVal()});
+      } else {
+        auto range = ranges.at(i);
+        auto inp_extent = root_dom.at(i)->getMaybeExpandedExtent();
+        auto new_start = map_index(desc.start_branch, range.start, inp_extent);
+        auto new_stop = map_index(desc.stop_branch, range.stop, inp_extent);
+        new_ranges.push_back({new_start, new_stop, range.step});
+        if (desc.start_branch != SliceIndexBranch::AlwaysZero ||
+            desc.stop_branch != SliceIndexBranch::AlwaysExtent) {
+          is_sliced = true;
+        }
+      }
+    }
+
+    TensorView* new_tv = nullptr;
+
+    if (is_empty) {
+      std::vector<Val*> new_shape(ranges.size());
+      for (auto i : c10::irange(ranges.size())) {
+        auto new_range = new_ranges.at(i);
+        // TODO: this assumes new_range.step == 1
+        new_shape[i] =
+            SimplifyingIrBuilder::subExpr(new_range.stop, new_range.start);
+      }
+      // TODO: process as empty tensor if is_empty
+      auto dtype = incomplete_out_tv->getDataType().value();
+      new_tv = full(new_shape, fusion->zeroVal(dtype), dtype);
+    } else if (!is_sliced) {
+      // Replace the slice with set()
+      new_tv = set(inp_tv);
+    } else {
+      new_tv = slice(inp_tv, new_ranges, /*skip_symbolic*/ true);
+    }
+
+    // We do the replacement directly here, but we must still check that the
+    // replacement is valid
+    checkConcretizedUses(incomplete_out_tv, new_tv);
+
+    // Replace the old tensor with the new concretized tensor
+    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
+      ir_utils::replaceValInExpr(use_of_old_tv, incomplete_out_tv, new_tv);
+    }
+
+    if (incomplete_out_tv->isFusionOutput()) {
+      incomplete_out_tv->fusion()->replaceOutput(incomplete_out_tv, new_tv);
     }
 
     info_->fusion()->removeVal(incomplete_out_tv);
