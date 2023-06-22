@@ -268,6 +268,11 @@ template <typename T, typename U>
 struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
 
 TEST_F(DynamicTypeTest, Typing) {
+  static_assert(DoubleInt64Bool().isNull());
+  static_assert(!DoubleInt64Bool(1.0).isNull());
+  static_assert(!DoubleInt64Bool().hasValue());
+  static_assert(DoubleInt64Bool(1.0).hasValue());
+
   static_assert(hasAs<DoubleInt64Bool, double>::value);
   static_assert(hasAs<DoubleInt64Bool, int64_t>::value);
   static_assert(hasAs<DoubleInt64Bool, bool>::value);
