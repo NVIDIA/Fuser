@@ -124,6 +124,24 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     if (tv->definition() && tv->definition()->isA<SliceOp>()) {
       if (tv->domain()->hasSymbolicAxis()) {
         info_.dynamic_sliced_tvs_.push_back(tv);
+        auto root_dom = tv->getRootDomain();
+        const auto ranges = tv->definition()->as<SliceOp>()->getRanges();
+        TORCH_INTERNAL_ASSERT(
+            ranges.size() == root_dom.size(),
+            "Mismatch between number of slice ranges ",
+            ranges.size(),
+            " and size of root domain ",
+            root_dom.size());
+        for (auto i : c10::irange(root_dom.size())) {
+          // input extent and start/stop/step values determine slice
+          // concretization
+          auto root_ext = root_dom.at(i)->getMaybeExpandedExtent();
+          leaf_dynamic_vals_.push_back(root_ext);
+          auto range = ranges.at(i);
+          leaf_dynamic_vals_.push_back(range.start);
+          leaf_dynamic_vals_.push_back(range.stop);
+          leaf_dynamic_vals_.push_back(range.step);
+        }
       }
       return;
     }
