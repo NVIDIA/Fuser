@@ -265,6 +265,7 @@ void DynamicTransformConcretizationInfo::analyzeSlices(
     auto inp_tv = op->in()->as<TensorView>();
     const auto inp_dom =
         TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+    const auto out_dom = out_tv->getMaybeRFactorDomain();
     const auto ranges = op->getRanges();
     std::vector<Concrete1DSliceDescriptor> slice_descs(inp_dom.size());
     for (auto i : c10::irange(inp_dom.size())) {
@@ -295,20 +296,20 @@ void DynamicTransformConcretizationInfo::analyzeSlices(
       TORCH_INTERNAL_ASSERT(
           step == 1, "Slicing with step != 1 is not currently supported");
 
-      auto extent_opt =
+      auto inp_extent_opt =
           expr_eval->evaluate(inp_dom.at(i)->getMaybeExpandedExtent());
       TORCH_INTERNAL_ASSERT(
-          extent_opt.has_value(),
+          inp_extent_opt.has_value(),
           "Could not evaluate slice input extent ",
           inp_dom.at(i)->getMaybeExpandedExtent());
-      auto extent = extent_opt->as<int64_t>();
+      auto inp_extent = inp_extent_opt->as<int64_t>();
 
-      auto getBranch = [&extent](int64_t a) -> SliceIndexBranch {
-        if (a <= extent) {
+      auto getBranch = [&inp_extent](int64_t a) -> SliceIndexBranch {
+        if (a <= -inp_extent) {
           return SliceIndexBranch::AlwaysZero;
         } else if (a < 0) {
           return SliceIndexBranch::Negative;
-        } else if (a < extent) {
+        } else if (a < inp_extent) {
           return SliceIndexBranch::Positive;
         } else {
           return SliceIndexBranch::AlwaysExtent;
@@ -317,6 +318,38 @@ void DynamicTransformConcretizationInfo::analyzeSlices(
       slice_descs[i].start_branch = getBranch(start);
       slice_descs[i].stop_branch = getBranch(stop);
       slice_descs[i].is_empty = (stop - start) * step <= 0;
+
+      // The dynamic slice output has a purely symbolic extent. Here we evaluate
+      // the proper extent to determine the output IterType.
+      auto map_int_index = [&inp_extent](const int64_t& a) -> int64_t {
+        if (a <= -inp_extent) {
+          return 0;
+        } else if (a < 0) {
+          return -a;
+        } else if (a < inp_extent) {
+          return a;
+        } else {
+          return inp_extent;
+        }
+      };
+      // actual size of sliced dimension is ceilDiv(stop - start, step) when
+      // step > 0. When step < 0, that expression is off by one and instead the
+      // extent in that case is ceilDiv(start - stop, -step).
+      auto concrete_sliced_extent = step > 0
+          ? (map_int_index(stop) - map_int_index(start) + step - 1) / step
+          : (map_int_index(stop) - map_int_index(start) + step + 1) / step;
+
+      if (concrete_sliced_extent == 1) {
+        slice_descs[i].iter_type = IterType::Broadcast;
+      }
+
+      // Even though we will eventually replace this TV, there will still be
+      // references to its extents in downstream uses. We will need to evaluate
+      // these properly both in this analysis, and at concretization. Here we
+      // bind the output extent so that downstream extents can be properly
+      // computed during this analysis. After concretization, this will happen
+      // via ExpressionEvaluator::propagateBoundValuesThroughExactMaps.
+      expr_eval->bind(out_dom[i]->extent(), concrete_sliced_extent);
     }
     slice_descriptors_.emplace_back(tv_index, slice_descs);
   }
@@ -365,7 +398,8 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_itertypes_.size() != other.resize_itertypes_.size()) {
+      resize_itertypes_.size() != other.resize_itertypes_.size() ||
+      slice_descriptors_.size() != other.slice_descriptors_.size()) {
     return false;
   }
 
@@ -373,6 +407,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     const auto& analysis = reshape_transforms_.at(i);
     const auto& other_analysis = other.reshape_transforms_.at(i);
     if (analysis != other_analysis) {
+      return false;
+    }
+  }
+
+  for (const auto i : c10::irange(slice_descriptors_.size())) {
+    const auto& desc = slice_descriptors_.at(i);
+    const auto& other_desc = other.slice_descriptors_.at(i);
+    if (desc != other_desc) {
       return false;
     }
   }
@@ -571,6 +613,9 @@ void DynamicTransformConcretizer::concretizeSlice() {
     } else {
       new_tv = slice(inp_tv, new_ranges, /*skip_symbolic*/ true);
     }
+
+    // TODO: We need to update the maybeRFactorDomains of new_tv if there are
+    // any Broadcast sliced dimensions.
 
     // We do the replacement directly here, but we must still check that the
     // replacement is valid

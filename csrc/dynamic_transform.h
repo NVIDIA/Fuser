@@ -142,6 +142,21 @@ struct Concrete1DSliceDescriptor {
   //! True if normalized values satisfy (stop - start) * step <= 0 in which case
   //! we would return an empty tensor.
   bool is_empty = false;
+
+  //! This can be either Iteration or Broadcast (if sliced extent is 1)
+  IterType iter_type = IterType::Iteration;
+
+  // NOTE: In the future, we can hold branches for "step" here as well, in order
+  // to specialize when step == 1
+
+  bool operator==(const Concrete1DSliceDescriptor& other) const {
+    return start_branch == other.start_branch &&
+        stop_branch == other.stop_branch && is_empty == other.is_empty &&
+        iter_type == other.iter_type;
+  }
+  bool operator!=(const Concrete1DSliceDescriptor& other) const {
+    return !operator==(other);
+  }
 };
 
 //! A set of transformations for a symbolic fusion with concrete sizes
