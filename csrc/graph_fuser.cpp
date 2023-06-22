@@ -10,6 +10,7 @@
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
+#include <options.h>
 #include <parser.h>
 #include <partition.h>
 #include <torch/csrc/jit/frontend/ir_emitter.h>

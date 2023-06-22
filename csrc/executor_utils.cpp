@@ -18,6 +18,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
+#include <options.h>
 #include <torch/csrc/jit/resource_guard.h>
 
 #include <cuda_occupancy.h>

@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <sstream>
 #include <unordered_map>

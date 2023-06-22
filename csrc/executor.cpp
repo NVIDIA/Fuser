@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <options.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
