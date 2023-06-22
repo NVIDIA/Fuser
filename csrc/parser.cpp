@@ -12,6 +12,7 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <type_inference.h>
 #include <type_promotion.h>
 #include <utils.h>

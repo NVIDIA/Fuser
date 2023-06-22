@@ -10,6 +10,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <kernel_cache.h>
+#include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>

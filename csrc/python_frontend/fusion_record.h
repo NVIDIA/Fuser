@@ -9,6 +9,7 @@
 #include <c10/util/complex.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>

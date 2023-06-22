@@ -9154,6 +9154,55 @@ TEST_F(NVFuserTest, FusionRecomputePersistentBuffer_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
+// Based on FusionTestWarnRegisterSpill_CUDA but modified to test OptionsGuard
+TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
+  const int hidden_size = 1024 * 10;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  std::vector<int64_t> input_shape{2048, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeSymbolicTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = layer_norm(input, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+
+  // generate persistent kernel
+  auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
+  schedulePersistentKernel(&fusion, *persistent_params);
+
+  // capture stdout and check stdout contains register spill warning
+  testing::internal::CaptureStdout();
+
+  // compile and run persistent kernel
+  // intentionally set maxrregcount to 32 to trigger register spill
+  CompileParams compile_opts = {.maxrregcount = 32};
+  auto lparams = persistent_params->lparams;
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::WarnRegisterSpill);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
+
+  std::string output = testing::internal::GetCapturedStdout();
+  ASSERT_NE(output.find("Register spill detected"), std::string::npos)
+      << "Register spill is not captured!";
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
