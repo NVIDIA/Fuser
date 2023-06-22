@@ -110,7 +110,7 @@ enum class DisableOption {
 template <typename OptionEnum>
 class Options {
  public:
-  Options() = default;
+  Options() : options_(getOptionsFromEnv()) {}
 
   bool has(OptionEnum option) const {
     return options_.count(option);
