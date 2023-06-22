@@ -1044,26 +1044,29 @@ class NvrtcCompileDriver {
     return options_;
   }
 
-  //! Call nvrtcCompileProgram with set options
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
-
     size_t logsize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log(logsize, 0);
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
+    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
+    // than its actual size by 2. This discrepancy was noticed in NVRTC
+    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
+    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
+    // storage before converting it to 'std::string'.
+    std::vector<char> log_backing_buf(logsize);
+    char* log_buf = log_backing_buf.data();
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
+      TORCH_INTERNAL_ASSERT(
+          false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
-
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log << std::endl;
+      std::cout << log_buf << std::endl;
     }
-
-    return log;
+    return std::string(log_buf);
   }
 
  private:
