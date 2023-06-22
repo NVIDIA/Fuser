@@ -14,8 +14,6 @@
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
 
-#include <c10/util/Optional.h>
-
 #include <string>
 #include <unordered_map>
 

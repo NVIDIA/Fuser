@@ -8,7 +8,6 @@
 #include <python_frontend/python_bindings.h>
 
 #include <c10/util/ArrayRef.h>
-#include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
