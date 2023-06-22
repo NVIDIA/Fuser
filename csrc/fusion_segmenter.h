@@ -123,7 +123,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  c10::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input

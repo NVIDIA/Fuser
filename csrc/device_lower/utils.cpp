@@ -259,12 +259,12 @@ bool isIterDomainOp(const Expr* expr) {
   return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
 }
 
-c10::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
   auto tv_out = getTv(output);
   if (tv_out == nullptr) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   auto tv_in = getTv(input);
@@ -272,7 +272,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
       tv_out->getMemoryType() != MemoryType::Local) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   IterDomain* reduction_on_xdim = nullptr;
@@ -283,30 +283,30 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
       if (id->getParallelType() == ParallelType::TIDx) {
         reduction_on_xdim = id;
       } else if (id->isThread()) {
-        return c10::nullopt;
+        return std::nullopt;
       }
     }
   }
   if (!reduction_on_xdim) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   if (!reduction_on_xdim->start()->isZeroInt()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
-    return c10::optional<IterDomain*>(reduction_on_xdim);
+    return std::optional<IterDomain*>(reduction_on_xdim);
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
     auto extent_value = reduction_on_xdim->extent()->evaluateInt();
     if (extent_value % at::cuda::warp_size() == 0) {
-      return c10::optional<IterDomain*>(reduction_on_xdim);
+      return std::optional<IterDomain*>(reduction_on_xdim);
     }
   }
 
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
@@ -339,7 +339,7 @@ bool isCpAsyncInit(const Expr* expr) {
       isCpAsyncOp(getTvOutput(expr)->definition());
 }
 
-c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
+std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->elseBody().empty()) {
       if (ite->thenBody().size() == 1) {
@@ -347,7 +347,7 @@ c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
       }
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 //! Short-cut for checking if the expression loads from global memory.
@@ -429,7 +429,7 @@ class ReplaceExprInput : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  c10::optional<std::unordered_map<Val*, Val*>> getMaybeInputReplacementMap(
+  std::optional<std::unordered_map<Val*, Val*>> getMaybeInputReplacementMap(
       Expr* expr) {
     bool need_replacement = false;
 
@@ -444,9 +444,9 @@ class ReplaceExprInput : private kir::ExprMutator {
       }
     }
     if (need_replacement) {
-      return c10::optional<std::unordered_map<Val*, Val*>>(replaced_val);
+      return std::optional<std::unordered_map<Val*, Val*>>(replaced_val);
     } else {
-      return c10::nullopt;
+      return std::nullopt;
     }
   }
 

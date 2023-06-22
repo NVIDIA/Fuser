@@ -160,12 +160,12 @@ void splitDims(
   }
 }
 
-c10::optional<size_t> mergeDims(
+std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update) {
   if (to_merge.empty()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (to_merge.size() == 1) {
     return to_merge[0];
@@ -588,9 +588,9 @@ ReductionTvProperties getReductionProperties(
       auto inferred_val =
           runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          inferred_val.has_value(), "Error inferring reduction size.");
+          inferred_val.hasValue(), "Error inferring reduction size.");
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val->as<int64_t>();
+          inner_most_dimension_numel * inferred_val.as<int64_t>();
       inner_most_dimension_ndims++;
     }
   }
@@ -604,12 +604,12 @@ ReductionTvProperties getReductionProperties(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val->as<int64_t>();
+      total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
-      total_iteration_numel *= inferred_val->as<int64_t>();
+      total_iteration_numel *= inferred_val.as<int64_t>();
     }
   }
 
@@ -799,11 +799,11 @@ PersistentBufferSizeReturn persistentBufferSize(
 
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
       } else {
-        persistent_buffer_sizes[buffer_i] *= id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
       }
     }
 
@@ -1713,7 +1713,7 @@ void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1733,7 +1733,7 @@ void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1755,7 +1755,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
     int pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }

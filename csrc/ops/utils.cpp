@@ -224,8 +224,8 @@ std::vector<IterDomain*> newOutputDomain(
   std::vector<int64_t> stop_offsets(out_domain.size(), 0);
   std::vector<Val*> extent_vals(out_domain.size(), nullptr);
   std::vector<Val*> expanded_extent_vals(out_domain.size(), nullptr);
-  std::vector<c10::optional<IterType>> iter_types(
-      out_domain.size(), c10::nullopt);
+  std::vector<std::optional<IterType>> iter_types(
+      out_domain.size(), std::nullopt);
 
   for (auto tv : tvs) {
     auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());

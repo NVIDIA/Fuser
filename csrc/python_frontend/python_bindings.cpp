@@ -204,7 +204,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<c10::optional<size_t>, size_t>(),
+          py::init<std::optional<size_t>, size_t>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024))
       .def_readwrite("ops", &FusionDefinition::ops)
@@ -335,7 +335,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference)
       .def(
           "id",
-          [](FusionDefinition& self) -> c10::optional<size_t> {
+          [](FusionDefinition& self) -> std::optional<size_t> {
             return self.id();
           })
       .def(
@@ -353,7 +353,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "add_output",
           [](FusionDefinition& self,
              Tensor output,
-             c10::optional<Tensor> alias_input = c10::nullopt) {
+             std::optional<Tensor> alias_input = std::nullopt) {
             FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
             TORCH_CHECK(
                 !self.completed(),
@@ -1713,10 +1713,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       "batch_norm",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         c10::optional<Tensor> weight,
-         c10::optional<Tensor> bias,
-         c10::optional<Tensor> running_mean,
-         c10::optional<Tensor> running_var,
+         std::optional<Tensor> weight,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> running_mean,
+         std::optional<Tensor> running_var,
          Scalar momentum,
          Scalar eps,
          bool training,
@@ -1962,7 +1962,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& pad_widths,
-         c10::optional<Scalar> value) -> Tensor {
+         std::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2233,8 +2233,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "iota",
       [](FusionDefinition::Operators& self,
          Scalar length,
-         c10::optional<Scalar> start,
-         c10::optional<Scalar> step,
+         std::optional<Scalar> start,
+         std::optional<Scalar> step,
          PrimDataType dtype) -> Tensor {
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
