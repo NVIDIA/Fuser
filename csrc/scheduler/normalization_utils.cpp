@@ -669,72 +669,23 @@ getOptionalInnerOuterPersistentBufferBatches(
         register_per_batch);
   };
 
-  int64_t threads_per_block = warp_size / 4;
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
-  int64_t inner_batch = after_vectorization / threads_per_block;
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
   const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
   const int64_t batch_min = getMinimumBatch();
-  auto canReduceBatch = [&](auto factor) -> bool {
-    return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
-        threads_per_block * factor <= threads_per_block_max;
-  };
-  // only consider divisible splits
-  // reduce batch size by 2, 3, or 5 until we reach the minimum batch size
-  while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
-    bool modified = false;
-    for (auto factor : {2, 3, 5}) {
-      if (canReduceBatch(factor)) {
-        inner_batch /= factor;
-        threads_per_block *= factor;
-        modified = true;
-        break;
-      }
-    }
-    if (!modified) {
-      break;
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      inner_batch >= batch_min,
-      "Batch size is larger than expected! Please report this issue.",
-      " inner_batch = ",
-      inner_batch,
-      ", batch_min = ",
-      batch_min);
-
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
-  // consider non-divisible splits.
-  // If inner_bath is still larger than bath_max and threads_per_block is
-  // smaller than threads_per_block_max possible. Try non-divisible batch
-  // splits.
+  // Start from the smallest block size. If the corresponding batch size is
+  // larger than batch_max, try increase threads per block by a warp until the
+  // block size reaches threads_per_block_max or the batch size reaches
+  // batch_min.
+  int64_t threads_per_block = threads_per_block_min;
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block * 2 <= threads_per_block_max) {
-    threads_per_block *= 2;
-    inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  }
-
-  // If inner_batch is still larger than batch_max, try set threads_per_block to
-  // max possible and recheck inner_batch, e.g. Initial after_vectorization =
-  // 9280/8 = 1160, threads_per_block = 8, inner_batch = 1160/8 = 145. After
-  // dividible split,  inner_batch = 29 and threads_per_block = 40. After
-  // non-divisible split, inner_batch = 8 and threads_per_block = 160. The
-  // following if statement will set threads_per_block to 256 and inner_batch
-  // to 5.
-  if (inner_batch > batch_max) {
-    threads_per_block = threads_per_block_max;
-    inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  }
-
-  // If threads_per_block is smaller than threads_per_block_min, move
-  // parallelism from inner_batch to threads_per_block. e.g. Initial
-  // after_vectorization = 1344/8 = 168, threads_per_block = 8, inner_batch
-  // = 21. Up to there, threads_per_block = 24, inner_batch = 7. The following
-  // code will set threads_per_block to 128 and inner_batch to 2. And the
-  // latency for batch size 16K is reduced from 295 us to 150 us.
-  if (threads_per_block < threads_per_block_min) {
-    threads_per_block = threads_per_block_min;
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
 
@@ -751,9 +702,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
   // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
   // without considering the overhead of fusion segmentation.
-  const int64_t batch_max_reg_spill = batch_max + 3;
-
-  if (enforce_return_valid || inner_batch <= batch_max_reg_spill) {
+  if (enforce_return_valid || inner_batch <= batch_max + 3) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);

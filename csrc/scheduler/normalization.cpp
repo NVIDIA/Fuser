@@ -176,18 +176,15 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4 : 2;
   iop.vectorization_factor_outer =
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-  // threads_per_block starts from 8 and multiplied by 2, 3, or 5.
-  // round bdimx to multiple of 8 will increase the probability of
+  // threads_per_block has factor of 8, roundup to increase the probability of
   // bdimx * bdimy == threads_per_block.
   iop.bdimx = scheduler_utils::roundUpPow2Or8(
       ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
+  // if still not dividable, e.g. threads_per_block = 256, bdimx = 40.
+  // increase bdimx to make it dividable. This will avoid the increase of
+  // threads per block which may cause register spills.
   while (threads_per_block % iop.bdimx) {
-    iop.bdimx += 8;
-    if (iop.bdimx > threads_per_block) {
-      // should never reach here
-      iop.bdimx = threads_per_block;
-      break;
-    }
+    iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
   // Step-4, set OuterParams Reduction dim: bdimy.
   iop.bdimy = ceilDiv(threads_per_block, iop.bdimx);
