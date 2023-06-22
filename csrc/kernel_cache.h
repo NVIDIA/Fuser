@@ -507,6 +507,8 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     fusion_->printMath();
   }
 
+  Fusion* getMostRecentConcretizedFusion() const;
+
   FusionKernelRuntime* getMostRecentKernelRuntime() const {
     return most_recent_runtime_;
   }

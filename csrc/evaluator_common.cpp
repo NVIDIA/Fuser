@@ -367,6 +367,12 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeUnaryOp(uop);
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
+      } else if (auto setop = dynamic_cast<LoadStoreOp*>(def)) {
+        TORCH_INTERNAL_ASSERT(
+            setop->opType() == LoadStoreOpType::Set,
+            "NaiveValueMachine: unsupported LoadStoreOpType: ",
+            setop->opType());
+        makeSetOp(setop);
       } else {
         TORCH_INTERNAL_ASSERT(false, "Unsupported expr");
       }
@@ -445,6 +451,18 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
   bop_type_[index] = bop->getBinaryOpType();
   src0_[index] = in0;
   src1_[index] = in1;
+  dest_[index] = out;
+}
+
+void NaiveValueMachine::makeSetOp(LoadStoreOp* lsop) {
+  int in = lsop->inputs()[0]->evaluatorIndex();
+  int out = lsop->outputs()[0]->evaluatorIndex();
+  TORCH_INTERNAL_ASSERT(in >= 0, "Integer Machine: unknown input: ", lsop);
+  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", lsop);
+
+  int index = makeInstructionEntry();
+  inst_type_[index] = InstructionType::SET_OP;
+  src0_[index] = in;
   dest_[index] = out;
 }
 

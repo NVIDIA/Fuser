@@ -489,6 +489,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  void concretizeIterDomain(IterDomain* old_id, IterDomain* new_id);
+
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
@@ -572,6 +574,7 @@ void DynamicTransformConcretizer::concretizeSlice() {
     auto inp_tv = slice_op->input(0)->as<TensorView>();
 
     const auto& root_dom = incomplete_out_tv->getRootDomain();
+    const auto& rfactor_dom = incomplete_out_tv->getRFactorDomain();
     // Create new rfactor domain with potentially newly-resized root IDs
     std::vector<IterDomain*> new_rfactor(root_dom.size());
 
@@ -648,6 +651,12 @@ void DynamicTransformConcretizer::concretizeSlice() {
       new_tv = slice(inp_tv, new_ranges, /*skip_symbolic*/ true);
     }
 
+    for (auto i : c10::irange(root_dom.size())) {
+      auto id = rfactor_dom.at(i);
+      auto new_id = new_tv->getRFactorDomain().at(i);
+      concretizeIterDomain(id, new_id);
+    }
+
     // TODO: We need to update the maybeRFactorDomains of new_tv if there are
     // any Broadcast sliced dimensions.
 
@@ -683,8 +692,26 @@ void DynamicTransformConcretizer::concretizeResize() {
         id->isRFactorProduct(),
         iter_type);
 
-    registerConcretization(id, new_id);
+    concretizeIterDomain(id, new_id);
   }
+}
+
+void DynamicTransformConcretizer::concretizeIterDomain(
+    IterDomain* old_id,
+    IterDomain* new_id) {
+  auto old_ext = old_id->getMaybeExpandedExtent();
+  auto new_ext = new_id->getMaybeExpandedExtent();
+
+  // If symbolic, redefine old_ext to equal new_ext
+  if (old_ext != new_ext && !old_ext->isConst() && !old_ext->definition()) {
+    // Set the old_ext->definition() to equal set(new_ext). This way, any
+    // further uses of old_ext are valid, as they will now be computed using
+    // new_ext.
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, old_ext, new_ext);
+  }
+
+  registerConcretization(old_ext, new_ext);
+  registerConcretization(old_id, new_id);
 }
 
 void DynamicTransformConcretizer::checkConcretizedUses(

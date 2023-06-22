@@ -55,6 +55,10 @@ class NaiveValueMachine {
   //! Convert an binary IR expr to an instruction
   void makeBinaryOp(BinaryOp* bop);
 
+  //! Convert a LoadStoreOp expr to an instruction. This assumes lsop->opType()
+  //! is equal to LoadStoreOpType::Set.
+  void makeSetOp(LoadStoreOp* lsop);
+
   //! Create an empty instruction with all default values
   //!  and place it at the end of the instruction buffer.
   int makeInstructionEntry();

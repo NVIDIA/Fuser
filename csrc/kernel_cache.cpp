@@ -293,6 +293,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
     : fusion_(std::move(fusion)) {}
 
+Fusion* FusionExecutorCache::getMostRecentConcretizedFusion() const {
+  return most_recent_runtime_->fusionSegments()->completeFusion();
+}
+
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device) {

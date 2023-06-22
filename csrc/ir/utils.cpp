@@ -654,7 +654,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     // Recursively traverse its defining expr
     auto def = val->definition();
     if (def != nullptr) {
-      if (def->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
+      if (def->isOneOf<UnaryOp, BinaryOp, TernaryOp, LoadStoreOp>()) {
         handle(val->definition());
       } else {
         TORCH_INTERNAL_ASSERT(false, "Unexpected definition: ", def->toString())
@@ -663,6 +663,19 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     } else {
       last_visited_val_ = val;
     }
+  }
+
+  // Clone expression after recurisvely replacing inputs
+  void handle(LoadStoreOp* lsop) override {
+    handle(lsop->in());
+    auto inp = last_visited_val_;
+    TORCH_INTERNAL_ASSERT(
+        lsop->out()->isA<Int>() || lsop->out()->isA<Bool>(),
+        "Unknown output type for expr ",
+        lsop->toInlineString());
+    auto out = IrBuilder::create<Int>(c10::nullopt);
+    IrBuilder::create<LoadStoreOp>(lsop->opType(), out, inp);
+    last_visited_val_ = out;
   }
 
   // Clone expression after recurisvely replacing inputs
