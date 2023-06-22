@@ -10,6 +10,7 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <device_lower/lower2device.h>
 #include <functional>
