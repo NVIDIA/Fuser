@@ -3821,6 +3821,9 @@ CatOp::CatOp(
     const std::vector<Bool*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
+    passkey.ir_container_ != nullptr,
+    "IrContainer must be provided to create a CatOp.");
+  TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
