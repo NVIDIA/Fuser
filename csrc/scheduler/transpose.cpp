@@ -457,10 +457,10 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
-    int64_t size = inferred_val->as<int64_t>();
+    int64_t size = inferred_val.as<int64_t>();
     n_elems *= size;
     shape_in_ref.push_back(size);
   }

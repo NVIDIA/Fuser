@@ -256,10 +256,42 @@ using IntSomeType = DynamicType<int, SomeType>;
 using BoolSomeType = DynamicType<bool, SomeType>;
 using SomeTypes = DynamicType<SomeType, SomeType>;
 
-TEST_F(DynamicTypeTest, Casting) {
-  static_assert(IntSomeType(2).cast<double>() == 2.0);
+// Utilities for testing if we have T->as<U> defined
+template <typename T, typename U>
+static auto hasAsHelper(int)
+    -> decltype(std::declval<T>().template as<U>(), std::true_type{});
+
+template <typename, typename>
+static auto hasAsHelper(long) -> std::false_type;
+
+template <typename T, typename U>
+struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
+
+TEST_F(DynamicTypeTest, Typing) {
+  static_assert(DoubleInt64Bool().isNull());
+  static_assert(!DoubleInt64Bool(1.0).isNull());
+  static_assert(!DoubleInt64Bool().hasValue());
+  static_assert(DoubleInt64Bool(1.0).hasValue());
+
+  static_assert(hasAs<DoubleInt64Bool, double>::value);
+  static_assert(hasAs<DoubleInt64Bool, int64_t>::value);
+  static_assert(hasAs<DoubleInt64Bool, bool>::value);
+  static_assert(!hasAs<DoubleInt64Bool, SomeType>::value);
+  static_assert(!hasAs<DoubleInt64Bool, int>::value);
+  static_assert((int)DoubleInt64Bool(true) == 1);
+  EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
+
+  struct CustomType {};
+  static_assert(can_static_cast<IntSomeType, double>);
+  static_assert(can_static_cast<IntSomeType, int64_t>);
+  static_assert(can_static_cast<IntSomeType, bool>);
+  static_assert(can_static_cast<IntSomeType, int>);
+  static_assert(can_static_cast<IntSomeType, float>);
+  static_assert(can_static_cast<IntSomeType, SomeType>);
+  static_assert(!can_static_cast<IntSomeType, CustomType>);
+  static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
-      [&]() { IntSomeType(2).cast<SomeType>(); },
+      []() { (SomeType) IntSomeType(1); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot cast to ")));
 }

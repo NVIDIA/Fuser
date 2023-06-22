@@ -579,7 +579,7 @@ void validateAlignedVectorizeExtents(
   for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
         " as the extent of a vectorized root domain, ",
@@ -791,23 +791,14 @@ void validateVectorizedSplits(
   for (const auto& extent_factor : kernel->summary().splits_to_validate) {
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
+    auto divisible = (input_extent % split_factor == 0);
     TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the extent, ",
-        extent_factor.first->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the split factor, ",
-        extent_factor.second->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.value() % split_factor.value() == 0,
+        divisible,
         "Non-divisible split with vectorization is detected. ",
         "Extent: ",
-        input_extent.value(),
+        input_extent,
         ". Factor: ",
-        split_factor.value());
+        split_factor);
   }
 }
 
@@ -869,11 +860,11 @@ void bindInputForExprEvaluation(
           // once all values are bound.
           auto maybe_expanded_size =
               expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.has_value()) {
+          if (maybe_expanded_size.hasValue()) {
             TORCH_CHECK(
-                *maybe_expanded_size == tensor_arg_size,
+                maybe_expanded_size == tensor_arg_size,
                 "Expecting expanded extent of ",
-                *maybe_expanded_size,
+                maybe_expanded_size,
                 " but received value of ",
                 tensor_arg_size);
           } else {
@@ -886,15 +877,15 @@ void bindInputForExprEvaluation(
         bool should_bind = true;
         if (check_consistency) {
           const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.has_value()) {
+          if (prev_value.hasValue()) {
             TORCH_CHECK(
-                *prev_value == value,
+                prev_value == value,
                 "Attempting to bind ",
                 extent->toString(),
                 " to ",
                 value,
                 " but it's already set to ",
-                *prev_value);
+                prev_value);
             should_bind = false;
           }
         }
