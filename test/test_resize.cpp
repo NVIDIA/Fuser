@@ -1242,7 +1242,7 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler1_CUDA) {
   auto ref = t1.sum({1});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {ref},
@@ -1300,7 +1300,7 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler2_CUDA) {
   auto t4 = t3.sum({1});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {t2, t4},
@@ -1354,7 +1354,7 @@ TEST_F(NVFuserTest, FusionSliceReduceScheduler3_CUDA) {
   auto t4 = t3.to(at::kDouble).sum({1});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {t2, t4},
@@ -1391,7 +1391,7 @@ TEST_F(NVFuserTest, FusionResizeCatReduceScheduler1_CUDA) {
   auto ref = at::cat({t0, t1}, 1).sum({1});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {ref},
@@ -1429,7 +1429,7 @@ TEST_F(NVFuserTest, FusionResizeCatSoftmaxScheduler1_CUDA) {
   auto ref = at::_softmax(t2.to(at::kDouble), -1, false);
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {ref},
@@ -1466,7 +1466,7 @@ TEST_F(NVFuserTest, FusionResizeReductionSliceScheduler1_CUDA) {
   auto t2 = t1.index({at::indexing::Slice(1, shape0[0] - 2)});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {t2},
@@ -1507,7 +1507,7 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler1_CUDA) {
        at::indexing::Slice(0, at::indexing::None)});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {t2},
@@ -1548,7 +1548,7 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
        at::indexing::Slice(1, shape0[1] - 2)});
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {t2},
@@ -1710,7 +1710,7 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT1_CUDA) {
   auto aten_t3 = torch::add(aten_t0_slice, t1);
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {aten_t3, aten_t3},
@@ -1836,7 +1836,7 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   auto aten_t7 = aten_t2 + 1;
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {aten_t4, aten_t4, aten_t7},
@@ -2001,7 +2001,7 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
   auto ref_t4 = ref_t2 + 1;
 
   testValidate(
-      executor_cache.fusion(),
+      executor_cache.getMostRecentConcretizedFusion(),
       cg_outputs,
       aten_inputs,
       {ref_t3, ref_t4},
