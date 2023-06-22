@@ -77,7 +77,7 @@ Bool* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   TORCH_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
-  auto result = IrBuilder::create<Bool>(c10::nullopt);
+  auto result = IrBuilder::create<Bool>(std::nullopt);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;

@@ -48,9 +48,9 @@ bool equals(const Val* value, const EvaluatorValue& concrete_value) {
 }
 
 template <typename T>
-c10::optional<EvaluatorValue> toOptionalEvaluatorValue(c10::optional<T> i) {
+std::optional<EvaluatorValue> toOptionalEvaluatorValue(std::optional<T> i) {
   if (!i) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return EvaluatorValue(i.value());
 }
@@ -100,7 +100,7 @@ void ExpressionEvaluator::bind(
   }
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
+std::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).has_value()) {
       return toOptionalEvaluatorValue(
@@ -113,14 +113,14 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       if (def->isA<kir::BaseAddress>()) {
-        return c10::nullopt;
+        return std::nullopt;
       }
       std::vector<EvaluatorValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
         if (!eval_i.has_value()) {
-          return c10::nullopt;
+          return std::nullopt;
         }
         inputs.emplace_back(*eval_i);
       }
@@ -134,15 +134,15 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(ParallelType pt) {
+std::optional<EvaluatorValue> ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
+std::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
   TORCH_INTERNAL_ASSERT(
       value->isIntegralScalar() || value->isFloatingPointScalar() ||
           value->isABool(),
@@ -166,13 +166,13 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
   if (value->isA<NamedScalar>()) {
     const auto it = known_named_scalars_.find(value->as<NamedScalar>()->name());
     if (it != known_named_scalars_.end()) {
-      return c10::optional<EvaluatorValue>(it->second);
+      return std::optional<EvaluatorValue>(it->second);
     }
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? c10::optional<EvaluatorValue>(it->second)
-                                   : c10::nullopt;
+  return it != known_values_.end() ? std::optional<EvaluatorValue>(it->second)
+                                   : std::nullopt;
 }
 
 void ExpressionEvaluator::print() const {

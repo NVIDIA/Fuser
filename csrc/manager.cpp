@@ -292,7 +292,7 @@ void runCudaFusionGroup(
     torch::jit::InterpreterState{*fallback_code}.run(stack);
   };
 
-  c10::optional<torch::jit::Stack> stack_copy;
+  std::optional<torch::jit::Stack> stack_copy;
   auto compare_callback = torch::jit::getCudaFuserComparisonCallback();
   if (compare_callback.run_fallback) {
     // make a copy of the stack
