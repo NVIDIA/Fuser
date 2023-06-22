@@ -14,7 +14,6 @@
 #include <utils.h>
 
 #include <c10/macros/Export.h>
-#include <c10/util/Optional.h>
 
 #include <cstdint>
 #include <string>

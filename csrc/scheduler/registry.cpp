@@ -2559,7 +2559,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 }
 
 // Simply loop through the list as baseline strategy
-c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
+std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (auto sh : all_heuristics()) {
@@ -2568,7 +2568,7 @@ c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
       return sh;
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {

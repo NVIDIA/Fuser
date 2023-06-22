@@ -1370,7 +1370,7 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 
 // Compile the source if no existing compiled binary is found in KernelDB
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,

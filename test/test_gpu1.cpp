@@ -402,8 +402,8 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
 
   ExpressionEvaluator evaluator;
 
-  auto a = IrBuilder::create<Int>(c10::nullopt);
-  auto b = IrBuilder::create<Int>(c10::nullopt);
+  auto a = IrBuilder::create<Int>(std::nullopt);
+  auto b = IrBuilder::create<Int>(std::nullopt);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
   auto e = IrBuilder::create<Int>(0);

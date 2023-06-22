@@ -1051,34 +1051,34 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
   return os;
 }
 
-c10::optional<std::string> inline_op_str(const UnaryOpType uotype) {
+std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
   const char* str = unary_op_type_inline_op2string(uotype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> inline_op_str(const BinaryOpType botype) {
+std::optional<std::string> inline_op_str(const BinaryOpType botype) {
   const char* str = binary_op_type_inline_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> inline_op_str(const RNGOpType rngtype) {
+std::optional<std::string> inline_op_str(const RNGOpType rngtype) {
   const char* str = rng_op_type_inline_op2string(rngtype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> integer_op_str(const BinaryOpType botype) {
+std::optional<std::string> integer_op_str(const BinaryOpType botype) {
   const char* str = binary_op_integer_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> bool_op_str(const BinaryOpType botype) {
+std::optional<std::string> bool_op_str(const BinaryOpType botype) {
   const char* str = binary_op_bool_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
 std::string stringifyThreadSize(const ParallelType ptype) {
@@ -1137,11 +1137,11 @@ bool isParallelTypeVectorize(ParallelType ptype) {
       ptype == ParallelType::MisalignedVectorize;
 }
 
-c10::optional<std::string> cast_func_str(
+std::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>& cast) {
   const char* str = supported_casts2string(cast);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
 size_t dataTypeSize(DataType type) {

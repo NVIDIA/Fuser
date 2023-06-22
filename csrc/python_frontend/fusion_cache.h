@@ -140,14 +140,14 @@ class TORCH_CUDA_CU_API FusionCache {
 
   //! Thread-Unsafe: Queries the current trie node to see if a record matches
   //! one of its children
-  c10::optional<TrieNode*> queryChildren(TrieNode* node, RecordFunctor* rec)
+  std::optional<TrieNode*> queryChildren(TrieNode* node, RecordFunctor* rec)
       const;
   //! Query a Fusion's Schedules based on fusion id or cache id
   FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
   //! Lookup the User Schedule Id and return null if one does not exist.
   //! NOTE: this method cannot be const because the InputsIdLookup can
   //! cause a modification to that data member for cache eviction.
-  c10::optional<size_t> queryUserScheduleId(
+  std::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs);
   //! Lookup the User Schedule based on Id

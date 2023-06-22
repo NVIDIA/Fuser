@@ -160,12 +160,12 @@ void splitDims(
   }
 }
 
-c10::optional<size_t> mergeDims(
+std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update) {
   if (to_merge.empty()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (to_merge.size() == 1) {
     return to_merge[0];
@@ -1090,7 +1090,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = resize->in();
+        projected_id = nullptr;
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1147,7 +1147,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = resize->out();
+        projected_id = nullptr;
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1713,7 +1713,7 @@ void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1733,7 +1733,7 @@ void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1755,7 +1755,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
     int pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }

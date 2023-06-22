@@ -217,14 +217,14 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-c10::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
+std::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
     const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (!defined_[index] && !is_constant_[index]) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return values_[index];
 }
