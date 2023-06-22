@@ -219,8 +219,7 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-EvaluatorValue PrecomputedValues::getMaybeValueFor(
-    const Val* val) const {
+EvaluatorValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
     return std::monostate{};

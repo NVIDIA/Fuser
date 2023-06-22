@@ -1010,8 +1010,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         auto inferred_val = expr_eval.evaluate(extent);
         if (inferred_val.hasValue()) {
           // This value could have been inferred, make sure it was set right.
-          bool valid = inferred_val.as<int64_t>() ==
-                  launch_constraints.getDim(p_type) ||
+          bool valid =
+              inferred_val.as<int64_t>() == launch_constraints.getDim(p_type) ||
               launch_constraints.getRawVal(p_type) == -1;
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(

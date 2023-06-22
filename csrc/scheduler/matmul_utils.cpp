@@ -177,9 +177,7 @@ ProblemShape getProblemShape(
   }
 
   return ProblemShape{
-      m_extend.as<int64_t>(),
-      n_extend.as<int64_t>(),
-      k_extend.as<int64_t>()};
+      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
 }
 
 std::string isMatmulFusionDefinitionSupported(

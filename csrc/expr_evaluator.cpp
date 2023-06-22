@@ -170,7 +170,8 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second : EvaluatorValue(std::monostate{});
+  return it != known_values_.end() ? it->second
+                                   : EvaluatorValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {
