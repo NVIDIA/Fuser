@@ -123,13 +123,19 @@ namespace nvfuser {
 #pragma GCC diagnostic ignored "-Wbool-operation"
 #endif
 
-template <typename... Ts>
+template<template<typename> typename ... Templates>
+struct Containers {
+  template<typename DynamicType, typename ...MemberTypes>
+  using VariantType = std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
+};
+
+template <typename Containers, typename... Ts>
 struct DynamicType;
 
-template <typename... Ts>
+template <typename Containers, typename... Ts>
 // not using template <typename... Ts> to make sure there is at least one type
 struct DynamicType {
-  std::variant<std::monostate, Ts...> value_;
+  typename Containers::VariantType<DynamicType, Ts...> value_;
 
   using TypesAsTuple = std::tuple<Ts...>;
   static constexpr TypesAsTuple types_as_tuple{};
