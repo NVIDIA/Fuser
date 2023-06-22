@@ -698,11 +698,12 @@ TensorView* slice(
   bool needs_real_slicing = false;
   for (const auto idx : c10::irange(ndims)) {
     auto inp_root_id = inp_dom[idx];
-    auto range = normalize_slice_range(ranges.at(idx), inp_root_id->extent());
+    auto inp_extent = inp_root_id->getMaybeExpandedExtent();
+    auto range = normalize_slice_range(ranges.at(idx), inp_extent);
     normalized_ranges.at(idx) = range;
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_id->extent()) &&
+    if (range.start->isZeroInt() && range.stop->sameAs(inp_extent) &&
         range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
@@ -714,26 +715,26 @@ TensorView* slice(
       // expressions which will be simplified at concretization. Here we set
       // the output to Symbolic unless all required scalars are constant.
       if (range.start->isConstInt() && range.stop->isConstInt() &&
-          inp_root_id->isConstInt()) {
+          inp_extent->isConstInt()) {
         auto start = range.start->evaluateInt();
         auto stop = range.stop->evaluateInt();
         auto step = range.step->evaluateInt();
         TORCH_INTERNAL_ASSERT(step != 0, "Slice step must be non-zero");
         TORCH_INTERNAL_ASSERT(
             step == 1, "Slicing with step != 1 is not currently supported");
-        auto inp_extent = inp_root_id->extent()->evaluateInt();
-        adjust_start_stop(start, inp_extent);
-        adjust_start_stop(stop, inp_extent);
+        auto inp_extent_val = inp_extent->evaluateInt();
+        adjust_start_stop(start, inp_extent_val);
+        adjust_start_stop(stop, inp_extent_val);
         out_rf_id = IterDomain::resize(
             out_root_id,
             SimplifyingIrBuilder::negExpr(IrBuilder::create<Int>(start)),
-            sub(IrBuilder::create<Int>(stop), inp_root_id->extent()),
+            sub(IrBuilder::create<Int>(stop), inp_extent),
             true);
       } else if (skip_symbolic) {
         out_rf_id = IterDomain::resize(
             out_root_id,
             SimplifyingIrBuilder::negExpr(range.start),
-            sub(range.stop, inp_root_id->extent()),
+            sub(range.stop, inp_extent),
             true);
       } else {
         out_rf_id = IterDomainBuilder(
