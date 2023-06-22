@@ -16,6 +16,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
