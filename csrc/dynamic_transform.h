@@ -152,16 +152,22 @@ struct Concrete1DSliceDescriptor {
   //! This can be either Iteration or Broadcast (if sliced extent is 1)
   IterType iter_type = IterType::Iteration;
 
-  // NOTE: In the future, we can hold branches for "step" here as well, in order
-  // to specialize when step == 1
-
   bool operator==(const Concrete1DSliceDescriptor& other) const {
     return start_branch == other.start_branch &&
-        stop_branch == other.stop_branch && is_empty == other.is_empty &&
-        iter_type == other.iter_type;
+        stop_branch == other.stop_branch && step_branch == other.step_branch &&
+        is_empty == other.is_empty && iter_type == other.iter_type;
   }
   bool operator!=(const Concrete1DSliceDescriptor& other) const {
     return !operator==(other);
+  }
+
+  size_t hash() const {
+    size_t h = (size_t)start_branch;
+    hashCombine(h, (size_t)stop_branch);
+    hashCombine(h, (size_t)step_branch);
+    hashCombine(h, (size_t)is_empty);
+    hashCombine(h, (size_t)iter_type);
+    return h;
   }
 };
 

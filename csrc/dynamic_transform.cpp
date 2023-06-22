@@ -938,6 +938,11 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
   }
+  for (const auto& [tv, slice_descs] : getSliceDescriptors()) {
+    for (const auto& desc : slice_descs) {
+      hashCombine(hash, desc.hash());
+    }
+  }
   return hash;
 }
 
