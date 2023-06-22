@@ -380,11 +380,11 @@ std::vector<EvaluatorValue> UnaryOp::evaluate(
       return {-in};
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
-        return {EvaluatorValue((int64_t)in)};
+        return {EvaluatorValue(in.cast<int64_t>())};
       } else if (isFloatingPointType(*out()->getDataType())) {
-        return {EvaluatorValue((double)in)};
+        return {EvaluatorValue(in.cast<double>())};
       } else if (out()->getDataType() == DataType::Bool) {
-        return {EvaluatorValue((bool)in)};
+        return {EvaluatorValue(in.cast<bool>())};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
@@ -412,9 +412,9 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
+      c10::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
+      TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       if (alsoBooleanOperator(op_type) &&
