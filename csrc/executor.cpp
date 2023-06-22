@@ -18,8 +18,8 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
-#include <utils.h>
 #include <serde/utils.h>
+#include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
