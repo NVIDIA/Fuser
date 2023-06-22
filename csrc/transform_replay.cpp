@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 

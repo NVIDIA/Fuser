@@ -458,7 +458,7 @@ class RedundantUseAnalysis : BackwardVisitor {
   void handle(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Initialize redundant info for current expr
-      c10::optional<ParallelTypeBitmap> maybe_expr_pred_map;
+      std::optional<ParallelTypeBitmap> maybe_expr_pred_map;
 
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -834,7 +834,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
 
 ParallelTypeBitmap ThreadPredicateMap::getRedundantConsumerType(
     Expr* expr) const {
-  c10::optional<ParallelTypeBitmap> result;
+  std::optional<ParallelTypeBitmap> result;
   for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     auto out_tv_redundant_map = getPredicateInfo(out_tv).redundant_use_types;
     if (!result.has_value()) {

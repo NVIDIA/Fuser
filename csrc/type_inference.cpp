@@ -620,7 +620,7 @@ class NaiveTypePropagator {
       torch::jit::Node* node,
       torch::jit::TensorTypePtr const& op0,
       torch::jit::TensorTypePtr const& op1,
-      c10::optional<at::ScalarType> scalar_type = c10::nullopt) {
+      std::optional<at::ScalarType> scalar_type = std::nullopt) {
     torch::jit::TensorTypePtr out;
     TORCH_CHECK(
         op0 != nullptr || op1 != nullptr,
