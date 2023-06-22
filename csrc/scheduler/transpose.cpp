@@ -62,7 +62,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& root_dom = tv->getRootDomain();
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.idGraph().permissiveNodes().permissiveAreMapped(
+      if (ca_map_.idGraph().permissiveResizeNodes().permissiveAreMapped(
               root_dom[i], root_dim)) {
         mapped_id = root_dom[i];
         break;
