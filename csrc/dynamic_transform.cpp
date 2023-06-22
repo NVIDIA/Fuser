@@ -605,8 +605,10 @@ void DynamicTransformConcretizer::concretizeSlice() {
         auto new_start = map_index(desc.start_branch, range.start, inp_extent);
         auto new_stop = map_index(desc.stop_branch, range.stop, inp_extent);
         new_ranges.push_back({new_start, new_stop, range.step});
+        // Trivial slices correspond to 0:extent:1
         if (desc.start_branch != SliceIndexBranch::AlwaysZero ||
-            desc.stop_branch != SliceIndexBranch::AlwaysExtent) {
+            desc.stop_branch != SliceIndexBranch::AlwaysExtent ||
+            desc.step_branch != SliceStepBranch::One) {
           is_sliced = true;
         }
       }
@@ -618,9 +620,23 @@ void DynamicTransformConcretizer::concretizeSlice() {
       std::vector<Val*> new_shape(ranges.size());
       for (auto i : c10::irange(ranges.size())) {
         auto new_range = new_ranges.at(i);
-        // TODO: this assumes new_range.step == 1
-        new_shape[i] =
-            SimplifyingIrBuilder::subExpr(new_range.stop, new_range.start);
+        auto desc = slice_descs.at(i);
+        // Depending on the step branch, we can use different output extent
+        // expressions
+        switch (desc.step_branch) {
+          case SliceStepBranch::One:
+            new_shape[i] =
+                SimplifyingIrBuilder::subExpr(new_range.stop, new_range.start);
+            break;
+          case SliceStepBranch::GreaterThanOne:
+            new_shape[i] = SimplifyingIrBuilder::ceilDivExpr(
+                SimplifyingIrBuilder::subExpr(new_range.stop, new_range.start),
+                new_range.step);
+          case SliceStepBranch::Negative:
+            new_shape[i] = SimplifyingIrBuilder::ceilDivExpr(
+                SimplifyingIrBuilder::subExpr(new_range.start, new_range.stop),
+                SimplifyingIrBuilder::negExpr(new_range.step));
+        }
       }
       // TODO: process as empty tensor if is_empty
       auto dtype = incomplete_out_tv->getDataType().value();

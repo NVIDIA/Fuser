@@ -133,11 +133,17 @@ enum class SliceIndexBranch {
   AlwaysExtent // extent <= a
 };
 
+//! This enum describes the "step" argument to slice, which can be a positive or
+//! negative integer (but not zero). We handle the special case of step == 1
+//! separately from step > 1 since this simplifies some expressions.
+enum class SliceStepBranch { Negative, One, GreaterThanOne };
+
 //! Describes a 1D slice in terms of the start, stop, and extent values
 struct Concrete1DSliceDescriptor {
   //! These enums determine the form of the simplified expressions
   SliceIndexBranch start_branch = SliceIndexBranch::Positive;
   SliceIndexBranch stop_branch = SliceIndexBranch::Positive;
+  SliceStepBranch step_branch = SliceStepBranch::One;
 
   //! True if normalized values satisfy (stop - start) * step <= 0 in which case
   //! we would return an empty tensor.
