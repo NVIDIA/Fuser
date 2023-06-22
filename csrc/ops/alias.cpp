@@ -639,10 +639,14 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
   return out;
 }
 
-// Currently there's no error check about  the actual values of the
-// Slice parameters. For example, the start parameter of a range of a
-// domain is assumed to be >= 0 and < the extent of the domain.
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
+// If skip_symbolic is true, then the start and stop parameters of a range of a
+// domain is assumed to be >= 0 and < the extent of the domain. Otherwise,
+// non-constant inputs will lead to Symbolic IterDomains in the output, which
+// must be later concretized.
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool skip_symbolic) {
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const int ndims = static_cast<int>(inp_dom.size());
 
@@ -666,6 +670,19 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     return range;
   };
 
+  // Adjust an integer value relative to a given extent. This is
+  // min(max(where(a < 0, extent + a, a), 0), extent)
+  auto adjust_start_stop = [](int64_t& a, int64_t extent) {
+    if (a < 0) {
+      a += extent;
+    }
+    if (a < 0) {
+      a = 0;
+    } else if (a > extent) {
+      a = extent;
+    }
+  };
+
   for (auto& range : ranges) {
     // Step not supported yet
     TORCH_CHECK(
@@ -681,11 +698,12 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   bool needs_real_slicing = false;
   for (const auto idx : c10::irange(ndims)) {
     auto inp_root_id = inp_dom[idx];
-    auto range = normalize_slice_range(ranges.at(idx), inp_root_id->extent());
+    auto inp_extent = inp_root_id->getMaybeExpandedExtent();
+    auto range = normalize_slice_range(ranges.at(idx), inp_extent);
     normalized_ranges.at(idx) = range;
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_id->extent()) &&
+    if (range.start->isZeroInt() && range.stop->sameAs(inp_extent) &&
         range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
@@ -693,11 +711,39 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else {
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
-      out_rf_id = IterDomain::resize(
-          out_root_id,
-          SimplifyingIrBuilder::negExpr(range.start),
-          sub(range.stop, inp_root_id->extent()),
-          true);
+      // The start, stop, and extent of the output will all require complicated
+      // expressions which will be simplified at concretization. Here we set
+      // the output to Symbolic unless all required scalars are constant.
+      if (range.start->isConstInt() && range.stop->isConstInt() &&
+          inp_extent->isConstInt()) {
+        auto start = range.start->evaluateInt();
+        auto stop = range.stop->evaluateInt();
+        auto step = range.step->evaluateInt();
+        TORCH_INTERNAL_ASSERT(step != 0, "Slice step must be non-zero");
+        TORCH_INTERNAL_ASSERT(
+            step == 1, "Slicing with step != 1 is not currently supported");
+        auto inp_extent_val = inp_extent->evaluateInt();
+        adjust_start_stop(start, inp_extent_val);
+        adjust_start_stop(stop, inp_extent_val);
+        out_rf_id = IterDomain::resize(
+            out_root_id,
+            SimplifyingIrBuilder::negExpr(IrBuilder::create<Int>(start)),
+            sub(IrBuilder::create<Int>(stop), inp_extent),
+            true);
+      } else if (skip_symbolic) {
+        out_rf_id = IterDomain::resize(
+            out_root_id,
+            SimplifyingIrBuilder::negExpr(range.start),
+            sub(range.stop, inp_extent),
+            true);
+      } else {
+        out_rf_id = IterDomainBuilder(
+                        FusionGuard::getCurFusion()->zeroVal(),
+                        IrBuilder::create<Int>())
+                        .is_rfactor_domain(true)
+                        .iter_type(IterType::Symbolic)
+                        .build();
+      }
       needs_real_slicing = true;
     }
     root_ids.at(idx) = out_root_id;

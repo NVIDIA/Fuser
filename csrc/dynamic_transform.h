@@ -40,7 +40,8 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty();
+    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty() ||
+        !dynamic_sliced_tvs_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -60,6 +61,11 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! IterTypes
   const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
     return dynamic_resized_ids_;
+  }
+
+  //! Return a vector of outputs of Slice expressions
+  const std::vector<TensorView*>& getDynamicSlicedTensorViews() const {
+    return dynamic_sliced_tvs_;
   }
 
   std::string toString() const;
@@ -93,10 +99,76 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   std::vector<IterDomain*> dynamic_resized_ids_;
 
+  // Slice operations can have complicated output extents. The inputs to slice
+  // are a start, stop, and step for each sliced dimension. Each of these is an
+  // integer, and any combination of three finite integers with step != 0 is
+  // acceptable and should run without error. Normalization of the start and
+  // stop values must be done, followed by computation of the output extent:
+  //
+  //   normed_start = min(max(where(start < 0, extent + start, start), 0),
+  //   extent); normed_stop = max(min(max(where(stop < 0, extent + stop, stop),
+  //   0), extent), normed_start); extent = max((normed_stop - normed_start + 1)
+  //   / step, 0);
+  //
+  // These expressions are unwieldy and cannot be significantly simplified
+  // unless we know certain relations about the start, stop, and step scalars.
+  // Here we keep track of non-static slices or slices with non-static input
+  // extents. That way we can restrict to a single branch in each of these
+  // expressions during concretization.
+  std::vector<TensorView*> dynamic_sliced_tvs_;
+
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
 
   friend class DynamicTransformInitialInfoBuilder;
+};
+
+//! This enum describes cases that can occur for the start or stop arguments to
+//! slice(). Each of these leads to a different branch in the normalized form's
+//! general expression.
+enum class SliceIndexBranch {
+  AlwaysZero, // a <= -extent
+  Negative, // -ext < a < 0
+  Positive, // 0 <= a < extent
+  AlwaysExtent // extent <= a
+};
+
+//! This enum describes the "step" argument to slice, which can be a positive or
+//! negative integer (but not zero). We handle the special case of step == 1
+//! separately from step > 1 since this simplifies some expressions.
+enum class SliceStepBranch { Negative, One, GreaterThanOne };
+
+//! Describes a 1D slice in terms of the start, stop, and extent values
+struct Concrete1DSliceDescriptor {
+  //! These enums determine the form of the simplified expressions
+  SliceIndexBranch start_branch = SliceIndexBranch::Positive;
+  SliceIndexBranch stop_branch = SliceIndexBranch::Positive;
+  SliceStepBranch step_branch = SliceStepBranch::One;
+
+  //! True if normalized values satisfy (stop - start) * step <= 0 in which case
+  //! we would return an empty tensor.
+  bool is_empty = false;
+
+  //! This can be either Iteration or Broadcast (if sliced extent is 1)
+  IterType iter_type = IterType::Iteration;
+
+  bool operator==(const Concrete1DSliceDescriptor& other) const {
+    return start_branch == other.start_branch &&
+        stop_branch == other.stop_branch && step_branch == other.step_branch &&
+        is_empty == other.is_empty && iter_type == other.iter_type;
+  }
+  bool operator!=(const Concrete1DSliceDescriptor& other) const {
+    return !operator==(other);
+  }
+
+  size_t hash() const {
+    size_t h = (size_t)start_branch;
+    hashCombine(h, (size_t)stop_branch);
+    hashCombine(h, (size_t)step_branch);
+    hashCombine(h, (size_t)is_empty);
+    hashCombine(h, (size_t)iter_type);
+    return h;
+  }
 };
 
 //! A set of transformations for a symbolic fusion with concrete sizes
@@ -117,6 +189,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
     analyzeReshapes(expr_eval);
 
+    analyzeSlices(expr_eval);
+
     analyzeResizes(expr_eval);
   }
 
@@ -136,6 +210,15 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return resize_itertypes_;
   }
 
+  //! Return a vector of pairs holding the index of each sliced TensorView in
+  //! the vector returned by initialInfo()->getDynamicSlicedTensorViews(),
+  //! along with a vector of descriptors indicating how each axis should be
+  //! concretized.
+  const std::vector<std::pair<size_t, std::vector<Concrete1DSliceDescriptor>>>&
+  getSliceDescriptors() const {
+    return slice_descriptors_;
+  }
+
   //! Comparison operator for the purposes of determining cache hits. This does
   //! not guarantee equality of all members. Instead, it returns equal if the
   //! resulting concretizations would be structurally equivalent. Note that
@@ -151,6 +234,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! determine the decomposition of each dynamic reshape operation to use
   //! during concretization.
   void analyzeReshapes(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the branches of expressions in dynamic slice ops.
+  void analyzeSlices(ExpressionEvaluator* expr_eval);
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
   //! determine the concrete IterType of each resized IterDomain.
@@ -189,6 +276,12 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
   std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+
+  //! Holds the index of the sliced TensorView (output of the SliceOp) in the
+  //! vector returned by initial_info_->getDynamicSlicedTensorViews() along
+  //! with a descriptor of how it should be concretized.
+  std::vector<std::pair<size_t, std::vector<Concrete1DSliceDescriptor>>>
+      slice_descriptors_;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {

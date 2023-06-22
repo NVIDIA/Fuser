@@ -106,8 +106,13 @@ TORCH_CUDA_CU_API TensorView* cat(
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment.
+//! If skip_symbolic is true, we assume start < stop and both start and stop are
+//! between 0 and extent (inclusive). Otherwise, unless all input scalars are
+//! constant, the output will have Symbolic IterDomains that must be concretized
+//! later.
 TORCH_CUDA_CU_API TensorView* slice(
     TensorView* inp,
-    const std::vector<Slice>& ranges);
+    const std::vector<Slice>& ranges,
+    bool skip_symbolic = false);
 
 } // namespace nvfuser
