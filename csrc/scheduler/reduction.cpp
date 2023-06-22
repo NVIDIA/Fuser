@@ -11,6 +11,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>

@@ -141,6 +141,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
     ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
     ${NVFUSER_SRCS_DIR}/ops/utils.cpp
+    ${NVFUSER_SRCS_DIR}/options.cpp
     ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
     ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
     ${NVFUSER_SRCS_DIR}/parser.cpp
