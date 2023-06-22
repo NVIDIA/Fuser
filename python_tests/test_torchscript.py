@@ -13,6 +13,21 @@ from functools import reduce
 import operator
 import warnings
 
+# Set NVFUSER_ envrionment variables. Make sure this is done before
+# loading nvfuser
+if "PYTORCH_NVFUSER_ENABLE" not in os.environ:
+    os.environ["PYTORCH_NVFUSER_ENABLE"] = ""
+os.environ["PYTORCH_NVFUSER_ENABLE"] = (
+    "linear_decomposition,conv_decomposition,graph_op_fusion,"
+    + os.environ["PYTORCH_NVFUSER_ENABLE"]
+)
+if "PYTORCH_NVFUSER_DISABLE" not in os.environ:
+    os.environ["PYTORCH_NVFUSER_DISABLE"] = ""
+os.environ["PYTORCH_NVFUSER_DISABLE"] = (
+    "fallback,fma," + os.environ["PYTORCH_NVFUSER_DISABLE"]
+)
+os.environ["PYTORCH_NVFUSER_JIT_OPT_LEVEL"] = "0"
+
 import torch
 from torch.nn import functional
 from torch.profiler import profile, ProfilerActivity
@@ -58,19 +73,6 @@ CUDA_MAJOR, CUDA_MINOR = 0, 0
 
 if RUN_NVFUSER and torch.version.cuda is not None:
     CUDA_MAJOR, CUDA_MINOR = (int(x) for x in torch.version.cuda.split(".")[:2])
-
-if "PYTORCH_NVFUSER_ENABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_ENABLE"] = ""
-os.environ["PYTORCH_NVFUSER_ENABLE"] = (
-    "linear_decomposition,conv_decomposition,graph_op_fusion,"
-    + os.environ["PYTORCH_NVFUSER_ENABLE"]
-)
-if "PYTORCH_NVFUSER_DISABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_DISABLE"] = ""
-os.environ["PYTORCH_NVFUSER_DISABLE"] = (
-    "fallback,fma," + os.environ["PYTORCH_NVFUSER_DISABLE"]
-)
-os.environ["PYTORCH_NVFUSER_JIT_OPT_LEVEL"] = "0"
 
 # flag used to skip C++ integration test for torchscript
 if os.environ.get("NVFUSER_TEST_ONLY_RUN_WHEEL_BUILD_SUBSET", "0") == "1":
