@@ -412,9 +412,9 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      c10::optional<std::string> cast_str = cast_func_str(std::make_pair(
+      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
+      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       if (alsoBooleanOperator(op_type) &&
@@ -1149,14 +1149,14 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
 
-c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
+std::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
     return indexToValName((int)std::distance(begin(), it));
   }
 
-  return c10::optional<WelfordTriplet::ValName>();
+  return std::optional<WelfordTriplet::ValName>();
 }
 
 bool WelfordTriplet::sameAs(const WelfordTriplet& other) const {
@@ -2149,7 +2149,7 @@ IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
-  padded_to_size_ = c10::nullopt;
+  padded_to_size_ = std::nullopt;
   is_mma_swizzled_ = false;
   return *this;
 }
@@ -2202,7 +2202,7 @@ IterDomainBuilder& IterDomainBuilder::is_padded_dimension(
 }
 
 IterDomainBuilder& IterDomainBuilder::padded_to_size(
-    c10::optional<int64_t> _padded_to_size) {
+    std::optional<int64_t> _padded_to_size) {
   padded_to_size_ = _padded_to_size;
   return *this;
 }
@@ -2229,7 +2229,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
-    c10::optional<int64_t> padded_to_size,
+    std::optional<int64_t> padded_to_size,
     bool is_mma_swizzled)
     : Val(passkey, ValType::IterDomain),
       start_(start),
@@ -2482,7 +2482,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
         " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
   } else if (factor->getValType() == ValType::NamedScalar) {
     TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != c10::nullopt,
+        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
         "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
         factor);
   }
@@ -3062,15 +3062,15 @@ bool TensorDomain::hasVectorize() const {
       });
 }
 
-c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
+std::optional<unsigned int> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
       leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
         return id->isReduction();
       });
   if (it == leaf_domain_.end()) {
-    return c10::optional<unsigned int>();
+    return std::optional<unsigned int>();
   } else {
-    return c10::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
+    return std::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
   }
 }
 
@@ -3611,38 +3611,38 @@ NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
 }
 
-c10::optional<ParallelType> NamedScalar::getParallelDim() const {
+std::optional<ParallelType> NamedScalar::getParallelDim() const {
   if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDx);
+    return std::optional<ParallelType>(ParallelType::TIDx);
   } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDy);
+    return std::optional<ParallelType>(ParallelType::TIDy);
   } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDz);
+    return std::optional<ParallelType>(ParallelType::TIDz);
   } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDx);
+    return std::optional<ParallelType>(ParallelType::BIDx);
   } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDy);
+    return std::optional<ParallelType>(ParallelType::BIDy);
   } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDz);
+    return std::optional<ParallelType>(ParallelType::BIDz);
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<ParallelType> NamedScalar::getParallelIndex() const {
+std::optional<ParallelType> NamedScalar::getParallelIndex() const {
   if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDx);
+    return std::optional<ParallelType>(ParallelType::TIDx);
   } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDy);
+    return std::optional<ParallelType>(ParallelType::TIDy);
   } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDz);
+    return std::optional<ParallelType>(ParallelType::TIDz);
   } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDx);
+    return std::optional<ParallelType>(ParallelType::BIDx);
   } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDy);
+    return std::optional<ParallelType>(ParallelType::BIDy);
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDz);
+    return std::optional<ParallelType>(ParallelType::BIDz);
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 PadOp::PadOp(
@@ -3820,6 +3820,9 @@ CatOp::CatOp(
     Val* concatenated_domain_index,
     const std::vector<Bool*>& preds)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_ != nullptr,
+      "IrContainer must be provided to create a CatOp.");
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
