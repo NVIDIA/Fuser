@@ -380,11 +380,11 @@ std::vector<EvaluatorValue> UnaryOp::evaluate(
       return {-in};
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
-        return {EvaluatorValue(in.cast<int64_t>())};
+        return {EvaluatorValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
-        return {EvaluatorValue(in.cast<double>())};
+        return {EvaluatorValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
-        return {EvaluatorValue(in.cast<bool>())};
+        return {EvaluatorValue((bool)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());

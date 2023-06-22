@@ -13,6 +13,8 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 
+#include <optional>
+
 namespace nvfuser {
 
 namespace {
@@ -217,14 +219,13 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-std::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
-    const Val* val) const {
+EvaluatorValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
-    return std::nullopt;
+    return std::monostate{};
   }
   if (!defined_[index] && !is_constant_[index]) {
-    return std::nullopt;
+    return std::monostate{};
   }
   return values_[index];
 }
@@ -291,7 +292,7 @@ namespace {
 //! Compares the name of given scalar with thread size strings
 //!  and returns the corresponding parallel type if a match
 //!  is found.
-c10::optional<ParallelType> getMaybeThreadSizeParallelType(
+std::optional<ParallelType> getMaybeThreadSizeParallelType(
     NamedScalar* named_scalar) {
   auto& var_name = named_scalar->name();
   for (auto ptype : kParallelTypeThreads) {
@@ -299,7 +300,7 @@ c10::optional<ParallelType> getMaybeThreadSizeParallelType(
       return ptype;
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 } // namespace
@@ -495,11 +496,11 @@ void NaiveValueMachine::runUnaryOp(int index) {
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {
-        dest = EvaluatorValue(src.template cast<double>());
+        dest = EvaluatorValue((double)src);
       } else if (data_type_[index] == DataType::Int) {
-        dest = EvaluatorValue(src.template cast<int64_t>());
+        dest = EvaluatorValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
-        dest = EvaluatorValue(src.template cast<bool>());
+        dest = EvaluatorValue((bool)src);
       } else {
         TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
       }

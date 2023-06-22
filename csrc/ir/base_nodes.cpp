@@ -289,10 +289,10 @@ int64_t Val::evaluateInt() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value: ",
       toInlineString());
-  return evaluated_val->as<int64_t>();
+  return evaluated_val.as<int64_t>();
 }
 
 double Val::evaluateDouble() {
@@ -307,9 +307,9 @@ double Val::evaluateDouble() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<double>();
+  return evaluated_val.as<double>();
 }
 
 bool Val::evaluateBool() {
@@ -324,9 +324,9 @@ bool Val::evaluateBool() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<bool>();
+  return evaluated_val.as<bool>();
 }
 
 std::optional<int64_t> Val::getInt() const {

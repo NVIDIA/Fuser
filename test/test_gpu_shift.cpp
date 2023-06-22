@@ -4147,10 +4147,10 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
   evaluator.bind(root_extent, numel_x);
   auto extent_eval = evaluator.evaluate(tv4->axis(0)->extent());
   TORCH_CHECK(
-      extent_eval.has_value(),
+      extent_eval.hasValue(),
       "Invalid evaluation of outer domain extent of partial split");
   TORCH_CHECK(
-      extent_eval.value() == (numel_x - 2) / 8,
+      extent_eval == (numel_x - 2) / 8,
       "Invalid extent of outer domain of partial split");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
