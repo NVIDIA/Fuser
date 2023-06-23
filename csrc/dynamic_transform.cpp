@@ -239,7 +239,7 @@ std::vector<EmptyTensorDescriptor> findEmptyTensors(
   return empty_tensors;
 }
 
-} // namespace for findEmptyTensors
+} // namespace
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
@@ -571,29 +571,28 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
           });
     };
 
-    // Given a TensorView, get a shape with hard-coded zeroes
+    // Given a TensorView get a vector of its maybeRFactor maybeExpandedExtents
     auto orig_shape = [](TensorView* out_tv) -> std::vector<Val*> {
-      auto nored_axes =
+      const auto& rfactor =
           TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
-      // Output shape is simply the same as the original reduction. If there
-      // were zeros in the non-Reduction axes, it would be replaced by
-      // full() directly.
-      std::vector<Val*> out_shape(nored_axes.size());
-      std::transform(
-          nored_axes.begin(),
-          nored_axes.end(),
-          out_shape.begin(),
-          [](IterDomain* id) -> Val* { return id->getMaybeExpandedExtent(); });
+      std::vector<Val*> out_shape;
+      out_shape.reserve(rfactor.size());
+      for (const auto id :) {
+        out_shape.push_back(id->getMaybeExpandedExtent());
+      }
       return out_shape;
     };
 
+    // As we replace TensorViews, we want to operate on the replaced values
+    // instead of the originals. This map lets use keep track of multiple
+    // replacements and get the latest one.
     std::unordered_map<TensorView*, TensorView*> replaced;
     auto maybeReplaced = [&replaced](TensorView* tv) -> TensorView* {
       auto it = replaced.find(tv);
       if (it == replaced.end()) {
         return tv;
       }
-      return it->second;
+      return maybeReplaced(it->second);
     };
 
     // Replace uses whose outputs might not be empty. Many expressions are
