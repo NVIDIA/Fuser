@@ -586,8 +586,21 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
+  TensorView* maybeReplaced(TensorView* tv) {
+    auto it = replaced_tvs_.find(tv);
+    if (it == replaced_tvs_.end()) {
+      return tv;
+    }
+    return maybeReplaced(it->second);
+  };
+
  private:
   const DynamicTransformConcretizationInfo* info_;
+
+  //! As we replace TensorViews, we want to operate on the replaced values
+  //! instead of the originals. This map lets use keep track of multiple
+  //! replacements and get the latest one.
+  std::unordered_map<TensorView*, TensorView*> replaced_tvs_;
 };
 
 void DynamicTransformConcretizer::concretize() {
@@ -648,18 +661,6 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       return out_shape;
     };
 
-    // As we replace TensorViews, we want to operate on the replaced values
-    // instead of the originals. This map lets use keep track of multiple
-    // replacements and get the latest one.
-    std::unordered_map<TensorView*, TensorView*> replaced;
-    auto maybeReplaced = [&replaced](TensorView* tv) -> TensorView* {
-      auto it = replaced.find(tv);
-      if (it == replaced.end()) {
-        return tv;
-      }
-      return maybeReplaced(it->second);
-    };
-
     // Replace uses whose outputs might not be empty. Many expressions are
     // guaranteed to have empty outputs if any of the inputs are empty; for
     // example simple unary or binary ops. In those cases, we don't need to
@@ -679,7 +680,7 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         auto out = maybeReplaced(rop->out()->as<TensorView>());
         if (hasEmptyRootReductionAxis(out)) {
           auto out_shape = orig_shape(out);
-          replaced[out] = replaceWithFull(out, out_shape);
+          replaceWithFull(out, out_shape);
         }
       } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
         auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
@@ -688,9 +689,9 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         if (hasEmptyRootReductionAxis(avg)) {
           auto out_shape = orig_shape(avg);
           auto nan = IrBuilder::create<Double>(0.0 / 0.0);
-          replaced[avg] = replaceWithFull(avg, out_shape, nan);
-          replaced[var] = replaceWithFull(var, out_shape, nan);
-          replaced[N] = replaceWithFull(N, out_shape);
+          replaceWithFull(avg, out_shape, nan);
+          replaceWithFull(var, out_shape, nan);
+          replaceWithFull(N, out_shape);
         }
       } else if (auto pop = dynamic_cast<PadOp*>(use)) {
         auto out = maybeReplaced(pop->out()->as<TensorView>());
@@ -759,12 +760,12 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
             auto pad_widths = pop->getPadWidths((int)i);
             out_shape[i] = add(pad_widths.first, pad_widths.second);
           }
-          replaced[out] = replaceWithFull(out, out_shape, pop->value());
+          replaceWithFull(out, out_shape, pop->value());
         }
       }
     }
     if (!tv->isFusionInput()) {
-      replaced[tv] = replaceWithFull(tv, new_shape);
+      replaceWithFull(tv, new_shape);
     }
   }
 }
@@ -823,6 +824,8 @@ void DynamicTransformConcretizer::replaceTV(
   if (old_tv->isFusionOutput()) {
     old_tv->fusion()->replaceOutput(old_tv, new_tv);
   }
+
+  replaced_tvs_[old_tv] = new_tv;
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {
