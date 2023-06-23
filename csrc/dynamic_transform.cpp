@@ -550,14 +550,39 @@ class DynamicTransformConcretizer : public OptOutMutator {
   void removeEmptyBranches();
 
   //! replaceWithFull modifies the Fusion by replacing tv with output of full()
-  //! expression in outputs and all uses.
+  //! expression in outputs and all uses. This is used to replace pads of empty
+  //! inputs with full tensors containing only the pad value, and it is used to
+  //! replace empty output tensors in order to eliminate dead code in their
+  //! definitions.  For example, if we have the following Fusion:
+  //!
+  //!   T0 (input)
+  //!    |
+  //!   foo (some heavy computation)
+  //!    |
+  //!   T2   T1 (input)
+  //!    \   /
+  //!     mul
+  //!      |
+  //!     T3  (output)
+  //!
+  //! Consider if T2 is Broadcast in dimension i but T2 is zero in dimension i.
+  //! Then T3 is also zero in dimension i, so T3 is empty. By replacing T3 with
+  //! full(), we still have an empty output, but its definition avoids the heavy
+  //! computation of foo:
+  //!
+  //!   T0    T1  (inputs)
+  //!
+  //!     full
+  //!      |
+  //!     T3  (output)
   TensorView* replaceWithFull(
       TensorView* tv,
       std::vector<Val*>& new_shape,
       Val* fill_value = nullptr);
 
-  //! Replace a TensorView with a new one in all uses, and in inputs and
-  //! outputs.
+  //! Replace a TensorView with a new one in all uses and in Fusion outputs.
+  //! Note that we do not replace Fusion inputs, since doing so may remove
+  //! extent Vals that are used in hard-to-predict places.
   void replaceTV(TensorView* old_tv, TensorView* new_tv);
 
   void concretizeReshape();
@@ -736,6 +761,19 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         //         CatOp
         //           |
         //          T3
+        //
+        // If we determine that one of the inputs, T1, is empty in the cat
+        // dimension, then we rewrite this as:
+        //
+        //    T0          T2
+        //     |           |
+        //   PadOp       PadOp
+        //       \       /
+        //         CatOp
+        //           |
+        //          T3
+        //
+        // This is done by simply calling the cat() command with only {T0, T2}.
         if (pop->out()->uses().size() == 1 &&
             pop->out()->uses()[0]->isA<CatOp>()) {
           auto cop = pop->out()->uses()[0]->as<CatOp>();
@@ -791,32 +829,16 @@ TensorView* DynamicTransformConcretizer::replaceWithFull(
     Val* fill_value) {
   TensorView* mut_tv = nullptr;
   if (!tv->definition()) {
-    // No definition. Probably an input.
-    TORCH_INTERNAL_ASSERT(
-        !tv->hasRFactor(),
-        "Found RFactor in input TensorView ",
-        tv->toString());
-    std::vector<bool> expanded(tv->nDims());
-    for (int i : c10::irange((int)tv->nDims())) {
-      expanded[i] = tv->axis(i)->hasExpandedExtent();
-    }
-    mut_tv = TensorViewBuilder()
-                 .ndims(tv->nDims())
-                 .dtype(tv->getDataType().value())
-                 .contiguity(tv->getContiguity())
-                 .shape(new_shape)
-                 .expanded(expanded)
-                 .build();
-    mut_tv->setMemoryType(MemoryType::Global);
-  } else {
-    if (!fill_value) {
-      fill_value = tv->fusion()->zeroVal();
-    }
-    if (fill_value->getDataType().value() != tv->getDataType().value()) {
-      fill_value = castOp(tv->getDataType().value(), fill_value);
-    }
-    mut_tv = full(new_shape, fill_value, tv->getDataType().value());
+    return tv;
   }
+  if (!fill_value) {
+    fill_value = tv->fusion()->zeroVal();
+  }
+  if (fill_value->getDataType().value() != tv->getDataType().value()) {
+    fill_value = castOp(tv->getDataType().value(), fill_value);
+  }
+  mut_tv = full(new_shape, fill_value, tv->getDataType().value());
+
   replaceTV(tv, mut_tv);
 
   return mut_tv;
@@ -830,10 +852,6 @@ void DynamicTransformConcretizer::replaceTV(
 
   for (auto use : old_tv->uses()) {
     ir_utils::replaceValInExpr(use, old_tv, new_tv);
-  }
-
-  if (old_tv->isFusionInput()) {
-    old_tv->fusion()->replaceInput(old_tv, new_tv);
   }
 
   if (old_tv->isFusionOutput()) {
