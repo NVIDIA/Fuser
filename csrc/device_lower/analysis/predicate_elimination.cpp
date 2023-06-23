@@ -83,14 +83,15 @@ class PredicateAnalyzer : public OptOutDispatch {
     }
 
     auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
-    DisjointSets<IterDomain*> disjoint_c2p_ids =
+    auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
-            .getIterDomainEquivalence();
+        .getReplay();
 
-    PredicateAnalyzer analyzer(disjoint_c2p_ids);
+    PredicateAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
+        producer->fusion()->print();
         return true;
       }
     }
@@ -99,8 +100,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const DisjointSets<IterDomain*>& disjoint_c2p_ids)
-      : disjoint_c2p_ids_(disjoint_c2p_ids) {}
+  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+      : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -120,9 +121,37 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
+
+    // If the ID is parallelized with a non-unique parallel type, the
+    // consumer ID may be oversubscribed, which may cause
+    // out-of-bounds accesses in the producer
+    auto maybe_oversubscribed = consumer_id->isThread() &&
+        !GpuLower::current()->parallelDimensionMap().isExact(
+            consumer_id->getParallelType());
+    if (maybe_oversubscribed) {
+      // If oversubscribed, there must be a mapped producer ID that is
+      // parallelized in the same way. Otherwise, needs to be predicated.
+      if (!c2p_.count(consumer_id)) {
+        needs_predicate_ = true;
+        std::cerr << "Pred elimination not possible as there's no matching producer ID: "
+                  << consumer_id->toString() << std::endl;
+        return;
+      }
+      auto id_mapped_with_consumer_id = c2p_.at(consumer_id);
+      if (id_mapped_with_consumer_id->getParallelType() !=
+          consumer_id->getParallelType()) {
+        std::cerr << "Pred elimination not possible: "
+                  << ", consumer id: " << consumer_id->toString()
+                  << ", mapping: " << c2p_.count(consumer_id)
+                  << std::endl;
+        needs_predicate_ = true;
+        return;
+      }
+    }
+
     // If the producer has a matching domain, it should not cause
     // out-of-bound accesses
-    if (disjoint_c2p_ids_.mappingExists(consumer_id)) {
+    if (c2p_.count(consumer_id)) {
       return;
     }
 
@@ -171,7 +200,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
  private:
   //! BestEffort map from consumer IDs to producer IDs
-  const DisjointSets<IterDomain*>& disjoint_c2p_ids_;
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
 };
 
@@ -202,8 +231,9 @@ class PredicateChcker : public IterVisitor {
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
         needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
-        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
-        predicateNonExactConsumerParallelType(expr);
+        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
+
+    // predicateNonExactConsumerParallelType(expr);
 
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
