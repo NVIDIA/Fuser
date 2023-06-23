@@ -306,7 +306,7 @@ void FusionExecutor::compileFusion(
     buffer << cuda_src.rdbuf();
     return buffer.str();
   };
-  auto external_code_path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
   const auto structured_code = external_code_path
       ? load_external_code(external_code_path)
       : getStructuredCode();

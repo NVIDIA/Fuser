@@ -291,7 +291,8 @@ TEST_F(DynamicTypeTest, Typing) {
   static_assert(!can_static_cast<IntSomeType, CustomType>);
   static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
-      []() { (SomeType) IntSomeType(1); },
+      // suppress unused value warning
+      []() { (void)(SomeType)IntSomeType(1); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot cast to ")));
 }

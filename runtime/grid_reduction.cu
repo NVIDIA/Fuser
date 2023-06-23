@@ -295,7 +295,7 @@ __device__ void gridReduce(
 // measure the elapsed cycles. The measurement must be done just by
 // one thread, and in this case it should be done by one of the
 // threads in the last thread block.
-#ifdef PYTORCH_NVFUSER_PROFILE_KERNEL
+#ifdef NVFUSER_PROFILE_KERNEL
 template <
     bool X_BLOCK,
     bool Y_BLOCK,
@@ -357,7 +357,7 @@ __device__ void gridReduce(
     ++count;
   }
 }
-#endif // PYTORCH_NVFUSER_PROFILE_KERNEL
+#endif // NVFUSER_PROFILE_KERNEL
 
 template <
     bool X_BLOCK,
@@ -545,7 +545,7 @@ __device__ void gridReduceGroup(
   }
 }
 
-#ifdef PYTORCH_NVFUSER_PROFILE_KERNEL
+#ifdef NVFUSER_PROFILE_KERNEL
 template <
     bool X_BLOCK,
     bool Y_BLOCK,
@@ -621,6 +621,6 @@ __device__ void gridReduceGroup(
     ++count;
   }
 }
-#endif // PYTORCH_NVFUSER_PROFILE_KERNEL
+#endif // NVFUSER_PROFILE_KERNEL
 
 } // namespace reduction
