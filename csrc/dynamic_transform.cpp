@@ -215,10 +215,10 @@ std::vector<EmptyTensorDescriptor> findEmptyTensors(
       auto id = rfactor.at(i);
       auto extent_eval = expr_eval->evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_eval.has_value(),
+          extent_eval.hasValue(),
           "When finding empty tensors: could not evaluate extent of ",
           id->toString());
-      if (extent_eval.value().as<int64_t>() == 0) {
+      if (extent_eval == 0) {
         empty_axes.push_back(i);
         empty = true;
       }
@@ -261,10 +261,10 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   for (auto ext : initial_info_->getDynamicExtentVals()) {
     auto ext_opt = expr_eval->evaluate(ext);
     TORCH_INTERNAL_ASSERT(
-        ext_opt.has_value(),
+        ext_opt.hasValue(),
         "Could not evaluate dynamic extent: ",
         ext->toString());
-    if (ext_opt.value().as<int64_t>() == 0) {
+    if (ext_opt == 0) {
       has_empty_tensor = true;
       break;
     }
@@ -309,18 +309,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           inp_id->toString());
       auto extent_val = expr_eval->evaluate(inp_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->as<int64_t>() > 0,
+          extent_val.as<int64_t>() > 0,
           "Invalid input domain extent: ",
-          extent_val->as<int64_t>());
-      inp_shape.at(i) = extent_val->as<int64_t>();
+          extent_val.as<int64_t>());
+      inp_shape.at(i) = extent_val.as<int64_t>();
     }
 
     const auto& out_dom = out_tv->getMaybeRFactorDomain();
@@ -333,14 +333,14 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an output domain to reshape: ",
           out_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
-      const auto extent_int = extent_val->as<int64_t>();
+      const auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
         TORCH_INTERNAL_ASSERT(
             !extent_m1_found,
@@ -374,14 +374,14 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
 
     auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
         out_id->toString());
     TORCH_INTERNAL_ASSERT(
-        extent_val->isInt(),
+        extent_val.is<int64_t>(),
         "Invalid evaluated value of resized domain extent: ",
         out_id->toString());
-    auto extent_int = extent_val->as<int64_t>();
+    auto extent_int = extent_val.as<int64_t>();
     TORCH_INTERNAL_ASSERT(
         extent_int > 0,
         "Invalid resized domain extent ",

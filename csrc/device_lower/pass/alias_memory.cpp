@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <sstream>
 #include <unordered_map>
@@ -606,11 +607,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     current_stack_.pop_back();
   }
 
-  c10::optional<AllocationInfo*> getMaybeAllocationInfo(
+  std::optional<AllocationInfo*> getMaybeAllocationInfo(
       const kir::Allocate* alloc) const {
     auto it = allocation_info_map_.find(alloc);
     if (it == allocation_info_map_.end()) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     return it->second;
   }
@@ -838,10 +839,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     }
   }
 
-  c10::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
+  std::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
     auto alloc_it = tv_to_allocation_map_.find(tv->name());
     if (alloc_it == tv_to_allocation_map_.end()) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     return alloc_it->second;
   }

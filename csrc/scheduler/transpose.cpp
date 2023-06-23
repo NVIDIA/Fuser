@@ -13,6 +13,7 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -61,7 +62,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& root_dom = tv->getRootDomain();
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.idGraph().permissiveNodes().permissiveAreMapped(
+      if (ca_map_.idGraph().permissiveResizeNodes().permissiveAreMapped(
               root_dom[i], root_dim)) {
         mapped_id = root_dom[i];
         break;
@@ -456,10 +457,10 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
-    int64_t size = inferred_val->as<int64_t>();
+    int64_t size = inferred_val.as<int64_t>();
     n_elems *= size;
     shape_in_ref.push_back(size);
   }

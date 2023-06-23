@@ -11,6 +11,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
+#include <options.h>
 #include <parser.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <utils.h>

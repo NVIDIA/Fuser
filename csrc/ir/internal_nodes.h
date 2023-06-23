@@ -842,7 +842,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Get the name of a given val in this triplet. None is returned if
   //! not found.
-  c10::optional<ValName> getNameOf(Val* val) const;
+  std::optional<ValName> getNameOf(Val* val) const;
 
   //! Return a new triplet with outputs produced by a function applied
   //! to each of this triplet
@@ -1777,11 +1777,11 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Return the parallel type of this NamedScalar if it is an extent of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelDim() const;
+  std::optional<ParallelType> getParallelDim() const;
 
   //! Return the parallel type of this NamedScalar if it is an index of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelIndex() const;
+  std::optional<ParallelType> getParallelIndex() const;
 
  private:
   std::string name_;

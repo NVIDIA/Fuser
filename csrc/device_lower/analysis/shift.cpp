@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
+#include <options.h>
 
 #include <functional>
 

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <serde/fusion_record_serde.h>
 
@@ -170,7 +171,7 @@ FusionCache::FusionCache(size_t max_fusions)
 // In the worst case, the query should fail and if you try to create a child,
 // it should give you back an already created child if two threads are walking
 // the trie at the same time with the same definition.
-c10::optional<TrieNode*> FusionCache::queryChildren(
+std::optional<TrieNode*> FusionCache::queryChildren(
     TrieNode* node,
     RecordFunctor* rec) const {
   TORCH_CHECK(
@@ -178,10 +179,10 @@ c10::optional<TrieNode*> FusionCache::queryChildren(
   TORCH_CHECK(rec, "Record is null!");
   auto trie_node = node->children.find(rec);
   if (trie_node == std::end(node->children)) {
-    return c10::nullopt;
+    return std::nullopt;
   } else {
     ++(trie_node->second.get()->visits);
-    return c10::optional<TrieNode*>(trie_node->second.get());
+    return std::optional<TrieNode*>(trie_node->second.get());
   }
 }
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
@@ -193,17 +194,17 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   TORCH_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
   return ptr;
 }
-c10::optional<size_t> FusionCache::queryUserScheduleId(
+std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs) {
-  c10::optional<size_t> result = c10::nullopt;
+  std::optional<size_t> result = std::nullopt;
 
   auto& user_scheds = scheds->user_def_schedules;
   if (!user_scheds.empty()) {
     auto input_id = user_def_input_encodings_.lookupId(inputs);
     auto user_sched = user_scheds.find(input_id.id);
     if (user_sched != user_scheds.end()) {
-      return c10::optional<size_t>(user_sched->first);
+      return std::optional<size_t>(user_sched->first);
     }
   }
   return result;

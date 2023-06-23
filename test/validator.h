@@ -219,13 +219,12 @@ class ReductionSizeMapper : private IterVisitor {
       if (id->isReduction()) {
         auto inferred_extent = expr_eval_.evaluate(id->extent());
         TORCH_INTERNAL_ASSERT(
-            inferred_extent.has_value(),
+            inferred_extent.hasValue(),
             "Couldn't figure out what the dimensions of a tensorview is in evaluation for validation. ",
             id,
             " in ",
             tv);
-        reduction_elements =
-            reduction_elements * inferred_extent->as<int64_t>();
+        reduction_elements = reduction_elements * inferred_extent.as<int64_t>();
       }
     }
     return reduction_elements;
@@ -289,15 +288,15 @@ ExpressionEvaluator bindInputsAndLaunchParams(
       auto inferred_extent = expr_eval.evaluate(extent);
       auto p_type = id->getParallelType();
 
-      if (inferred_extent.has_value()) {
+      if (inferred_extent.hasValue()) {
         // This value could have been inferred, make sure it was set right.
         TORCH_CHECK(
-            inferred_extent.value() == launch_constraints.getDim(p_type) ||
+            inferred_extent == launch_constraints.getDim(p_type) ||
                 launch_constraints.getRawVal(p_type) == -1,
             "inferred that ",
             p_type,
             " should be set to ",
-            inferred_extent.value(),
+            inferred_extent,
             " but launch constraints specified ",
             launch_constraints.getRawVal(p_type));
       } else {

@@ -228,7 +228,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
 
 namespace {
 
-c10::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
     IterDomain* id,
     const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
   // Root id defaults to an "innermost id".
@@ -240,7 +240,7 @@ c10::optional<IterDomain*> getMaybeRootIfInnermostTiled(
       }
     }
     // Didn't pass the inner most check, return empty.
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   return id;

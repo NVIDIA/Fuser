@@ -2214,4 +2214,55 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   TORCH_CHECK(ref1.equal(cg_outputs[1]));
 }
 
+TEST_F(NVFuserTest, SliceVectorization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int N = 1024 * 1024 * 64;
+
+  auto tv0 = makeContigConcreteTensor({N + 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({N});
+  fusion.addInput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(1),
+        IrBuilder::create<Int>(N + 1),
+        IrBuilder::create<Int>(1)}});
+
+  auto tv3 = add(tv2, tv1);
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(N + 1, options);
+  at::Tensor t1 = at::randn(N, options);
+
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  auto lparams = schedulePointwise(&fusion, inputs);
+
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluateInt(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+
+  auto ref = t0.narrow(0, 1, N) + t1;
+
+  // testValidate does not check that dtypes match
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
