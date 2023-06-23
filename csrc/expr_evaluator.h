@@ -43,10 +43,10 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   void bind(ParallelType pt, Int::ScalarType concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  std::optional<EvaluatorValue> evaluate(const Val* value);
+  EvaluatorValue evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
-  std::optional<EvaluatorValue> evaluate(ParallelType pt);
+  EvaluatorValue evaluate(ParallelType pt);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -69,7 +69,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  std::optional<EvaluatorValue> getValue(const Val* value);
+  EvaluatorValue getValue(const Val* value);
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of

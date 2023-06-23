@@ -187,18 +187,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           inp_id->toString());
       auto extent_val = expr_eval->evaluate(inp_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->as<int64_t>() > 0,
+          extent_val.as<int64_t>() > 0,
           "Invalid input domain extent: ",
-          extent_val->as<int64_t>());
-      inp_shape.at(i) = extent_val->as<int64_t>();
+          extent_val.as<int64_t>());
+      inp_shape.at(i) = extent_val.as<int64_t>();
     }
 
     const auto& out_dom = out_tv->getMaybeRFactorDomain();
@@ -211,14 +211,14 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an output domain to reshape: ",
           out_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
-      const auto extent_int = extent_val->as<int64_t>();
+      const auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
         TORCH_INTERNAL_ASSERT(
             !extent_m1_found,
@@ -252,14 +252,14 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
 
     auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
         out_id->toString());
     TORCH_INTERNAL_ASSERT(
-        extent_val->isInt(),
+        extent_val.is<int64_t>(),
         "Invalid evaluated value of resized domain extent: ",
         out_id->toString());
-    auto extent_int = extent_val->as<int64_t>();
+    auto extent_int = extent_val.as<int64_t>();
     TORCH_INTERNAL_ASSERT(
         extent_int > 0,
         "Invalid resized domain extent ",

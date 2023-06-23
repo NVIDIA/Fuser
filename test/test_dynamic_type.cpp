@@ -219,14 +219,14 @@ using From2To10 = ForAllTypes<
     std::integral_constant<int, 10>>;
 
 constexpr bool is_prime(int n) {
-  return all(From2To10{}([n](auto* _) {
-    auto divisor = std::remove_pointer_t<decltype(_)>::value;
+  return all(From2To10{}([n](auto _) {
+    auto divisor = decltype(_)::type::value;
     return n % divisor != 0 || n == divisor;
   }));
 }
 
-auto void_or_prime = [](auto* _) constexpr {
-  constexpr auto value = std::remove_pointer_t<decltype(_)>::value;
+auto void_or_prime = [](auto _) constexpr {
+  constexpr auto value = decltype(_)::type::value;
   if constexpr (is_prime(value)) {
     return std::integral_constant<int, value>{};
   } else {
@@ -256,10 +256,43 @@ using IntSomeType = DynamicType<int, SomeType>;
 using BoolSomeType = DynamicType<bool, SomeType>;
 using SomeTypes = DynamicType<SomeType, SomeType>;
 
-TEST_F(DynamicTypeTest, Casting) {
-  static_assert(IntSomeType(2).cast<double>() == 2.0);
+// Utilities for testing if we have T->as<U> defined
+template <typename T, typename U>
+static auto hasAsHelper(int)
+    -> decltype(std::declval<T>().template as<U>(), std::true_type{});
+
+template <typename, typename>
+static auto hasAsHelper(long) -> std::false_type;
+
+template <typename T, typename U>
+struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
+
+TEST_F(DynamicTypeTest, Typing) {
+  static_assert(DoubleInt64Bool().isNull());
+  static_assert(!DoubleInt64Bool(1.0).isNull());
+  static_assert(!DoubleInt64Bool().hasValue());
+  static_assert(DoubleInt64Bool(1.0).hasValue());
+
+  static_assert(hasAs<DoubleInt64Bool, double>::value);
+  static_assert(hasAs<DoubleInt64Bool, int64_t>::value);
+  static_assert(hasAs<DoubleInt64Bool, bool>::value);
+  static_assert(!hasAs<DoubleInt64Bool, SomeType>::value);
+  static_assert(!hasAs<DoubleInt64Bool, int>::value);
+  static_assert((int)DoubleInt64Bool(true) == 1);
+  EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
+
+  struct CustomType {};
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int64_t>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<bool>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<float>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<SomeType>));
+  static_assert(!opcheck<IntSomeType>.canCastTo(opcheck<CustomType>));
+  static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
-      [&]() { IntSomeType(2).cast<SomeType>(); },
+      // suppress unused value warning
+      []() { (void)(SomeType)IntSomeType(1); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot cast to ")));
 }

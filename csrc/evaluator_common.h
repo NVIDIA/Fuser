@@ -157,7 +157,7 @@ class PrecomputedValues {
 
   //! Returns value for the given IR node if it's stored
   //!  in the workspace and has been evaluated.
-  std::optional<EvaluatorValue> getMaybeValueFor(const Val* val) const;
+  EvaluatorValue getMaybeValueFor(const Val* val) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
