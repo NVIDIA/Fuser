@@ -167,7 +167,7 @@ struct DynamicType {
   using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
   static constexpr ForAllTypes for_all_types{};
 
-  // Check if T is one of the types in the type list Ts... or a  container
+  // Check if T is one of the types in the type list Ts... or a container
   template <typename T>
   static constexpr auto is_candidate_type =
       Containers::template is_candidate_type<T, DynamicType, Ts...>;
