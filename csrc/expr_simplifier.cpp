@@ -32,16 +32,16 @@ namespace nvfuser {
 namespace debug_print {
 
 // In order to print transformations from expr simplifier, use:
-//   PYTORCH_NVFUSER_DUMP="expr_simplify"
+//   NVFUSER_DUMP="expr_simplify"
 // By default (i.e. no trigger specified), enabling the above debug dump option
 // will trigger printing when the expression is transformed by at least one
 // simplification pass (A simplification pass is a pass that is not a flatten
 // or unflatten). If you want to print even if there is no simplification pass,
 // applied, use the following:
-//   PYTORCH_NVFUSER_DUMP="expr_simplify(assoc_comm::flatten)"
+//   NVFUSER_DUMP="expr_simplify(assoc_comm::flatten)"
 // If you want to trigger printing only on a specified set of passes, put the
 // pass names as arguments of `expr_simplify`, for example:
-//   PYTORCH_NVFUSER_DUMP="expr_simplify(eliminateTrivialComputation)"
+//   NVFUSER_DUMP="expr_simplify(eliminateTrivialComputation)"
 
 constexpr const char* kFlattenName = "assoc_comm::flatten";
 constexpr const char* kUnflattenName = "assoc_comm::unflatten";
