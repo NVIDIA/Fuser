@@ -100,12 +100,12 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
-TORCH_CUDA_CU_API c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update);
 
-TORCH_CUDA_CU_API inline c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API inline std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge) {
   std::vector<size_t> unused;
@@ -450,7 +450,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //! to the tensorviews that are producers
@@ -459,7 +459,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //!  to all the tensorviews that are consumers
@@ -471,7 +471,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       int pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
  private:
   //! Utility function:

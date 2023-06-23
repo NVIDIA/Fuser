@@ -257,7 +257,7 @@ namespace {
 // assume tv2 can be trivially inlined/parallelized. Instead we'd need to take
 // into consideration the effective communication going on here, so that we pull
 // multiple values of tv0 to compute tv3.
-c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
+std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
     const IterDomainGraph& id_graph,
     IdMappingMode mode) {
@@ -291,7 +291,7 @@ c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 // those domains should never be mapped with each other. It may be
 // possible to lift this assumption, but it's unclear if it could
 // matter in practice.
-c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     // For each tensor, make sure root, rfactor and leaf domains
@@ -334,7 +334,7 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
           "Leaf");
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 } // namespace
@@ -841,16 +841,16 @@ void ComputeAtMap::allocateIndexVariables() {
       double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
               {{DoubleBufferLoopStage::Prolog,
-                IrBuilder::create<Int>(c10::nullopt)},
+                IrBuilder::create<Int>(std::nullopt)},
                {DoubleBufferLoopStage::Main,
-                IrBuilder::create<Int>(c10::nullopt)},
+                IrBuilder::create<Int>(std::nullopt)},
                {DoubleBufferLoopStage::Epilog,
-                IrBuilder::create<Int>(c10::nullopt)}}));
+                IrBuilder::create<Int>(std::nullopt)}}));
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
       loop_index_variable_map_[loop_disjoint_set.get()] =
-          IrBuilder::create<Int>(c10::nullopt);
+          IrBuilder::create<Int>(std::nullopt);
     }
   }
 }

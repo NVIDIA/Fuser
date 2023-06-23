@@ -174,8 +174,8 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   auto* e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7);
   evaluator.bind(b, 3);
@@ -402,15 +402,15 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
 
   ExpressionEvaluator evaluator;
 
-  auto a = IrBuilder::create<Int>(c10::nullopt);
-  auto b = IrBuilder::create<Int>(c10::nullopt);
+  auto a = IrBuilder::create<Int>(std::nullopt);
+  auto b = IrBuilder::create<Int>(std::nullopt);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
   auto e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7);
   evaluator.bind(b, 3);

@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>

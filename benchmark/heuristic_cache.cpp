@@ -75,8 +75,8 @@ static auto getLayerBackwardNormRuntime(
   at::Tensor aten_input = at::randn(shape, options);
   at::Tensor aten_weight = at::randn(norm_shape, options);
   at::Tensor aten_bias = at::randn(norm_shape, options);
-  auto at_weight = c10::optional<at::Tensor>(aten_weight);
-  auto at_bias = c10::optional<at::Tensor>(aten_bias);
+  auto at_weight = std::optional<at::Tensor>(aten_weight);
+  auto at_bias = std::optional<at::Tensor>(aten_bias);
 
   const float kEps = 1e-5;
   auto aten_results =

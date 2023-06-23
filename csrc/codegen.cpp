@@ -11,6 +11,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -819,7 +820,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    c10::optional<double> exponent;
+    std::optional<double> exponent;
     if (auto val_int = dynamic_cast<Int*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value().value();

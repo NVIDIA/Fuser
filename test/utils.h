@@ -87,8 +87,8 @@ inline void checkIntValue(
     Int::ScalarType expected_value) {
   TORCH_CHECK(val->isIntegralScalar());
   const auto actual_value = evaluator.evaluate(val);
-  TORCH_CHECK(actual_value.has_value());
-  TORCH_CHECK(actual_value.value() == expected_value);
+  TORCH_CHECK(actual_value.hasValue());
+  TORCH_CHECK(actual_value == expected_value);
 }
 
 int64_t prime_number(int64_t i);

@@ -846,9 +846,9 @@ size_t getVectorizationFactor(
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_val);
     TORCH_INTERNAL_ASSERT(
-        inner_size_opt.has_value(),
+        inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
-    int64_t inner_size = inner_size_opt->as<int64_t>();
+    int64_t inner_size = inner_size_opt.as<int64_t>();
     size_t local_max_vec_size = 1;
 
     while (inner_size > 1 && inner_size % 2 == 0 &&
