@@ -143,7 +143,7 @@ struct DynamicType {
 
   template <typename T>
   static constexpr bool can_cast_to = any_check(
-      [](auto t) { return can_static_cast<decltype(t), T>; },
+      [](auto t) { return opcheck<decltype(t)>.canCastTo(opcheck<T>); },
       types_as_tuple);
 
   constexpr DynamicType() = default;
