@@ -436,4 +436,7 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
   hash ^= new_hash + 0x9e3779b9 + (hash << 6) + (hash >> 2);
 }
 
+//! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
+char* getNvFuserEnv(const char* env_name);
+
 } // namespace nvfuser

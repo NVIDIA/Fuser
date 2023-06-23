@@ -29,8 +29,8 @@ namespace nvfuser {
 namespace {
 
 int getNumThreads() {
-  const char* option_env_name = "NVFUSER_NUM_THREADS";
-  auto dump_options = std::getenv(option_env_name);
+  const char* option_env_name = "NUM_THREADS";
+  auto dump_options = getNvFuserEnv(option_env_name);
   if (dump_options == nullptr) {
     constexpr int default_num_threads = 8;
     return default_num_threads;

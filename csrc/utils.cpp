@@ -131,7 +131,7 @@ int8_t getCommonDeviceCUDA(
 
 bool useFallback() {
   // Keep this env var for compatibility
-  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  const char* disable_fb_env = getNvFuserEnv("DISABLE_FALLBACK");
   bool fallback_disabled = disable_fb_env ? atoi(disable_fb_env) : false;
   fallback_disabled =
       fallback_disabled || isOptionDisabled(DisableOption::Fallback);
@@ -186,4 +186,32 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   int num_warps = warps_per_sm_partition * num_partition;
   return num_warps * static_cast<int64_t>(warp_size);
 }
+
+char* getNvFuserEnv(const char* env_name) {
+  // Prepend the default prefix and try if the variable is defined.
+  const std::string prefix = "NVFUSER_";
+  auto prefixed_name = prefix + env_name;
+  auto env = std::getenv(prefixed_name.c_str());
+  if (env) {
+    return env;
+  }
+
+  // Try the PYTROCH_NVFUSER prefix as well, which is considered
+  // deprecated.
+  const std::string pyt_prefix = "PYTORCH_NVFUSER_";
+  auto pyt_prefixed_name = pyt_prefix + env_name;
+  auto pyt_env = std::getenv(pyt_prefixed_name.c_str());
+  if (pyt_env) {
+    TORCH_WARN(
+        "Environment variable, ",
+        pyt_prefixed_name,
+        ", is deprecated. Please use ",
+        prefixed_name,
+        " instead.");
+    return pyt_env;
+  }
+
+  return nullptr;
+}
+
 } // namespace nvfuser
