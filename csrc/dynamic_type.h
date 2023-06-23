@@ -165,7 +165,7 @@ struct DynamicType {
   using TypeIdentitiesAsTuple = std::tuple<std::type_identity<Ts>...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
   using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
-  static constexpr ForAllTypes for_all_types = {};
+  static constexpr ForAllTypes for_all_types{};
 
   // Check if T is one of the types in the type list Ts... or a  container
   template <typename T>
