@@ -808,9 +808,9 @@ using Set = UnorderedSetWithStupidHash<NaturalNumber>;
 // TODO: add support for containers operator overloading in DynamicType, and
 // remove this definition.
 
-// operator== has to be in the top namespace for clang, otherwise clang will have trouble
-// compiling it. operator== has to be in the container_test namespace for gcc, otherwise
-// gcc will not compile.
+// operator== has to be in the top namespace for clang, otherwise clang will
+// have trouble compiling it. operator== has to be in the container_test
+// namespace for gcc, otherwise gcc will not compile.
 #if defined(__clang__)
 } // namespace container_test
 #endif
