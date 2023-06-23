@@ -127,21 +127,15 @@ struct ArgAbstract {
   };
 };
 
-#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
-  bool isType(ArgType type) const override {            \
-    return ArgType::TARGET_TYPE == type;                \
-  }                                                     \
-  ArgType type() const override {                       \
-    return ArgType::TARGET_TYPE;                        \
-  }                                                     \
-  const void* arg() const override {                    \
-    return &ARG_NAME;                                   \
-  }                                                     \
-  void* arg() override {                                \
-    return &ARG_NAME;                                   \
-  }                                                     \
-  std::unique_ptr<ArgAbstract> clone() const override { \
-    return std::make_unique<TARGET_TYPE##Arg>(*this);   \
+#define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)                   \
+  bool isType(ArgType type) const override {                     \
+    return ArgType::TARGET_TYPE == type;                         \
+  }                                                              \
+  ArgType type() const override { return ArgType::TARGET_TYPE; } \
+  const void* arg() const override { return &ARG_NAME; }         \
+  void* arg() override { return &ARG_NAME; }                     \
+  std::unique_ptr<ArgAbstract> clone() const override {          \
+    return std::make_unique<TARGET_TYPE##Arg>(*this);            \
   }
 
 #define DEF_TOSTRING_FUNC                 \
