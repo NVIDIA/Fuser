@@ -18,7 +18,7 @@ namespace nvfuser {
 
 //! Types of debug print-outs
 //!
-//! These can be set through the `PYTORCH_NVFUSER_DUMP` environment variable
+//! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
   FusionIr, //!< Dump the Fusion IR before lowering
@@ -72,7 +72,7 @@ enum class DebugDumpOption {
 
 //! Types of features to enable
 //!
-//! These can be set through the `PYTORCH_NVFUSER_ENABLE` environment variable
+//! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
   Complex, //! Enable complex support on python
@@ -87,7 +87,7 @@ enum class EnableOption {
 
 //! Types of features to disable
 //!
-//! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
+//! These can be set through the `NVFUSER_DISABLE` environment variable
 //!
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be

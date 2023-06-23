@@ -25,7 +25,7 @@ auto parseEnvOptions(
 
   std::unordered_map<OptionEnum, std::vector<std::string>> options;
 
-  if (const char* dump_options = std::getenv(option_env_name)) {
+  if (const char* dump_options = getNvFuserEnv(option_env_name)) {
     std::string_view options_view(dump_options);
     while (!options_view.empty()) {
       const auto comma_pos = options_view.find_first_of(',');
@@ -142,7 +142,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"sync_map", DebugDumpOption::SyncMap},
       {"transform_propagator", DebugDumpOption::TransformPropagator}};
 
-  return parseEnvOptions("PYTORCH_NVFUSER_DUMP", available_options);
+  return parseEnvOptions("DUMP", available_options);
 }
 
 template <>
@@ -157,7 +157,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"linear_decomposition", EnableOption::LinearDecomposition},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
-  return parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
+  return parseEnvOptions("ENABLE", available_options);
 }
 
 template <>
@@ -177,11 +177,11 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization}};
 
-  auto options = parseEnvOptions("PYTORCH_NVFUSER_DISABLE", available_options);
+  auto options = parseEnvOptions("DISABLE", available_options);
 
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
+        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
   }
 
   return options;

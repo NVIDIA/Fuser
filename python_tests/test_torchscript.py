@@ -15,18 +15,16 @@ import warnings
 
 # Set NVFUSER_ envrionment variables. Make sure this is done before
 # loading nvfuser
-if "PYTORCH_NVFUSER_ENABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_ENABLE"] = ""
-os.environ["PYTORCH_NVFUSER_ENABLE"] = (
+if "NVFUSER_ENABLE" not in os.environ:
+    os.environ["NVFUSER_ENABLE"] = ""
+os.environ["NVFUSER_ENABLE"] = (
     "linear_decomposition,conv_decomposition,graph_op_fusion,"
-    + os.environ["PYTORCH_NVFUSER_ENABLE"]
+    + os.environ["NVFUSER_ENABLE"]
 )
-if "PYTORCH_NVFUSER_DISABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_DISABLE"] = ""
-os.environ["PYTORCH_NVFUSER_DISABLE"] = (
-    "fallback,fma," + os.environ["PYTORCH_NVFUSER_DISABLE"]
-)
-os.environ["PYTORCH_NVFUSER_JIT_OPT_LEVEL"] = "0"
+if "NVFUSER_DISABLE" not in os.environ:
+    os.environ["NVFUSER_DISABLE"] = ""
+os.environ["NVFUSER_DISABLE"] = "fallback,fma," + os.environ["NVFUSER_DISABLE"]
+os.environ["NVFUSER_JIT_OPT_LEVEL"] = "0"
 
 import torch
 from torch.nn import functional
@@ -80,7 +78,7 @@ if os.environ.get("NVFUSER_TEST_ONLY_RUN_WHEEL_BUILD_SUBSET", "0") == "1":
 
 # TODO: enable complex when we fixes the extremal cases in OpInfo
 # see issue https://github.com/csarofeen/pytorch/issues/1730"
-# os.environ['PYTORCH_NVFUSER_ENABLE'] = 'complex'
+# os.environ['NVFUSER_ENABLE'] = 'complex'
 
 if GRAPH_EXECUTOR == ProfilingMode.PROFILING:
     torch._C._jit_set_texpr_fuser_enabled(False)
