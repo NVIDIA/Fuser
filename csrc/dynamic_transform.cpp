@@ -181,6 +181,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   std::vector<Val*> leaf_dynamic_vals_;
 };
 
+namespace { // Anonymous namespace for local function findEmptyTensors
+
 //! This performs a depth-first search from outputs toward inputs for empty
 //! tensors. It does not traverse past any zero tensors it finds; this is why
 //! this is implemented as a single function instead of with BackwardVisitor.
@@ -236,6 +238,8 @@ std::vector<EmptyTensorDescriptor> findEmptyTensors(
   }
   return empty_tensors;
 }
+
+} // namespace for findEmptyTensors
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
