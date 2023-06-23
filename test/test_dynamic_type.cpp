@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace nvfuser {
 
@@ -251,10 +252,10 @@ static_assert(std::is_same_v<
 
 class DynamicTypeTest : public NVFuserTest {};
 
-using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
-using IntSomeType = DynamicType<int, SomeType>;
-using BoolSomeType = DynamicType<bool, SomeType>;
-using SomeTypes = DynamicType<SomeType, SomeType>;
+using DoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
+using IntSomeType = DynamicType<NoContainers, int, SomeType>;
+using BoolSomeType = DynamicType<NoContainers, bool, SomeType>;
+using SomeTypes = DynamicType<NoContainers, SomeType, SomeType>;
 
 // Utilities for testing if we have T->as<U> defined
 template <typename T, typename U>
@@ -282,13 +283,13 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
 
   struct CustomType {};
-  static_assert(can_static_cast<IntSomeType, double>);
-  static_assert(can_static_cast<IntSomeType, int64_t>);
-  static_assert(can_static_cast<IntSomeType, bool>);
-  static_assert(can_static_cast<IntSomeType, int>);
-  static_assert(can_static_cast<IntSomeType, float>);
-  static_assert(can_static_cast<IntSomeType, SomeType>);
-  static_assert(!can_static_cast<IntSomeType, CustomType>);
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int64_t>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<bool>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<float>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<SomeType>));
+  static_assert(!opcheck<IntSomeType>.canCastTo(opcheck<CustomType>));
   static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
       []() { (SomeType) IntSomeType(1); },
@@ -397,7 +398,7 @@ float operator+(bfloat16_zero, half_zero) {
 
 TEST_F(DynamicTypeTest, ExamplesInNote) {
   // example 1
-  using IntOrFloat = DynamicType<int, float>;
+  using IntOrFloat = DynamicType<NoContainers, int, float>;
   {
     constexpr IntOrFloat x = 1;
     constexpr IntOrFloat y = 2.5f;
@@ -407,7 +408,8 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
   // example 2
   struct CustomType {};
   {
-    using IntOrFloatOrCustom = DynamicType<int, float, CustomType>;
+    using IntOrFloatOrCustom =
+        DynamicType<NoContainers, int, float, CustomType>;
     constexpr IntOrFloatOrCustom i = 1;
     constexpr IntOrFloatOrCustom f = 2.5f;
     constexpr IntOrFloatOrCustom c = CustomType{};
@@ -428,14 +430,16 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
   // example 3
   {
     struct CustomType2 {};
-    using Custom12 = DynamicType<CustomType, CustomType2>;
+    using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
     static_assert(!(opcheck<Custom12> + opcheck<Custom12>));
   }
   // example 4
   {
-    using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
+    using BFloatOrHalfZero =
+        DynamicType<NoContainers, bfloat16_zero, half_zero>;
     static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
-    using BFloatOrHalfZeroOrInt = DynamicType<bfloat16_zero, half_zero, int>;
+    using BFloatOrHalfZeroOrInt =
+        DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
     static_assert(
         opcheck<BFloatOrHalfZeroOrInt> + opcheck<BFloatOrHalfZeroOrInt>);
     EXPECT_THAT(
@@ -467,11 +471,11 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
     }
   };
   // not defined compile time because +Type2 is not in type list
-  static_assert(!(+opcheck<DynamicType<Type2, SomeType>>));
+  static_assert(!(+opcheck<DynamicType<NoContainers, Type2, SomeType>>));
   // defined compile time because +int is in type list
-  static_assert(+opcheck<DynamicType<Type2, int>>);
+  static_assert(+opcheck<DynamicType<NoContainers, Type2, int>>);
   // runtime error because +Type2 is not in type list
-  auto bad = [&]() { +DynamicType<Type2, int>(Type2{}); };
+  auto bad = [&]() { +DynamicType<NoContainers, Type2, int>(Type2{}); };
   EXPECT_THAT(
       bad,
       ::testing::ThrowsMessage<c10::Error>(
@@ -487,16 +491,19 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   };
   // not defined compile time because Type2+Type2 is not in type list
   static_assert(
-      !(opcheck<DynamicType<Type2, SomeType>> +
-        opcheck<DynamicType<Type2, SomeType>>));
-  static_assert(!(opcheck<DynamicType<Type2, SomeType>> + opcheck<Type2>));
-  static_assert(!(opcheck<Type2> + opcheck<DynamicType<Type2, SomeType>>));
+      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> +
+        opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+  static_assert(
+      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
+  static_assert(
+      !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
   // defined compile time because int+int is in type list
   static_assert(
-      opcheck<DynamicType<Type2, int>> + opcheck<DynamicType<Type2, int>>);
+      opcheck<DynamicType<NoContainers, Type2, int>> +
+      opcheck<DynamicType<NoContainers, Type2, int>>);
   // runtime error because Type2+Type2 is not in type list
   auto bad = [&]() {
-    DynamicType<Type2, int> x(Type2{});
+    DynamicType<NoContainers, Type2, int> x(Type2{});
     x + x;
   };
   EXPECT_THAT(
@@ -658,5 +665,27 @@ TEST_ASSIGN_OP(>>, >>=, RShiftAssign);
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+
+TEST_F(DynamicTypeTest, Container) {
+  using IntBoolOrVector = DynamicType<Containers<std::vector>, int, bool>;
+  using vector = std::vector<IntBoolOrVector>;
+
+  EXPECT_TRUE(IntBoolOrVector(1).is<int>());
+  EXPECT_TRUE(IntBoolOrVector(1).hasValue());
+  // TODO: test the following
+  // EXPECT_EQ(IntBoolOrVector(1) + 2, 3);
+
+  vector v = {IntBoolOrVector(1), IntBoolOrVector(2)};
+  IntBoolOrVector vv(v);
+  EXPECT_TRUE(vv.is<vector>());
+  EXPECT_TRUE(vv.hasValue());
+
+  EXPECT_EQ(vv.as<vector>().size(), 2);
+  EXPECT_EQ(vv.as<vector>().at(0).as<int>(), 1);
+  EXPECT_EQ(vv.as<vector>().at(1).as<int>(), 2);
+
+  // TODO: test the following
+  // EXPECT_EQ(vv, v);
+}
 
 } // namespace nvfuser

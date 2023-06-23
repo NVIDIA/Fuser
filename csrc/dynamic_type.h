@@ -124,33 +124,50 @@ namespace nvfuser {
 #pragma GCC diagnostic ignored "-Wbool-operation"
 #endif
 
-template<template<typename> typename ... Templates>
+template <template <typename> typename... Templates>
 struct Containers {
-  template<typename DynamicType, typename ...MemberTypes>
-  using VariantType = std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
+  template <typename DynamicType, typename... MemberTypes>
+  using VariantType =
+      std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
+
+  template <typename DynamicType, typename... MemberTypes>
+  using TypesAsTuple = std::tuple<MemberTypes..., Templates<DynamicType>...>;
+
+  template <typename DynamicType, typename... MemberTypes>
+  using ForAllTypes =
+      nvfuser::ForAllTypes<MemberTypes..., Templates<DynamicType>...>;
+
+  // Check if T is one of the types in the type list Ts...
+  template <typename T, typename DynamicType, typename... MemberTypes>
+  static constexpr auto is_candidate_type =
+      nvfuser::belongs_to<T, MemberTypes..., Templates<DynamicType>...>;
 };
 
-template <typename Containers, typename... Ts>
-struct DynamicType;
+using NoContainers = Containers<>;
 
 template <typename Containers, typename... Ts>
-// not using template <typename... Ts> to make sure there is at least one type
 struct DynamicType {
-  typename Containers::VariantType<DynamicType, Ts...> value_;
+  using VariantType =
+      typename Containers::template VariantType<DynamicType, Ts...>;
+  VariantType value_;
 
-  using TypesAsTuple = std::tuple<Ts...>;
-  static constexpr TypesAsTuple types_as_tuple{};
-  using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
-  static constexpr ForAllTypes for_all_types{};
+  using TypesAsTuple =
+      typename Containers::template TypesAsTuple<DynamicType, Ts...>;
+  using ForAllTypes =
+      typename Containers::template ForAllTypes<DynamicType, Ts...>;
+  static constexpr ForAllTypes for_all_types = {};
 
   // Check if T is one of the types in the type list Ts...
   template <typename T>
-  static constexpr auto is_candidate_type = nvfuser::belongs_to<T, Ts...>;
+  static constexpr auto is_candidate_type =
+      Containers::template is_candidate_type<T, DynamicType, Ts...>;
 
   template <typename T>
   static constexpr bool can_cast_to = any_check(
-      [](auto t) { return can_static_cast<decltype(t), T>; },
-      types_as_tuple);
+      [](auto t) constexpr {
+        return opcheck<decltype(t)>.canCastTo(opcheck<T>);
+      },
+      TypesAsTuple{});
 
   constexpr DynamicType() = default;
 
@@ -252,9 +269,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       typename DT,                                                          \
       typename = std::enable_if_t<any_check(                                \
           opname##_defined_checker,                                         \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
+          typename DT::TypesAsTuple{},                                      \
+          typename DT::TypesAsTuple{},                                      \
+          typename DT::TypesAsTuple{})>>                                    \
   inline constexpr DT operator op(DT x, DT y) {                             \
     DT ret(std::monostate{});                                               \
     DT::for_all_types([&ret, x, y](auto* lhs) {                             \
@@ -293,8 +310,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       typename RHS,                                                         \
       typename = std::enable_if_t<any_check(                                \
           opname##_rdefined_checker<RHS>,                                   \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
+          typename DT::TypesAsTuple{},                                      \
+          typename DT::TypesAsTuple{})>>                                    \
   inline constexpr DT operator op(DT x, RHS y) {                            \
     DT ret(std::monostate{});                                               \
     DT::for_all_types([&ret, x, y](auto* lhs) {                             \
@@ -330,8 +347,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       typename DT,                                                          \
       typename = std::enable_if_t<any_check(                                \
           opname##_ldefined_checker<LHS>,                                   \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
+          typename DT::TypesAsTuple{},                                      \
+          typename DT::TypesAsTuple{})>>                                    \
   inline constexpr DT operator op(LHS x, DT y) {                            \
     DT ret(std::monostate{});                                               \
     DT::for_all_types([&ret, x, y](auto* rhs) {                             \
@@ -387,7 +404,9 @@ DEFINE_BINARY_OP(ge, >=);
   template <                                                                   \
       typename DT,                                                             \
       typename = std::enable_if_t<any_check(                                   \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+          opname##_helper,                                                     \
+          typename DT::TypesAsTuple{},                                         \
+          typename DT::TypesAsTuple{})>>                                       \
   inline constexpr DT operator op(DT x) {                                      \
     DT ret(std::monostate{});                                                  \
     DT::for_all_types([&ret, x](auto* _) {                                     \
@@ -439,7 +458,8 @@ constexpr auto can_print = [](auto x) constexpr {
 };
 template <
     typename DT,
-    typename = std::enable_if_t<any_check(can_print, DT::types_as_tuple)>>
+    typename =
+        std::enable_if_t<any_check(can_print, typename DT::TypesAsTuple{})>>
 std::ostream& operator<<(std::ostream& os, const DT& dt) {
   bool printed = false;
   DT::for_all_types([&printed, &os, &dt](auto* _) {
@@ -470,8 +490,8 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
-      typename =                                                               \
-          std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
+      typename = std::enable_if_t<any_check(                                   \
+          opname##_helper, typename DT::TypesAsTuple{})>>                      \
   inline constexpr DT& operator op(DT& x) {                                    \
     bool computed = false;                                                     \
     DT::for_all_types([&computed, &x](auto* _) {                               \
@@ -508,7 +528,9 @@ DEFINE_LEFT_PPMM(lmm, --);
   template <                                                                   \
       typename DT,                                                             \
       typename = std::enable_if_t<any_check(                                   \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+          opname##_helper,                                                     \
+          typename DT::TypesAsTuple{},                                         \
+          typename DT::TypesAsTuple{})>>                                       \
   inline constexpr DT operator op(DT& x, int) {                                \
     DT ret;                                                                    \
     DT::for_all_types([&ret, &x](auto* _) {                                    \
@@ -560,7 +582,7 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
-using EvaluatorValue = DynamicType<double, int64_t, bool>;
+using EvaluatorValue = DynamicType<NoContainers, double, int64_t, bool>;
 
 namespace EvaluatorValue_functions {
 

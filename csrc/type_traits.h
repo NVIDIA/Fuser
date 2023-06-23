@@ -610,30 +610,3 @@ static_assert(!any_check(
     std::make_tuple(-2, -1)));
 
 } // namespace nvfuser
-
-namespace nvfuser {
-
-// Can T be statically casted to U?
-namespace can_static_cast_impl {
-
-template <typename, typename, typename = void>
-struct CanStaticCast : std::false_type {};
-
-template <typename From, typename To>
-struct CanStaticCast<
-    From,
-    To,
-    std::void_t<decltype(static_cast<To>(std::declval<From>()))>>
-    : std::true_type {};
-
-} // namespace can_static_cast_impl
-
-template <typename From, typename To>
-constexpr bool can_static_cast =
-    can_static_cast_impl::CanStaticCast<From, To>::value;
-
-// For example:
-static_assert(can_static_cast<int, float>);
-static_assert(!can_static_cast<int, int*>);
-
-} // namespace nvfuser
