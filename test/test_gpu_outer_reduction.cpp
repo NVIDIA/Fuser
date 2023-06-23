@@ -18,6 +18,7 @@
 #include <scheduler/utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
@@ -230,7 +231,7 @@ namespace {
 
 // A quick opt-in switch to enable performance measurements.
 bool isBenchmarkMode() {
-  return getenv("PYTORCH_NVFUSER_OUTER_REDUCTION_BENCHMARK") != nullptr;
+  return getNvFuserEnv("OUTER_REDUCTION_BENCHMARK") != nullptr;
 }
 
 struct OuterReductionParams {
