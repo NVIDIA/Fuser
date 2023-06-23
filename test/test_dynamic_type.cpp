@@ -775,7 +775,9 @@ namespace container_test {
 // natural numbers:
 // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
 
-#if 0
+// TODO: unordered set is a better fit for this case, but it does not work with
+// some old compilers (for example the old gcc on our CI). This is a workaround
+#if !defined(__GNUC__) || __GNUC__ >= 12
 
 struct StupidHash {
   template <typename T>
@@ -790,9 +792,6 @@ using UnorderedSetWithStupidHash = std::unordered_set<T, StupidHash>;
 
 #else
 
-// TODO: unordered set is a better fit for this case, but it does not work with
-// some old compilers (for example the old gcc on our CI). This is a workaround
-
 template <typename T>
 using UnorderedSetWithStupidHash = std::vector<T>;
 #define insert push_back
@@ -803,13 +802,27 @@ using NaturalNumber = DynamicType<Containers<UnorderedSetWithStupidHash>>;
 
 using Set = UnorderedSetWithStupidHash<NaturalNumber>;
 
+#if 1
 // DynamicType doesn't support operator== for containers, so we need to define
 // it ourselves.
 // TODO: add support for containers operator overloading in DynamicType, and
 // remove this definition.
-bool operator==(const NaturalNumber& lhs, const NaturalNumber& rhs) {
-  return lhs.as<Set>() == rhs.as<Set>();
+
+// operator== has to be in the top namespace for clang, otherwise clang will have trouble
+// compiling it. operator== has to be in the container_test namespace for gcc, otherwise
+// gcc will not compile.
+#if defined(__clang__)
+} // namespace container_test
+#endif
+bool operator==(
+    const container_test::NaturalNumber& lhs,
+    const container_test::NaturalNumber& rhs) {
+  return lhs.as<container_test::Set>() == rhs.as<container_test::Set>();
 }
+#if defined(__clang__)
+namespace container_test {
+#endif
+#endif
 
 TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   auto next = [](const NaturalNumber& n) {
