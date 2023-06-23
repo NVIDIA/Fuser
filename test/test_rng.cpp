@@ -22,8 +22,9 @@ at::Tensor generate_uniform(int64_t size, at::ScalarType dtype);
 
 at::Tensor generate_normal(int64_t size, at::ScalarType dtype);
 
+class RNGTest : public NVFuserTest {};
 
-TEST_F(NVFuserTest, FusionRNGValidateWithCURand_CUDA) {
+TEST_F(RNGTest, ValidateWithCURand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -50,7 +51,7 @@ TEST_F(NVFuserTest, FusionRNGValidateWithCURand_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionRNGManualScheduleValidateWithCURand_CUDA) {
+TEST_F(RNGTest, ManualScheduleValidateWithCURand) {
   int64_t size = 128;
   auto dtype = at::kFloat;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -84,10 +85,7 @@ TEST_F(NVFuserTest, FusionRNGManualScheduleValidateWithCURand_CUDA) {
   testValidate(fusion, {out}, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionRNGManualScheduleValidateWithCURand2_CUDA) {
-#ifdef FBCODE_CAFFE2
-  GTEST_SKIP() << "Fails accuracy on V100 32gb";
-#endif
+TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
   auto dtype = at::kFloat;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -117,7 +115,7 @@ TEST_F(NVFuserTest, FusionRNGManualScheduleValidateWithCURand2_CUDA) {
   testValidate(fusion, {out}, {10, 10, 10, 10}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionBroadcastingRNG_CUDA) {
+TEST_F(RNGTest, BroadcastingRNG) {
   for (auto dtype : {at::kFloat, at::kDouble}) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
@@ -147,7 +145,7 @@ TEST_F(NVFuserTest, FusionBroadcastingRNG_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBroadcastingRNG2_CUDA) {
+TEST_F(RNGTest, BroadcastingRNG2) {
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     for (auto dtype : {at::kFloat, at::kDouble}) {
       std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -180,7 +178,7 @@ TEST_F(NVFuserTest, FusionBroadcastingRNG2_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBroadcastingRNGSmem_CUDA) {
+TEST_F(RNGTest, BroadcastingRNGSmem) {
   for (auto dtype : {at::kFloat, at::kDouble}) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
@@ -213,7 +211,7 @@ TEST_F(NVFuserTest, FusionBroadcastingRNGSmem_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBroadcastingRNGSmemNonSquareTile_CUDA) {
+TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   // https://github.com/csarofeen/pytorch/issues/1926
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -248,7 +246,7 @@ TEST_F(NVFuserTest, FusionBroadcastingRNGSmemNonSquareTile_CUDA) {
   TORCH_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>());
 }
 
-TEST_F(NVFuserTest, FusionUniform_CUDA) {
+TEST_F(RNGTest, Uniform) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -284,7 +282,7 @@ TEST_F(NVFuserTest, FusionUniform_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionNormal_CUDA) {
+TEST_F(RNGTest, Normal) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -326,7 +324,7 @@ TEST_F(NVFuserTest, FusionNormal_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionRandLikeReduction_CUDA) {
+TEST_F(RNGTest, RandLikeReduction) {
   auto dtype = at::kFloat;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
