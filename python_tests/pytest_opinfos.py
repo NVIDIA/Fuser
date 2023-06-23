@@ -7,15 +7,16 @@ import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_input_generators import (
-    cat_generator,
-    cat_error_generator,
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
-    elementwise_unary_generator,
-    _elementwise_unary_torch,
+    cat_generator,
+    cat_error_generator,
     define_tensor_generator,
     define_tensor_error_generator,
+    elementwise_unary_generator,
+    _elementwise_unary_torch,
+    gather_generator,
     index_select_generator,
     index_select_error_generator,
     slice_generator,
@@ -109,6 +110,7 @@ broadcast_in_dim_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_in_dim_opinfo)
 
+
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
 def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: int):
     return fn(input, dim, index)
@@ -117,7 +119,7 @@ def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: 
 gather_opinfo = OpInfo(
     lambda fd: fd.ops.gather,
     "gather",
-    sample_input_generator=take_along_axis_generator,
+    sample_input_generator=gather_generator,
     error_input_generator=take_along_axis_error_generator,
     reference=partial(gather_wrapper, torch.gather),
     symbolic_parameter_list=(True, True, False),

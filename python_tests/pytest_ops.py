@@ -21,7 +21,7 @@ def is_pre_volta():
 
 
 def is_tensor(a):
-    return type(a) is torch.Tensor
+    return isinstance(a, torch.Tensor)
 
 
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
