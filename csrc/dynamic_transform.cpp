@@ -27,22 +27,10 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
-  cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
-  for (const auto op : dynamic_reshaped_tvs_) {
-    if (op) {
-      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
-    }
-  }
-  cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
-  for (const auto op : dynamic_resized_ids_) {
-    if (op) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
-    }
-  }
-  cloned_info.dynamic_sliced_tvs_.reserve(dynamic_sliced_tvs_.size());
-  for (const auto v : dynamic_sliced_tvs_) {
+  cloned_info.dynamic_expr_outputs_.reserve(dynamic_expr_outputs_.size());
+  for (const auto v : dynamic_expr_outputs_) {
     if (v) {
-      cloned_info.dynamic_sliced_tvs_.push_back(ir_cloner.clone(v));
+      cloned_info.dynamic_expr_outputs_.push_back(ir_cloner.clone(v));
     }
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
@@ -58,19 +46,11 @@ std::string DynamicTransformInitialInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformInitialInfo\n";
   std::string indent = "  ";
-  ss << indent << "Dynamic reshaped TensorViews:\n";
-  for (const auto& op : dynamic_reshaped_tvs_) {
-    ss << indent << indent << op->toString() << "\n";
+  ss << indent << "Dynamic Vals:\n";
+  for (const auto& val : dynamic_expr_outputs_) {
+    ss << indent << indent << val->toString() << "\n";
   }
-  ss << indent << "Dynamic sliced TensorViews:\n";
-  for (const auto& op : dynamic_sliced_tvs_) {
-    ss << indent << indent << op->toString() << "\n";
-  }
-  ss << indent << "Dynamic resized IterDomains:\n";
-  for (const auto& op : dynamic_resized_ids_) {
-    ss << indent << indent << op->toString() << "\n";
-  }
-  ss << indent << "Root dynamic Vals:\n";
+  ss << indent << "Scalars determining concretization:\n";
   for (const auto& v : root_dynamic_vals_) {
     ss << indent << indent << v->toString() << "\n";
   }
@@ -104,7 +84,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshaped_tvs_.push_back(out_tv);
+      info_.dynamic_expr_outputs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
       const auto& inp_dom =
@@ -123,7 +103,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     if (tv->definition() && tv->definition()->isA<SliceOp>()) {
       if (tv->domain()->hasSymbolicAxis()) {
-        info_.dynamic_sliced_tvs_.push_back(tv);
+        info_.dynamic_expr_outputs_.push_back(tv);
         auto root_dom = tv->getRootDomain();
         const auto ranges = tv->definition()->as<SliceOp>()->getRanges();
         TORCH_INTERNAL_ASSERT(
@@ -151,7 +131,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         continue;
       }
       if (id->definition()->isA<Resize>()) {
-        info_.dynamic_resized_ids_.push_back(id);
+        info_.dynamic_expr_outputs_.push_back(id);
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
       }
@@ -190,223 +170,235 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   std::vector<Val*> leaf_dynamic_vals_;
 };
 
-void DynamicTransformConcretizationInfo::analyzeReshapes(
+void DynamicTransformConcretizationInfo::analyze(
     ExpressionEvaluator* expr_eval) {
-  const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
-  for (const auto tv_index : c10::irange(reshape_tvs.size())) {
-    auto out_tv = reshape_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ViewOp>();
-    auto inp_tv = op->in()->as<TensorView>();
-
-    // If there's no symblic axis, this is a static reshape op
-    if (!out_tv->domain()->hasSymbolicAxis()) {
-      return;
-    }
-
+  const auto& expr_outputs = initial_info_->getDynamicExprOutputs();
+  for (auto val_index : c10::irange(expr_outputs.size())) {
+    auto val = expr_outputs.at(val_index);
     TORCH_INTERNAL_ASSERT(
-        out_tv->hasRFactor(),
-        "Unexpected output tv of ViewOp: ",
-        out_tv->toString());
-
-    const auto& inp_dom =
-        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-
-    // Determine input shape using expr evaluator
-    std::vector<int64_t> inp_shape(inp_dom.size(), 0);
-    for (const auto i : c10::irange(inp_dom.size())) {
-      auto inp_id = inp_dom.at(i);
-      // This should have been validated when initially creating reshape
-      // op, but just in case
+        val->definition(),
+        "Dynamic Val does not have a definition: ",
+        val->toString());
+    if (val->definition()->isA<ViewOp>()) {
+      analyzeReshape(expr_eval, val_index);
+    } else if (val->definition()->isA<SliceOp>()) {
+      analyzeSlice(expr_eval, val_index);
+    } else if (val->definition()->isA<Resize>()) {
+      analyzeResize(expr_eval, val_index);
+    } else {
       TORCH_INTERNAL_ASSERT(
-          !inp_id->maybePartial(),
-          "Invalid domain to reshape: ",
-          inp_id->toString());
-      auto extent_val = expr_eval->evaluate(inp_id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
-          "Cannot evaluate the extent of an input domain to reshape: ",
-          inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
-          "Invalid evaluated value of domain extent: ",
-          inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val->as<int64_t>() > 0,
-          "Invalid input domain extent: ",
-          extent_val->as<int64_t>());
-      inp_shape.at(i) = extent_val->as<int64_t>();
+          false,
+          "Unhandled dynamic expression: ",
+          val->definition()->toString());
     }
-
-    const auto& out_dom = out_tv->getMaybeRFactorDomain();
-
-    // Determine output shape using expr evaluator. Note there may be
-    // one domain of extent -1
-    std::vector<int64_t> out_shape(out_dom.size(), 0);
-    bool extent_m1_found = false;
-    for (const auto i : c10::irange(out_dom.size())) {
-      auto out_id = out_dom.at(i);
-      auto extent_val = expr_eval->evaluate(out_id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
-          "Cannot evaluate the extent of an output domain to reshape: ",
-          out_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
-          "Invalid evaluated value of domain extent: ",
-          out_id->toString());
-      const auto extent_int = extent_val->as<int64_t>();
-      if (extent_int == -1) {
-        TORCH_INTERNAL_ASSERT(
-            !extent_m1_found,
-            "Multiple output domains of size -1 not allowed",
-            out_tv->toString());
-        extent_m1_found = true;
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            extent_int > 0, "Invalid output domain extent: ", extent_int);
-      }
-      out_shape.at(i) = extent_int;
-    }
-
-    auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
-
-    reshape_transforms_.emplace_back(tv_index, view_result);
   }
 }
 
-void DynamicTransformConcretizationInfo::analyzeSlices(
-    ExpressionEvaluator* expr_eval) {
-  const auto& sliced_tvs = initial_info_->getDynamicSlicedTensorViews();
-  for (auto tv_index : c10::irange(sliced_tvs.size())) {
-    auto out_tv = sliced_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<SliceOp>();
-    auto inp_tv = op->in()->as<TensorView>();
-    const auto inp_dom =
-        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-    const auto out_dom = out_tv->getMaybeRFactorDomain();
-    const auto ranges = op->getRanges();
-    std::vector<Concrete1DSliceDescriptor> slice_descs(inp_dom.size());
-    for (auto i : c10::irange(inp_dom.size())) {
-      const auto& range = ranges.at(i);
+void DynamicTransformConcretizationInfo::analyzeReshape(
+    ExpressionEvaluator* expr_eval,
+    size_t val_index) {
+  auto out_tv =
+      initialInfo()->getDynamicExprOutputs().at(val_index)->as<TensorView>();
+  auto op = out_tv->definition()->as<ViewOp>();
+  auto inp_tv = op->in()->as<TensorView>();
 
-      auto start_opt = expr_eval->evaluate(range.start);
-      TORCH_INTERNAL_ASSERT(
-          start_opt.has_value(),
-          "Could not evaluate start of slice range ",
-          range.start);
-      auto start = start_opt->as<int64_t>();
-
-      auto stop_opt = expr_eval->evaluate(range.stop);
-      TORCH_INTERNAL_ASSERT(
-          stop_opt.has_value(),
-          "Could not evaluate stop of slice range ",
-          range.stop);
-      auto stop = stop_opt->as<int64_t>();
-
-      auto step_opt = expr_eval->evaluate(range.step);
-      TORCH_INTERNAL_ASSERT(
-          step_opt.has_value(),
-          "Could not evaluate step of slice range ",
-          range.step);
-      auto step = step_opt->as<int64_t>();
-
-      TORCH_INTERNAL_ASSERT(step != 0, "Slice step must not be zero");
-      TORCH_INTERNAL_ASSERT(
-          step == 1, "Slicing with step != 1 is not currently supported");
-
-      auto inp_extent_opt =
-          expr_eval->evaluate(inp_dom.at(i)->getMaybeExpandedExtent());
-      TORCH_INTERNAL_ASSERT(
-          inp_extent_opt.has_value(),
-          "Could not evaluate slice input extent ",
-          inp_dom.at(i)->getMaybeExpandedExtent());
-      auto inp_extent = inp_extent_opt->as<int64_t>();
-
-      auto getBranch = [&inp_extent](int64_t a) -> SliceIndexBranch {
-        if (a <= -inp_extent) {
-          return SliceIndexBranch::AlwaysZero;
-        } else if (a < 0) {
-          return SliceIndexBranch::Negative;
-        } else if (a < inp_extent) {
-          return SliceIndexBranch::Positive;
-        } else {
-          return SliceIndexBranch::AlwaysExtent;
-        }
-      };
-      slice_descs[i].start_branch = getBranch(start);
-      slice_descs[i].stop_branch = getBranch(stop);
-      slice_descs[i].is_empty = (stop - start) * step <= 0;
-
-      // The dynamic slice output has a purely symbolic extent. Here we evaluate
-      // the proper extent to determine the output IterType.
-      auto map_int_index = [&inp_extent](const int64_t& a) -> int64_t {
-        if (a <= -inp_extent) {
-          return 0;
-        } else if (a < 0) {
-          return -a;
-        } else if (a < inp_extent) {
-          return a;
-        } else {
-          return inp_extent;
-        }
-      };
-      // actual size of sliced dimension is ceilDiv(stop - start, step) when
-      // step > 0. When step < 0, that expression is off by one and instead the
-      // extent in that case is ceilDiv(start - stop, -step).
-      auto concrete_sliced_extent = step > 0
-          ? (map_int_index(stop) - map_int_index(start) + step - 1) / step
-          : (map_int_index(stop) - map_int_index(start) + step + 1) / step;
-
-      if (concrete_sliced_extent == 1) {
-        slice_descs[i].iter_type = IterType::Broadcast;
-      }
-
-      // Even though we will eventually replace this TV, there will still be
-      // references to its extents in downstream uses. We will need to evaluate
-      // these properly both in this analysis, and at concretization. Here we
-      // bind the output extent so that downstream extents can be properly
-      // computed during this analysis. After concretization, this will happen
-      // via ExpressionEvaluator::propagateBoundValuesThroughExactMaps.
-      expr_eval->bind(out_dom[i]->extent(), concrete_sliced_extent);
-    }
-    slice_descriptors_.emplace_back(tv_index, slice_descs);
+  // If there's no symblic axis, this is a static reshape op
+  if (!out_tv->domain()->hasSymbolicAxis()) {
+    return;
   }
-}
 
-void DynamicTransformConcretizationInfo::analyzeResizes(
-    ExpressionEvaluator* expr_eval) {
-  const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
-  for (const auto id_index : c10::irange(resize_ids.size())) {
-    auto out_id = resize_ids.at(id_index);
-    auto op = out_id->definition()->as<Resize>();
+  TORCH_INTERNAL_ASSERT(
+      out_tv->hasRFactor(),
+      "Unexpected output tv of ViewOp: ",
+      out_tv->toString());
 
-    TORCH_CHECK(
-        out_id->getIterType() == IterType::Symbolic,
-        "Found non-dynamic Resize in initial concretization info: ",
-        op->toString());
+  const auto& inp_dom =
+      TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
 
+  // Determine input shape using expr evaluator
+  std::vector<int64_t> inp_shape(inp_dom.size(), 0);
+  for (const auto i : c10::irange(inp_dom.size())) {
+    auto inp_id = inp_dom.at(i);
+    // This should have been validated when initially creating reshape
+    // op, but just in case
+    TORCH_INTERNAL_ASSERT(
+        !inp_id->maybePartial(),
+        "Invalid domain to reshape: ",
+        inp_id->toString());
+    auto extent_val = expr_eval->evaluate(inp_id->extent());
+    TORCH_INTERNAL_ASSERT(
+        extent_val.has_value(),
+        "Cannot evaluate the extent of an input domain to reshape: ",
+        inp_id->toString());
+    TORCH_INTERNAL_ASSERT(
+        extent_val->isInt(),
+        "Invalid evaluated value of domain extent: ",
+        inp_id->toString());
+    TORCH_INTERNAL_ASSERT(
+        extent_val->as<int64_t>() > 0,
+        "Invalid input domain extent: ",
+        extent_val->as<int64_t>());
+    inp_shape.at(i) = extent_val->as<int64_t>();
+  }
+
+  const auto& out_dom = out_tv->getMaybeRFactorDomain();
+
+  // Determine output shape using expr evaluator. Note there may be
+  // one domain of extent -1
+  std::vector<int64_t> out_shape(out_dom.size(), 0);
+  bool extent_m1_found = false;
+  for (const auto i : c10::irange(out_dom.size())) {
+    auto out_id = out_dom.at(i);
     auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.has_value(),
-        "Cannot evaluate the extent of a resized domain: ",
+        "Cannot evaluate the extent of an output domain to reshape: ",
         out_id->toString());
     TORCH_INTERNAL_ASSERT(
         extent_val->isInt(),
-        "Invalid evaluated value of resized domain extent: ",
+        "Invalid evaluated value of domain extent: ",
         out_id->toString());
-    auto extent_int = extent_val->as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
-        extent_int > 0,
-        "Invalid resized domain extent ",
-        extent_int,
-        " for domain ",
-        out_id->toString());
-
-    auto iter_type =
-        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
-
-    resize_itertypes_.emplace_back(id_index, iter_type);
+    const auto extent_int = extent_val->as<int64_t>();
+    if (extent_int == -1) {
+      TORCH_INTERNAL_ASSERT(
+          !extent_m1_found,
+          "Multiple output domains of size -1 not allowed",
+          out_tv->toString());
+      extent_m1_found = true;
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          extent_int > 0, "Invalid output domain extent: ", extent_int);
+    }
+    out_shape.at(i) = extent_int;
   }
+
+  auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
+
+  reshape_transforms_.emplace_back(val_index, view_result);
+}
+
+void DynamicTransformConcretizationInfo::analyzeSlice(
+    ExpressionEvaluator* expr_eval,
+    size_t val_index) {
+  auto out_tv =
+      initialInfo()->getDynamicExprOutputs().at(val_index)->as<TensorView>();
+  auto op = out_tv->definition()->as<SliceOp>();
+  auto inp_tv = op->in()->as<TensorView>();
+  const auto inp_dom =
+      TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+  const auto out_dom = out_tv->getMaybeRFactorDomain();
+  const auto ranges = op->getRanges();
+  std::vector<Concrete1DSliceDescriptor> slice_descs(inp_dom.size());
+  for (auto i : c10::irange(inp_dom.size())) {
+    const auto& range = ranges.at(i);
+
+    auto start_opt = expr_eval->evaluate(range.start);
+    TORCH_INTERNAL_ASSERT(
+        start_opt.has_value(),
+        "Could not evaluate start of slice range ",
+        range.start);
+    auto start = start_opt->as<int64_t>();
+
+    auto stop_opt = expr_eval->evaluate(range.stop);
+    TORCH_INTERNAL_ASSERT(
+        stop_opt.has_value(),
+        "Could not evaluate stop of slice range ",
+        range.stop);
+    auto stop = stop_opt->as<int64_t>();
+
+    auto step_opt = expr_eval->evaluate(range.step);
+    TORCH_INTERNAL_ASSERT(
+        step_opt.has_value(),
+        "Could not evaluate step of slice range ",
+        range.step);
+    auto step = step_opt->as<int64_t>();
+
+    TORCH_INTERNAL_ASSERT(step != 0, "Slice step must not be zero");
+    TORCH_INTERNAL_ASSERT(
+        step == 1, "Slicing with step != 1 is not currently supported");
+
+    auto inp_extent_opt =
+        expr_eval->evaluate(inp_dom.at(i)->getMaybeExpandedExtent());
+    TORCH_INTERNAL_ASSERT(
+        inp_extent_opt.has_value(),
+        "Could not evaluate slice input extent ",
+        inp_dom.at(i)->getMaybeExpandedExtent());
+    auto inp_extent = inp_extent_opt->as<int64_t>();
+
+    auto getBranch = [&inp_extent](int64_t a) -> SliceIndexBranch {
+      if (a <= -inp_extent) {
+        return SliceIndexBranch::AlwaysZero;
+      } else if (a < 0) {
+        return SliceIndexBranch::Negative;
+      } else if (a < inp_extent) {
+        return SliceIndexBranch::Positive;
+      } else {
+        return SliceIndexBranch::AlwaysExtent;
+      }
+    };
+    slice_descs[i].start_branch = getBranch(start);
+    slice_descs[i].stop_branch = getBranch(stop);
+    slice_descs[i].is_empty = (stop - start) * step <= 0;
+
+    // The dynamic slice output has a purely symbolic extent. Here we evaluate
+    // the proper extent to determine the output IterType.
+    auto map_int_index = [&inp_extent](const int64_t& a) -> int64_t {
+      if (a <= -inp_extent) {
+        return 0;
+      } else if (a < 0) {
+        return -a;
+      } else if (a < inp_extent) {
+        return a;
+      } else {
+        return inp_extent;
+      }
+    };
+    // actual size of sliced dimension is ceilDiv(stop - start, step) when
+    // step > 0. When step < 0, that expression is off by one and instead the
+    // extent in that case is ceilDiv(start - stop, -step).
+    auto concrete_sliced_extent = step > 0
+        ? (map_int_index(stop) - map_int_index(start) + step - 1) / step
+        : (map_int_index(stop) - map_int_index(start) + step + 1) / step;
+
+    if (concrete_sliced_extent == 1) {
+      slice_descs[i].iter_type = IterType::Broadcast;
+    }
+  }
+  slice_descriptors_.emplace_back(val_index, slice_descs);
+}
+
+void DynamicTransformConcretizationInfo::analyzeResize(
+    ExpressionEvaluator* expr_eval,
+    size_t val_index) {
+  auto out_id =
+      initialInfo()->getDynamicExprOutputs().at(val_index)->as<IterDomain>();
+  auto op = out_id->definition()->as<Resize>();
+
+  TORCH_CHECK(
+      out_id->getIterType() == IterType::Symbolic,
+      "Found non-dynamic Resize in initial concretization info: ",
+      op->toString());
+
+  auto extent_val = expr_eval->evaluate(out_id->extent());
+  TORCH_INTERNAL_ASSERT(
+      extent_val.has_value(),
+      "Cannot evaluate the extent of a resized domain: ",
+      out_id->toString());
+  TORCH_INTERNAL_ASSERT(
+      extent_val->isInt(),
+      "Invalid evaluated value of resized domain extent: ",
+      out_id->toString());
+  auto extent_int = extent_val->as<int64_t>();
+  TORCH_INTERNAL_ASSERT(
+      extent_int > 0,
+      "Invalid resized domain extent ",
+      extent_int,
+      " for domain ",
+      out_id->toString());
+
+  auto iter_type = extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+
+  resize_itertypes_.emplace_back(val_index, iter_type);
 }
 
 bool DynamicTransformConcretizationInfo::operator==(
@@ -454,13 +446,13 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::string indent = "  ";
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
-    auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
+    auto tv = initial_info_->getDynamicExprOutputs().at(tv_index);
     ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
        << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
   for (const auto& [id_index, iter_type] : resize_itertypes_) {
-    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
+    auto id = initial_info_->getDynamicExprOutputs().at(id_index);
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
        << iter_type << "\n";
   }
@@ -539,12 +531,21 @@ void DynamicTransformConcretizer::concretize() {
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
   for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
-    auto incomplete_out_tv =
-        info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
+    auto incomplete_out_tv = info_->initialInfo()
+                                 ->getDynamicExprOutputs()
+                                 .at(tv_index)
+                                 ->as<TensorView>();
     auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+
+    for (auto i :
+         c10::irange(incomplete_out_tv->getMaybeRFactorDomain().size())) {
+      auto id = incomplete_out_tv->getMaybeRFactorDomain().at(i);
+      auto new_id = concrete_reshape_out_tv->getMaybeRFactorDomain().at(i);
+      concretizeIterDomain(id, new_id);
+    }
 
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
@@ -568,8 +569,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
 void DynamicTransformConcretizer::concretizeSlice() {
   auto fusion = FusionGuard::getCurFusion();
   for (const auto& [tv_index, slice_descs] : info_->getSliceDescriptors()) {
-    auto incomplete_out_tv =
-        info_->initialInfo()->getDynamicSlicedTensorViews().at(tv_index);
+    auto incomplete_out_tv = info_->initialInfo()
+                                 ->getDynamicExprOutputs()
+                                 .at(tv_index)
+                                 ->as<TensorView>();
     auto slice_op = incomplete_out_tv->definition()->as<SliceOp>();
     auto inp_tv = slice_op->input(0)->as<TensorView>();
 
@@ -680,7 +683,10 @@ void DynamicTransformConcretizer::concretizeSlice() {
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
   for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
-    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
+    auto id = info_->initialInfo()
+                  ->getDynamicExprOutputs()
+                  .at(id_index)
+                  ->as<IterDomain>();
     TORCH_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");

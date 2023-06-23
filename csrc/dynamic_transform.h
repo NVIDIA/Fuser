@@ -40,8 +40,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty() ||
-        !dynamic_sliced_tvs_.empty();
+    return !dynamic_expr_outputs_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -51,21 +50,8 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return root_dynamic_vals_;
   }
 
-  //! Return a vector of outputs of ViewOp expressions that have dynamic output
-  //! shapes
-  const std::vector<TensorView*>& getDynamicReshapedTensorViews() const {
-    return dynamic_reshaped_tvs_;
-  }
-
-  //! Return a vector of outputs of Resize expressions that have symbolic output
-  //! IterTypes
-  const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
-    return dynamic_resized_ids_;
-  }
-
-  //! Return a vector of outputs of Slice expressions
-  const std::vector<TensorView*>& getDynamicSlicedTensorViews() const {
-    return dynamic_sliced_tvs_;
+  const std::vector<Val*>& getDynamicExprOutputs() const {
+    return dynamic_expr_outputs_;
   }
 
   std::string toString() const;
@@ -95,9 +81,9 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   // definitions will merely be altered. When the ops are replaced, if we had
   // referred to them directly here, we would run into segfaults. Referring only
   // to the outputs avoids this issue.
-  std::vector<TensorView*> dynamic_reshaped_tvs_;
+  // std::vector<TensorView*> dynamic_reshaped_tvs_;
 
-  std::vector<IterDomain*> dynamic_resized_ids_;
+  // std::vector<IterDomain*> dynamic_resized_ids_;
 
   // Slice operations can have complicated output extents. The inputs to slice
   // are a start, stop, and step for each sliced dimension. Each of these is an
@@ -115,7 +101,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   // Here we keep track of non-static slices or slices with non-static input
   // extents. That way we can restrict to a single branch in each of these
   // expressions during concretization.
-  std::vector<TensorView*> dynamic_sliced_tvs_;
+  // std::vector<TensorView*> dynamic_sliced_tvs_;
+
+  // This is a topologically sorted list of outputs of dynamic operations.
+  std::vector<Val*> dynamic_expr_outputs_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
@@ -187,11 +176,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     // evaluator when any one of the IDs has a known value
     expr_eval->propagateBoundValuesThroughExactMaps(initial_info->fusion());
 
-    analyzeReshapes(expr_eval);
-
-    analyzeSlices(expr_eval);
-
-    analyzeResizes(expr_eval);
+    analyze(expr_eval);
   }
 
   //! Return a vector of pairs holding the index of each reshaped TensorView in
@@ -231,17 +216,21 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   }
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
-  //! determine the decomposition of each dynamic reshape operation to use
+  //! analyze all dynamic ops in topological order.
+  void analyze(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the decomposition of a dynamic reshape operation to use
   //! during concretization.
-  void analyzeReshapes(ExpressionEvaluator* expr_eval);
+  void analyzeReshape(ExpressionEvaluator* expr_eval, size_t val_index);
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
-  //! determine the branches of expressions in dynamic slice ops.
-  void analyzeSlices(ExpressionEvaluator* expr_eval);
+  //! determine the branches of expressions in a dynamic slice op.
+  void analyzeSlice(ExpressionEvaluator* expr_eval, size_t val_index);
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
-  //! determine the concrete IterType of each resized IterDomain.
-  void analyzeResizes(ExpressionEvaluator* expr_eval);
+  //! determine the concrete IterType of a resized IterDomain.
+  void analyzeResize(ExpressionEvaluator* expr_eval, size_t val_index);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;

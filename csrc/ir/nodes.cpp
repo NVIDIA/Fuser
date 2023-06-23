@@ -2113,7 +2113,14 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  if (opType() == LoadStoreOpType::Set) {
+    TORCH_CHECK(
+        !in()->isA<TensorView>(), "Cannot print TensorView set() inline");
+    std::stringstream ss;
+    indent(ss, indent_size) << "set(" << in()->toInlineString() << ")";
+    return ss.str();
+  }
+  TORCH_CHECK(false, "Non-'Set' LoadStoreOp cannot be printed inline");
 }
 
 bool LoadStoreOp::hasTranspose() const {
