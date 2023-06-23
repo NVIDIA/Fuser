@@ -119,7 +119,7 @@ python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators
 ```
 **View the fusion definitions that are executed by setting an environment variable:**
 ```python
-export PYTORCH_NVFUSER_DUMP=python_definition
+export NVFUSER_DUMP=python_definition
 ```
 Example Output:
 ```python

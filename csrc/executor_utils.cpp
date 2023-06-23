@@ -20,6 +20,7 @@
 #include <kernel_db/kernel_db.h>
 #include <options.h>
 #include <torch/csrc/jit/resource_guard.h>
+#include <utils.h>
 
 #include <cuda_occupancy.h>
 #include <nvfuser_resources/PhiloxCudaStateRaw.h>
@@ -78,7 +79,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::tuple_cu;
 
   // Synchronization classes
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     ss << nvfuser_resources::block_sync_atomic_cu;
   } else {
     ss << nvfuser_resources::block_sync_default_cu;
@@ -1015,11 +1016,11 @@ std::optional<int64_t> getMaxRegCount(
   }
 
   // Overwrite the count by the environment variable
-  if (auto env_count = getenv("PYTORCH_NVFUSER_MAX_REG_COUNT")) {
+  if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
     auto env_max_reg_count = std::atoi(env_count);
     TORCH_CHECK(
         env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
-        "Invalid max register count specified by PYTORCH_NVFUSER_MAX_REG_COUNT: ",
+        "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
         env_max_reg_count);
     max_register = env_max_reg_count;
   }
@@ -1216,7 +1217,7 @@ void fillCompileOptions(
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
+    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
@@ -1231,7 +1232,7 @@ void fillCompileOptions(
     }
   }
 
-  const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
+  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
 
   if (ptxas_opt_level) {
     int val = atoi(ptxas_opt_level);
@@ -1240,7 +1241,7 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable PYTORCH_NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1250,7 +1251,7 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for PYTORCH_NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
           val,
           ", ignoring the option");
     }

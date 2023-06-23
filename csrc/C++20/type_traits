@@ -9,6 +9,7 @@
 
 namespace std {
 
+#if !__cpp_lib_type_identity
 template <typename T>
 struct type_identity {
   using type = T;
@@ -16,5 +17,6 @@ struct type_identity {
 
 template <typename T>
 using type_identity_t = typename type_identity<T>::type;
+#endif
 
 } // namespace std
