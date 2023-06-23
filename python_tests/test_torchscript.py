@@ -26,7 +26,7 @@ if "NVFUSER_DISABLE" not in os.environ:
 os.environ["NVFUSER_DISABLE"] = (
     "fallback,fma," + os.environ["NVFUSER_DISABLE"]
 )
-os.environ["JIT_OPT_LEVEL"] = "0"
+os.environ["NVFUSER_JIT_OPT_LEVEL"] = "0"
 
 import torch
 from torch.nn import functional
