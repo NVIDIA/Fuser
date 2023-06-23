@@ -323,8 +323,6 @@ TEST_F(DynamicTypeTest, Typing) {
       []() { (SomeType) IntSomeType(1); },
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot cast to ")));
-
-  auto test = DoubleInt64BoolVec(2L) < DoubleInt64BoolVec(2.5);
 }
 
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
