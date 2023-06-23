@@ -219,14 +219,14 @@ using From2To10 = ForAllTypes<
     std::integral_constant<int, 10>>;
 
 constexpr bool is_prime(int n) {
-  return all(From2To10{}([n](auto* _) {
-    auto divisor = std::remove_pointer_t<decltype(_)>::value;
+  return all(From2To10{}([n](auto _) {
+    auto divisor = decltype(_)::type::value;
     return n % divisor != 0 || n == divisor;
   }));
 }
 
-auto void_or_prime = [](auto* _) constexpr {
-  constexpr auto value = std::remove_pointer_t<decltype(_)>::value;
+auto void_or_prime = [](auto _) constexpr {
+  constexpr auto value = decltype(_)::type::value;
   if constexpr (is_prime(value)) {
     return std::integral_constant<int, value>{};
   } else {

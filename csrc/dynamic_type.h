@@ -177,8 +177,8 @@ struct DynamicType {
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
   explicit constexpr operator T() const {
     std::optional<T> ret = std::nullopt;
-    for_all_types([this, &ret](auto* from) {
-      using From = std::remove_pointer_t<decltype(from)>;
+    for_all_types([this, &ret](auto from) {
+      using From = typename decltype(from)::type;
       if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
         if (is<From>()) {
           ret = (T)as<From>();
@@ -251,10 +251,10 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           DT::types_as_tuple)>>                                             \
   inline constexpr DT operator op(DT x, DT y) {                             \
     DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto* lhs) {                             \
-      using LHS = std::remove_pointer_t<decltype(lhs)>;                     \
-      DT::for_all_types([&ret, x, y](auto* rhs) {                           \
-        using RHS = std::remove_pointer_t<decltype(rhs)>;                   \
+    DT::for_all_types([&ret, x, y](auto lhs) {                              \
+      using LHS = typename decltype(lhs)::type;                             \
+      DT::for_all_types([&ret, x, y](auto rhs) {                            \
+        using RHS = typename decltype(rhs)::type;                           \
         if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                     \
           if constexpr (DT::template is_candidate_type<                     \
                             decltype(std::declval<LHS>()                    \
@@ -291,8 +291,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           DT::types_as_tuple)>>                                             \
   inline constexpr DT operator op(DT x, RHS y) {                            \
     DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto* lhs) {                             \
-      using LHS = std::remove_pointer_t<decltype(lhs)>;                     \
+    DT::for_all_types([&ret, x, y](auto lhs) {                              \
+      using LHS = typename decltype(lhs)::type;                             \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
         if constexpr (DT::template is_candidate_type<                       \
                           decltype(std::declval<LHS>()                      \
@@ -328,8 +328,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           DT::types_as_tuple)>>                                             \
   inline constexpr DT operator op(LHS x, DT y) {                            \
     DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto* rhs) {                             \
-      using RHS = std::remove_pointer_t<decltype(rhs)>;                     \
+    DT::for_all_types([&ret, x, y](auto rhs) {                              \
+      using RHS = typename decltype(rhs)::type;                             \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
         if constexpr (DT::template is_candidate_type<                       \
                           decltype(std::declval<LHS>()                      \
@@ -384,8 +384,8 @@ DEFINE_BINARY_OP(ge, >=);
           opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
   inline constexpr DT operator op(DT x) {                                      \
     DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, x](auto* _) {                                     \
-      using Type = std::remove_pointer_t<decltype(_)>;                         \
+    DT::for_all_types([&ret, x](auto _) {                                      \
+      using Type = typename decltype(_)::type;                                 \
       if constexpr (op opcheck<Type>) {                                        \
         if constexpr (DT::template is_candidate_type<                          \
                           decltype(op std::declval<Type>())>) {                \
@@ -436,8 +436,8 @@ template <
     typename = std::enable_if_t<any_check(can_print, DT::types_as_tuple)>>
 std::ostream& operator<<(std::ostream& os, const DT& dt) {
   bool printed = false;
-  DT::for_all_types([&printed, &os, &dt](auto* _) {
-    using T = std::remove_pointer_t<decltype(_)>;
+  DT::for_all_types([&printed, &os, &dt](auto _) {
+    using T = typename decltype(_)::type;
     if constexpr (opcheck<std::ostream&> << opcheck<T>) {
       if constexpr (std::is_same_v<
                         decltype(os << std::declval<T>()),
@@ -468,8 +468,8 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
           std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
   inline constexpr DT& operator op(DT& x) {                                    \
     bool computed = false;                                                     \
-    DT::for_all_types([&computed, &x](auto* _) {                               \
-      using Type = std::remove_pointer_t<decltype(_)>;                         \
+    DT::for_all_types([&computed, &x](auto _) {                                \
+      using Type = typename decltype(_)::type;                                 \
       if constexpr (op opcheck<Type&>) {                                       \
         if constexpr (std::is_same_v<                                          \
                           decltype(op std::declval<Type&>()),                  \
@@ -505,8 +505,8 @@ DEFINE_LEFT_PPMM(lmm, --);
           opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
   inline constexpr DT operator op(DT& x, int) {                                \
     DT ret;                                                                    \
-    DT::for_all_types([&ret, &x](auto* _) {                                    \
-      using Type = std::remove_pointer_t<decltype(_)>;                         \
+    DT::for_all_types([&ret, &x](auto _) {                                     \
+      using Type = typename decltype(_)::type;                                 \
       if constexpr (opcheck<Type&> op) {                                       \
         if constexpr (DT::template is_candidate_type<                          \
                           decltype(std::declval<Type&>() op)>) {               \
