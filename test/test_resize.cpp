@@ -1777,10 +1777,15 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
       continue;
     }
     auto out_tv = ir_utils::getTvOutput(expr);
-    if (out_tv->name() == tv3->name() || out_tv->name() == tv5->name()) {
+    if (
+        // Note: We want to check tv3 and tv5 here, which are the original slice
+        // outputs. During concretization, T3 gets concretized to T8 and T5 gets
+        // concretized to T9. Here we manually translate those since we don't
+        // maintain a mapping from pre-concretized to concretized Vals.
+        out_tv->name() == 8 || out_tv->name() == 9) {
       TORCH_CHECK(
           expr->isA<LoadStoreOp>(),
-          "Unexpected defintion of slice output tensor: ",
+          "Unexpected definition of slice output tensor: ",
           out_tv->toString(),
           ", ",
           expr->toString());
