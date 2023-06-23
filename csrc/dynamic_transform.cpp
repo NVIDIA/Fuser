@@ -129,7 +129,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
-  //! Detect dynamic IterDomain transforms when handling TensorViews
+  //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
     info_.name_to_tensorview_[tv->name()] = tv;
     const auto& rfd = tv->getMaybeRFactorDomain();
