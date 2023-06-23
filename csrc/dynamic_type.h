@@ -138,7 +138,7 @@ namespace nvfuser {
 #pragma GCC diagnostic ignored "-Wbool-operation"
 #endif
 
-template <template <typename> typename... Templates>
+template <template <typename...> typename... Templates>
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
   using VariantType =

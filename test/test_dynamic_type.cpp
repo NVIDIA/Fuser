@@ -774,6 +774,8 @@ namespace container_test {
 // natural numbers:
 // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
 
+#if 0
+
 struct StupidHash {
   template <typename T>
   size_t operator()(const T&) const {
@@ -784,6 +786,17 @@ struct StupidHash {
 
 template <typename T>
 using UnorderedSetWithStupidHash = std::unordered_set<T, StupidHash>;
+
+#else
+
+// TODO: unordered set is a better fit for this case, but it does not work with
+// some old compilers (for example the old gcc on our CI). This is a workaround
+
+template <typename T>
+using UnorderedSetWithStupidHash = std::vector<T>;
+#define insert push_back
+
+#endif
 
 using NaturalNumber = DynamicType<Containers<UnorderedSetWithStupidHash>>;
 
@@ -847,6 +860,8 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
       NaturalNumber(
           Set{zero, one, two, three, four, five, six, seven, eight, nine}));
 }
+
+#undef insert
 
 } // namespace container_test
 
