@@ -51,7 +51,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! Return whether there are any tensors with unknown extent in some
   //! dimension, so that they might be empty
   bool hasPossibleEmptyTensor() const {
-    return !dynamic_extent_vals_.empty();
+    return !maybe_zero_extents_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -65,7 +65,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! Fusion. If any of these evaluate to zero, there is at least one empty
   //! TensorView present.
   const std::unordered_set<Val*>& getDynamicExtentVals() const {
-    return dynamic_extent_vals_;
+    return maybe_zero_extents_;
   }
 
   //! Return a vector of outputs of ViewOp expressions that have dynamic output
@@ -130,7 +130,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
-  std::unordered_set<Val*> dynamic_extent_vals_;
+  std::unordered_set<Val*> maybe_zero_extents_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;

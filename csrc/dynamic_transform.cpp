@@ -40,10 +40,10 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.dynamic_extent_vals_.reserve(dynamic_extent_vals_.size());
-  for (const auto v : dynamic_extent_vals_) {
+  cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
+  for (const auto v : maybe_zero_extents_) {
     if (v) {
-      cloned_info.dynamic_extent_vals_.insert(ir_cloner.clone(v));
+      cloned_info.maybe_zero_extents_.insert(ir_cloner.clone(v));
     }
   }
   cloned_info.name_to_tensorview_.reserve(name_to_tensorview_.size());
@@ -74,7 +74,7 @@ std::string DynamicTransformInitialInfo::toString() const {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Dynamic extent Vals:\n";
-  for (const auto& v : dynamic_extent_vals_) {
+  for (const auto& v : maybe_zero_extents_) {
     ss << indent << indent << v->toString() << "\n";
   }
   ss << indent << "Name to TensorView mapping:\n";
@@ -135,7 +135,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->extent()->isConstScalar() || id->extent()->evaluateInt() == 0) {
-        info_.dynamic_extent_vals_.insert(id->extent());
+        info_.maybe_zero_extents_.insert(id->extent());
         leaf_dynamic_vals_.push_back(id->extent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
