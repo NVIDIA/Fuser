@@ -666,13 +666,28 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
     // example simple unary or binary ops. In those cases, we don't need to
     // doctor the Fusion since they will have an empty tensor downstream which
     // will cut off their dependence, resulting in those uses becoming dead
-    // code.
+    // code. For example, suppose we determined tv2 is empty, and we have the
+    // following Fusion:
     //
-    // Other expressions can convert an empty tensor into a non-empty tensor;
-    // particularly pad, cat, and reduction ops. These ops might have
-    // non-empty outputs so in order to guarantee that all (non- input or
-    // output) tensors are removed, we need to replace those ops with an
-    // equivalent that does not have any empty inputs.
+    //   auto tv4 = add(tv2, tv3);
+    //   fusion.addOutput(tv4);
+    //
+    // If we know that tv2 is empty in any dimension, then either tv3 has a
+    // matching empty dimension or it is broadcast in that dimension. Either
+    // way, the corresponding dimension in tv4 will be empty, so tv4 is an empty
+    // tensor. If we replace this expression with
+    //
+    //   auto tv4 = full(shape, zeroVal());
+    //
+    // Then the tensors tv2 and tv3 will become dead code if they have no other
+    // live uses. In this case tv4 is an output tensor, so we must keep it in
+    // the Fusion.
+    //
+    // Some special expressions can convert an empty tensor into a non-empty
+    // tensor; particularly pad, cat, and reduction ops. These ops might have
+    // non-empty outputs so in order to guarantee that all non- input or
+    // output tensors are removed, we need to replace those ops with an
+    // equivalent that does not have any empty inputs. For example
     for (auto use : tv->uses()) {
       // If use is a ReductionOp or WelfordOp over some empty axes, replace it
       // with a call to full().
