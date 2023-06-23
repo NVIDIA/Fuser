@@ -78,13 +78,21 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
  private:
   using IterVisitor::handle;
 
+  bool maybeInsertDynamicExprOutput(Val* val) {
+    auto inserted = inserted_dynamic_expr_outputs_.insert(val).second;
+    if (inserted) {
+      info_.dynamic_expr_outputs_.push_back(val);
+    }
+    return inserted;
+  }
+
   //! Find views that have symbolic outputs
   void handle(ViewOp* op) override {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_expr_outputs_.push_back(out_tv);
+      maybeInsertDynamicExprOutput(out_tv);
 
       // Input and output extent expressions both affect concretization
       const auto& inp_dom =
@@ -99,11 +107,34 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
+  //! Find slices that have symbolic outputs
+  void handle(SliceOp* op) override {
+    auto inp_tv = op->in()->as<TensorView>();
+    auto out_tv = op->out()->as<TensorView>();
+    // If there's no symbolic axis, this is a static slice op
+    if (out_tv->domain()->hasSymbolicAxis()) {
+      maybeInsertDynamicExprOutput(out_tv);
+
+      // Input extent and ranges affect concretization
+      const auto& inp_dom =
+          TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+      for (const auto id : inp_dom) {
+        leaf_dynamic_vals_.push_back(id->extent());
+      }
+      for (const auto& range : op->getRanges()) {
+        leaf_dynamic_vals_.push_back(range.start);
+        leaf_dynamic_vals_.push_back(range.stop);
+        leaf_dynamic_vals_.push_back(range.step);
+      }
+    }
+  }
+
   //! Detect dynamic IterDomain transforms when handling TensorViews
   void handle(TensorView* tv) override {
     if (tv->definition() && tv->definition()->isA<SliceOp>()) {
       if (tv->domain()->hasSymbolicAxis()) {
-        info_.dynamic_expr_outputs_.push_back(tv);
+        maybeInsertDynamicExprOutput(tv);
+
         auto root_dom = tv->getRootDomain();
         const auto ranges = tv->definition()->as<SliceOp>()->getRanges();
         TORCH_INTERNAL_ASSERT(
@@ -131,7 +162,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         continue;
       }
       if (id->definition()->isA<Resize>()) {
-        info_.dynamic_expr_outputs_.push_back(id);
+        maybeInsertDynamicExprOutput(id);
+
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
       }
@@ -168,6 +200,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! scalars that influence concretization. That list of scalars is then used
   //! to compute a minimal cache key in InputsIdLookup::lookupId().
   std::vector<Val*> leaf_dynamic_vals_;
+
+  //! In order to prevent redundant processing of dynamic ops, we use an
+  //! unordered_set here to track which values have already been inserted.
+  std::unordered_set<Val*> inserted_dynamic_expr_outputs_;
 };
 
 void DynamicTransformConcretizationInfo::analyze(
