@@ -387,6 +387,10 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
     static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
     static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
+    static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
