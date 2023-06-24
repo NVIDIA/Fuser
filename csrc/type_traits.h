@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <C++20/type_traits>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -349,8 +350,8 @@ struct Void {};
 //
 // For example, if you want to print 0.2 as bool, int, and float, you can do the
 // following:
-//   auto f = [](auto* x) {
-//     using T = std::remove_pointer_t<decltype(x)>;
+//   auto f = [](auto x) {
+//     using T = typename decltype(x)::type;
 //     std::cout << T(0.2) << std::endl;
 //   };
 //   ForAllTypes<bool, int, float>{}(f);
@@ -373,13 +374,13 @@ template <typename T, typename... Ts>
 struct ForAllTypes<T, Ts...> {
   template <typename Fun>
   constexpr auto operator()(Fun f) const {
-    using RetT = decltype(f((T*)nullptr));
+    using RetT = decltype(f(std::type_identity<T>{}));
     if constexpr (std::is_void_v<RetT>) {
-      f((T*)nullptr);
+      f(std::type_identity<T>{});
       return std::tuple_cat(std::tuple<Void>{}, ForAllTypes<Ts...>{}(f));
     } else {
       return std::tuple_cat(
-          std::make_tuple(f((T*)nullptr)), ForAllTypes<Ts...>{}(f));
+          std::make_tuple(f(std::type_identity<T>{})), ForAllTypes<Ts...>{}(f));
     }
   }
 };
@@ -487,8 +488,8 @@ namespace belongs_to_impl {
 // bool), then the return type is (true, void, void).
 template <typename T, typename... Ts>
 auto get_match_tuple() {
-  auto true_or_void = [](auto* x) {
-    using U = std::remove_pointer_t<decltype(x)>;
+  auto true_or_void = [](auto x) {
+    using U = typename decltype(x)::type;
     if constexpr (std::is_same_v<T, U>) {
       return true;
     } else {
@@ -608,32 +609,5 @@ static_assert(!any_check(
     [](auto x, auto y) constexpr { return (x + y) > 0; },
     std::make_tuple(1.0, 1),
     std::make_tuple(-2, -1)));
-
-} // namespace nvfuser
-
-namespace nvfuser {
-
-// Can T be statically casted to U?
-namespace can_static_cast_impl {
-
-template <typename, typename, typename = void>
-struct CanStaticCast : std::false_type {};
-
-template <typename From, typename To>
-struct CanStaticCast<
-    From,
-    To,
-    std::void_t<decltype(static_cast<To>(std::declval<From>()))>>
-    : std::true_type {};
-
-} // namespace can_static_cast_impl
-
-template <typename From, typename To>
-constexpr bool can_static_cast =
-    can_static_cast_impl::CanStaticCast<From, To>::value;
-
-// For example:
-static_assert(can_static_cast<int, float>);
-static_assert(!can_static_cast<int, int*>);
 
 } // namespace nvfuser

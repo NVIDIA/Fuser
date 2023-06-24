@@ -219,14 +219,14 @@ using From2To10 = ForAllTypes<
     std::integral_constant<int, 10>>;
 
 constexpr bool is_prime(int n) {
-  return all(From2To10{}([n](auto* _) {
-    auto divisor = std::remove_pointer_t<decltype(_)>::value;
+  return all(From2To10{}([n](auto _) {
+    auto divisor = decltype(_)::type::value;
     return n % divisor != 0 || n == divisor;
   }));
 }
 
-auto void_or_prime = [](auto* _) constexpr {
-  constexpr auto value = std::remove_pointer_t<decltype(_)>::value;
+auto void_or_prime = [](auto _) constexpr {
+  constexpr auto value = decltype(_)::type::value;
   if constexpr (is_prime(value)) {
     return std::integral_constant<int, value>{};
   } else {
@@ -282,13 +282,13 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
 
   struct CustomType {};
-  static_assert(can_static_cast<IntSomeType, double>);
-  static_assert(can_static_cast<IntSomeType, int64_t>);
-  static_assert(can_static_cast<IntSomeType, bool>);
-  static_assert(can_static_cast<IntSomeType, int>);
-  static_assert(can_static_cast<IntSomeType, float>);
-  static_assert(can_static_cast<IntSomeType, SomeType>);
-  static_assert(!can_static_cast<IntSomeType, CustomType>);
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int64_t>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<bool>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<float>));
+  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<SomeType>));
+  static_assert(!opcheck<IntSomeType>.canCastTo(opcheck<CustomType>));
   static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
       // suppress unused value warning
