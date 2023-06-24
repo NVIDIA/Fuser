@@ -403,14 +403,134 @@ DEFINE_BINARY_OP(land, &&);
 DEFINE_BINARY_OP(lor, ||);
 DEFINE_BINARY_OP(lshift, <<);
 DEFINE_BINARY_OP(rshift, >>);
-DEFINE_BINARY_OP(eq, ==);
-DEFINE_BINARY_OP(neq, !=);
-DEFINE_BINARY_OP(lt, <);
-DEFINE_BINARY_OP(gt, >);
-DEFINE_BINARY_OP(le, <=);
-DEFINE_BINARY_OP(ge, >=);
 
 #undef DEFINE_BINARY_OP
+
+#define DEFINE_COMPARE_OP(opname, op)                                         \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  constexpr auto opname##_defined_checker = [](auto x, auto y) constexpr {    \
+    using X = typename decltype(x)::type;                                     \
+    using Y = typename decltype(y)::type;                                     \
+    if constexpr (opcheck<X> op opcheck<Y>) {                                 \
+      return std::is_convertible_v<                                           \
+          decltype(std::declval<X>() op std::declval<Y>()),                   \
+          bool>;                                                              \
+    }                                                                         \
+    return false;                                                             \
+  };                                                                          \
+  template <                                                                  \
+      typename DT,                                                            \
+      typename = std::enable_if_t<any_check(                                  \
+          opname##_defined_checker,                                           \
+          DT::type_identities_as_tuple,                                       \
+          DT::type_identities_as_tuple)>>                                     \
+  inline constexpr bool operator op(DT x, DT y) {                             \
+    std::optional<bool> ret = std::nullopt;                                   \
+    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+      using LHS = typename decltype(lhs)::type;                               \
+      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+        using RHS = typename decltype(rhs)::type;                             \
+        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
+          if constexpr (std::is_convertible_v<                                \
+                            decltype(std::declval<LHS>()                      \
+                                         op std::declval<RHS>()),             \
+                            bool>) {                                          \
+            if (x.template is<LHS>() && y.template is<RHS>()) {               \
+              ret = x.template as<LHS>() op y.template as<RHS>();             \
+            }                                                                 \
+          }                                                                   \
+        }                                                                     \
+      });                                                                     \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+    return ret.value();                                                       \
+  }                                                                           \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  template <typename T>                                                       \
+  constexpr auto opname##_rdefined_checker = [](auto x) constexpr {           \
+    using X = typename decltype(x)::type;                                     \
+    if constexpr (opcheck<X> op opcheck<T>) {                                 \
+      return std::is_convertible_v<                                           \
+          decltype(std::declval<X>() op std::declval<T>()),                   \
+          bool>;                                                              \
+    }                                                                         \
+    return false;                                                             \
+  };                                                                          \
+  template <                                                                  \
+      typename DT,                                                            \
+      typename RHS,                                                           \
+      typename = std::enable_if_t<                                            \
+          !std::is_same_v<DT, RHS> &&                                         \
+          any_check(                                                          \
+              opname##_rdefined_checker<RHS>, DT::type_identities_as_tuple)>> \
+  inline constexpr bool operator op(DT x, RHS y) {                            \
+    std::optional<bool> ret = std::nullopt;                                   \
+    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+      using LHS = typename decltype(lhs)::type;                               \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
+        if constexpr (std::is_convertible_v<                                  \
+                          decltype(std::declval<LHS>()                        \
+                                       op std::declval<RHS>()),               \
+                          bool>) {                                            \
+          if (x.template is<LHS>()) {                                         \
+            ret = x.template as<LHS>() op y;                                  \
+          }                                                                   \
+        }                                                                     \
+      }                                                                       \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+    return ret.value();                                                       \
+  }                                                                           \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  template <typename T>                                                       \
+  constexpr auto opname##_ldefined_checker = [](auto y) constexpr {           \
+    using Y = typename decltype(y)::type;                                     \
+    if constexpr (opcheck<T> op opcheck<Y>) {                                 \
+      return std::is_convertible_v<                                           \
+          decltype(std::declval<T>() op std::declval<Y>()),                   \
+          bool>;                                                              \
+    }                                                                         \
+    return false;                                                             \
+  };                                                                          \
+  template <typename LHS, typename DT>                                        \
+  inline constexpr std::enable_if_t<                                          \
+      !std::is_same_v<DT, LHS> &&                                             \
+          any_check(                                                          \
+              opname##_ldefined_checker<LHS>, DT::type_identities_as_tuple),  \
+      bool>                                                                   \
+  operator op(LHS x, DT y) {                                                  \
+    std::optional<bool> ret = std::nullopt;                                   \
+    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+      using RHS = typename decltype(rhs)::type;                               \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
+        if constexpr (std::is_convertible_v<                                  \
+                          decltype(std::declval<LHS>()                        \
+                                       op std::declval<RHS>()),               \
+                          bool>) {                                            \
+          if (y.template is<RHS>()) {                                         \
+            ret = x op y.template as<RHS>();                                  \
+          }                                                                   \
+        }                                                                     \
+      }                                                                       \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+    return ret.value();                                                       \
+  }
+
+DEFINE_COMPARE_OP(eq, ==);
+DEFINE_COMPARE_OP(neq, !=);
+DEFINE_COMPARE_OP(lt, <);
+DEFINE_COMPARE_OP(gt, >);
+DEFINE_COMPARE_OP(le, <=);
+DEFINE_COMPARE_OP(ge, >=);
+
+#undef DEFINE_COMPARE_OP
 
 #define DEFINE_UNARY_OP(opname, op)                                            \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
@@ -628,11 +748,11 @@ inline EvaluatorValue ceildiv(
 }
 
 inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue((a > b).as<bool>() ? a : b);
+  return EvaluatorValue(a > b ? a : b);
 }
 
 inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue((a < b).as<bool>() ? a : b);
+  return EvaluatorValue(a < b ? a : b);
 }
 
 inline EvaluatorValue gcd(const EvaluatorValue& a, const EvaluatorValue& b) {

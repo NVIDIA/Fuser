@@ -377,12 +377,48 @@ TEST_BINARY_OP_ALLTYPE(Mul, *);
 TEST_BINARY_OP_ALLTYPE(Div, /);
 TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
 TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
-TEST_BINARY_OP_ALLTYPE(Eq, ==);
-TEST_BINARY_OP_ALLTYPE(Ne, !=);
-TEST_BINARY_OP_ALLTYPE(Lt, <);
-TEST_BINARY_OP_ALLTYPE(Gt, >);
-TEST_BINARY_OP_ALLTYPE(Le, <=);
-TEST_BINARY_OP_ALLTYPE(Ge, >=);
+
+#define TEST_COMPARE_OP(name, op)                                              \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
+    static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
+    static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
+    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L), (3L op 2L));                     \
+    static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
+    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+    EXPECT_THAT(                                                               \
+        [&]() {                                                                \
+          DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
+              op DoubleInt64BoolVec(2);                                        \
+        },                                                                     \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Can not compute ")));                        \
+  }
+
+TEST_COMPARE_OP(Eq, ==);
+TEST_COMPARE_OP(Ne, !=);
+TEST_COMPARE_OP(Lt, <);
+TEST_COMPARE_OP(Gt, >);
+TEST_COMPARE_OP(Le, <=);
+TEST_COMPARE_OP(Ge, >=);
 
 #define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
