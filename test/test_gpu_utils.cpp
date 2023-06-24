@@ -419,26 +419,22 @@ TEST_F(VectorizeHelperTest, BackwardMapper5_CUDA) {
   EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
   EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(0)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(0))).as<int64_t>(),
       3);
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1))).as<int64_t>(),
       4);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0))).as<int64_t>(),
       3 * 4);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1))).as<int64_t>(),
       3 * 4);
 }
 
@@ -743,26 +739,22 @@ TEST_F(VectorizeHelperTest, ForwardMapper5_CUDA) {
   EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
   EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(0)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(0))).as<int64_t>(),
       3);
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1))).as<int64_t>(),
       4);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0))).as<int64_t>(),
       3 * 4);
 
   EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
   EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
   EXPECT_EQ(
-      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1)))
-          ->as<int64_t>(),
+      expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1))).as<int64_t>(),
       3 * 4);
 }
 

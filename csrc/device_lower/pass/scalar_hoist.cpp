@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <device_lower/pass/scalar_hoist.h>
 

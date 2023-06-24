@@ -1304,6 +1304,8 @@ void GroupDependencyAnalysis::mergeGroups(
       }
       // insert the new group as producer
       it.second->pushBack(merged);
+      // all producers of merged are now producers of `it`
+      mergeAllKnownProducersIntoFrom(it.first, merged);
     }
   }
 }
@@ -2032,7 +2034,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2043,13 +2045,13 @@ c10::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -2058,7 +2060,7 @@ c10::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
@@ -2096,7 +2098,7 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
+std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
     getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedGroup::getMaybeSchedulerEntry");
   auto fusion = segmented_fusion_->completeFusion();
@@ -2107,7 +2109,7 @@ c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
   FusionSegmentGuard fsg(fusion, getAllInputs(this), getAllOutputs(this));
   if (!SchedulerEntry::canSchedule(
           heuristic(), fusion, runtime_info, data_cache)) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::makeEntry(
       heuristic(), fusion, runtime_info, data_cache);
@@ -3865,7 +3867,7 @@ class ForceHalfAnnotation : public IterVisitor {
   }
 
   std::unordered_set<TensorView*> force_fp16_tv_set_;
-  c10::optional<DataType> cast_to_type_ = c10::nullopt;
+  std::optional<DataType> cast_to_type_ = std::nullopt;
 };
 
 } // namespace

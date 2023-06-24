@@ -872,23 +872,23 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
     // extent size is not determined, but this should be possible to
     // evaluate.
     TORCH_INTERNAL_ASSERT(
-        extent.has_value(),
+        extent.hasValue(),
         "Axis with unknown extent found: ",
         id->toString(),
         ", tensor: ",
         tv->toString());
 
-    auto extent_int = extent->as<int64_t>();
+    auto extent_int = extent.as<int64_t>();
 
     TORCH_INTERNAL_ASSERT(
         extent_int >= 0, "Unexpected size of axis: ", extent_int);
 
     if (extent_int > 0) {
-      if (index_type_helper.addDim(extent->as<int64_t>(), stride) ==
+      if (index_type_helper.addDim(extent.as<int64_t>(), stride) ==
           PrimDataType::Int) {
         return PrimDataType::Int;
       }
-      stride *= extent->as<int64_t>();
+      stride *= extent.as<int64_t>();
     }
   }
 
@@ -1123,12 +1123,12 @@ size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
 
     auto dim_size = expression_evaluator_->evaluate(root_id->extent());
     // Inference failed for some reason, assume not-contiguous at this point
-    if (!dim_size.has_value()) {
+    if (!dim_size.hasValue()) {
       break;
     }
 
     // Still contiguous
-    numel *= dim_size->as<int64_t>();
+    numel *= dim_size.as<int64_t>();
 
     if (!contig_merge) {
       break;
@@ -2128,8 +2128,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
           auto id_size =
               runtime_info.expressionEvaluator().evaluate(id->extent());
           TORCH_INTERNAL_ASSERT(
-              id_size.has_value(), "Could not infer reduction dim size.");
-          n_elements *= id_size->as<int64_t>();
+              id_size.hasValue(), "Could not infer reduction dim size.");
+          n_elements *= id_size.as<int64_t>();
         }
       }
       if (n_elements % n_elements_factor) {
@@ -2468,6 +2468,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
@@ -2559,7 +2560,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 }
 
 // Simply loop through the list as baseline strategy
-c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
+std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (auto sh : all_heuristics()) {
@@ -2568,7 +2569,7 @@ c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
       return sh;
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {

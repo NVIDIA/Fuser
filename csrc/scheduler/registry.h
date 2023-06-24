@@ -164,7 +164,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
   //! Fusion segmenter facing API,
   //!   returns a schedule that applies in the given fusion, returns a nullopt
   //!   if no schedule in the registry can handle.
-  static c10::optional<ScheduleHeuristic> proposeHeuristics(
+  static std::optional<ScheduleHeuristic> proposeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info);
 

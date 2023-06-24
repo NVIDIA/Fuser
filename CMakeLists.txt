@@ -141,6 +141,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
     ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
     ${NVFUSER_SRCS_DIR}/ops/utils.cpp
+    ${NVFUSER_SRCS_DIR}/options.cpp
     ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
     ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
     ${NVFUSER_SRCS_DIR}/parser.cpp
@@ -350,6 +351,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
+    ${NVFUSER_ROOT}/test/test_dynamic_type.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
@@ -375,8 +377,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
+    ${NVFUSER_ROOT}/test/test_rng.cpp
   )
-  list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/test_gpu_rng.cu)
+  list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/rng_kernels.cu)
 
   set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
 

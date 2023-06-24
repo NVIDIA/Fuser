@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -950,7 +951,7 @@ bool PredicateElimination::setReductionInitValue(
 
 bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
   // Predicate elimination can be disabled with
-  // PYTORCH_NVFUSER_DISABLE=predicate_elimination
+  // NVFUSER_DISABLE=predicate_elimination
   if (isOptionDisabled(DisableOption::PredicateElimination)) {
     assertOnWarpOps(expr);
     return false;

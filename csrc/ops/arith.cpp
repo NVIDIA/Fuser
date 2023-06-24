@@ -29,7 +29,7 @@ Val* castOp(DataType dtype, Val* v1) {
     return set(v1);
   }
 
-  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == c10::nullopt) {
+  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == std::nullopt) {
     TORCH_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
