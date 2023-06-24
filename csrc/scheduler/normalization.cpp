@@ -123,6 +123,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   iop.inner_vect = (int64_t)vectorize_factor;
+
+  // Enforce valid return is needed because we enforced projection for fp32 if
+  // the feature size is less or equal 14K. See getPersistentHeuristics.
+  constexpr bool enforce_valid_return = true;
   const auto& batch_and_block_size = normalization_scheduler_utils::
       getOptionalInnerOuterPersistentBufferBatches(
           inner_dim_numel,
@@ -130,7 +134,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           max_persistent_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize,
-          true);
+          enforce_valid_return);
   auto opt_inner_batch = batch_and_block_size.first;
   TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
   iop.inner_batch = opt_inner_batch.value();

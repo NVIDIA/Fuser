@@ -675,10 +675,10 @@ getOptionalInnerOuterPersistentBufferBatches(
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
-  // Start from the smallest block size. If the corresponding batch size is
-  // larger than batch_max, try increase threads per block by a warp until the
-  // block size reaches threads_per_block_max or the batch size reaches
-  // batch_min.
+  // Start from the smallest threads_per_block. If the corresponding batch size
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
