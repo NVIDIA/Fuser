@@ -13,6 +13,19 @@ from functools import reduce
 import operator
 import warnings
 
+# Set NVFUSER_ envrionment variables. Make sure this is done before
+# loading nvfuser
+if "NVFUSER_ENABLE" not in os.environ:
+    os.environ["NVFUSER_ENABLE"] = ""
+os.environ["NVFUSER_ENABLE"] = (
+    "linear_decomposition,conv_decomposition,graph_op_fusion,"
+    + os.environ["NVFUSER_ENABLE"]
+)
+if "NVFUSER_DISABLE" not in os.environ:
+    os.environ["NVFUSER_DISABLE"] = ""
+os.environ["NVFUSER_DISABLE"] = "fallback,fma," + os.environ["NVFUSER_DISABLE"]
+os.environ["NVFUSER_JIT_OPT_LEVEL"] = "0"
+
 import torch
 from torch.nn import functional
 from torch.profiler import profile, ProfilerActivity
@@ -59,26 +72,13 @@ CUDA_MAJOR, CUDA_MINOR = 0, 0
 if RUN_NVFUSER and torch.version.cuda is not None:
     CUDA_MAJOR, CUDA_MINOR = (int(x) for x in torch.version.cuda.split(".")[:2])
 
-if "PYTORCH_NVFUSER_ENABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_ENABLE"] = ""
-os.environ["PYTORCH_NVFUSER_ENABLE"] = (
-    "linear_decomposition,conv_decomposition,graph_op_fusion,"
-    + os.environ["PYTORCH_NVFUSER_ENABLE"]
-)
-if "PYTORCH_NVFUSER_DISABLE" not in os.environ:
-    os.environ["PYTORCH_NVFUSER_DISABLE"] = ""
-os.environ["PYTORCH_NVFUSER_DISABLE"] = (
-    "fallback,fma," + os.environ["PYTORCH_NVFUSER_DISABLE"]
-)
-os.environ["PYTORCH_NVFUSER_JIT_OPT_LEVEL"] = "0"
-
 # flag used to skip C++ integration test for torchscript
 if os.environ.get("NVFUSER_TEST_ONLY_RUN_WHEEL_BUILD_SUBSET", "0") == "1":
     RUN_NVFUSER = False
 
 # TODO: enable complex when we fixes the extremal cases in OpInfo
 # see issue https://github.com/csarofeen/pytorch/issues/1730"
-# os.environ['PYTORCH_NVFUSER_ENABLE'] = 'complex'
+# os.environ['NVFUSER_ENABLE'] = 'complex'
 
 if GRAPH_EXECUTOR == ProfilingMode.PROFILING:
     torch._C._jit_set_texpr_fuser_enabled(False)
@@ -298,7 +298,7 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertEqual(g, jit_g)
         # check gradients
-        for (t, ref_t) in zip(args, ref_args):
+        for t, ref_t in zip(args, ref_args):
             if has_grad(t):
                 self.assertEqual(ref_t.grad, t.grad)
         self.assertGraphContainsExactly(
@@ -421,7 +421,6 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     def test_reduction_dtypes_axis(self):
-
         for op in [torch.sum, torch.mean, torch.amax, torch.var, torch.std]:
             for dtype in [torch.float16, torch.float32, torch.double]:
                 for axis in [-1, 2, 0]:
@@ -453,7 +452,6 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     def test_variance(self):
-
         for op in [torch.var, torch.std]:
             for dtype in [torch.float16, torch.float32, torch.double]:
                 for axis in [-2, -1, 2, 1]:
@@ -6396,7 +6394,6 @@ class TestCudaFuserOpInfo(TestCudaFuserOpInfoParent):
         variant_sample_pairs = get_traced_sample_variant_pairs(device, dtype, op)
 
         for variant, sample in variant_sample_pairs:
-
             trace = create_traced_fn(self, variant, cache_traced_fn=True)
             trace(*clone_inputs((sample.input, *sample.args)), **sample.kwargs)
             trace(*clone_inputs((sample.input, *sample.args)), **sample.kwargs)

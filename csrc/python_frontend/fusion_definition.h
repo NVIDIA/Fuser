@@ -102,7 +102,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!   help(FusionDefinition.Operators)
 class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
  public:
-  FusionDefinition(c10::optional<size_t> id, size_t max_length = 256);
+  FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -148,7 +148,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
-  c10::optional<size_t> id() const;
+  std::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation
   void printMathIr();
 
@@ -181,7 +181,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! number as appropriate.
   size_t max_length_;
   //! Fusion Cache Id for Scheduled Fusion.
-  c10::optional<size_t> fusion_id_;
+  std::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.

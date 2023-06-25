@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <device_lower/pass/scalar_hoist.h>
 
@@ -458,7 +459,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       // kernel, which can be either int64_t or int. Not very clean,
       // but this seems to be the quickest way to use the value type
       // as we don't have a scalar IR node for the value type.
-      auto dtype = *value->getDataType();
+      auto dtype = value->dtype();
       if (isIntegralType(dtype) && !isPointerType(dtype)) {
         value->resolveIndexDtype();
       }

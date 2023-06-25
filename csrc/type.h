@@ -9,7 +9,6 @@
 
 #include <c10/core/ScalarType.h>
 #include <c10/util/Exception.h>
-#include <c10/util/Optional.h>
 
 #include <c10/macros/Export.h>
 
@@ -17,6 +16,7 @@
 #include <complex>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <variant>
@@ -702,15 +702,15 @@ TORCH_CUDA_CU_API bool isParallelTypeThread(ParallelType);
 
 TORCH_CUDA_CU_API bool isParallelTypeVectorize(ParallelType);
 
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const UnaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const RNGOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> integer_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> bool_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const UnaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const RNGOpType);
+TORCH_CUDA_CU_API std::optional<std::string> integer_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> bool_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API const char* predicate_type2string(PredicateType t);
 TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
-TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
+TORCH_CUDA_CU_API std::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
 
 constexpr inline size_t primDataTypeSize(PrimDataType type) {

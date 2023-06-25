@@ -151,10 +151,10 @@ namespace {
 int64_t getAvailableRegisterCount(int64_t persistent_buffer_factor) {
   // The thread block size is (currently) always 256, so each thread
   // can use up to 255 registers
-  int64_t register_count = 255;
+  int64_t register_count = scheduler_utils::max_registers_per_thread;
 
   // Offset a constant overhead
-  register_count -= 40;
+  register_count -= scheduler_utils::register_overhead;
 
   // Allow small number of spills
   register_count += 5;
@@ -609,11 +609,11 @@ int64_t partialReductionBufferSize(
       }
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (buffer_size == -1) {
-        buffer_size = id_size->as<int64_t>();
+        buffer_size = id_size.as<int64_t>();
       } else {
-        buffer_size *= id_size->as<int64_t>();
+        buffer_size *= id_size.as<int64_t>();
       }
     }
     buffer_size = (buffer_size == -1) ? 0
@@ -623,6 +623,87 @@ int64_t partialReductionBufferSize(
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t persistent_buffer_size,
+    const int64_t vectorize_factor,
+    const int64_t warp_size) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1. See Step 5 of
+  // innerOuterPersistentHeuristic
+  if (inner_dim_numel <= 1024l) {
+    return 1l;
+  }
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
+      } else {
+        return 4l;
+      }
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
+    }
+    return 1l;
+  };
+  //! Each thread can use a maximum of 255 registers, and assume 40 of them are
+  //! reserved for indexing and other purposes. So, each thread can use up to
+  //! 215 registers for persistent buffer. Calculate number of buffer batches
+  //! using these 215 registers. total_buffer_bytes is the total size of
+  //! persistent buffers in bytes. reduction_elements is the number of elements
+  //! in the reduction domain. vectorization_factor is the vectorization factor
+  //! of inputs and outputs.
+  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
+    int64_t register_per_batch = persistent_buffer_size / inner_dim_numel /
+        scheduler_utils::bytes_per_register * vectorize_factor;
+    return scheduler_utils::safeDiv(
+        scheduler_utils::max_registers_per_thread -
+            scheduler_utils::register_overhead,
+        register_per_batch);
+  };
+
+  int64_t threads_per_block = warp_size / 4;
+  int64_t inner_batch = inner_dim_numel / vectorize_factor / threads_per_block;
+  const int64_t threads_per_block_max = inner_dim_numel >= 20480l ? 512l : 256l;
+  const int64_t batch_min = getMinimumBatch();
+  auto canReduceBatch = [&](auto factor) -> bool {
+    return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
+        threads_per_block * factor <= threads_per_block_max;
+  };
+  // reduce batch size by 2, 3, or 5 until we reach the minimum batch size
+  // only consider divisible splits
+  while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
+    bool modified = false;
+    for (auto factor : {2, 3, 5}) {
+      if (canReduceBatch(factor)) {
+        inner_batch /= factor;
+        threads_per_block *= factor;
+        modified = true;
+        break;
+      }
+    }
+    if (!modified) {
+      break;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(
+      inner_batch >= batch_min,
+      "Batch size is larger than expected! Please report this issue.",
+      " inner_batch = ",
+      inner_batch,
+      ", batch_min = ",
+      batch_min);
+  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
+  if (inner_batch <= batch_max) {
+    return inner_batch;
+  } else {
+    return std::nullopt;
+  }
 }
 
 } // namespace normalization_scheduler_utils

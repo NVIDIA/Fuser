@@ -16,6 +16,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -168,18 +169,16 @@ ProblemShape getProblemShape(
     TORCH_INTERNAL_ASSERT(
         false,
         "Failed to acquire one of problem dimensions, M(",
-        m_extend.has_value(),
+        m_extend.hasValue(),
         "), N(",
-        n_extend.has_value(),
+        n_extend.hasValue(),
         " K(",
-        k_extend.has_value(),
+        k_extend.hasValue(),
         ")");
   }
 
   return ProblemShape{
-      m_extend->as<int64_t>(),
-      n_extend->as<int64_t>(),
-      k_extend->as<int64_t>()};
+      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
 }
 
 std::string isMatmulFusionDefinitionSupported(

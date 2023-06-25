@@ -396,10 +396,10 @@ bool KernelPerformanceProfile::isProfiled(const Expr* expr) const {
   return expr_entry_map_.find(expr) != expr_entry_map_.end();
 }
 
-c10::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
+std::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
   auto it = expr_entry_map_.find(expr);
   if (it == expr_entry_map_.end()) {
-    return c10::optional<int>();
+    return std::optional<int>();
   } else {
     return it->second;
   }
