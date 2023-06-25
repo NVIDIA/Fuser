@@ -147,6 +147,8 @@ namespace nvfuser {
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
+// Also, why clang-tidy is reading gcc's options?
+// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
