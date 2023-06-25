@@ -7,10 +7,7 @@
 // clang-format on
 #pragma once
 #include <disjoint_set.h>
-#include <fusion.h>
 #include <ir/base_nodes.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/multidevice.h>
 
 /*
   This file implements the IRs composing a Pipeline:
@@ -20,6 +17,8 @@
 */
 
 namespace nvfuser {
+
+using ValSet = VectorOfUniqueEntries<Val*>;
 
 class PipelineStageDescriptor;
 

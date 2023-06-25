@@ -8,15 +8,13 @@
 #pragma once
 #include <fusion.h>
 #include <ir/base_nodes.h>
+#include <disjoint_set.h>
 #include <multidevice/device_mesh.h>
-#include <multidevice/multidevice.h>
-#include <multidevice/pipeline_ir.h>
 
 /*
 This file implements the Pipeline interface.
-A Pipeline represents a Fusion segmented into a series of Stages, each Stage
-being thought as a portion of the original Fusion that will be executed on a
-given device mesh.
+A Pipeline represents a Fusion or a parent stage segmented into a series of Stages, each Stage
+being thought as a portion of the original Fusion/stage that will be treated as a task in task-parallelism.
 
 The decomposition of the Pipeline into Stages is described through a
 PipelineDescriptor, which is nothing but a vector of PipelineStageDescriptor.
@@ -57,6 +55,10 @@ indices on which the stage should be executed at runtime.
 */
 
 namespace nvfuser {
+
+using ValSet = VectorOfUniqueEntries<Val*>;
+
+class PipelineStage;
 
 // Interface to describe the composition of a PipelineStage
 class TORCH_CUDA_CU_API PipelineStageDescriptor final {
@@ -101,7 +103,7 @@ and a PipelineDescriptor.
 
 It itself inherits from Fusion, which is populated at initialization
 with three types of IRs (see multidevice/pipeline_ir.h):
-1) PipelineVals (inheriting from Val), representing Vals that are I/O of
+1) PipelineVal (inheriting from Val), representing Vals that are I/O of
    each Stage (including global I/O)
 2) PipelineStage (inherinting from Expr), representing each Stage given
    in the PipelineDescriptor
