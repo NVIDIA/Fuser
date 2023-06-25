@@ -85,7 +85,7 @@ class PredicateAnalyzer : public OptOutDispatch {
     auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
     auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
-        .getReplay();
+            .getReplay();
 
     PredicateAnalyzer analyzer(c2p);
 
@@ -121,7 +121,6 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
-
     // If the ID is parallelized with a non-unique parallel type, the
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
@@ -130,20 +129,11 @@ class PredicateAnalyzer : public OptOutDispatch {
             consumer_id->getParallelType());
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
-      // parallelized in the same way. Otherwise, needs to be predicated.
-      if (!c2p_.count(consumer_id)) {
-        needs_predicate_ = true;
-        std::cerr << "Pred elimination not possible as there's no matching producer ID: "
-                  << consumer_id->toString() << std::endl;
-        return;
-      }
-      auto id_mapped_with_consumer_id = c2p_.at(consumer_id);
-      if (id_mapped_with_consumer_id->getParallelType() !=
-          consumer_id->getParallelType()) {
-        std::cerr << "Pred elimination not possible: "
-                  << ", consumer id: " << consumer_id->toString()
-                  << ", mapping: " << c2p_.count(consumer_id)
-                  << std::endl;
+      // parallelized in the same way. Otherwise, needs to be
+      // predicated.
+      auto c2p_it = c2p_.find(consumer_id);
+      if (c2p_it == c2p_.end() ||
+          c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
         needs_predicate_ = true;
         return;
       }
@@ -232,8 +222,6 @@ class PredicateChcker : public IterVisitor {
         needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
-
-    // predicateNonExactConsumerParallelType(expr);
 
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
@@ -377,44 +365,6 @@ class PredicateChcker : public IterVisitor {
         if (producer->getMemoryType() == MemoryType::Shared ||
             consumer->getMemoryType() == MemoryType::Shared) {
           if (needSharedMemPredicate(producer, consumer)) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
-  }
-
-  // If a consumer is parallelized by a non-unique parallel type but
-  // the producer is not parallelized by that type, the predicate
-  // can't be eliminated as the producer buffer is allocated with the
-  // exact size of the domains, which can be smaller than the extent
-  // of the non-unique parallel type.
-  bool predicateNonExactConsumerParallelType(Expr* expr) const {
-    const auto& parallel_dimension_map =
-        GpuLower::current()->parallelDimensionMap();
-    for (auto consumer_tv :
-         ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto consumer_id : consumer_tv->getLeafDomain()) {
-        if (!consumer_id->isThreadDim() ||
-            parallel_dimension_map.isExact(consumer_id->getParallelType()) ||
-            consumer_id->isBroadcast()) {
-          continue;
-        }
-        // Look for a leaf producer ID that is parallelized with the
-        // same type. Otherwise, the size of the producer buffer may
-        // be smaller than the extent of the parallel type, and thus
-        // it needs to be predicated.
-        for (auto producer_tv :
-             ir_utils::filterByType<TensorView>(expr->inputs())) {
-          if (std::none_of(
-                  producer_tv->getLeafDomain().begin(),
-                  producer_tv->getLeafDomain().end(),
-                  [&](auto producer_id) {
-                    return producer_id->getParallelType() ==
-                        consumer_id->getParallelType();
-                  })) {
             return true;
           }
         }
