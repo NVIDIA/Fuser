@@ -203,6 +203,11 @@ struct DynamicType {
     return std::holds_alternative<T>(value_);
   }
 
+  template <template <typename...> typename Template>
+  constexpr bool is() const {
+    return is<Template<DynamicType>>();
+  }
+
   constexpr bool isNull() const {
     return std::holds_alternative<std::monostate>(value_);
   }
@@ -219,6 +224,22 @@ struct DynamicType {
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr T& as() {
     return std::get<T>(value_);
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr Template<DynamicType> as() const {
+    return as<Template<DynamicType>>();
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr Template<DynamicType>& as() {
+    return as<Template<DynamicType>>();
   }
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
