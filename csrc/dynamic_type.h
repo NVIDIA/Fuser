@@ -139,6 +139,15 @@ namespace nvfuser {
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbool-operation"
+// gcc, even the latest version (13.1.1), is complaining about the following
+// code:
+//   std::optional<bool> ret = std::nullopt;
+//   ...
+//   TORCH_CHECK(ret.has_value(), ...;
+//   return ret.value();
+// saying that ret.value() is used uninitialized. This complaint is totoally
+// nonsense.
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
 template <template <typename...> typename... Templates>
