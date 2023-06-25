@@ -7782,7 +7782,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({aten_input});
@@ -7797,6 +7797,14 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       __LINE__,
       __FILE__,
       "");
+
+  auto rt = fec.getMostRecentKernelRuntime();
+  ASSERT_FALSE(rt->isSegmented());
+  auto kernel = rt->executors().at(0).kernel();
+
+  // tv11 and tv17 should not be predicated. See issue #496
+  ASSERT_FALSE(PredicatedChecker::isPredicated(11, kernel));
+  ASSERT_FALSE(PredicatedChecker::isPredicated(17, kernel));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
