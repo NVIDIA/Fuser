@@ -81,6 +81,7 @@ def handle_call(l: ast.Call):
             func.id = func.id + "<Double>"
         elif isinstance(arg, int):
             func.id = func.id + "<Int>"
+        keywords = []
     elif func.id == "fd.define_scalar":
         assert is_aten
         arg = args[0]
