@@ -1621,20 +1621,21 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
+            zero_fill_val = fd.define_scalar(0.0)
 
-            t1 = fd.ops.pad(t0, [1, 1, 1, 1])
+            t1 = fd.ops.pad(t0, [1, 1, 1, 1], zero_fill_val)
             fd.add_output(t1)
 
             # zero padding in some dims
-            t2 = fd.ops.pad(t0, [0, 0, 2, 3])
+            t2 = fd.ops.pad(t0, [0, 0, 2, 3], zero_fill_val)
             fd.add_output(t2)
 
             # zero padding in all dims
-            t3 = fd.ops.pad(t0, [0, 0, 0, 0])
+            t3 = fd.ops.pad(t0, [0, 0, 0, 0], zero_fill_val)
             fd.add_output(t3)
 
             # no padding provided in first dim
-            t4 = fd.ops.pad(t0, [2, 3])
+            t4 = fd.ops.pad(t0, [2, 3], zero_fill_val)
             fd.add_output(t4)
 
             # test padding with a value other than 0
@@ -1661,7 +1662,8 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_pad1(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.ops.pad(t0, [1, 1])
+            zero_fill_val = fd.define_scalar(0.0)
+            t1 = fd.ops.pad(t0, [1, 1], zero_fill_val)
             fd.add_output(t1)
 
         nvf_out1, _ = self.exec_nvfuser(
@@ -1671,7 +1673,8 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_pad2(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.ops.pad(t0, [2, 2])
+            zero_fill_val = fd.define_scalar(0.0)
+            t1 = fd.ops.pad(t0, [2, 2], zero_fill_val)
             fd.add_output(t1)
 
         nvf_out2, _ = self.exec_nvfuser(
