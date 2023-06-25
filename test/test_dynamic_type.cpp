@@ -403,20 +403,16 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVec(                                                   \
-            std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2L)})           \
-             op DoubleInt64BoolVec(                                            \
-                 std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2.0)})),   \
+        (DoubleInt64BoolVec(std::vector<int64_t>{2})                           \
+             op DoubleInt64BoolVec(std::vector<double>{2.0})),                 \
         (2L op 2.0));                                                          \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVec(                                                   \
-            std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2L)})           \
-             op DoubleInt64BoolVec(                                            \
-                 std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2.5)})),   \
+        (DoubleInt64BoolVec(std::vector<int64_t>{2L})                          \
+             op DoubleInt64BoolVec(std::vector<double>{2.5})),                 \
         (2L op 2.5));                                                          \
     static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
     EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L), (3L op 2L));                     \
@@ -920,6 +916,20 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
       ten,
       NaturalNumber(Set<NaturalNumber>{
           zero, one, two, three, four, five, six, seven, eight, nine}));
+}
+
+TEST_F(DynamicTypeTest, FromContainer) {
+  std::vector<std::vector<int>> vvi{{1, 2, 3}, {4, 5, 6}};
+  using IntOrVec = DynamicType<Containers<std::vector>, int>;
+  IntOrVec x = vvi;
+  EXPECT_EQ(x[0], IntOrVec(std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(x[0][0], 1);
+  EXPECT_EQ(x[0][1], 2);
+  EXPECT_EQ(x[0][2], 3);
+  EXPECT_EQ(x[1], IntOrVec(std::vector<int>{4, 5, 6}));
+  EXPECT_EQ(x[1][0], 4);
+  EXPECT_EQ(x[1][1], 5);
+  EXPECT_EQ(x[1][2], 6);
 }
 
 #undef insert

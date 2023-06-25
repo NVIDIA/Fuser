@@ -198,6 +198,22 @@ struct DynamicType {
   template <typename T>
   constexpr DynamicType(T value) : value_(value) {}
 
+  template <
+      template <typename...>
+      typename Template,
+      typename ItemT,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr DynamicType(Template<ItemT> value)
+      : value_([](const auto& input) {
+          Template<DynamicType> result;
+          std::transform(
+              input.begin(),
+              input.end(),
+              std::back_inserter(result),
+              [](const auto& item) { return DynamicType(item); });
+          return result;
+        }(value)) {}
+
   template <typename T>
   constexpr bool is() const {
     return std::holds_alternative<T>(value_);
