@@ -10,9 +10,9 @@ from torch.testing import assert_close
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionDefinition, DataType
 
 
 def is_pre_volta():
@@ -22,6 +22,18 @@ def is_pre_volta():
 
 def is_tensor(a):
     return isinstance(a, torch.Tensor)
+
+
+def convert_scalar_dtype(a: Union[int, float, complex, bool]):
+    if type(a) is int:
+        return DataType.Int
+    elif type(a) is float:
+        return DataType.Double
+    elif type(a) is complex:
+        return DataType.ComplexDouble
+    elif type(a) is bool:
+        return DataType.Bool
+    return None
 
 
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
@@ -41,7 +53,9 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
             elif type(a) is list or type(a) is tuple:
                 nvf_args.append(fd.define_vector(a))
             else:
-                nvf_args.append(fd.define_scalar(a))
+                # For symbolic scalars, we do not define with constant value.
+                # Otherwise, it becomes a constant and is not a fusion input.
+                nvf_args.append(fd.define_scalar(convert_scalar_dtype(a)))
         else:
             assert type(a) is not torch.Tensor
             nvf_args.append(a)

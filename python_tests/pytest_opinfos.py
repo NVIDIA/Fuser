@@ -19,6 +19,7 @@ from pytest_input_generators import (
     gather_generator,
     index_select_generator,
     index_select_error_generator,
+    pad_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
@@ -135,6 +136,16 @@ index_select_opinfo = OpInfo(
     symbolic_parameter_list=(True, True, False),
 )
 shape_ops.append(index_select_opinfo)
+
+# NvFuser's API is significantly different than JAX.
+# TODO: Change python frontend api to match JAX using a cpp wrapper function.
+pad_opinfo = OpInfo(
+    lambda fd: fd.ops.pad,
+    "pad",
+    error_input_generator=pad_error_generator,
+    symbolic_parameter_list=(True, False, True),
+)
+shape_ops.append(pad_opinfo)
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,

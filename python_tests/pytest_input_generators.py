@@ -10,6 +10,7 @@ import torch
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
+from pytest_utils import make_number
 from nvfuser import DataType
 
 
@@ -450,6 +451,54 @@ def index_select_error_generator(
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
 
+def pad_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # Nvfuser - fd.ops.pad(Tensor arg, std::vector<int64_t>& pad_widths, std::optional<Scalar> value)
+    # Jax ----- jax.lax.pad(operand, padding_value, padding_config)
+    # PyTorch - torch.nn.functional.pad(input, pad, mode='constant', value=None)
+    #
+    # Note: Nvfuser does not support interior (between-element) padding.
+    #
+    # Nvfuser errors
+    # 1) Tensor arg and pad value must have the same dtype
+    # 2) Number of pad widths must be at most twice the input dimension - NvFuser
+    # 3) Dimension size after padding is not at least 0
+    #
+    # Jax and PyTorch errors
+    # 1) Interior padding is non-negative
+    # 2) Length of pad_widths is equal to number of operands
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    input_shape = (2, 2)
+    valid_pad_width = [1, 1, -1, 2]
+
+    # TODO Add dtype check.
+    # yield SampleInput(
+    #     make_arg(input_shape), valid_pad_width, make_number(find_nonmatching_dtype(dtype))
+    # ), RuntimeError, "Tensor arg and pad value must have the same dtype."
+
+    # TODO Add better error message.
+    # Dimension size after padding is not at least 0
+    delete_all_pad_width = [-3, 0, 0, 0]
+    yield SampleInput(
+        make_arg(input_shape), delete_all_pad_width, make_number(dtype)
+    ), RuntimeError, "extent_int > 0"
+
+    too_many_pad_width = [1, 1, 1, 1, 1, 1]
+    yield SampleInput(
+        make_arg(input_shape), too_many_pad_width, make_number(dtype)
+    ), RuntimeError, "Number of pad widths must be at most twice the input dimension"
+
+    uneven_pad_width = [1, 1, 0]
+    yield SampleInput(
+        make_arg(input_shape), uneven_pad_width, make_number(dtype)
+    ), RuntimeError, "Invalid number of padding widths"
+
+
 def reduction_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -548,6 +597,10 @@ def slice_generator(
 def slice_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
+    # torch.gather(input: Tensor, dim: int, index: LongTensor)
+    # * input and index tensors have same ndims.
+    # * index tensors must be smaller than input tensor along all dims except specified axis.
+
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
