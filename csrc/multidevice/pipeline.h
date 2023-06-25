@@ -6,15 +6,16 @@
  */
 // clang-format on
 #pragma once
+#include <disjoint_set.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
-#include <disjoint_set.h>
 #include <multidevice/device_mesh.h>
 
 /*
 This file implements the Pipeline interface.
-A Pipeline represents a Fusion or a parent stage segmented into a series of Stages, each Stage
-being thought as a portion of the original Fusion/stage that will be treated as a task in task-parallelism.
+A Pipeline represents a Fusion or a parent stage segmented into a series of
+Stages, each Stage being thought as a portion of the original Fusion/stage that
+will be treated as a task in task-parallelism.
 
 The decomposition of the Pipeline into Stages is described through a
 PipelineDescriptor, which is nothing but a vector of PipelineStageDescriptor.
