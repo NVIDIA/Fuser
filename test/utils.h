@@ -84,7 +84,7 @@ inline TensorView* makeContigConcreteTensor(
 inline void checkIntValue(
     ExpressionEvaluator& evaluator,
     Val* val,
-    Int::ScalarType expected_value) {
+    EvaluatorValue expected_value) {
   TORCH_CHECK(val->isIntegralScalar());
   const auto actual_value = evaluator.evaluate(val);
   TORCH_CHECK(actual_value.hasValue());

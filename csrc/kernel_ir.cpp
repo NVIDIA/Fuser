@@ -33,7 +33,7 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* expr,
-    Bool* thread_pred)
+    Scalar* thread_pred)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(expr),
@@ -55,7 +55,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
   TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
 }
 
-Predicate::Predicate(IrBuilderPasskey passkey, Bool* value)
+Predicate::Predicate(IrBuilderPasskey passkey, Scalar* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
@@ -1145,7 +1145,7 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     const WelfordTriplet& init,
     Val* count,
     Val* reciprocal_of_count,
-    Bool* hoisted_predicate)
+    Scalar* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
   addAttribute(count);
   addAttribute(reciprocal_of_count);

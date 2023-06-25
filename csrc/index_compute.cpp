@@ -149,7 +149,7 @@ Val* getProducerOffsetWithGather(
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Int>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Scalar>(pad_width));
   return producer_offset;
 }
 
@@ -202,7 +202,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Int>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Scalar>(pad_width));
   return producer_offset;
 }
 
@@ -320,7 +320,7 @@ Val* getProducerIndexWithPartialSplit(
   }
 
   return SimplifyingIrBuilder::addExpr(
-      producer_index, SimplifyingIrBuilder::create<Int>(diff->evaluateInt()));
+      producer_index, SimplifyingIrBuilder::create<Scalar>(diff->evaluateInt()));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
@@ -1019,7 +1019,7 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   const auto& halo = GpuLower::current()->haloInfo()->getRootAxisInfo(id);
   if (halo.hasHalo()) {
     auto halo_extent = SimplifyingIrBuilder::addExpr(
-        normal_extent, SimplifyingIrBuilder::create<Int>(halo.width()));
+        normal_extent, SimplifyingIrBuilder::create<Scalar>(halo.width()));
     return halo_extent;
   } else {
     return normal_extent;
@@ -1293,7 +1293,7 @@ indexMapFromTV(
           GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
-          idx, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+          idx, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -1700,7 +1700,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
       }
       auto db_switch_index = SimplifyingIrBuilder::modExpr(
-          loop_index, SimplifyingIrBuilder::create<Int>(stage_depth));
+          loop_index, SimplifyingIrBuilder::create<Scalar>(stage_depth));
       auto original_alloc_size =
           gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
       auto db_strided_index =
@@ -2152,8 +2152,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         // Switching index generated for main loop or epilog component.
         db_switch_index = SimplifyingIrBuilder::modExpr(
             SimplifyingIrBuilder::addExpr(
-                loop_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1)),
-            SimplifyingIrBuilder::create<Int>(stage_depth));
+                loop_index, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1)),
+            SimplifyingIrBuilder::create<Scalar>(stage_depth));
       }
 
       // Use the generated switching buffer index to access the buffer space.
@@ -2505,8 +2505,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
   }
 
   return {
-      SimplifyingIrBuilder::create<Int>(start_offset),
-      SimplifyingIrBuilder::create<Int>(stop_offset)};
+      SimplifyingIrBuilder::create<Scalar>(start_offset),
+      SimplifyingIrBuilder::create<Scalar>(stop_offset)};
 }
 
 std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
@@ -2575,7 +2575,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
   const auto producer_ext_adj = window_size - 1 - pad_left - pad_right;
   producer_stop_offset = SimplifyingIrBuilder::subExpr(
       producer_stop_offset,
-      SimplifyingIrBuilder::create<Int>(producer_ext_adj));
+      SimplifyingIrBuilder::create<Scalar>(producer_ext_adj));
 
   // As commented above, when pad_left is zero, the consumer predicate
   // is always more restrictive than the producer predicate.
@@ -2756,7 +2756,7 @@ bool canOmitStopPredicate(
 
   const auto gpu_lower = GpuLower::current();
 
-  auto stop_offset_val = stop_offset->as<Int>()->value();
+  auto stop_offset_val = stop_offset->as<Scalar>()->value();
 
   // If they are not compile-time constant, can't prove the
   // condition.
@@ -2765,7 +2765,7 @@ bool canOmitStopPredicate(
   }
 
   auto stop_index_val =
-      (stop_index->isA<Int>() ? stop_index->as<Int>()->value() : std::nullopt);
+      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value() : std::nullopt);
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`
@@ -2973,7 +2973,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     auto start_pred =
         SimplifyingIrBuilder::geExpr(
             offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
-            ->as<Bool>();
+            ->as<Scalar>();
     info.start_predicate_ = start_pred;
 
     // Build predicates for stop positions as:
@@ -2986,7 +2986,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
                            offsetted_stop_index, contig_id->extent())
-                           ->as<Bool>();
+                           ->as<Scalar>();
       info.stop_predicate_ = stop_pred;
     }
 

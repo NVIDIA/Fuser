@@ -29,7 +29,7 @@ TEST_F(RNGTest, ValidateWithCURand) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Int* size_val = IrBuilder::create<Int>();
+  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size_val);
   TensorView* tv0 = rand({size_val}, DataType::Float);
   TensorView* tv1 = rand({size_val}, DataType::Double);
@@ -91,10 +91,10 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Int* size1 = IrBuilder::create<Int>();
-  Int* size2 = IrBuilder::create<Int>();
-  Int* size3 = IrBuilder::create<Int>();
-  Int* size4 = IrBuilder::create<Int>();
+  Scalar* size1 = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* size2 = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* size3 = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* size4 = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size1);
   fusion->addInput(size2);
   fusion->addInput(size3);
@@ -251,9 +251,9 @@ TEST_F(RNGTest, Uniform) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Int* size_val = IrBuilder::create<Int>();
-  Double* low = IrBuilder::create<Double>();
-  Double* high = IrBuilder::create<Double>();
+  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* low = IrBuilder::create<Scalar>(DataType::Double);
+  Scalar* high = IrBuilder::create<Scalar>(DataType::Double);
   fusion->addInput(size_val);
   fusion->addInput(low);
   fusion->addInput(high);
@@ -287,9 +287,9 @@ TEST_F(RNGTest, Normal) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Int* size_val = IrBuilder::create<Int>();
-  Double* mean = IrBuilder::create<Double>();
-  Double* std = IrBuilder::create<Double>();
+  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* mean = IrBuilder::create<Scalar>(DataType::Double);
+  Scalar* std = IrBuilder::create<Scalar>(DataType::Double);
   fusion->addInput(size_val);
   fusion->addInput(mean);
   fusion->addInput(std);

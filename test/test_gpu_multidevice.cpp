@@ -276,8 +276,8 @@ TEST_F(NVFuserTest, FusionMultiGPU_Reduce_CUDA) {
   FusionGuard fg(&fusion);
 
   TensorView* tv = makeContigTensor(3);
-  auto index_a = IrBuilder::create<Int>(0);
-  auto index_b = IrBuilder::create<Int>(1);
+  auto index_a = IrBuilder::create<Scalar>(0);
+  auto index_b = IrBuilder::create<Scalar>(1);
   fusion.addInput(tv);
 
   // TODO: automate the device management. Bind device to rank and not to

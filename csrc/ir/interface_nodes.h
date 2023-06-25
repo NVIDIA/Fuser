@@ -14,6 +14,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -42,58 +43,27 @@ namespace ir_utils {
 TORCH_CUDA_CU_API std::string varName(const Val* val);
 }
 
-template <typename T>
-inline bool __toBool(T x) {
-  return static_cast<bool>(x);
-}
-
-template <>
-inline bool __toBool<std::complex<double>>(std::complex<double> x) {
-  return x != std::complex<double>(0, 0);
-}
-
 //! A scalr value. This value can be a symbolic value (defined after
 //! the kernel is compiled) or a constant value (inlined into the kernel
 //! definition).
-template <typename UnderlyingType>
 class TORCH_CUDA_CU_API Scalar : public Val {
  public:
-  using ScalarType = UnderlyingType;
-  static constexpr PrimDataType kDefaultDataType =
-      NativeTypeToDataType<UnderlyingType>::type;
-
-  explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{std::nullopt} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value &&
-         isIntegralOrPointerType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
-  }
-
+  explicit Scalar(IrBuilderPasskey passkey, DataType dtype)
+      : Val(passkey, ValType::Scalar, dtype) {}
+  explicit Scalar(IrBuilderPasskey passkey, EvaluatorValue value)
+      : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)), value_{value} {}
   explicit Scalar(
       IrBuilderPasskey passkey,
-      std::optional<UnderlyingType> value,
-      DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{value} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value && isIntegralType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
+      EvaluatorValue value,
+      DataType dtype)
+      : Val(passkey, ValType::Scalar, dtype), value_{value} {
+    TORCH_CHECK(
+        isCompatibleDataType(nvfuser::getDataType(value), dtype),
+        "Scalar value is not compatible with the given data type.");
   }
 
   Scalar(const Scalar* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
+      : Val(src, ir_cloner), value_(src->value_) {}
 
   NVFUSER_DECLARE_CLONE
 
@@ -105,11 +75,11 @@ class TORCH_CUDA_CU_API Scalar : public Val {
     }
     auto dtype = getDataType().value();
     if (dtype == DataType::Bool) {
-      ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
+      ss << value() ? "true" : "false";
     } else if (isIntegralType(dtype)) {
-      ss << *(value());
+      ss << value();
     } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
-      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << *(value())
+      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
          << ")";
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
@@ -128,13 +98,13 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   }
 
   bool isSymbolic() const {
-    return !(maybe_value_.has_value());
+    return !(value_.hasValue());
   }
   bool isConst() const final {
-    return maybe_value_.has_value();
+    return value_.hasValue();
   }
-  std::optional<UnderlyingType> value() const {
-    return maybe_value_;
+  EvaluatorValue value() const {
+    return value_;
   }
 
   bool sameAs(const Statement* other) const override {
@@ -146,19 +116,14 @@ class TORCH_CUDA_CU_API Scalar : public Val {
     }
     const auto other_val = other->as<Scalar>();
     if (isConst() && other_val->isConst()) {
-      return *value() == *(other_val->value());
+      return dtype() == other_val->dtype() && value() == other_val->value();
     }
     return Val::sameAs(other);
   }
 
  private:
-  const std::optional<UnderlyingType> maybe_value_;
+  const EvaluatorValue value_;
 };
-
-using Bool = Scalar<bool>;
-using Int = Scalar<int64_t>;
-using Double = Scalar<double>;
-using ComplexDouble = Scalar<std::complex<double>>;
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the

@@ -47,14 +47,6 @@ bool equals(const Val* value, const EvaluatorValue& concrete_value) {
   }
 }
 
-template <typename T>
-EvaluatorValue toOptionalEvaluatorValue(std::optional<T> i) {
-  if (!i) {
-    return std::monostate{};
-  }
-  return EvaluatorValue(i.value());
-}
-
 } // namespace
 
 void ExpressionEvaluator::bind_(
@@ -89,7 +81,7 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    Int::ScalarType concrete_value) {
+    EvaluatorValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
@@ -149,17 +141,7 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
       " is not a supported type in expression evaluation.");
 
   if (value->isScalar() && value->isConst()) {
-    if (value->isFloatingPointScalar()) {
-      return toOptionalEvaluatorValue(value->as<Double>()->value());
-    }
-    if (value->isABool()) {
-      return toOptionalEvaluatorValue(value->as<Bool>()->value());
-    }
-    if (value->isIntegralScalar()) {
-      return toOptionalEvaluatorValue(value->as<Int>()->value());
-    }
-    TORCH_INTERNAL_ASSERT(
-        false, "Data type not supported by ExpressionEvaluator");
+    return value->as<Scalar>()->value();
   }
 
   if (value->isA<NamedScalar>()) {

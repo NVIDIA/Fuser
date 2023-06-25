@@ -174,16 +174,8 @@ class ConstCheck : private OptOutConstDispatch {
   // important to check it is one.
   bool is_int_ = true;
 
-  void handle(const Bool* b) final {
+  void handle(const Scalar* b) final {
     is_const_ = is_const_ && b->isConst();
-  }
-
-  void handle(const Double* d) final {
-    is_const_ = is_const_ && d->isConst();
-  }
-
-  void handle(const Int* i) final {
-    is_const_ = is_const_ && i->isConst();
   }
 
   void handle(const NamedScalar* ns) final {
@@ -282,8 +274,8 @@ int64_t Val::evaluateInt() {
       ConstCheck::isConst(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Int>()->value().has_value()) {
-    return this->as<Int>()->value().value();
+  if (this->as<Scalar>()->value().has_value()) {
+    return this->as<Scalar>()->value().value();
   }
 
   ExpressionEvaluator ee;
@@ -300,8 +292,8 @@ double Val::evaluateDouble() {
       ConstCheck::isConst(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Double>()->value().has_value()) {
-    return this->as<Double>()->value().value();
+  if (this->as<Scalar>()->value().has_value()) {
+    return this->as<Scalar>()->value().value();
   }
 
   ExpressionEvaluator ee;
@@ -317,8 +309,8 @@ bool Val::evaluateBool() {
       ConstCheck::isConst(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Bool>()->value().has_value()) {
-    return this->as<Bool>()->value().value();
+  if (this->as<Scalar>()->value().has_value()) {
+    return this->as<Scalar>()->value().value();
   }
 
   ExpressionEvaluator ee;
@@ -330,22 +322,22 @@ bool Val::evaluateBool() {
 }
 
 std::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar() && isA<Int>()) {
-    return this->as<Int>()->value();
+  if (isConstScalar() && isIntegralScalar() && isA<Scalar>()) {
+    return this->as<Scalar>()->value().as<int64_t>();
   }
   return std::nullopt;
 }
 
 std::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar() && isA<Double>()) {
-    return this->as<Double>()->value();
+  if (isConstScalar() && isFloatingPointScalar() && isA<Scalar>()) {
+    return this->as<Scalar>()->value().as<double>();
   }
   return std::nullopt;
 }
 
 std::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool() && isA<Bool>()) {
-    return this->as<Bool>()->value();
+  if (isConstScalar() && isABool() && isA<Scalar>()) {
+    return this->as<Scalar>()->value().as<bool>();
   }
   return std::nullopt;
 }

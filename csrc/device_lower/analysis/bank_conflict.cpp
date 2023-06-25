@@ -7,7 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
-#include <dynamic_type.h>
+#include <evaluator_value.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>

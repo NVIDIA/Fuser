@@ -8,7 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
-#include <dynamic_type.h>
+#include <evaluator_value.h>
 #include <evaluator_common.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
@@ -28,19 +28,17 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
 
  public:
   //! Bind a concrete value to an IR variable
-  template <typename T>
-  void bind(const Val* value, const T& concrete_value) {
+  void bind(const Val* value, EvaluatorValue concrete_value) {
     bind_(value, EvaluatorValue(concrete_value));
   }
 
   //! Bind a concrete value to a named scalar
-  template <typename T>
-  void bind(const std::string& name, const T& concrete_value) {
+  void bind(const std::string& name, EvaluatorValue concrete_value) {
     bind_(name, EvaluatorValue(concrete_value));
   }
 
   //! Set a concrete value for a parallel dimension
-  void bind(ParallelType pt, Int::ScalarType concrete_value);
+  void bind(ParallelType pt, EvaluatorValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
   EvaluatorValue evaluate(const Val* value);

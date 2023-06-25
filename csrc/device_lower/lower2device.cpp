@@ -91,7 +91,7 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the then block
     auto then_exprs = ite->thenBody().exprs();
     ite->thenBody().clear();
-    if (!conditional->isConst() || conditional->value().value()) {
+    if (!conditional->isConst() || conditional->value()) {
       for (auto expr : then_exprs) {
         handle(expr);
         if (!is_nop_) {
@@ -105,7 +105,7 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the else block
     auto else_exprs = ite->elseBody().exprs();
     ite->elseBody().clear();
-    if (!conditional->isConst() || !conditional->value().value()) {
+    if (!conditional->isConst() || !conditional->value()) {
       for (auto expr : else_exprs) {
         handle(expr);
         if (!is_nop_) {
@@ -120,8 +120,8 @@ class KIRCleaner : public OptOutDispatch {
     // conditional and move the exprs in the else block to the then
     // block.
     if (then_nop && !else_nop) {
-      Bool* pred = ite->predicate()->value();
-      Bool* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Bool>();
+      Scalar* pred = ite->predicate()->value();
+      Scalar* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Scalar>();
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);

@@ -12,12 +12,15 @@
 
 #include <c10/macros/Export.h>
 
+#include <evaluator_value.h>
+
 #include <array>
 #include <complex>
 #include <cstdint>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <variant>
 
@@ -215,16 +218,10 @@ template <PrimDataType DT>
 struct DataTypeToNativeType;
 
 template <PrimDataType DT>
-struct DataTypeToNativeTypeWithC10Complex;
-
-template <PrimDataType DT>
 struct DataTypeToAtenType;
 
 template <typename NativeType>
 struct NativeTypeToDataType;
-
-template <typename NativeType>
-struct NativeTypeWithC10ComplexToDataType;
 
 template <at::ScalarType aten_type>
 struct AtenTypeToDataType;
@@ -232,87 +229,87 @@ struct AtenTypeToDataType;
 template <at::ScalarType aten_type>
 struct AtenTypeToNativeType;
 
-template <at::ScalarType aten_type>
-struct AtenTypeToNativeTypeWithC10Complex;
+template <typename NativeType>
+struct IsPrimitiveNativeType : std::false_type {};
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(                                     \
-    data_type, at_type, native_type, native_type_with_c10_complex)          \
-  template <>                                                               \
-  struct DataTypeToNativeType<data_type> {                                  \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToNativeTypeWithC10Complex<data_type> {                    \
-    using type = native_type_with_c10_complex;                              \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToAtenType<data_type> {                                    \
-    static constexpr at::ScalarType type = at_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeToDataType<native_type> {                                \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeWithC10ComplexToDataType<native_type_with_c10_complex> { \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToDataType<at_type> {                                      \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeType<at_type> {                                    \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeTypeWithC10Complex<at_type> {                      \
-    using type = native_type_with_c10_complex;                              \
-  };
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, at_type, native_type) \
+  template <>                                                           \
+  struct DataTypeToNativeType<data_type> {                              \
+    using type = native_type;                                           \
+  };                                                                    \
+  template <>                                                           \
+  struct DataTypeToAtenType<data_type> {                                \
+    static constexpr at::ScalarType type = at_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct NativeTypeToDataType<native_type> {                            \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {};        \
+  template <>                                                           \
+  struct AtenTypeToDataType<at_type> {                                  \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct AtenTypeToNativeType<at_type> {                                \
+    using type = native_type;                                           \
+  }
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float,
-    at::ScalarType::Float,
-    float,
-    float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
-    double,
     double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Half,
-    at::ScalarType::Half,
-    at::Half,
-    at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
-    at::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Int,
-    at::ScalarType::Long,
-    int64_t,
-    int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Bool,
-    at::ScalarType::Bool,
-    bool,
-    bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
-    std::complex<float>,
-    c10::complex<float>);
+    std::complex<float>);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
-    std::complex<double>,
-    c10::complex<double>);
+    std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
+
+DataType getDataType(const EvaluatorValue& value) {
+  std::optional<DataType> dtype = std::nullopt;
+  EvaluatorValue::for_all_types([&](auto _) {
+    using T = typename decltype(_)::type;
+    if constexpr (IsPrimitiveNativeType<T>::value) {
+      if (value.is<T>()) {
+        dtype = NativeTypeToDataType<T>::type;
+      }
+    }
+    // TODO: support arrays and pointers
+  });
+  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value);
+  return dtype.value();
+}
+
+bool isCompatibleDataType(DataType dtype, DataType dtype2) {
+  if (dtype == dtype2) {
+    return true;
+  }
+  if (isIntegralType(dtype) && isIntegralType(dtype2)) {
+    return true;
+  }
+  if (isFloatingPointType(dtype) && isFloatingPointType(dtype2)) {
+    return true;
+  }
+  if (isComplexType(dtype) && isComplexType(dtype2)) {
+    return true;
+  }
+  return false;
+}
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.

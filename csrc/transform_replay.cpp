@@ -61,14 +61,14 @@ class ReplaySelf : public ReplayTransformations {
     IterDomain* ido =
         IterDomainBuilder(s->outer())
             .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? remainder->as<Int>() : s->factor())
+            .extent(s->innerSplit() ? remainder->as<Scalar>() : s->factor())
             .build();
 
     // inner IterDomain
     IterDomain* idi =
         IterDomainBuilder(s->inner())
             .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? s->factor() : remainder->as<Int>())
+            .extent(s->innerSplit() ? s->factor() : remainder->as<Scalar>())
             .build();
 
     // Generate the split node
@@ -122,7 +122,7 @@ class ReplaySelf : public ReplayTransformations {
 
     IterDomain* merged_id = IterDomainBuilder(m->out())
                                 .start(m->container()->zeroVal())
-                                .extent(merged_id_size->as<Int>())
+                                .extent(merged_id_size->as<Scalar>())
                                 .build();
 
     IrBuilder::create<Merge>(

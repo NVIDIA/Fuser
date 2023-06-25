@@ -105,7 +105,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
     }
   }
   for (auto inp : fusion->inputs()) {
-    if (inp->isA<Int>() || inp->isA<Double>()) {
+    if (inp->isA<Scalar>()) {
       ret.push_back(inp);
     }
   }

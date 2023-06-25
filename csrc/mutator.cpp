@@ -45,13 +45,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   mutations_[val] = mutation;
 }
 
-void OptOutMutator::mutate(Bool* b) {}
-
-void OptOutMutator::mutate(Double* d) {}
-
-void OptOutMutator::mutate(Int* i) {}
-
-void OptOutMutator::mutate(ComplexDouble* c) {}
+void OptOutMutator::mutate(Scalar* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 

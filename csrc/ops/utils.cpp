@@ -62,10 +62,10 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
 Val* simplifiedInt(Val* val) {
   TORCH_INTERNAL_ASSERT(
       val->isConstInt(), "Expecting Const Int's only in this routine.");
-  if (val->as<Int>()->value().has_value()) {
+  if (val->as<Scalar>()->value().has_value()) {
     return val;
   }
-  return IrBuilder::create<Int>(val->evaluateInt());
+  return IrBuilder::create<Scalar>(val->evaluateInt());
 }
 
 // If one size is nullptr, return the other. If both symbolic just return v1. If
@@ -113,19 +113,19 @@ Val* newScalar(ValType vtype, DataType dtype) {
     case (ValType::Scalar):
       switch (std::get<PrimDataType>(dtype.type)) {
         case DataType::Bool:
-          return IrBuilder::create<Bool>();
+          return IrBuilder::create<Scalar>();
         case DataType::Float:
         case DataType::Half:
         case DataType::BFloat16:
-          return IrBuilder::create<Double>(DataType::Float);
+          return IrBuilder::create<Scalar>(DataType::Float);
         case DataType::Double:
-          return IrBuilder::create<Double>(DataType::Double);
+          return IrBuilder::create<Scalar>(DataType::Double);
         case DataType::Int32:
-          return IrBuilder::create<Int>(DataType::Int32);
+          return IrBuilder::create<Scalar>(DataType::Int32);
         case DataType::Index:
-          return IrBuilder::create<Int>(DataType::Index);
+          return IrBuilder::create<Scalar>(DataType::Index);
         case DataType::Int:
-          return IrBuilder::create<Int>(DataType::Int);
+          return IrBuilder::create<Scalar>(DataType::Int);
         case DataType::ComplexFloat:
           return IrBuilder::create<ComplexDouble>(DataType::ComplexFloat);
         case DataType::ComplexDouble:
@@ -251,8 +251,8 @@ std::vector<IterDomain*> newOutputDomain(
         iter_types[i] = dom[i]->getIterType();
       }
 
-      auto start_offset = dom[i]->start()->as<Int>();
-      auto stop_offset = dom[i]->stopOffset()->as<Int>();
+      auto start_offset = dom[i]->start()->as<Scalar>();
+      auto stop_offset = dom[i]->stopOffset()->as<Scalar>();
       // Currently, start is always constant
       TORCH_INTERNAL_ASSERT(
           start_offset->isConstInt(),
@@ -274,8 +274,8 @@ std::vector<IterDomain*> newOutputDomain(
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
-              IrBuilder::create<Int>(start_offsets[dim_i]), extent_vals[dim_i])
-              .stop_offset(IrBuilder::create<Int>(stop_offsets[dim_i]))
+              IrBuilder::create<Scalar>(start_offsets[dim_i]), extent_vals[dim_i])
+              .stop_offset(IrBuilder::create<Scalar>(stop_offsets[dim_i]))
               .iter_type(iter_types[dim_i].value())
               .build();
     } else {
@@ -343,28 +343,28 @@ Val* newValLike(Val* val, DataType dtype) {
 Val* getMinimumValue(DataType v) {
   switch (std::get<PrimDataType>(v.type)) {
     case (DataType::Double):
-      return IrBuilder::create<Double>(
+      return IrBuilder::create<Scalar>(
           -std::numeric_limits<double>::infinity());
       break;
     case (DataType::Float):
-      return IrBuilder::create<Double>(-std::numeric_limits<float>::infinity());
+      return IrBuilder::create<Scalar>(static_cast<double>(-std::numeric_limits<float>::infinity()));
       break;
     case (DataType::Half):
-      return IrBuilder::create<Double>(
+      return IrBuilder::create<Scalar>(
           static_cast<double>(-std::numeric_limits<c10::Half>::infinity()));
       break;
     case DataType::BFloat16:
-      return IrBuilder::create<Double>(
+      return IrBuilder::create<Scalar>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
     case (DataType::Int):
-      return IrBuilder::create<Int>(std::numeric_limits<int64_t>::lowest());
+      return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::lowest());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Int>(std::numeric_limits<int32_t>::lowest());
+      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::lowest());
       break;
     case (DataType::Bool):
-      return IrBuilder::create<Bool>(false);
+      return IrBuilder::create<Scalar>(false);
       break;
     default:
       TORCH_CHECK(
@@ -380,27 +380,27 @@ Val* getMinimumValue(DataType v) {
 Val* getMaximumValue(DataType v) {
   switch (std::get<PrimDataType>(v.type)) {
     case (DataType::Double):
-      return IrBuilder::create<Double>(std::numeric_limits<double>::infinity());
+      return IrBuilder::create<Scalar>(std::numeric_limits<double>::infinity());
       break;
     case (DataType::Float):
-      return IrBuilder::create<Double>(std::numeric_limits<float>::infinity());
+      return IrBuilder::create<Scalar>(std::numeric_limits<float>::infinity());
       break;
     case (DataType::Half):
-      return IrBuilder::create<Double>(
+      return IrBuilder::create<Scalar>(
           static_cast<double>(std::numeric_limits<c10::Half>::infinity()));
       break;
     case DataType::BFloat16:
-      return IrBuilder::create<Double>(
+      return IrBuilder::create<Scalar>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
       break;
     case (DataType::Int):
-      return IrBuilder::create<Int>(std::numeric_limits<int64_t>::max());
+      return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::max());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Int>(std::numeric_limits<int32_t>::max());
+      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::max());
       break;
     case (DataType::Bool):
-      return IrBuilder::create<Bool>(true);
+      return IrBuilder::create<Scalar>(true);
       break;
     default:
       TORCH_CHECK(

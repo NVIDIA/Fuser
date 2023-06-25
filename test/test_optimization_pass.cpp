@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv_var = tvs.var;
     fusion->addOutput(tv_var);
     auto tv_mean = tvs.mean;
-    nvfuser::Val* s0 = IrBuilder::create<Double>(1.0, DataType::Double);
+    nvfuser::Val* s0 = IrBuilder::create<Scalar>(1.0, DataType::Double);
     auto tv1 = add(tv_mean, s0);
     auto tv2 = set(tv1);
 

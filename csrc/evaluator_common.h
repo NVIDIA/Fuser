@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
-#include <dynamic_type.h>
+#include <evaluator_value.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>

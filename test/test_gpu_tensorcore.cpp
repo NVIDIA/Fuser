@@ -3715,7 +3715,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlpha_CUDA) {
   FusionGuard fg(fusion.get());
 
   // alpha - s0, A - tv 0, B - tv1
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3779,7 +3779,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaOutputCast_CUDA) {
   FusionGuard fg(fusion.get());
 
   // alpha - s0, A - tv 0, B - tv1
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3965,7 +3965,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   // [M,K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
   // [N,K]

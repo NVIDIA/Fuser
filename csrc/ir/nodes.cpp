@@ -32,75 +32,7 @@
 
 namespace nvfuser {
 
-namespace {
-
-class ScalarCheck : OptInConstDispatch {
- public:
-  static bool sameAs(const Val* v1, const Val* v2) {
-    if (v1 == v2)
-      return true;
-
-    if (v1->getValType() != v2->getValType())
-      return false;
-
-    if (v1->getDataType() != v2->getDataType())
-      return false;
-
-    ScalarCheck sc(v1, v2);
-    return sc.same_;
-  }
-
- private:
-  void handle(const Bool* b) final {
-    same_ = v1_->as<Bool>()->sameAs(v2_->as<Bool>());
-  }
-
-  void handle(const Double* d) final {
-    same_ = v1_->as<Double>()->sameAs(v2_->as<Double>());
-  }
-
-  void handle(const Int* i) final {
-    same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
-  }
-
-  void handle(const NamedScalar* ns) final {
-    same_ = v1_->as<NamedScalar>()->sameAs(v2_->as<NamedScalar>());
-  }
-
-  ScalarCheck(const Val* _v1, const Val* _v2) : v1_(_v1), v2_(_v2) {
-    OptInConstDispatch::handle(v1_);
-  }
-
- private:
-  const Val* v1_ = nullptr;
-  const Val* v2_ = nullptr;
-  bool same_ = false;
-};
-
-} // namespace
-
-bool areEqualScalars(Val* v1, Val* v2) {
-  return ScalarCheck::sameAs(v1, v2);
-}
-
-template class Scalar<bool>;
-template class Scalar<int64_t>;
-template class Scalar<double>;
-template class Scalar<std::complex<double>>;
-
-template Scalar<bool>* IrBuilder::clone<Scalar<bool>>(
-    const Scalar<bool>*,
-    IrCloner*);
-template Scalar<int64_t>* IrBuilder::clone<Scalar<int64_t>>(
-    const Scalar<int64_t>*,
-    IrCloner*);
-template Scalar<double>* IrBuilder::clone<Scalar<double>>(
-    const Scalar<double>*,
-    IrCloner*);
-template Scalar<std::complex<double>>* IrBuilder::clone<
-    Scalar<std::complex<double>>>(
-    const Scalar<std::complex<double>>*,
-    IrCloner*);
+NVFUSER_DEFINE_CLONE(Scalar)
 
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
@@ -2324,12 +2256,12 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   // TODO: Consider managing them as attributes
 
-  return ScalarCheck::sameAs(start(), other_id->start()) &&
-      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+  return start()->sameAs(other_id->start()) &&
+      extent()->sameAs(other_id->extent()) &&
       hasExpandedExtent() == other_id->hasExpandedExtent() &&
       (!hasExpandedExtent() ||
-       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
-      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+       expandedExtent()->sameAs(other_id->expandedExtent())) &&
+      stopOffset()->sameAs(other_id->stopOffset()) &&
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
@@ -2449,7 +2381,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
 
   IterDomain* merged_id =
       IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size->as<Int>())
+          outer->container()->zeroVal(), merged_id_size->as<Scalar>())
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2506,7 +2438,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   IterDomain* ido =
       IterDomainBuilder(
           in->container()->zeroVal(),
-          inner_split ? remainder->as<Int>() : factor)
+          inner_split ? remainder->as<Scalar>() : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2518,7 +2450,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   IterDomain* idi =
       IterDomainBuilder(
           in->container()->zeroVal(),
-          inner_split ? factor : remainder->as<Int>())
+          inner_split ? factor : remainder->as<Scalar>())
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2551,7 +2483,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Int>(container(), factor), true, true);
+      this, IrBuilder::create<Scalar>(container(), factor), true, true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2661,7 +2593,8 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
+      IterDomainBuilder(
+          in->container()->zeroVal(), resized_id_size->as<Scalar>())
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -3818,7 +3751,7 @@ CatOp::CatOp(
     const std::vector<Val*>& inputs,
     int concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Bool*>& preds)
+    const std::vector<Scalar*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_ != nullptr,
@@ -3866,7 +3799,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Bool* CatOp::getPred(int input_idx) const {
+Scalar* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3883,10 +3816,10 @@ Bool* CatOp::getPred(int input_idx) const {
   auto attr = attribute(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
-      attr->isA<Bool>(),
+      attr->isA<Scalar>(),
       "Attribute must be a Bool val: ",
       attr->toInlineString());
-  auto pred = attr->as<Bool>();
+  auto pred = attr->as<Scalar>();
   return pred;
 }
 

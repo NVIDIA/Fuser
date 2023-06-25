@@ -23,7 +23,7 @@ TEST_F(NVFuserTest, FusionResizePad1_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -50,7 +50,7 @@ TEST_F(NVFuserTest, FusionResizePad2_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   fusion.addOutput(tv1);
 
   tv1->split(0, 4);
@@ -83,7 +83,7 @@ TEST_F(NVFuserTest, FusionResizePad3_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
-  auto tv3 = pad(tv2, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv3 = pad(tv2, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -126,7 +126,7 @@ TEST_F(NVFuserTest, FusionResizePad4_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   fusion.addOutput(tv1);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
@@ -156,7 +156,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = pad(tv1, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   fusion.addOutput(tv2);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
@@ -206,8 +206,8 @@ TEST_F(NVFuserTest, FusionResizePad6_CUDA) {
   auto tv1 = makeConcreteTensor(padded_shape);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv3 = pad(tv2, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv2 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv3 = pad(tv2, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -251,7 +251,7 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = pad(tv1, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
@@ -299,9 +299,9 @@ TEST_F(NVFuserTest, FusionResizePad8_CUDA) {
 
   auto tv1 = set(tv0);
   // Sort of shift(tv1, {-1});
-  auto tv2 = pad(tv1, {IrBuilder::create<Int>(0), IrBuilder::create<Int>(1)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(1)});
   // Sort of shift(tv1, {1});
-  auto tv3 = pad(tv1, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(0)});
+  auto tv3 = pad(tv1, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(0)});
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
@@ -340,7 +340,7 @@ TEST_F(NVFuserTest, FusionResizePadScheduler1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
-  auto tv1 = pad(tv0, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   fusion->addOutput(tv1);
 
   std::vector<int64_t> shape({99, 111});
@@ -372,7 +372,7 @@ TEST_F(NVFuserTest, FusionResizePadScheduler2_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
-  auto tv3 = pad(tv2, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)});
+  auto tv3 = pad(tv2, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -409,8 +409,8 @@ TEST_F(NVFuserTest, FusionResizePadScheduler3_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 = pad(tv1, {IrBuilder::create<Int>(0), IrBuilder::create<Int>(1)});
-  auto tv3 = pad(tv1, {IrBuilder::create<Int>(1), IrBuilder::create<Int>(0)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(1)});
+  auto tv3 = pad(tv1, {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(0)});
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
@@ -444,9 +444,9 @@ TEST_F(NVFuserTest, FusionResizePadScheduler4_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
-  auto left_pad = IrBuilder::create<Int>();
+  auto left_pad = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(left_pad);
-  auto right_pad = IrBuilder::create<Int>();
+  auto right_pad = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(right_pad);
 
   auto tv1 = pad(tv0, {left_pad, right_pad});
@@ -904,8 +904,8 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(1),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Int>(1))}});
+      {{IrBuilder::create<Scalar>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Scalar>(1))}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -937,8 +937,8 @@ TEST_F(NVFuserTest, FusionResizeSlice2_CUDA) {
   auto tv1 = slice(
       tv0,
       {Slice(),
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(shape[1] / 2)}});
-  auto tv2 = slice(tv0, {Slice(), {IrBuilder::create<Int>(shape[1] / 2)}});
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(shape[1] / 2)}});
+  auto tv2 = slice(tv0, {Slice(), {IrBuilder::create<Scalar>(shape[1] / 2)}});
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
@@ -992,18 +992,18 @@ TEST_F(NVFuserTest, FusionResizeSlice4_CUDA) {
   fusion.addInput(tv0);
 
   // Consider a fusion of:
-  // auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  // auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
   // auto tv2 = sum(tv1, {1});
 
   // Reproduce the above fusion with split tensors
 
   // Split the input to [0:2, :] and [2:, :]
   auto tv1 = slice(
-      tv0, {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)}, Slice()});
-  auto tv2 = slice(tv0, {{IrBuilder::create<Int>(2)}, Slice()});
+      tv0, {{IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(2)}, Slice()});
+  auto tv2 = slice(tv0, {{IrBuilder::create<Scalar>(2)}, Slice()});
 
-  auto tv3 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv4 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv4 = add(tv2, IrBuilder::create<Scalar>(1.0));
 
   auto tv5 = sum(tv3, {1});
   auto tv6 = sum(tv4, {1});
@@ -1075,15 +1075,15 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
   auto tv1 = slice(
       tv0,
       {Slice(),
-       {IrBuilder::create<Int>(1),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Int>(1))}});
+       {IrBuilder::create<Scalar>(1),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Scalar>(1))}});
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
   auto tv3 = slice(
       tv0,
       {Slice(),
-       {IrBuilder::create<Int>(1),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Int>(1))}});
+       {IrBuilder::create<Scalar>(1),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Scalar>(1))}});
   auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
 
@@ -1133,8 +1133,8 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(1),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Int>(1))}});
+      {{IrBuilder::create<Scalar>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Scalar>(1))}});
   fusion.addOutput(tv1);
 
   std::vector<int64_t> shape({9});
@@ -1160,13 +1160,13 @@ TEST_F(NVFuserTest, FusionResizePadReduceScheduler1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto left_pad0 = IrBuilder::create<Int>();
+  auto left_pad0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(left_pad0);
-  auto right_pad0 = IrBuilder::create<Int>();
+  auto right_pad0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(right_pad0);
-  auto left_pad1 = IrBuilder::create<Int>();
+  auto left_pad1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(left_pad1);
-  auto right_pad1 = IrBuilder::create<Int>();
+  auto right_pad1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(right_pad1);
 
   auto tv1 = pad(tv0, {left_pad0, right_pad0, left_pad1, right_pad1});
@@ -1208,13 +1208,13 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto start0 = IrBuilder::create<Int>();
+  auto start0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(start0);
-  auto end0 = IrBuilder::create<Int>();
+  auto end0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(end0);
-  auto start1 = IrBuilder::create<Int>();
+  auto start1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(start1);
-  auto end1 = IrBuilder::create<Int>();
+  auto end1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(end1);
 
   auto tv1 = slice(tv0, {{start0, end0}, {start1, end1}});
@@ -1259,13 +1259,13 @@ TEST_F(NVFuserTest, FusionResizeSliceReduceScheduler2_CUDA) {
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
-  auto start0 = IrBuilder::create<Int>();
+  auto start0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(start0);
-  auto end0 = IrBuilder::create<Int>();
+  auto end0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(end0);
-  auto start1 = IrBuilder::create<Int>();
+  auto start1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(start1);
-  auto end1 = IrBuilder::create<Int>();
+  auto end1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(end1);
 
   auto tv1 = slice(tv0, {Slice(), {start0, end0}});
@@ -1317,9 +1317,9 @@ TEST_F(NVFuserTest, FusionSliceReduceScheduler3_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto start0 = IrBuilder::create<Int>();
+  auto start0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(start0);
-  auto end0 = IrBuilder::create<Int>();
+  auto end0 = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(end0);
 
   auto tv1 = slice(tv0, {Slice(), {start0, end0}});
@@ -1448,8 +1448,8 @@ TEST_F(NVFuserTest, FusionResizeReductionSliceScheduler1_CUDA) {
   auto tv1 = sum(tv0, {1});
   auto tv2 = slice(
       tv1,
-      {{IrBuilder::create<Int>(1),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Int>(2))}});
+      {{IrBuilder::create<Scalar>(1),
+        sub(tv1->axis(0)->extent(), IrBuilder::create<Scalar>(2))}});
   fusion.addOutput(tv2);
 
   std::vector<int64_t> shape0({10, 1234});
@@ -1486,8 +1486,8 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler1_CUDA) {
   auto tv1 = softmax(tv0, 1);
   auto tv2 = slice(
       tv1,
-      {{IrBuilder::create<Int>(1),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Int>(2))},
+      {{IrBuilder::create<Scalar>(1),
+        sub(tv1->axis(0)->extent(), IrBuilder::create<Scalar>(2))},
        Slice()});
   fusion.addOutput(tv2);
 
@@ -1528,8 +1528,8 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
   auto tv2 = slice(
       tv1,
       {Slice(),
-       {IrBuilder::create<Int>(1),
-        sub(tv1->axis(1)->extent(), IrBuilder::create<Int>(2))}});
+       {IrBuilder::create<Scalar>(1),
+        sub(tv1->axis(1)->extent(), IrBuilder::create<Scalar>(2))}});
   fusion.addOutput(tv2);
 
   std::vector<int64_t> shape0({110, 12345});
@@ -1568,8 +1568,8 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
 
   auto tv1 =
       pad(tv0,
-          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
-          IrBuilder::create<Int>(2));
+          {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)},
+          IrBuilder::create<Scalar>(2));
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1598,8 +1598,8 @@ TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
 
   auto tv1 =
       pad(tv0,
-          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
-          IrBuilder::create<Double>(2.5));
+          {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)},
+          IrBuilder::create<Scalar>(2.5));
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -1628,8 +1628,8 @@ TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
 
   auto tv1 =
       pad(tv0,
-          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
-          IrBuilder::create<Double>(2.5));
+          {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)},
+          IrBuilder::create<Scalar>(2.5));
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -1662,21 +1662,21 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT1_CUDA) {
   fusion.addInput(tv1);
 
   Slice dim0{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(1),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(1),
+      IrBuilder::create<Scalar>(1)};
   Slice dim1{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(1),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(1),
+      IrBuilder::create<Scalar>(1)};
   Slice dim2{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(128),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(128),
+      IrBuilder::create<Scalar>(1)};
   Slice dim3{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(128),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(128),
+      IrBuilder::create<Scalar>(1)};
   auto tv2 = slice(tv0, {dim0, dim1, dim2, dim3});
 
   auto tv3 = add(tv2, tv1);
@@ -1734,16 +1734,16 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Scalar>(1.0));
 
   Slice dim0{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(32),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(32),
+      IrBuilder::create<Scalar>(1)};
   Slice dim1{
-      IrBuilder::create<Int>(0),
-      IrBuilder::create<Int>(32),
-      IrBuilder::create<Int>(1)};
+      IrBuilder::create<Scalar>(0),
+      IrBuilder::create<Scalar>(32),
+      IrBuilder::create<Scalar>(1)};
 
   auto tv3 = slice(tv2, {dim0, dim1});
   auto tv4 = add(tv3, tv1);
@@ -1755,7 +1755,7 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
 
   // Another use of tv2. Unlike the above two slice ops, this should
   // not use the copy of tv2
-  auto tv7 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv7 = add(tv2, IrBuilder::create<Scalar>(1.0));
   fusion.addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1858,19 +1858,19 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(1024)}});
+      {{IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(16)},
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(128)},
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(1024)}});
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
-       {IrBuilder::create<Int>(1024), IrBuilder::create<Int>(2048)}});
+      {{IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(16)},
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(128)},
+       {IrBuilder::create<Scalar>(1024), IrBuilder::create<Scalar>(2048)}});
   auto tv3 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(16)},
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(128)},
-       {IrBuilder::create<Int>(2048), IrBuilder::create<Int>(3072)}});
+      {{IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(16)},
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(128)},
+       {IrBuilder::create<Scalar>(2048), IrBuilder::create<Scalar>(3072)}});
 
   auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
   auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
@@ -1929,8 +1929,8 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
   auto tv1 = reshape(tv0, {4, 8}, {8, 4});
   auto tv2 = slice(
       tv1,
-      {{IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)},
-       {IrBuilder::create<Int>(0), IrBuilder::create<Int>(2)}});
+      {{IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(2)},
+       {IrBuilder::create<Scalar>(0), IrBuilder::create<Scalar>(2)}});
   fusion->addOutput(tv2);
 
   std::vector<int64_t> shape({4, 8});
@@ -1966,14 +1966,14 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
   auto tv2 = slice(
       tv1,
-      {{IrBuilder::create<Int>(1), IrBuilder::create<Int>(shape.at(0) - 1)},
-       {IrBuilder::create<Int>(2), IrBuilder::create<Int>(shape.at(1) - 2)}});
+      {{IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(shape.at(0) - 1)},
+       {IrBuilder::create<Scalar>(2), IrBuilder::create<Scalar>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
   fusion->addOutput(tv3);
-  auto tv4 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv2, IrBuilder::create<Scalar>(1.0));
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2023,34 +2023,34 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0),
-        IrBuilder::create<Int>(2),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(2),
+        IrBuilder::create<Scalar>(1)}});
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Int>(2),
-        IrBuilder::create<Int>(4),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(2),
+        IrBuilder::create<Scalar>(4),
+        IrBuilder::create<Scalar>(1)}});
   auto tv3 = slice(
       tv0,
-      {{IrBuilder::create<Int>(4),
-        IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(4),
+        IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(1)}});
   auto tv4 = slice(
       tv0,
-      {{IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(1)}});
   auto tv5 = slice(
       tv0,
-      {{IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(1)}});
   auto tv6 = slice(
       tv0,
-      {{IrBuilder::create<Int>(6),
-        IrBuilder::create<Int>(8),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(6),
+        IrBuilder::create<Scalar>(8),
+        IrBuilder::create<Scalar>(1)}});
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
@@ -2095,12 +2095,12 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(2),
-        IrBuilder::create<Int>(2),
-        IrBuilder::create<Int>(1)},
-       {IrBuilder::create<Int>(0),
-        IrBuilder::create<Int>(5),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(2),
+        IrBuilder::create<Scalar>(2),
+        IrBuilder::create<Scalar>(1)},
+       {IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(5),
+        IrBuilder::create<Scalar>(1)}});
   // tv1 is of shape {0, 5}
   fusion->addOutput(tv1);
 
@@ -2133,7 +2133,7 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
-  auto s1 = IrBuilder::create<Int>();
+  auto s1 = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(s1);
   auto numel_symb = mul(tv0->axis(0)->extent(), tv0->axis(1)->extent());
   auto tv1 = reshape(tv0, {s1, ceilDiv(numel_symb, s1)});
@@ -2181,9 +2181,9 @@ TEST_F(NVFuserTest, SliceVectorization) {
 
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Int>(1),
-        IrBuilder::create<Int>(N + 1),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(1),
+        IrBuilder::create<Scalar>(N + 1),
+        IrBuilder::create<Scalar>(1)}});
 
   auto tv3 = add(tv2, tv1);
 

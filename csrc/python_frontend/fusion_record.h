@@ -473,7 +473,7 @@ struct PadOpRecord : RecordFunctor {
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<Int>(p);
+      auto pval = IrBuilder::create<Scalar>(p);
       val_widths.push_back(pval);
     }
 
@@ -920,10 +920,10 @@ inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
   bool has_expand = false;
   for (const auto idx : c10::irange(shape.size())) {
     if (expand_dim[idx] && shape[idx] != 1 && shape[idx] != -1) {
-      expand_shape[idx] = IrBuilder::create<Int>(shape[idx]);
+      expand_shape[idx] = IrBuilder::create<Scalar>(shape[idx]);
       has_expand = true;
     } else {
-      expand_shape[idx] = IrBuilder::create<Int>(-1);
+      expand_shape[idx] = IrBuilder::create<Scalar>(-1);
     }
   }
 
@@ -1974,15 +1974,15 @@ struct ScalarRecord : RecordFunctor {
           IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
     } else {
       if ((dtype_ == DataType::Double) || (dtype_ == DataType::Float)) {
-        output = IrBuilder::create<Double>(dtype_);
+        output = IrBuilder::create<Scalar>(dtype_);
       } else if (
           (dtype_ == DataType::ComplexDouble) ||
           (dtype_ == DataType::ComplexFloat)) {
         output = IrBuilder::create<ComplexDouble>(dtype_);
       } else if (dtype_ == DataType::Bool) {
-        output = IrBuilder::create<Bool>();
+        output = IrBuilder::create<Scalar>();
       } else if (dtype_ == DataType::Int) {
-        output = IrBuilder::create<Int>();
+        output = IrBuilder::create<Scalar>(DataType::Int);
       } else {
         TORCH_CHECK(false, "Dtype is not supported as a Scalar input:", dtype_);
       }
@@ -2195,9 +2195,9 @@ struct SliceOpRecord : RecordFunctor {
     ranges.reserve(ndims);
     for (const auto i : c10::irange(ndims)) {
       Slice tmp;
-      tmp.start = IrBuilder::create<Int>(start_indices_[i]);
-      tmp.stop = IrBuilder::create<Int>(end_indices_[i]);
-      tmp.step = IrBuilder::create<Int>(strides_[i]);
+      tmp.start = IrBuilder::create<Scalar>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<Scalar>(end_indices_[i]);
+      tmp.step = IrBuilder::create<Scalar>(strides_[i]);
       ranges.emplace_back(tmp);
     }
 
@@ -2613,7 +2613,7 @@ struct FullOpRecord : RecordFunctor {
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
-      nvf_shape[idx] = IrBuilder::create<Int>(shape_.at(idx));
+      nvf_shape[idx] = IrBuilder::create<Scalar>(shape_.at(idx));
     }
     auto output = full(nvf_shape, arg, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2876,11 +2876,11 @@ struct VectorRecord : RecordFunctor {
         dtype_);
     if (value_.has_value()) {
       for (size_t i = 0; i < size_; ++i) {
-        output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
+        output.at(i) = IrBuilder::create<Scalar>(value_.value().at(i));
       }
     } else {
       for (size_t i = 0; i < size_; ++i) {
-        output[i] = IrBuilder::create<Int>();
+        output[i] = IrBuilder::create<Scalar>(DataType::Int);
         fd.addInput(output.at(i));
       }
     }
