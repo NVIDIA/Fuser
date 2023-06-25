@@ -143,7 +143,7 @@ namespace nvfuser {
 // code:
 //   std::optional<bool> ret = std::nullopt;
 //   ...
-//   TORCH_CHECK(ret.has_value(), ...;
+//   TORCH_CHECK(ret.has_value(), ...);
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
