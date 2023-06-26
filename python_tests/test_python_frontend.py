@@ -1671,8 +1671,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_pad2(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            zero_fill_val = fd.define_scalar(0.0)
-            t1 = fd.ops.pad(t0, [2, 2], zero_fill_val)
+            t1 = fd.ops.pad(t0, [2, 2])
             fd.add_output(t1)
 
         nvf_out2, _ = self.exec_nvfuser(
