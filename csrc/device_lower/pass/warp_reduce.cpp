@@ -256,14 +256,14 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
 
   //! Checks if the given tv has been replaced by broadcast fusion.
   //!  returns the replaced TensorIndex if so.
-  c10::optional<kir::TensorIndex*> findMaybeReplacedTensorIndex(
+  std::optional<kir::TensorIndex*> findMaybeReplacedTensorIndex(
       kir::TensorIndex* tensor_index) {
     auto tv = tensor_index->view();
     auto tensor_index_it = running_tv_replacement_map_.find(tv);
     if (tensor_index_it != running_tv_replacement_map_.end()) {
       return tensor_index_it->second;
     }
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   //! Iterate backwards on the currently visible loop scopes

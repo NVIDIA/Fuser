@@ -39,6 +39,7 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 #include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
@@ -1404,7 +1405,8 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   FusionGuard fg(&fusion);
 
   // disable fma to avoid numerical issue for reference implementation
-  ThreadLocalFmaDisableOverwrite over_write;
+  DisableOptionsGuard opt_guard;
+  opt_guard.getCurOptions().set(DisableOption::Fma);
 
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
@@ -8997,7 +8999,7 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // This test may not pass if using a custom block sync as there may
   // be additional calls. Skip the test as it's not specifically
   // relevant with block synchronizatin.
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     return;
   }
   auto g = std::make_shared<torch::jit::Graph>();

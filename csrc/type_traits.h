@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <C++20/type_traits>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -349,8 +350,8 @@ struct Void {};
 //
 // For example, if you want to print 0.2 as bool, int, and float, you can do the
 // following:
-//   auto f = [](auto* x) {
-//     using T = std::remove_pointer_t<decltype(x)>;
+//   auto f = [](auto x) {
+//     using T = typename decltype(x)::type;
 //     std::cout << T(0.2) << std::endl;
 //   };
 //   ForAllTypes<bool, int, float>{}(f);
@@ -358,13 +359,6 @@ struct Void {};
 //  1
 //  0
 //  0.2
-//
-// TODO: actually, it would be better if we can do
-//   auto f = [](auto x) { using T = decltype(x); ... };
-// and just call f with std::declval<T>(). But unfortunately, C++ compilers are
-// just too pedantic on disallowing declval to be instantiated. So we can not
-// call a function with declval<T>() as argument, even if inside the function we
-// don't actually use the value of the argument.
 
 template <typename... Ts>
 struct ForAllTypes;
@@ -373,13 +367,13 @@ template <typename T, typename... Ts>
 struct ForAllTypes<T, Ts...> {
   template <typename Fun>
   constexpr auto operator()(Fun f) const {
-    using RetT = decltype(f((T*)nullptr));
+    using RetT = decltype(f(std::type_identity<T>{}));
     if constexpr (std::is_void_v<RetT>) {
-      f((T*)nullptr);
+      f(std::type_identity<T>{});
       return std::tuple_cat(std::tuple<Void>{}, ForAllTypes<Ts...>{}(f));
     } else {
       return std::tuple_cat(
-          std::make_tuple(f((T*)nullptr)), ForAllTypes<Ts...>{}(f));
+          std::make_tuple(f(std::type_identity<T>{})), ForAllTypes<Ts...>{}(f));
     }
   }
 };
@@ -487,8 +481,8 @@ namespace belongs_to_impl {
 // bool), then the return type is (true, void, void).
 template <typename T, typename... Ts>
 auto get_match_tuple() {
-  auto true_or_void = [](auto* x) {
-    using U = std::remove_pointer_t<decltype(x)>;
+  auto true_or_void = [](auto x) {
+    using U = typename decltype(x)::type;
     if constexpr (std::is_same_v<T, U>) {
       return true;
     } else {

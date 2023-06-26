@@ -2765,7 +2765,7 @@ bool canOmitStopPredicate(
   }
 
   auto stop_index_val =
-      (stop_index->isA<Int>() ? stop_index->as<Int>()->value() : c10::nullopt);
+      (stop_index->isA<Int>() ? stop_index->as<Int>()->value() : std::nullopt);
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`

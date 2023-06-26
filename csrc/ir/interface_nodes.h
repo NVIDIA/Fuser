@@ -63,7 +63,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       NativeTypeToDataType<UnderlyingType>::type;
 
   explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{c10::nullopt} {
+      : Val(passkey, ValType::Scalar, dtype), maybe_value_{std::nullopt} {
     TORCH_INTERNAL_ASSERT(
         (std::is_integral<UnderlyingType>::value &&
          isIntegralOrPointerType(dtype)) ||
@@ -78,7 +78,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
 
   explicit Scalar(
       IrBuilderPasskey passkey,
-      c10::optional<UnderlyingType> value,
+      std::optional<UnderlyingType> value,
       DataType dtype = kDefaultDataType)
       : Val(passkey, ValType::Scalar, dtype), maybe_value_{value} {
     TORCH_INTERNAL_ASSERT(
@@ -133,7 +133,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   bool isConst() const final {
     return maybe_value_.has_value();
   }
-  c10::optional<UnderlyingType> value() const {
+  std::optional<UnderlyingType> value() const {
     return maybe_value_;
   }
 
@@ -152,7 +152,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   }
 
  private:
-  const c10::optional<UnderlyingType> maybe_value_;
+  const std::optional<UnderlyingType> maybe_value_;
 };
 
 using Bool = Scalar<bool>;
@@ -285,7 +285,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  c10::optional<unsigned int> getReductionAxis() const {
+  std::optional<unsigned int> getReductionAxis() const {
     return domain()->getReductionAxis();
   }
 

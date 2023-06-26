@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <options.h>
 #include <utils.h>
 
 #include <iostream>
