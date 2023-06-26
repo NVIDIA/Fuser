@@ -674,6 +674,14 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
             return out_tv->getRootDomain().at(ax)->isReduction();
           });
     };
+    auto hasEmptyRootNonReductionAxis = [&empty_tv_descr](TensorView* out_tv) {
+      return std::any_of(
+          empty_tv_descr.empty_axes.begin(),
+          empty_tv_descr.empty_axes.end(),
+          [&out_tv](size_t ax) {
+            return !out_tv->getRootDomain().at(ax)->isReduction();
+          });
+    };
 
     // Given a TensorView get a vector of its maybeRFactor maybeExpandedExtents
     auto orig_shape = [](TensorView* out_tv) -> std::vector<Val*> {
@@ -719,7 +727,11 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       // with a call to full().
       if (auto rop = dynamic_cast<ReductionOp*>(use)) {
         auto out = maybeReplaced(rop->out()->as<TensorView>());
-        if (hasEmptyRootReductionAxis(out)) {
+        // If a reduction has empty non-reduced axes, then its output will be
+        // empty so it should already be dead code. In those cases we skip
+        // replacing the reduction with full as that should be redundant.
+        if (hasEmptyRootReductionAxis(out) &&
+            !hasEmptyRootNonReductionAxis(out)) {
           auto out_shape = orig_shape(out);
           replaceWithFull(out, out_shape);
         }
@@ -727,7 +739,8 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
         auto var = maybeReplaced(wop->outVar()->as<TensorView>());
         auto N = maybeReplaced(wop->outN()->as<TensorView>());
-        if (hasEmptyRootReductionAxis(avg)) {
+        if (hasEmptyRootReductionAxis(avg) &&
+            !hasEmptyRootNonReductionAxis(avg)) {
           auto out_shape = orig_shape(avg);
           auto nan = IrBuilder::create<Double>(
               std::numeric_limits<double>::quiet_NaN());
