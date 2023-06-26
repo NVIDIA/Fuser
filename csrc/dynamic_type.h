@@ -31,7 +31,7 @@
 //   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
 // because the operator+ on std::variant is not defined. The goal of DynamicType
 // is to fill this gap. So you can do:
-//   using IntOrFloat = DynamicType<int, float>;
+//   using IntOrFloat = DynamicType<NoContainers, int, float>;
 //   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
 //
 // The design purpose of DynamicType is to allow the user to forget about the
@@ -41,7 +41,8 @@
 // of the C++ standard. The definition of operators on DynamicType should be
 // automatic. For example, if you have:
 //   struct CustomType {};
-//   using IntOrFloatOrCustom = DynamicType<int, float, CustomType>;
+//   using IntOrFloatOrCustom
+//     = DynamicType<NoContainers, int, float, CustomType>;
 // The the operator+ on IntOrFloatOrCustom should be defined, and it should be
 // equivalent to one of the following:
 //  - operator+(int, int)
@@ -53,7 +54,7 @@
 // is a runtime error.
 // However, if have:
 //   struct CustomType2 {};
-//   using Custom12 = DynamicType<CustomType, CustomType2>;
+//   using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
 // Then the operator+ on Custom12 should not be defined at compile time, and
 // doing Custom12{} + Custom12{} results in a compilation error. It is a
 // compilation error because we know at compile time that none of them are
@@ -69,10 +70,12 @@
 // is also in the type list. For example, if you have:
 //   struct bfloat16_zero {}; struct half_zero {};
 //   float operator+(bfloat16_zero, half_zero) { return 0.0f; }
-//   using BFloatOrHalfZero = DynamicType<bfloat16_zero, half_zero>;
+//   using BFloatOrHalfZero
+//     = DynamicType<NoContainers, bfloat16_zero, half_zero>;
 // Then the operator+ on BFloatOrHalf should not be defined, because the result
 // type is not in the type list. However, if you have:
-//   using BFloatOrHalfZeroOrInt = DynamicType<bfloat16_zero, half_zero, int>;
+//   using BFloatOrHalfZeroOrInt
+//     = DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
 // Then the operator+ on BFloatOrHalfZeroOrInt should be defined at compile time
 // because int+int is defined, but
 // BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{})
@@ -94,6 +97,17 @@
 // extra work. All the behaviors mentioned in this note is tested in
 // DynamicTypeTest.ExamplesInNote, so if you want to change anything in this
 // doc, please make sure to update the test as well.
+//
+// DynamicType also support nested types, that is, the type list can contain
+// DynamicType. For example, we can have:
+//   using IntFloatVecList
+//     = DynamicType<Containers<std::vector, std::list>, int, float>;
+// Then the value contained in IntFloatVecList can be an int, a float, a
+// std::vector<IntFloatVecList>, or a std::list<IntFloatVecList>. For example,
+// we can have:
+//   IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
+//   IntFloatVecList y = std::list<IntFloatVecList>{3, x};
+// then y will have a structure like {3, {1, 2.0f}}.
 //
 // Also, operations on DynamicType should be as constexpr as possible. So most
 // tests in DynamicTypeTest are static_assert tests.
@@ -124,21 +138,41 @@ namespace nvfuser {
 #pragma GCC diagnostic ignored "-Wbool-operation"
 #endif
 
-template <typename... Ts>
-struct DynamicType;
+template <template <typename...> typename... Templates>
+// Note: `Templates` is a list of templates, not a list of types.
+// Just like std::vector is a template, std::vector<int> is a type.
+struct Containers {
+  template <typename DynamicType, typename... MemberTypes>
+  using VariantType =
+      std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
-template <typename... Ts>
+  // Check if T is one of the types in the type list MemberTypes..., or a
+  // container
+  template <typename T, typename DynamicType, typename... MemberTypes>
+  static constexpr auto is_candidate_type =
+      nvfuser::belongs_to<T, MemberTypes..., Templates<DynamicType>...>;
+};
+
+using NoContainers = Containers<>;
+
+template <typename Containers, typename... Ts>
 struct DynamicType {
-  std::variant<std::monostate, Ts...> value_;
+  using VariantType =
+      typename Containers::template VariantType<DynamicType, Ts...>;
+  VariantType value_;
 
+  // TODO: Not supporting operators for containers for now, because containers
+  // has nested DynamicType, trying to support operators for containers will
+  // make the template deduction an infinite loop.
   using TypeIdentitiesAsTuple = std::tuple<std::type_identity<Ts>...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
   using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
   static constexpr ForAllTypes for_all_types{};
 
-  // Check if T is one of the types in the type list Ts...
+  // Check if T is one of the types in the type list Ts... or a container
   template <typename T>
-  static constexpr auto is_candidate_type = nvfuser::belongs_to<T, Ts...>;
+  static constexpr auto is_candidate_type =
+      Containers::template is_candidate_type<T, DynamicType, Ts...>;
 
   template <typename T>
   static constexpr bool can_cast_to = any_check(
@@ -576,7 +610,7 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
-using EvaluatorValue = DynamicType<double, int64_t, bool>;
+using EvaluatorValue = DynamicType<NoContainers, double, int64_t, bool>;
 
 namespace EvaluatorValue_functions {
 
