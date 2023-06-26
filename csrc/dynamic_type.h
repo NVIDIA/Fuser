@@ -215,6 +215,8 @@ struct DynamicType {
           return result;
         }(value)) {}
 
+  // Returns the type_info of the actual type of the variant value_. For
+  // example, if value_ holds an int, then this will return typeid(int).
   const std::type_info& type() const {
     return std::visit(
         [](auto value) -> const std::type_info& { return typeid(value); },
