@@ -128,12 +128,11 @@ template <typename... Ts>
 struct DynamicType;
 
 template <typename... Ts>
-// not using template <typename... Ts> to make sure there is at least one type
 struct DynamicType {
   std::variant<std::monostate, Ts...> value_;
 
-  using TypesAsTuple = std::tuple<Ts...>;
-  static constexpr TypesAsTuple types_as_tuple{};
+  using TypeIdentitiesAsTuple = std::tuple<std::type_identity<Ts>...>;
+  static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
   using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
   static constexpr ForAllTypes for_all_types{};
 
@@ -143,8 +142,10 @@ struct DynamicType {
 
   template <typename T>
   static constexpr bool can_cast_to = any_check(
-      [](auto t) { return opcheck<decltype(t)>.canCastTo(opcheck<T>); },
-      types_as_tuple);
+      [](auto t) {
+        return opcheck<typename decltype(t)::type>.canCastTo(opcheck<T>);
+      },
+      type_identities_as_tuple);
 
   constexpr DynamicType() = default;
 
@@ -232,120 +233,130 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
-#define DEFINE_BINARY_OP(opname, op)                                        \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/      \
-  /*but I can only do this in C++20 */                                      \
-  constexpr auto opname##_defined_checker =                                 \
-      [](auto x, auto y, auto z) constexpr {                                \
-        if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {       \
-          return std::is_same_v<decltype(x op y), decltype(z)>;             \
-        }                                                                   \
-        return false;                                                       \
-      };                                                                    \
-  template <                                                                \
-      typename DT,                                                          \
-      typename = std::enable_if_t<any_check(                                \
-          opname##_defined_checker,                                         \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
-  inline constexpr DT operator op(DT x, DT y) {                             \
-    DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto lhs) {                              \
-      using LHS = typename decltype(lhs)::type;                             \
-      DT::for_all_types([&ret, x, y](auto rhs) {                            \
-        using RHS = typename decltype(rhs)::type;                           \
-        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                     \
-          if constexpr (DT::template is_candidate_type<                     \
-                            decltype(std::declval<LHS>()                    \
-                                         op std::declval<RHS>())>) {        \
-            if (x.template is<LHS>() && y.template is<RHS>()) {             \
-              ret = DT(x.template as<LHS>() op y.template as<RHS>());       \
-            }                                                               \
-          }                                                                 \
-        }                                                                   \
-      });                                                                   \
-    });                                                                     \
-    TORCH_CHECK(                                                            \
-        !ret.template is<std::monostate>(),                                 \
-        "Can not compute ",                                                 \
-        #op,                                                                \
-        " : incompatible type");                                            \
-    return ret;                                                             \
-  }                                                                         \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/      \
-  /*but I can only do this in C++20 */                                      \
-  template <typename T>                                                     \
-  constexpr auto opname##_rdefined_checker = [](auto x, auto z) constexpr { \
-    if constexpr (opcheck<decltype(x)> op opcheck<T>) {                     \
-      return std::is_same_v<decltype(x op std::declval<T>()), decltype(z)>; \
-    }                                                                       \
-    return false;                                                           \
-  };                                                                        \
-  template <                                                                \
-      typename DT,                                                          \
-      typename RHS,                                                         \
-      typename = std::enable_if_t<any_check(                                \
-          opname##_rdefined_checker<RHS>,                                   \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
-  inline constexpr DT operator op(DT x, RHS y) {                            \
-    DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto lhs) {                              \
-      using LHS = typename decltype(lhs)::type;                             \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
-        if constexpr (DT::template is_candidate_type<                       \
-                          decltype(std::declval<LHS>()                      \
-                                       op std::declval<RHS>())>) {          \
-          if (x.template is<LHS>()) {                                       \
-            ret = DT(x.template as<LHS>() op y);                            \
-          }                                                                 \
-        }                                                                   \
-      }                                                                     \
-    });                                                                     \
-    TORCH_CHECK(                                                            \
-        !ret.template is<std::monostate>(),                                 \
-        "Can not compute ",                                                 \
-        #op,                                                                \
-        " : incompatible type");                                            \
-    return ret;                                                             \
-  }                                                                         \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/      \
-  /*but I can only do this in C++20 */                                      \
-  template <typename T>                                                     \
-  constexpr auto opname##_ldefined_checker = [](auto y, auto z) constexpr { \
-    if constexpr (opcheck<T> op opcheck<decltype(y)>) {                     \
-      return std::is_same_v<decltype(std::declval<T>() op y), decltype(z)>; \
-    }                                                                       \
-    return false;                                                           \
-  };                                                                        \
-  template <                                                                \
-      typename LHS,                                                         \
-      typename DT,                                                          \
-      typename = std::enable_if_t<any_check(                                \
-          opname##_ldefined_checker<LHS>,                                   \
-          DT::types_as_tuple,                                               \
-          DT::types_as_tuple)>>                                             \
-  inline constexpr DT operator op(LHS x, DT y) {                            \
-    DT ret(std::monostate{});                                               \
-    DT::for_all_types([&ret, x, y](auto rhs) {                              \
-      using RHS = typename decltype(rhs)::type;                             \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
-        if constexpr (DT::template is_candidate_type<                       \
-                          decltype(std::declval<LHS>()                      \
-                                       op std::declval<RHS>())>) {          \
-          if (y.template is<RHS>()) {                                       \
-            ret = DT(x op y.template as<RHS>());                            \
-          }                                                                 \
-        }                                                                   \
-      }                                                                     \
-    });                                                                     \
-    TORCH_CHECK(                                                            \
-        !ret.template is<std::monostate>(),                                 \
-        "Can not compute ",                                                 \
-        #op,                                                                \
-        " : incompatible type");                                            \
-    return ret;                                                             \
+#define DEFINE_BINARY_OP(opname, op)                                          \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  constexpr auto opname##_defined_checker =                                   \
+      [](auto x, auto y, auto z) constexpr {                                  \
+        using X = typename decltype(x)::type;                                 \
+        using Y = typename decltype(y)::type;                                 \
+        using Z = typename decltype(z)::type;                                 \
+        if constexpr (opcheck<X> op opcheck<Y>) {                             \
+          return std::                                                        \
+              is_same_v<decltype(std::declval<X>() op std::declval<Y>()), Z>; \
+        }                                                                     \
+        return false;                                                         \
+      };                                                                      \
+  template <                                                                  \
+      typename DT,                                                            \
+      typename = std::enable_if_t<any_check(                                  \
+          opname##_defined_checker,                                           \
+          DT::type_identities_as_tuple,                                       \
+          DT::type_identities_as_tuple,                                       \
+          DT::type_identities_as_tuple)>>                                     \
+  inline constexpr DT operator op(DT x, DT y) {                               \
+    DT ret(std::monostate{});                                                 \
+    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+      using LHS = typename decltype(lhs)::type;                               \
+      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+        using RHS = typename decltype(rhs)::type;                             \
+        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
+          if constexpr (DT::template is_candidate_type<                       \
+                            decltype(std::declval<LHS>()                      \
+                                         op std::declval<RHS>())>) {          \
+            if (x.template is<LHS>() && y.template is<RHS>()) {               \
+              ret = DT(x.template as<LHS>() op y.template as<RHS>());         \
+            }                                                                 \
+          }                                                                   \
+        }                                                                     \
+      });                                                                     \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        !ret.template is<std::monostate>(),                                   \
+        "Can not compute ",                                                   \
+        #op,                                                                  \
+        " : incompatible type");                                              \
+    return ret;                                                               \
+  }                                                                           \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  template <typename T>                                                       \
+  constexpr auto opname##_rdefined_checker = [](auto x, auto z) constexpr {   \
+    using X = typename decltype(x)::type;                                     \
+    using Z = typename decltype(z)::type;                                     \
+    if constexpr (opcheck<X> op opcheck<T>) {                                 \
+      return std::                                                            \
+          is_same_v<decltype(std::declval<X>() op std::declval<T>()), Z>;     \
+    }                                                                         \
+    return false;                                                             \
+  };                                                                          \
+  template <                                                                  \
+      typename DT,                                                            \
+      typename RHS,                                                           \
+      typename = std::enable_if_t<any_check(                                  \
+          opname##_rdefined_checker<RHS>,                                     \
+          DT::type_identities_as_tuple,                                       \
+          DT::type_identities_as_tuple)>>                                     \
+  inline constexpr DT operator op(DT x, RHS y) {                              \
+    DT ret(std::monostate{});                                                 \
+    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+      using LHS = typename decltype(lhs)::type;                               \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
+        if constexpr (DT::template is_candidate_type<                         \
+                          decltype(std::declval<LHS>()                        \
+                                       op std::declval<RHS>())>) {            \
+          if (x.template is<LHS>()) {                                         \
+            ret = DT(x.template as<LHS>() op y);                              \
+          }                                                                   \
+        }                                                                     \
+      }                                                                       \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        !ret.template is<std::monostate>(),                                   \
+        "Can not compute ",                                                   \
+        #op,                                                                  \
+        " : incompatible type");                                              \
+    return ret;                                                               \
+  }                                                                           \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/        \
+  /*but I can only do this in C++20 */                                        \
+  template <typename T>                                                       \
+  constexpr auto opname##_ldefined_checker = [](auto y, auto z) constexpr {   \
+    using Y = typename decltype(y)::type;                                     \
+    using Z = typename decltype(z)::type;                                     \
+    if constexpr (opcheck<T> op opcheck<Y>) {                                 \
+      return std::                                                            \
+          is_same_v<decltype(std::declval<T>() op std::declval<Y>()), Z>;     \
+    }                                                                         \
+    return false;                                                             \
+  };                                                                          \
+  template <                                                                  \
+      typename LHS,                                                           \
+      typename DT,                                                            \
+      typename = std::enable_if_t<any_check(                                  \
+          opname##_ldefined_checker<LHS>,                                     \
+          DT::type_identities_as_tuple,                                       \
+          DT::type_identities_as_tuple)>>                                     \
+  inline constexpr DT operator op(LHS x, DT y) {                              \
+    DT ret(std::monostate{});                                                 \
+    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+      using RHS = typename decltype(rhs)::type;                               \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
+        if constexpr (DT::template is_candidate_type<                         \
+                          decltype(std::declval<LHS>()                        \
+                                       op std::declval<RHS>())>) {            \
+          if (y.template is<RHS>()) {                                         \
+            ret = DT(x op y.template as<RHS>());                              \
+          }                                                                   \
+        }                                                                     \
+      }                                                                       \
+    });                                                                       \
+    TORCH_CHECK(                                                              \
+        !ret.template is<std::monostate>(),                                   \
+        "Can not compute ",                                                   \
+        #op,                                                                  \
+        " : incompatible type");                                              \
+    return ret;                                                               \
   }
 
 DEFINE_BINARY_OP(add, +);
@@ -373,15 +384,19 @@ DEFINE_BINARY_OP(ge, >=);
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
-    if constexpr (op opcheck<decltype(x)>) {                                   \
-      return std::is_same_v<decltype(op x), decltype(y)>;                      \
+    using X = typename decltype(x)::type;                                      \
+    using Y = typename decltype(y)::type;                                      \
+    if constexpr (op opcheck<X>) {                                             \
+      return std::is_same_v<decltype(op std::declval<X>()), Y>;                \
     }                                                                          \
     return false;                                                              \
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
       typename = std::enable_if_t<any_check(                                   \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+          opname##_helper,                                                     \
+          DT::type_identities_as_tuple,                                        \
+          DT::type_identities_as_tuple)>>                                      \
   inline constexpr DT operator op(DT x) {                                      \
     DT ret(std::monostate{});                                                  \
     DT::for_all_types([&ret, x](auto _) {                                      \
@@ -424,16 +439,18 @@ DEFINE_UNARY_OP(lnot, !);
 // TODO: we should inline the definition of can_print into enable_if, but I can
 // only do this in C++20
 constexpr auto can_print = [](auto x) constexpr {
-  using T = decltype(x);
+  using T = typename decltype(x)::type;
   if constexpr (opcheck<std::ostream&> << opcheck<T>) {
-    return std::
-        is_same_v<decltype(std::declval<std::ostream&>() << x), std::ostream&>;
+    return std::is_same_v<
+        decltype(std::declval<std::ostream&>() << std::declval<T>()),
+        std::ostream&>;
   }
   return false;
 };
 template <
     typename DT,
-    typename = std::enable_if_t<any_check(can_print, DT::types_as_tuple)>>
+    typename =
+        std::enable_if_t<any_check(can_print, DT::type_identities_as_tuple)>>
 std::ostream& operator<<(std::ostream& os, const DT& dt) {
   bool printed = false;
   DT::for_all_types([&printed, &os, &dt](auto _) {
@@ -457,15 +474,16 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    if constexpr (op opcheck<decltype(x)&>) {                                  \
-      return std::is_same_v<decltype(op x), decltype(x)&>;                     \
+    using X = typename decltype(x)::type;                                      \
+    if constexpr (op opcheck<X&>) {                                            \
+      return std::is_same_v<decltype(op std::declval<X&>()), X&>;              \
     }                                                                          \
     return false;                                                              \
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
-      typename =                                                               \
-          std::enable_if_t<any_check(opname##_helper, DT::types_as_tuple)>>    \
+      typename = std::enable_if_t<any_check(                                   \
+          opname##_helper, DT::type_identities_as_tuple)>>                     \
   inline constexpr DT& operator op(DT& x) {                                    \
     bool computed = false;                                                     \
     DT::for_all_types([&computed, &x](auto _) {                                \
@@ -494,15 +512,19 @@ DEFINE_LEFT_PPMM(lmm, --);
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x, auto y) constexpr {              \
-    if constexpr (opcheck<decltype(x)&> op) {                                  \
-      return std::is_same_v<decltype(x op), decltype(y)>;                      \
+    using X = typename decltype(x)::type;                                      \
+    using Y = typename decltype(y)::type;                                      \
+    if constexpr (opcheck<X&> op) {                                            \
+      return std::is_same_v<decltype(std::declval<X&>() op), Y>;               \
     }                                                                          \
     return false;                                                              \
   };                                                                           \
   template <                                                                   \
       typename DT,                                                             \
       typename = std::enable_if_t<any_check(                                   \
-          opname##_helper, DT::types_as_tuple, DT::types_as_tuple)>>           \
+          opname##_helper,                                                     \
+          DT::type_identities_as_tuple,                                        \
+          DT::type_identities_as_tuple)>>                                      \
   inline constexpr DT operator op(DT& x, int) {                                \
     DT ret;                                                                    \
     DT::for_all_types([&ret, &x](auto _) {                                     \
