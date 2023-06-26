@@ -10,7 +10,7 @@ import torch
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
-from pytest_utils import make_number
+from pytest_utils import make_number, find_nonmatching_dtype
 from nvfuser import DataType
 
 
@@ -480,10 +480,11 @@ def pad_error_generator(
     input_shape = (2, 2)
     valid_pad_width = [1, 1, -1, 2]
 
-    # TODO Add dtype check.
-    # yield SampleInput(
-    #     make_arg(input_shape), valid_pad_width, make_number(find_nonmatching_dtype(dtype))
-    # ), RuntimeError, "Tensor arg and pad value must have the same dtype."
+    yield SampleInput(
+        make_arg(input_shape),
+        valid_pad_width,
+        make_number(find_nonmatching_dtype(dtype)),
+    ), RuntimeError, "Tensor arg and pad value must have the same dtype."
 
     # TODO Add better error message.
     # Dimension size after padding is not at least 0

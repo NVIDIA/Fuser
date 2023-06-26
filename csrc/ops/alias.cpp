@@ -421,6 +421,19 @@ TensorView* transpose(TensorView* x) {
   return transpose(x, 0, 1);
 }
 
+bool hasSimilarDtype(DataType base, DataType dt) {
+  if (isComplexType(base)) {
+    return isComplexType(dt);
+  } else if (isFloatingPointType(base)) {
+    return isFloatingPointType(dt);
+  } else if (isBooleanType(base)) {
+    return isBooleanType(dt);
+  } else if (isIntegralType(base)) {
+    return isIntegralType(dt);
+  }
+  return false;
+}
+
 // Padding widths are assumed to be non-negative. Currently there's no
 // validation.
 TensorView* pad(
@@ -440,10 +453,9 @@ TensorView* pad(
       value = static_cast<Val*>(IrBuilder::create<Int>(0, dt));
     }
   }
-  if (value->getDataType().value() != dt) {
-    // Insert an explicit castOp if dtype of value does not match TensorView's
-    value = castOp(dt, value);
-  }
+  TORCH_CHECK(
+      hasSimilarDtype(dt, value->getDataType().value()),
+      "Tensor arg and pad value must have the same dtype.");
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
