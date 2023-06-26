@@ -385,7 +385,13 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         ? add(layer_norm_results.grad_input, layer_norm_results.grad_weight)
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
-    fusion.addOutput(out_linked);
+    if (!link_inner_outer) {
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Double>(0.5));
+      fusion.addOutput(out_linked_scale);
+    } else {
+      fusion.addOutput(out_linked);
+    }
+
     fusion.addOutput(layer_norm_results.grad_input);
     fusion.addOutput(layer_norm_results.grad_weight);
     fusion.addOutput(layer_norm_results.grad_bias);
@@ -430,7 +436,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     auto aten_out_linked = link_inner_outer
         ? std::get<0>(aten_gradients) + std::get<1>(aten_gradients)
         : std::get<1>(aten_gradients) + std::get<2>(aten_gradients);
-
+    if (!link_inner_outer) {
+      aten_out_linked = aten_out_linked.mul(0.5);
+    }
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(is_segmented, "Fusion is not segmented");
 
