@@ -251,10 +251,16 @@ static_assert(std::is_same_v<
 
 class DynamicTypeTest : public NVFuserTest {};
 
-using DoubleInt64Bool = DynamicType<double, int64_t, bool>;
-using IntSomeType = DynamicType<int, SomeType>;
-using BoolSomeType = DynamicType<bool, SomeType>;
-using SomeTypes = DynamicType<SomeType, SomeType>;
+struct NonInstantiable {
+  NonInstantiable() = delete;
+};
+
+// Adding NonInstantiable as a member type to test that we never instantiate any
+// member types when not necessary.
+using DoubleInt64Bool = DynamicType<double, int64_t, bool, NonInstantiable>;
+using IntSomeType = DynamicType<int, SomeType, NonInstantiable>;
+using BoolSomeType = DynamicType<bool, SomeType, NonInstantiable>;
+using SomeTypes = DynamicType<SomeType, SomeType, NonInstantiable>;
 
 // Utilities for testing if we have T->as<U> defined
 template <typename T, typename U>
