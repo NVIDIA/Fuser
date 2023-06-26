@@ -602,20 +602,17 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
             .as<std::vector<IntFloatVecList>>()
             .size(),
         2);
+    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().back()[0], 1);
     EXPECT_EQ(
         y.as<std::list<IntFloatVecList>>()
             .back()
-            .as<std::vector<IntFloatVecList>>()
-            .front()
-            .as<int>(),
-        1);
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()
-            .back()
-            .as<float>(),
+            .as<std::vector<IntFloatVecList>>()[1],
         2.0f);
+    EXPECT_THAT(
+        // std::list can not be indexed
+        [&]() { y[0]; },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Cannot index ")));
   }
 }
 

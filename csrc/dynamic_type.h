@@ -12,7 +12,9 @@
 
 #include <type_traits.h>
 
+#include <C++20/type_traits>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <numeric>
 #include <optional>
@@ -139,6 +141,8 @@ namespace nvfuser {
 #endif
 
 template <template <typename...> typename... Templates>
+// Note: `Templates` is a list of templates, not a list of types.
+// Just like std::vector is a template, std::vector<int> is a type.
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
   using VariantType =
@@ -250,14 +254,39 @@ struct DynamicType {
   // returning pointers, however, if we have a DynamicType that can be either a
   // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
 
-  // Intentionally not supporting operator[], because this has similar issue as
-  // operator* for requiring reference type to be in the type list, which is not
-  // allowed by the C++ standard. On the other hand, instead of supporting
-  // things like std::vector<int> being in the type list, we are more interested
-  // in having recursive dynamic types, i.e. std::vector<DynamicType> being in
-  // the type list. In this case, operator[] will behave differently from the
-  // case of std::vector<int>. We need to think more about the interface before
-  // implementing it.
+  template <typename IndexT>
+  static constexpr bool has_square_bracket = any_check(
+      [](auto t) {
+        using T = typename decltype(t)::type;
+        if constexpr (opcheck<T>[opcheck<IndexT>]) {
+          return std::is_same_v<
+              decltype(std::declval<T>()[std::declval<IndexT>()]),
+              DynamicType&>;
+        }
+        return false;
+      },
+      type_identities_as_tuple);
+
+  template <
+      typename IndexT,
+      typename = std::enable_if_t<has_square_bracket<IndexT>>>
+  DynamicType& operator[](IndexT i) {
+    std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
+    for_all_types([this, &ret, &i](auto t) {
+      using T = typename decltype(t)::type;
+      if constexpr (opcheck<T>[opcheck<IndexT>]) {
+        if constexpr (std::is_same_v<
+                          decltype(std::declval<T>()[std::declval<IndexT>()]),
+                          DynamicType&>) {
+          if (is<T>()) {
+            ret = std::ref(as<T>()[i]);
+          }
+        }
+      }
+    });
+    TORCH_CHECK(ret.has_value(), "Cannot index ", typeid(*this).name());
+    return ret.value();
+  }
 
   // TODO: support ->* operator. This operator is rarely used, so we don't
   // implement it yet. But if in the future, it turns to be useful, we should
