@@ -550,6 +550,46 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //!   with empty T0 from above.
   void removeEmptyBranches();
 
+  //! Replace uses whose outputs might not be empty. Many expressions are
+  //! guaranteed to have empty outputs if any of the inputs are empty; for
+  //! example simple unary or binary ops. In those cases, we don't need to
+  //! doctor the Fusion since they will have an empty tensor downstream which
+  //! will cut off their dependence, resulting in those uses becoming dead
+  //! code. For example, suppose we determined tv2 is empty, and we have the
+  //! following Fusion:
+  //!
+  //!   auto tv4 = add(tv2, tv3);
+  //!   fusion.addOutput(tv4);
+  //!
+  //! If we know that tv2 is empty in any dimension, then either tv3 has a
+  //! matching empty dimension or it is broadcast in that dimension. Either
+  //! way, the corresponding dimension in tv4 will be empty, so tv4 is an empty
+  //! tensor. If we replace this expression with
+  //!
+  //!   auto tv4 = full(shape, zeroVal());
+  //!
+  //! Then the tensors tv2 and tv3 will become dead code if they have no other
+  //! live uses. In this case tv4 is an output tensor, so we must keep it in
+  //! the Fusion.
+  //!
+  //! Some special expressions can convert an empty tensor into a non-empty
+  //! tensor; particularly pad, cat, and reduction ops. These ops might have
+  //! non-empty outputs so in order to guarantee that all non- input or
+  //! output tensors are removed, we need to replace those ops with an
+  //! equivalent that does not have any empty inputs. For example
+  void replaceEmptyUse(ReductionOp* rop, const std::vector<size_t>& empty_axes);
+  void replaceEmptyUse(WelfordOp* wop, const std::vector<size_t>& empty_axes);
+  void replaceEmptyUse(PadOp* pop, const std::vector<size_t>& empty_axes);
+  void replaceEmptyUse(Expr* e, const std::vector<size_t>& empty_axes) {
+    if (auto rop = dynamic_cast<ReductionOp*>(e)) {
+      replaceEmptyUse(rop, empty_axes);
+    } else if (auto wop = dynamic_cast<WelfordOp*>(e)) {
+      replaceEmptyUse(wop, empty_axes);
+    } else if (auto pop = dynamic_cast<PadOp*>(e)) {
+      replaceEmptyUse(pop, empty_axes);
+    }
+  }
+
   //! replaceWithFull modifies the Fusion by replacing tv with output of full()
   //! expression in outputs and all uses. This is used to replace pads of empty
   //! inputs with full tensors containing only the pad value, and it is used to
@@ -649,6 +689,160 @@ void DynamicTransformConcretizer::concretize() {
   }
 }
 
+namespace {
+
+//! This function simply extracts the maybeExpandedExtent Vals from the
+//! noReductions(maybeRFactorDomain) of the provided tensorview.
+std::vector<Val*> tensor_shape(TensorView* tv) {
+  const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  std::vector<Val*> shape;
+  shape.reserve(rfactor.size());
+  for (const auto id : rfactor) {
+    shape.push_back(id->getMaybeExpandedExtent());
+  }
+  return shape;
+}
+
+//! Return whether or not we should replace a reduction or Welford op that is
+//! given an empty input tensor. Returns false if any non-reduction axes are
+//! empty, and otherwise return true if any reduction axis is empty.
+bool reductionOutputShouldBeReplaced(
+    TensorView* out,
+    const std::vector<size_t>& empty_axes) {
+  bool has_empty_reduction = false;
+  bool has_empty_nonreduction = false;
+  // A reduction op itself should not generate an R-Factor domain anyway, but
+  // note that we use the root domain explicitly here for clarity. This is
+  // because empty_axes refers to the _input_ of the reduction op we are
+  // considering, so it maps to the root domain of the TensorView "out" in this
+  // function.
+  auto dom = out->getRootDomain();
+  for (auto ax : empty_axes) {
+    if (dom.at(ax)->isReduction()) {
+      has_empty_reduction = true;
+    } else {
+      has_empty_nonreduction = true;
+    }
+  };
+  // If a reduction has empty non-reduced axes, then its output will be
+  // empty so it should already be dead code. In those cases we skip
+  // replacing the reduction with full as that should be redundant.
+  return has_empty_reduction && !has_empty_nonreduction;
+}
+
+} // namespace
+
+void DynamicTransformConcretizer::replaceEmptyUse(
+    ReductionOp* rop,
+    const std::vector<size_t>& empty_axes) {
+  auto out = maybeReplaced(rop->out()->as<TensorView>());
+  if (reductionOutputShouldBeReplaced(out, empty_axes)) {
+    auto out_shape = tensor_shape(out);
+    replaceWithFull(out, out_shape);
+  }
+}
+
+void DynamicTransformConcretizer::replaceEmptyUse(
+    WelfordOp* wop,
+    const std::vector<size_t>& empty_axes) {
+  auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
+  auto var = maybeReplaced(wop->outVar()->as<TensorView>());
+  auto N = maybeReplaced(wop->outN()->as<TensorView>());
+  if (reductionOutputShouldBeReplaced(avg, empty_axes)) {
+    auto out_shape = tensor_shape(avg);
+    auto nan =
+        IrBuilder::create<Double>(std::numeric_limits<double>::quiet_NaN());
+    replaceWithFull(avg, out_shape, nan);
+    replaceWithFull(var, out_shape, nan);
+    replaceWithFull(N, out_shape);
+  }
+}
+
+void DynamicTransformConcretizer::replaceEmptyUse(
+    PadOp* pop,
+    const std::vector<size_t>& empty_axes) {
+  auto out = maybeReplaced(pop->out()->as<TensorView>());
+
+  // A cat op can have input empty tensors and still output a non-empty
+  // tensor. This is only possible if there is more than one input, so we
+  // only need to handle those cases. We find the non-empty inputs to cat
+  // then replace with another cat (or `set` if n=1).
+  //
+  // [Detecting cat ops]
+  // The `cat` function creates a CatOp object, but its inputs() are not
+  // the original inputs. Rather, they are the inputs after padding to the
+  // output extent in the concatenated dimension. Thus, in the IR graph,
+  // instead of the following:
+  //
+  //    T0  T1   T2
+  //      \  |  /
+  //       CatOp
+  //         |
+  //        T3
+  //
+  // a cat is represented as:
+  //
+  //    T0    T1    T2
+  //     |     |     |
+  //   PadOp PadOp PadOp
+  //       \   |   /
+  //         CatOp
+  //           |
+  //          T3
+  //
+  // If we determine that one of the inputs, T1, is empty in the cat
+  // dimension, then we rewrite this as:
+  //
+  //    T0          T2
+  //     |           |
+  //   PadOp       PadOp
+  //       \       /
+  //         CatOp
+  //           |
+  //          T3
+  //
+  // This is done by simply calling the cat() command with only {T0, T2}.
+  auto pad_uses = pop->out()->uses();
+  if (pad_uses.size() == 1 && pad_uses[0]->isA<CatOp>()) {
+    auto cop = pad_uses[0]->as<CatOp>();
+    std::vector<TensorView*> nonempty_inputs;
+    for (auto inp : cop->inputs()) {
+      // Each "input" to CatOp is a pad() of the corresponding _actual_
+      // input. Here we peel off the pad op to collect the non-padded cat
+      // inputs.
+      auto padded_inp_tv = inp->as<TensorView>();
+      TORCH_INTERNAL_ASSERT(
+          padded_inp_tv->definition() &&
+              padded_inp_tv->definition()->isA<PadOp>(),
+          "Input to cat should have definition that is a PadOp");
+      auto inp_pad_op = padded_inp_tv->definition()->as<PadOp>();
+      auto inp_tv = inp_pad_op->in()->as<TensorView>();
+
+      if (inp_pad_op != pop) {
+        // We could remove other empty tensors here while we're at it. They will
+        // get removed by further passes anyway though as tv ranges over all
+        // empty tensors.
+        nonempty_inputs.push_back(inp_tv);
+      }
+    }
+    auto old_cat = cop->output(0)->as<TensorView>();
+    auto new_cat = nonempty_inputs.size() == 1
+        ? set(nonempty_inputs[0])
+        : cat(nonempty_inputs, cop->concatenatedDim());
+    replaceTV(old_cat, new_cat);
+  } else { // Replace pads that are not part of CatOps with full()
+    auto out_shape = tensor_shape(out);
+    // Wherever there is a zero in the input, we will replace the original
+    // output extent so that we no longer reference the now-zero input
+    // extent
+    for (auto ax : empty_axes) {
+      auto pad_widths = pop->getPadWidths((int)ax);
+      out_shape[ax] = add(pad_widths.first, pad_widths.second);
+    }
+    replaceWithFull(out, out_shape, pop->value());
+  }
+}
+
 void DynamicTransformConcretizer::removeEmptyBranches() {
   auto fusion = FusionGuard::getCurFusion();
   for (const auto& empty_tv_descr : info_->getEmptyTensors()) {
@@ -666,171 +860,8 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
       new_shape[ax] = fusion->zeroVal();
     }
 
-    auto hasEmptyRootReductionAxis = [&empty_tv_descr](TensorView* out_tv) {
-      return std::any_of(
-          empty_tv_descr.empty_axes.begin(),
-          empty_tv_descr.empty_axes.end(),
-          [&out_tv](size_t ax) {
-            return out_tv->getRootDomain().at(ax)->isReduction();
-          });
-    };
-    auto hasEmptyRootNonReductionAxis = [&empty_tv_descr](TensorView* out_tv) {
-      return std::any_of(
-          empty_tv_descr.empty_axes.begin(),
-          empty_tv_descr.empty_axes.end(),
-          [&out_tv](size_t ax) {
-            return !out_tv->getRootDomain().at(ax)->isReduction();
-          });
-    };
-
-    // Given a TensorView get a vector of its maybeRFactor maybeExpandedExtents
-    auto orig_shape = [](TensorView* out_tv) -> std::vector<Val*> {
-      const auto& rfactor =
-          TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
-      std::vector<Val*> out_shape;
-      out_shape.reserve(rfactor.size());
-      for (const auto id : rfactor) {
-        out_shape.push_back(id->getMaybeExpandedExtent());
-      }
-      return out_shape;
-    };
-
-    // Replace uses whose outputs might not be empty. Many expressions are
-    // guaranteed to have empty outputs if any of the inputs are empty; for
-    // example simple unary or binary ops. In those cases, we don't need to
-    // doctor the Fusion since they will have an empty tensor downstream which
-    // will cut off their dependence, resulting in those uses becoming dead
-    // code. For example, suppose we determined tv2 is empty, and we have the
-    // following Fusion:
-    //
-    //   auto tv4 = add(tv2, tv3);
-    //   fusion.addOutput(tv4);
-    //
-    // If we know that tv2 is empty in any dimension, then either tv3 has a
-    // matching empty dimension or it is broadcast in that dimension. Either
-    // way, the corresponding dimension in tv4 will be empty, so tv4 is an empty
-    // tensor. If we replace this expression with
-    //
-    //   auto tv4 = full(shape, zeroVal());
-    //
-    // Then the tensors tv2 and tv3 will become dead code if they have no other
-    // live uses. In this case tv4 is an output tensor, so we must keep it in
-    // the Fusion.
-    //
-    // Some special expressions can convert an empty tensor into a non-empty
-    // tensor; particularly pad, cat, and reduction ops. These ops might have
-    // non-empty outputs so in order to guarantee that all non- input or
-    // output tensors are removed, we need to replace those ops with an
-    // equivalent that does not have any empty inputs. For example
     for (auto use : tv->uses()) {
-      // If use is a ReductionOp or WelfordOp over some empty axes, replace it
-      // with a call to full().
-      if (auto rop = dynamic_cast<ReductionOp*>(use)) {
-        auto out = maybeReplaced(rop->out()->as<TensorView>());
-        // If a reduction has empty non-reduced axes, then its output will be
-        // empty so it should already be dead code. In those cases we skip
-        // replacing the reduction with full as that should be redundant.
-        if (hasEmptyRootReductionAxis(out) &&
-            !hasEmptyRootNonReductionAxis(out)) {
-          auto out_shape = orig_shape(out);
-          replaceWithFull(out, out_shape);
-        }
-      } else if (auto wop = dynamic_cast<WelfordOp*>(use)) {
-        auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
-        auto var = maybeReplaced(wop->outVar()->as<TensorView>());
-        auto N = maybeReplaced(wop->outN()->as<TensorView>());
-        if (hasEmptyRootReductionAxis(avg) &&
-            !hasEmptyRootNonReductionAxis(avg)) {
-          auto out_shape = orig_shape(avg);
-          auto nan = IrBuilder::create<Double>(
-              std::numeric_limits<double>::quiet_NaN());
-          replaceWithFull(avg, out_shape, nan);
-          replaceWithFull(var, out_shape, nan);
-          replaceWithFull(N, out_shape);
-        }
-      } else if (auto pop = dynamic_cast<PadOp*>(use)) {
-        auto out = maybeReplaced(pop->out()->as<TensorView>());
-
-        // A cat op can have input empty tensors and still output a non-empty
-        // tensor. This is only possible if there is more than one input, so we
-        // only need to handle those cases. We find the non-empty inputs to cat
-        // then replace with another cat (or `set` if n=1).
-        //
-        // [Detecting cat ops]
-        // The `cat` function creates a CatOp object, but its inputs() are not
-        // the original inputs. Rather, they are the inputs after padding to the
-        // output extent in the concatenated dimension. Thus, in the IR graph,
-        // instead of the following:
-        //
-        //    T0  T1   T2
-        //      \  |  /
-        //       CatOp
-        //         |
-        //        T3
-        //
-        // a cat is represented as:
-        //    T0    T1    T2
-        //     |     |     |
-        //   PadOp PadOp PadOp
-        //       \   |   /
-        //         CatOp
-        //           |
-        //          T3
-        //
-        // If we determine that one of the inputs, T1, is empty in the cat
-        // dimension, then we rewrite this as:
-        //
-        //    T0          T2
-        //     |           |
-        //   PadOp       PadOp
-        //       \       /
-        //         CatOp
-        //           |
-        //          T3
-        //
-        // This is done by simply calling the cat() command with only {T0, T2}.
-        if (pop->out()->uses().size() == 1 &&
-            pop->out()->uses()[0]->isA<CatOp>()) {
-          auto cop = pop->out()->uses()[0]->as<CatOp>();
-          std::vector<TensorView*> nonempty_inputs;
-          for (auto inp : cop->inputs()) {
-            // Each "input" to CatOp is a pad() of the corresponding _actual_
-            // input. Here we peel off the pad op to collect the non-padded cat
-            // inputs.
-            auto padded_inp_tv = inp->as<TensorView>();
-            TORCH_INTERNAL_ASSERT(
-                padded_inp_tv->definition() &&
-                    padded_inp_tv->definition()->isA<PadOp>(),
-                "Input to cat should have definition that is a PadOp");
-            auto inp_tv = padded_inp_tv->definition()
-                              ->as<PadOp>()
-                              ->in()
-                              ->as<TensorView>();
-
-            if (inp_tv != tv) {
-              // we could remove other empty tensors here while we're at it.
-              // They will get removed by further passes anyway though as tv
-              // ranges over all empty tensors.
-              nonempty_inputs.push_back(inp_tv);
-            }
-          }
-          auto old_cat = cop->output(0)->as<TensorView>();
-          auto new_cat = nonempty_inputs.size() == 1
-              ? set(nonempty_inputs[0])
-              : cat(nonempty_inputs, cop->concatenatedDim());
-          replaceTV(old_cat, new_cat);
-        } else { // Replace pads that are not part of CatOps with full()
-          auto out_shape = orig_shape(out);
-          // Wherever there is a zero in the input, we will replace the original
-          // output extent so that we no longer reference the now-zero input
-          // extent
-          for (auto i : empty_tv_descr.empty_axes) {
-            auto pad_widths = pop->getPadWidths((int)i);
-            out_shape[i] = add(pad_widths.first, pad_widths.second);
-          }
-          replaceWithFull(out, out_shape, pop->value());
-        }
-      }
+      replaceEmptyUse(use, empty_tv_descr.empty_axes);
     }
     if (!tv->isFusionInput()) {
       replaceWithFull(tv, new_shape);
