@@ -64,7 +64,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! Return a set of scalars that appear as extents in TensorViews in the
   //! Fusion. If any of these evaluate to zero, there is at least one empty
   //! TensorView present.
-  const std::unordered_set<Val*>& getDynamicExtentVals() const {
+  const std::unordered_set<Val*>& getMaybeZeroExtents() const {
     return maybe_zero_extents_;
   }
 

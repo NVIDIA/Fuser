@@ -259,7 +259,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   analyzeResizes(expr_eval);
 
   bool has_empty_tensor = false;
-  for (auto ext : initial_info_->getDynamicExtentVals()) {
+  for (auto ext : initial_info_->getMaybeZeroExtents()) {
     auto ext_opt = expr_eval->evaluate(ext);
     TORCH_INTERNAL_ASSERT(
         ext_opt.hasValue(),
