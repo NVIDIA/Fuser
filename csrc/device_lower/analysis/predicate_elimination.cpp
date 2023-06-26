@@ -83,14 +83,15 @@ class PredicateAnalyzer : public OptOutDispatch {
     }
 
     auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
-    DisjointSets<IterDomain*> disjoint_c2p_ids =
+    auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
-            .getIterDomainEquivalence();
+            .getReplay();
 
-    PredicateAnalyzer analyzer(disjoint_c2p_ids);
+    PredicateAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
+        producer->fusion()->print();
         return true;
       }
     }
@@ -99,8 +100,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const DisjointSets<IterDomain*>& disjoint_c2p_ids)
-      : disjoint_c2p_ids_(disjoint_c2p_ids) {}
+  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+      : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -120,9 +121,27 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
+    // If the ID is parallelized with a non-unique parallel type, the
+    // consumer ID may be oversubscribed, which may cause
+    // out-of-bounds accesses in the producer
+    auto maybe_oversubscribed = consumer_id->isThread() &&
+        !GpuLower::current()->parallelDimensionMap().isExact(
+            consumer_id->getParallelType());
+    if (maybe_oversubscribed) {
+      // If oversubscribed, there must be a mapped producer ID that is
+      // parallelized in the same way. Otherwise, needs to be
+      // predicated.
+      auto c2p_it = c2p_.find(consumer_id);
+      if (c2p_it == c2p_.end() ||
+          c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
+        needs_predicate_ = true;
+        return;
+      }
+    }
+
     // If the producer has a matching domain, it should not cause
     // out-of-bound accesses
-    if (disjoint_c2p_ids_.mappingExists(consumer_id)) {
+    if (c2p_.count(consumer_id)) {
       return;
     }
 
@@ -171,7 +190,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
  private:
   //! BestEffort map from consumer IDs to producer IDs
-  const DisjointSets<IterDomain*>& disjoint_c2p_ids_;
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
 };
 
