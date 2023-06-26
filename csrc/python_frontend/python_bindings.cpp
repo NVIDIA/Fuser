@@ -1961,7 +1961,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& pad_widths,
-         Scalar value) -> Tensor {
+         std::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -1970,15 +1970,18 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
+        auto value_state = value.has_value()
+            ? fd->recordingState(value.value()())
+            : State(0, serde::StateType_None);
         fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), fd->recordingState(value())},
+            {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
             std::move(pad_widths)));
         return output;
       },
       py::arg("arg"),
       py::arg("pad_widths"),
-      py::arg("value"),
+      py::arg("value") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "take_along_axis",
