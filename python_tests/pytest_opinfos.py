@@ -20,6 +20,8 @@ from pytest_input_generators import (
     index_select_generator,
     index_select_error_generator,
     pad_error_generator,
+    permute_generator,
+    permute_error_generator,
     reduction_error_generator,
     reshape_generator,
     reshape_error_generator,
@@ -149,6 +151,17 @@ pad_opinfo = OpInfo(
     symbolic_parameter_list=(True, False, True),
 )
 shape_ops.append(pad_opinfo)
+
+
+permute_opinfo = OpInfo(
+    lambda fd: fd.ops.permute,
+    "permute",
+    sample_input_generator=permute_generator,
+    error_input_generator=permute_error_generator,
+    reference=torch.permute,
+    symbolic_parameter_list=(True, False),
+)
+shape_ops.append(permute_opinfo)
 
 
 # nvfuser expects input and output shapes while pytorch only requires the output shape.

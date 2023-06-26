@@ -499,6 +499,70 @@ def pad_error_generator(
     ), RuntimeError, "Invalid number of padding widths"
 
 
+def permute_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    cases = (
+        ((4, 3, 7, 8), (0, 1, 2, 3)),
+        ((4, 3, 7, 8), (1, -2, 0, 3)),
+        ((4, 3, 7, 8), (-2, 1, 0, -1)),
+        ((4, 3, 7, 8), (0, 3, 1, 2)),
+        ((4, 3, 7, 8), (0, -1, 1, 2)),
+        ((4, 7), (1, 0)),
+    )
+
+    for shape, dims in cases:
+        yield SampleInput(make_arg(shape), dims)
+
+
+def permute_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.permute(input: torch.Tensor, dims: List[int])
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    input_shape = (10, 3, 4, 4)
+    # dims = dtype, duplicate, in-range
+
+    # TODO Add dtype check.
+    yield SampleInput(
+        make_arg(input_shape), [0.0, 1.0, 2.0, 3.0]
+    ), TypeError, "permute(): incompatible function arguments"
+
+    # TODO Add duplicate axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 1, 3]
+    ), RuntimeError, "Duplicate entries in transformation map"
+
+    # TODO Add in-range axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, 4]
+    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+
+    # TODO Add in-range axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, -5]
+    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+
+    # TODO Add missing axes check.
+    # If dims list is empty, NvFuser ignores the permute operation.
+    yield SampleInput(
+        make_arg(input_shape), [0]
+    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+
+    # TODO Add out-of-bounds axes check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, 3, 4]
+    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+
+
 def reduction_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
