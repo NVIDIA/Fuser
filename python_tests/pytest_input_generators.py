@@ -575,6 +575,56 @@ def reduction_error_generator(
         yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
 
 
+def reshape_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # TODO Add examples with negative index
+    # TODO: Add zero-dim cases
+    # TODO: Add strided tensor cases
+    cases = (
+        ((1, 19, 1, 12, 7, 1, 99), (1, 19, 1, 3, 2772)),
+        ((3, 17, 80, 1), (51, 1, 2, 4, 10)),
+        ((3, 17, 80, 1, 9), (51, 1, 2, 4, 10, 9)),
+        ((2, 3, 4, 5), (1, 6, 1, 2, 2, 5)),
+        ((22, 22, 2), (22, 11, 1, 1, 4)),
+        ((37, 9, 7, 6, 10), (333, 2, 2, 3, 35)),
+        ((8, 1, 1, 8, 1, 8), (8, 2, 4, 1, 8)),
+        ((1, 333, 1), (1, 37, 9)),
+        ((1, 333), (1, 1, 1, 111, 1, 3)),
+        ((1, 27454, 1, 2), (1, 7844, 1, 7)),
+        ((1, 7844, 1, 7), (1, 27454, 2)),
+    )
+
+    for tensor_shape, output_shape in cases:
+        yield SampleInput(make_arg(tensor_shape), tensor_shape, output_shape)
+
+
+def reshape_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.reshape(input: Tensor, shape: [int])
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    tensor_shape = (3, 14)
+
+    # Only a single inferred axis -1.
+    yield SampleInput(
+        make_arg(tensor_shape), tensor_shape, [3, -1, -1]
+    ), RuntimeError, "Only one dimension can by inferred"
+
+    # Number of elements must be equal for input and output tensors
+    yield SampleInput(
+        make_arg(tensor_shape), tensor_shape, [3, 2, 8]
+    ), RuntimeError, "Total element counts across view operation must match"
+
+
 # TODO: add stride testing
 def slice_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs

@@ -20,15 +20,18 @@ from pytest_input_generators import (
     index_select_generator,
     index_select_error_generator,
     pad_error_generator,
+    reduction_error_generator,
+    reshape_generator,
+    reshape_error_generator,
     slice_generator,
     slice_error_generator,
-    reduction_error_generator,
     take_along_axis_generator,
     take_along_axis_error_generator,
     var_mean_generator,
 )
 from pytest_utils import float_complex_dtypes
 from functools import partial
+from typing import List
 
 eps = 1e-2
 
@@ -146,6 +149,25 @@ pad_opinfo = OpInfo(
     symbolic_parameter_list=(True, False, True),
 )
 shape_ops.append(pad_opinfo)
+
+
+# nvfuser expects input and output shapes while pytorch only requires the output shape.
+def reshape_wrapper(
+    fn: callable, input: torch.Tensor, input_shape: List[int], output_shape: List[int]
+):
+    return fn(input, output_shape)
+
+
+reshape_opinfo = OpInfo(
+    lambda fd: fd.ops.reshape,
+    "reshape",
+    sample_input_generator=reshape_generator,
+    error_input_generator=reshape_error_generator,
+    reference=partial(reshape_wrapper, torch.reshape),
+    symbolic_parameter_list=(True, False, False),
+)
+shape_ops.append(reshape_opinfo)
+
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
