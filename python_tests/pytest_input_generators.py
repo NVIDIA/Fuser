@@ -352,6 +352,10 @@ def _elementwise_unary_torch(op):
 def gather_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
+    # torch.gather(input: Tensor, dim: int, index: LongTensor)
+    # * input and index tensors have same ndims.
+    # * index tensors must be smaller than input tensor along all dims except specified axis.
+
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -711,10 +715,6 @@ def slice_generator(
 def slice_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    # torch.gather(input: Tensor, dim: int, index: LongTensor)
-    # * input and index tensors have same ndims.
-    # * index tensors must be smaller than input tensor along all dims except specified axis.
-
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
