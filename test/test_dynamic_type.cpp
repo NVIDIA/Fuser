@@ -286,6 +286,17 @@ static auto hasAsHelper(long) -> std::false_type;
 template <typename T, typename U>
 struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
 
+// Utilities for testing if we have T->as<Template> defined
+template <typename T, template <typename...> typename Template>
+static auto hasAsTemplateHelper(int)
+    -> decltype(std::declval<T>().template as<Template>(), std::true_type{});
+
+template <typename, template <typename...> typename>
+static auto hasAsTemplateHelper(long) -> std::false_type;
+
+template <typename T, template <typename...> typename Template>
+struct hasAsTemplate : decltype(hasAsTemplateHelper<T, Template>(int{})) {};
+
 TEST_F(DynamicTypeTest, Typing) {
   static_assert(DoubleInt64Bool().isNull());
   static_assert(!DoubleInt64Bool(1.0).isNull());
@@ -301,15 +312,16 @@ TEST_F(DynamicTypeTest, Typing) {
   static_assert(hasAs<DoubleInt64BoolVec, bool>::value);
   static_assert(
       hasAs<DoubleInt64BoolVec, std::vector<DoubleInt64BoolVec>>::value);
+  static_assert(hasAsTemplate<DoubleInt64BoolVec, std::vector>::value);
   static_assert(!hasAs<DoubleInt64BoolVec, SomeType>::value);
   static_assert(!hasAs<DoubleInt64BoolVec, int>::value);
+  static_assert(!hasAsTemplate<DoubleInt64BoolVec, std::list>::value);
 
   static_assert((int)DoubleInt64Bool(true) == 1);
   EXPECT_EQ((int)DoubleInt64BoolVec(true), 1);
 
   EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
-  EXPECT_ANY_THROW(
-      DoubleInt64BoolVec(1.0).as<std::vector<DoubleInt64BoolVec>>());
+  EXPECT_ANY_THROW(DoubleInt64BoolVec(1.0).as<std::vector>());
 
   struct CustomType {};
   static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
@@ -590,24 +602,13 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
         DynamicType<Containers<std::vector, std::list>, int, float>;
     IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
     IntFloatVecList y = std::list<IntFloatVecList>{3, x};
-    EXPECT_TRUE(y.is<std::list<IntFloatVecList>>());
-    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().size(), 2);
-    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().front().as<int>(), 3);
-    EXPECT_TRUE(y.as<std::list<IntFloatVecList>>()
-                    .back()
-                    .is<std::vector<IntFloatVecList>>());
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()
-            .size(),
-        2);
-    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().back()[0], 1);
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()[1],
-        2.0f);
+    EXPECT_TRUE(y.is<std::list>());
+    EXPECT_EQ(y.as<std::list>().size(), 2);
+    EXPECT_EQ(y.as<std::list>().front().as<int>(), 3);
+    EXPECT_TRUE(y.as<std::list>().back().is<std::vector>());
+    EXPECT_EQ(y.as<std::list>().back().as<std::vector>().size(), 2);
+    EXPECT_EQ(y.as<std::list>().back()[0], 1);
+    EXPECT_EQ(y.as<std::list>().back().as<std::vector>()[1], 2.0f);
     EXPECT_THAT(
         // std::list can not be indexed
         [&]() { y[0]; },
@@ -852,29 +853,27 @@ struct StupidHash {
 };
 
 template <typename T>
-using UnorderedSetWithStupidHash = std::unordered_set<T, StupidHash>;
+using Set = std::unordered_set<T, StupidHash>;
 
 #else
 
 template <typename T>
-using UnorderedSetWithStupidHash = std::vector<T>;
+using Set = std::vector<T>;
 #define insert push_back
 
 #endif
 
-using NaturalNumber = DynamicType<Containers<UnorderedSetWithStupidHash>>;
-
-using Set = UnorderedSetWithStupidHash<NaturalNumber>;
+using NaturalNumber = DynamicType<Containers<Set>>;
 
 TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   auto next = [](const NaturalNumber& n) {
     // recursively define natural number n + 1 as n U {n}
-    Set set = n.as<Set>();
+    auto set = n.as<Set>();
     set.insert(n);
     return NaturalNumber(set);
   };
 
-  NaturalNumber zero = Set{};
+  NaturalNumber zero = Set<NaturalNumber>{};
   NaturalNumber one = next(zero);
   NaturalNumber two = next(one);
   NaturalNumber three = next(two);
@@ -885,6 +884,18 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   NaturalNumber eight = next(seven);
   NaturalNumber nine = next(eight);
   NaturalNumber ten = next(nine);
+
+  EXPECT_TRUE(zero.is<Set>());
+  EXPECT_TRUE(one.is<Set>());
+  EXPECT_TRUE(two.is<Set>());
+  EXPECT_TRUE(three.is<Set>());
+  EXPECT_TRUE(four.is<Set>());
+  EXPECT_TRUE(five.is<Set>());
+  EXPECT_TRUE(six.is<Set>());
+  EXPECT_TRUE(seven.is<Set>());
+  EXPECT_TRUE(eight.is<Set>());
+  EXPECT_TRUE(nine.is<Set>());
+  EXPECT_TRUE(ten.is<Set>());
 
   EXPECT_EQ(zero.as<Set>().size(), 0);
   EXPECT_EQ(one.as<Set>().size(), 1);
@@ -898,23 +909,32 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   EXPECT_EQ(nine.as<Set>().size(), 9);
   EXPECT_EQ(ten.as<Set>().size(), 10);
 
-  EXPECT_EQ(zero, NaturalNumber(Set{}));
-  EXPECT_EQ(one, NaturalNumber(Set{zero}));
-  EXPECT_EQ(two, NaturalNumber(Set{zero, one}));
-  EXPECT_EQ(three, NaturalNumber(Set{zero, one, two}));
-  EXPECT_EQ(four, NaturalNumber(Set{zero, one, two, three}));
-  EXPECT_EQ(five, NaturalNumber(Set{zero, one, two, three, four}));
-  EXPECT_EQ(six, NaturalNumber(Set{zero, one, two, three, four, five}));
-  EXPECT_EQ(seven, NaturalNumber(Set{zero, one, two, three, four, five, six}));
+  EXPECT_EQ(zero, NaturalNumber(Set<NaturalNumber>{}));
+  EXPECT_EQ(one, NaturalNumber(Set<NaturalNumber>{zero}));
+  EXPECT_EQ(two, NaturalNumber(Set<NaturalNumber>{zero, one}));
+  EXPECT_EQ(three, NaturalNumber(Set<NaturalNumber>{zero, one, two}));
+  EXPECT_EQ(four, NaturalNumber(Set<NaturalNumber>{zero, one, two, three}));
   EXPECT_EQ(
-      eight, NaturalNumber(Set{zero, one, two, three, four, five, six, seven}));
+      five, NaturalNumber(Set<NaturalNumber>{zero, one, two, three, four}));
+  EXPECT_EQ(
+      six,
+      NaturalNumber(Set<NaturalNumber>{zero, one, two, three, four, five}));
+  EXPECT_EQ(
+      seven,
+      NaturalNumber(
+          Set<NaturalNumber>{zero, one, two, three, four, five, six}));
+  EXPECT_EQ(
+      eight,
+      NaturalNumber(
+          Set<NaturalNumber>{zero, one, two, three, four, five, six, seven}));
   EXPECT_EQ(
       nine,
-      NaturalNumber(Set{zero, one, two, three, four, five, six, seven, eight}));
+      NaturalNumber(Set<NaturalNumber>{
+          zero, one, two, three, four, five, six, seven, eight}));
   EXPECT_EQ(
       ten,
-      NaturalNumber(
-          Set{zero, one, two, three, four, five, six, seven, eight, nine}));
+      NaturalNumber(Set<NaturalNumber>{
+          zero, one, two, three, four, five, six, seven, eight, nine}));
 }
 
 #undef insert
