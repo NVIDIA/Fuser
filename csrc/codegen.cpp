@@ -373,7 +373,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Call the initialization function if using a custom block sync
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::init();\n";
     }
   }
@@ -820,7 +820,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    c10::optional<double> exponent;
+    std::optional<double> exponent;
     if (auto val_int = dynamic_cast<Int*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value().value();
@@ -2832,7 +2832,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";

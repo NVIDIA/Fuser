@@ -174,7 +174,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::getCompiledKernel(c10::nullopt, code, name, fusion_id_);
+      executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
@@ -307,7 +307,7 @@ void FusionExecutor::compileFusion(
     buffer << cuda_src.rdbuf();
     return buffer.str();
   };
-  auto external_code_path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
   const auto structured_code = external_code_path
       ? load_external_code(external_code_path)
       : getStructuredCode();
@@ -475,7 +475,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
         "(",
@@ -483,7 +483,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         ") for the buffer ",
         tv->toString());
 
-    auto concrete_size = inferred_val->as<int64_t>();
+    auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
   }
 
@@ -495,18 +495,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 // Infer the shape of an intemediate tensor using kir::Allocate
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
+    const kir::Allocate* alloc,
     ExpressionEvaluator& expr_eval) {
-  auto alloc_dom = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  std::vector<nvfuser::Val*> symbolic_sizes;
-  symbolic_sizes.reserve(alloc_dom.size());
-  for (auto id : alloc_dom) {
-    if (id->isBroadcast()) {
-      symbolic_sizes.emplace_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.emplace_back(id->extent());
-    }
-  }
-
+  // The allocation domain represents the logical allocation domain,
+  // bu its actual allocation size may be different, e.g., for
+  // supporting halo accesses. The actual size is currently computed
+  // when creating the Allocate expr.
+  TORCH_INTERNAL_ASSERT(alloc != nullptr);
+  const auto& symbolic_sizes = alloc->shape();
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
@@ -559,7 +555,7 @@ class ForwardTraverseFromAllocToRFactor {
     auto in = split->in();
     auto inner = split->inner();
     auto outer = split->outer();
-    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
+    auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
     // TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
     if (in_it == frontier_.end()) {
@@ -758,7 +754,7 @@ class BackwardTraverseFromAllocToRFactor {
     auto out = merge->out();
     auto inner = merge->inner();
     auto outer = merge->outer();
-    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
+    auto factor = ee_.evaluate(inner->extent()).as<int64_t>();
     auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
     // TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
     if (out_it == frontier_.end()) {
@@ -937,7 +933,7 @@ int64_t FusionExecutor::computeSharedMemory(
     // then do not allocate memory for this buffer.
     if (smem_alloc->alias() == nullptr) {
       const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
-      if (inferred_val.has_value()) {
+      if (inferred_val.hasValue()) {
         const auto data_size =
             static_cast<int64_t>(dataTypeSize(smem_alloc->buffer()->dtype()));
         // Add padding to align dynamic shared memory
@@ -945,7 +941,7 @@ int64_t FusionExecutor::computeSharedMemory(
           const int align_size = 16; // always align to 16B/128b.
           total = ceilDiv(total, align_size) * align_size;
         }
-        total += inferred_val->as<int64_t>() * data_size;
+        total += inferred_val.as<int64_t>() * data_size;
       } else {
         TORCH_INTERNAL_ASSERT(
             false,
@@ -1010,10 +1006,10 @@ LaunchParams FusionExecutor::computeLaunchParams(
       auto parallel_extents = entry.second;
       for (auto extent : parallel_extents) {
         auto inferred_val = expr_eval.evaluate(extent);
-        if (inferred_val.has_value()) {
+        if (inferred_val.hasValue()) {
           // This value could have been inferred, make sure it was set right.
-          bool valid = inferred_val->as<int64_t>() ==
-                  launch_constraints.getDim(p_type) ||
+          bool valid =
+              inferred_val.as<int64_t>() == launch_constraints.getDim(p_type) ||
               launch_constraints.getRawVal(p_type) == -1;
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
@@ -1041,16 +1037,16 @@ LaunchParams FusionExecutor::computeLaunchParams(
     FUSER_PERF_SCOPE("FusionExecutor::ParallelBindingResolution");
     auto val = expr_eval.evaluate(extent);
     TORCH_INTERNAL_ASSERT(
-        val.has_value(),
+        val.hasValue(),
         "Tried to evaluate the extent, ",
         extent->toInlineString(),
         " for the ptype: ",
         p_type,
         " to set launch bounds but could not.");
 
-    if (val->as<int64_t>() > 0) {
-      expr_eval.bind(p_type, val->as<int64_t>());
-      launch_params.bind(val->as<int64_t>(), p_type);
+    if (val.as<int64_t>() > 0) {
+      expr_eval.bind(p_type, val.as<int64_t>());
+      launch_params.bind(val.as<int64_t>(), p_type);
     }
   }
 
@@ -1131,7 +1127,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, expr_eval);
+        inferShapeOfIntermediate(tv, alloc, expr_eval);
     info.type = data_type_to_aten(tv->dtype());
 
     // Remember the tensor buffer used for storing kernel profile
@@ -1846,7 +1842,7 @@ void FusionExecutor::compileRtc(
   fusion_id_ = 1;
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::getCompiledKernel(c10::nullopt, scode, name, fusion_id_);
+      executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
 }
 
 float FusionExecutor::runRtc(

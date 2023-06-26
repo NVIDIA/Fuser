@@ -104,7 +104,7 @@ TORCH_CUDA_CU_API TensorView* getTvInput(const Expr*);
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
-c10::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input);
 
@@ -139,7 +139,7 @@ bool isCpAsyncInit(const Expr* expr);
 //!  if(...) {expr;}
 //! Returns the expr if it is this pattern.
 //! Returns nullptr if the pattern doesn't match.
-c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr);
+std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr);
 
 //! Short-cut for checking if the expression loads from global memory.
 bool isGlobalLoad(const Expr* expr);

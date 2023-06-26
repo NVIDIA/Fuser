@@ -35,7 +35,7 @@ class ForwardTraverseFromRFactorToAlloc {
       return;
     }
     auto [in_size, in_stride] = in_it->second;
-    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
+    auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     TORCH_INTERNAL_ASSERT(
         in_size % factor == 0,
         "The rFactor domain and allocation domain of fusion input/output ",
@@ -153,7 +153,7 @@ class BackwardTraverseFromRFactorToAlloc {
     auto inner = merge->inner();
     auto outer = merge->outer();
     auto out = merge->out();
-    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
+    auto factor = ee_.evaluate(inner->extent()).as<int64_t>();
     auto out_it = active_ids_.find(out);
     // TORCH_INTERNAL_ASSERT(out_it != active_ids_.end())
     if (out_it == active_ids_.end()) {

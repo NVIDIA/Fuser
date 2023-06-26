@@ -153,7 +153,7 @@ class TORCH_CUDA_CU_API LaunchParams {
  private:
   // Spell them out because I want signed ints to know if they were initialized
   // or not.
-  // TODO: convert to c10::optional
+  // TODO: convert to std::optional
   int64_t gdimx_ = UNINITIALIZED_VAL;
   int64_t gdimy_ = UNINITIALIZED_VAL;
   int64_t gdimz_ = UNINITIALIZED_VAL;

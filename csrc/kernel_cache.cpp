@@ -29,8 +29,8 @@ namespace nvfuser {
 namespace {
 
 int getNumThreads() {
-  const char* option_env_name = "NVFUSER_NUM_THREADS";
-  auto dump_options = std::getenv(option_env_name);
+  const char* option_env_name = "NUM_THREADS";
+  auto dump_options = getNvFuserEnv(option_env_name);
   if (dump_options == nullptr) {
     constexpr int default_num_threads = 8;
     return default_num_threads;
@@ -1338,7 +1338,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   }
 }
 
-c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
+std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     getMaybeHeuristicsFor(
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
@@ -1353,7 +1353,7 @@ c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
       all_tvs_,
       forced_index_type);
 
-  c10::optional<FusionKernelRuntime::HeuristicsPtr> ret;
+  std::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();
   size_t total_groups = segmented_fusion_->groups().size();
   for (const auto group_index : c10::irange(total_groups)) {
@@ -1361,12 +1361,12 @@ c10::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
 
     auto maybe_scheduler_entry = group->getMaybeSchedulerEntry(runtime_info);
     if (!maybe_scheduler_entry.has_value()) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     auto scheduler_entry = std::move(maybe_scheduler_entry.value());
     if (!scheduler_entry->sameAs(
             heuristics_->heuristicsList()[group_index].get())) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     ret.value()->emplaceBack(std::move(scheduler_entry));
   }

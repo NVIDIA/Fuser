@@ -38,6 +38,7 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 #include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
@@ -174,8 +175,8 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   auto* e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7);
   evaluator.bind(b, 3);
@@ -402,15 +403,15 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
 
   ExpressionEvaluator evaluator;
 
-  auto a = IrBuilder::create<Int>(c10::nullopt);
-  auto b = IrBuilder::create<Int>(c10::nullopt);
+  auto a = IrBuilder::create<Int>(std::nullopt);
+  auto b = IrBuilder::create<Int>(std::nullopt);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
   auto e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7);
   evaluator.bind(b, 3);
@@ -1163,7 +1164,7 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // This test may not pass if using a custom block sync as there may
   // be additional calls. Skip the test as it's not specifically
   // relevant with block synchronizatin.
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     return;
   }
   auto g = std::make_shared<torch::jit::Graph>();
@@ -7781,7 +7782,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({aten_input});
@@ -7796,6 +7797,14 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       __LINE__,
       __FILE__,
       "");
+
+  auto rt = fec.getMostRecentKernelRuntime();
+  ASSERT_FALSE(rt->isSegmented());
+  auto kernel = rt->executors().at(0).kernel();
+
+  // tv11 and tv17 should not be predicated. See issue #496
+  ASSERT_FALSE(PredicatedChecker::isPredicated(11, kernel));
+  ASSERT_FALSE(PredicatedChecker::isPredicated(17, kernel));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {

@@ -609,11 +609,11 @@ int64_t partialReductionBufferSize(
       }
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (buffer_size == -1) {
-        buffer_size = id_size->as<int64_t>();
+        buffer_size = id_size.as<int64_t>();
       } else {
-        buffer_size *= id_size->as<int64_t>();
+        buffer_size *= id_size.as<int64_t>();
       }
     }
     buffer_size = (buffer_size == -1) ? 0
