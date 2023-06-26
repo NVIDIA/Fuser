@@ -144,55 +144,63 @@ def broadcast_in_dim_error_generator(
         yield SampleInput(input_tensor, output_shape, bcast_dims), ex_type, ex_str
 
 
-# TODO Add small value, large value, and extremal-valued samples
-def elementwise_unary_generator(
-    op: OpInfo,
-    dtype: torch.dtype,
-    requires_grad: bool = False,
-    *,
-    supports_numbers: bool = True,
-    **kwargs,
+def cat_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    low = None if op.domain.low is None else max(-9, op.domain.low)
-    high = None if op.domain.high is None else min(9, op.domain.high)
     make_arg = partial(
-        make_tensor,
-        device="cuda",
-        dtype=dtype,
-        low=low,
-        high=high,
-        requires_grad=requires_grad,
-        **kwargs,
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
 
-    shapes = (
-        # TODO: restore size zero cases
-        # (0, 2, 1),
-        # (5, 0, 3),
-        (),
-        (11,),
-        (4, 4),
-        (1024, 1024),
-        (64, 64, 64),
+    # concatenating tensors along singleton, broadcast dimensions is unsupported by nvFuser.
+    # https://github.com/NVIDIA/Fuser/issues/224
+    # shapes, dim
+    cases = [
+        ([(3,)], 0),  # single tensor provided
+        # 1D
+        ([(2,), (3,)], 0),
+        ([(2,), (4,)], 0),
+        ([(0,), (2,)], 0),
+        ([(0,), (2,)], -1),
+        ([(2, 3), (2, 4)], 1),
+        ([(2, 3), (2, 4), (2, 5)], 1),
+    ]
+
+    for shapes, dim in cases:
+        yield SampleInput([make_arg(s) for s in shapes], dim)
+
+
+def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
+    # shapes, dim, exception type, exception string
+    empty_input_tensors = (
+        ([], 0),
+        RuntimeError,
+        "Attempting to concatenate empty list of tensors",
+    )
+    positive_dim = (([(1,), (2,)], 1), RuntimeError, "Invalid dimension to cat")
+    negative_dim = (([(2,), (2,)], -2), RuntimeError, "Invalid dimension to cat")
+    # All tensors must have same number of dimension"
+    ndims_mismatch = (
+        ([(2,), (2, 3)], 0),
+        RuntimeError,
+        "Unexpected number of dimensions",
+    )
+    # All tensors must have same shape except for the cat dimension
+    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
 
-    # Typical inputs
-    for shape in shapes:
-        yield SampleInput(make_arg(shape))
+    error_cases = [
+        empty_input_tensors,
+        positive_dim,
+        negative_dim,
+        ndims_mismatch,
+        shape_mismatch,
+    ]
 
-    # Noncontiguous inputs
-    for shape in shapes:
-        yield SampleInput(make_arg(shape, noncontiguous=True))
-
-
-def _elementwise_unary_torch(op):
-    @wraps(op)
-    def _fn(x):
-        if isinstance(x, torch.Tensor):
-            return op(x)
-        return op(torch.tensor(x)).item()
-
-    return _fn
+    for case, ex_type, ex_str in error_cases:
+        shapes, dim = case
+        yield SampleInput([make_arg(s) for s in shapes], dim), ex_type, ex_str
 
 
 def define_tensor_generator(
@@ -289,6 +297,235 @@ def define_tensor_error_generator(
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
+# TODO Add small value, large value, and extremal-valued samples
+def elementwise_unary_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+    *,
+    supports_numbers: bool = True,
+    **kwargs,
+):
+    low = None if op.domain.low is None else max(-9, op.domain.low)
+    high = None if op.domain.high is None else min(9, op.domain.high)
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        low=low,
+        high=high,
+        requires_grad=requires_grad,
+        **kwargs,
+    )
+
+    shapes = (
+        # TODO: restore size zero cases
+        # (0, 2, 1),
+        # (5, 0, 3),
+        (),
+        (11,),
+        (4, 4),
+        (1024, 1024),
+        (64, 64, 64),
+    )
+
+    # Typical inputs
+    for shape in shapes:
+        yield SampleInput(make_arg(shape))
+
+    # Noncontiguous inputs
+    for shape in shapes:
+        yield SampleInput(make_arg(shape, noncontiguous=True))
+
+
+def _elementwise_unary_torch(op):
+    @wraps(op)
+    def _fn(x):
+        if isinstance(x, torch.Tensor):
+            return op(x)
+        return op(torch.tensor(x)).item()
+
+    return _fn
+
+
+def gather_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
+    )
+
+    # a.shape, dim, b.shape
+    cases = (
+        ((4, 2, 3), 0, (8, 2, 3)),
+        ((4, 2, 3), 1, (4, 1, 3)),
+        ((4, 2, 3), 2, (4, 2, 5)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3, 1)),
+        ((4, 1), 1, (4, 5)),
+        # negative dim
+        ((4, 2, 3), -3, (8, 2, 3)),
+        ((4, 2, 3), -2, (4, 1, 3)),
+        ((4, 2, 3), -1, (4, 2, 5)),
+        ((4,), -1, (8)),
+        ((4,), -1, (1)),
+        ((4, 1), -2, (3, 1)),
+        ((4, 1), -1, (4, 5)),
+        # nvfuser gather does not support broadcast non-axis dimensions
+    )
+
+    for shape_a, dim, shape_b in cases:
+        a = make_arg(shape_a)
+        b = make_index(shape_b, low=0, high=shape_a[dim])
+        yield SampleInput(a, b, dim)
+
+
+def index_select_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    # a.shape, dim, b.shape
+    cases = (
+        ((4, 2, 3), 0, (8)),
+        ((4, 2, 3), 1, (7)),
+        ((4, 2, 3), 2, (2)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3)),
+        ((4, 1), 1, (5)),
+        ((1, 0, 3), 0, (8)),
+    )
+
+    for shape_a, dim, shape_b in cases:
+        for index_dtype in [torch.int, torch.long]:
+            a = make_arg(shape_a)
+            b = make_index(shape_b, low=0, high=shape_a[dim], dtype=index_dtype)
+            yield SampleInput(a, b, dim)
+
+
+def index_select_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.index_select(input: Tensor, dim: int, index: LongTensor)
+    # * dim is within bounds
+    # * index is a 1D vector
+    # * index array can't have zero elements
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    input_shape = (4, 2)
+    index_shape = (8,)
+
+    a = make_arg(input_shape)
+
+    # dim, exception type, exception string
+    positive_axis = (2, RuntimeError, "index_select on invalid axis")
+    negative_axis = (-3, RuntimeError, "index_select on invalid axis")
+
+    error_cases = [
+        positive_axis,
+        negative_axis,
+    ]
+
+    for dim, ex_type, ex_str in error_cases:
+        b = make_index(index_shape, low=0, high=10, dtype=torch.long)
+        yield SampleInput(a, b, dim), ex_type, ex_str
+
+    # TODO add index dtype check
+    # b = make_index(index_shape, low=0, high=input_shape[0], dtype=torch.float)
+    # yield SampleInput(a, b, 0), RuntimeError, "index tensor can only be int or long dtype."
+
+    # TODO add index out-of-bounds check
+    # b = make_index(index_shape, low=10, high=100, dtype=torch.long)
+    # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
+
+
+def reduction_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        # We set low (inclusive) and high (exclusive) here to avoid values
+        # whose products can otherwise become extremely large
+        low=-2,
+        high=3,
+    )
+
+    # shape, dim, keepdim, dtype
+    cases = (
+        ((4, 4), None, False, None),
+        ((5,), None, True, None),
+        ((5,), (0,), False, None),
+        ((8, 1, 6), (1,), True, None),
+        ((8, 7, 5, 1), (0, 1), True, None),
+        ((8, 7, 5, 1), (1, 3), False, None),
+    )
+
+    for c in cases:
+        shape, dim, keepdim, dtype = c
+        yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
+
+
+def reduction_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        # We set low (inclusive) and high (exclusive) here to avoid values
+        # whose products can otherwise become extremely large
+        low=-2,
+        high=3,
+    )
+
+    # shape
+    cases = (
+        (8, 1, 6),
+        (8, 7, 5, 1),
+    )
+
+    # axes : List[int]
+    # 1) all axis are int --- use float dtype
+    # 2) all axes are unique --- duplicates
+    # 3) after normalization, 0 <= axis[i] <= len(size)
+    # 4) If empty tensor, then axis == 0
+
+    int_dtype_axis = (
+        lambda dims: float(dims),
+        TypeError,
+        "var_mean(): incompatible function arguments.",
+    )
+    duplicate_axis = (
+        lambda dims: (0, 0, 0),
+        RuntimeError,
+        "Reduction axes are not unique",
+    )
+    lower_bound = (lambda dims: (-dims - 1,), RuntimeError, "Reduction on invalid axis")
+    upper_bound = (lambda dims: (dims,), RuntimeError, "Reduction on invalid axis")
+    # TODO Fix duplicate_axis, lower_bound, upper_bound
+    error_cases = [int_dtype_axis]
+
+    for shape, es in itertools.product(cases, error_cases):
+        input_tensor = make_arg(shape)
+        axis_fn, ex_type, ex_str = es
+        yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
+
+
 # TODO: add stride testing
 def slice_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -368,80 +605,107 @@ def slice_error_generator(
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
-def reduction_generator(
+def take_along_axis_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     make_arg = partial(
-        make_tensor,
-        device="cuda",
-        dtype=dtype,
-        requires_grad=requires_grad,
-        # We set low (inclusive) and high (exclusive) here to avoid values
-        # whose products can otherwise become extremely large
-        low=-2,
-        high=3,
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
     )
 
-    # shape, dim, keepdim, dtype
+    # a.shape, dim, b.shape
     cases = (
-        ((4, 4), None, False, None),
-        ((5,), None, True, None),
-        ((5,), (0,), False, None),
-        ((8, 1, 6), (1,), True, None),
-        ((8, 7, 5, 1), (0, 1), True, None),
-        ((8, 7, 5, 1), (1, 3), False, None),
+        ((4, 2, 3), 0, (8, 2, 3)),
+        ((4, 2, 3), 1, (4, 1, 3)),
+        ((4, 2, 3), 2, (4, 2, 5)),
+        ((4,), 0, (8)),
+        ((4,), 0, (1)),
+        ((4, 1), 0, (3, 1)),
+        ((4, 1), 1, (4, 5)),
+        # negative dim
+        ((4, 2, 3), -3, (8, 2, 3)),
+        ((4, 2, 3), -2, (4, 1, 3)),
+        ((4, 2, 3), -1, (4, 2, 5)),
+        ((4,), -1, (8)),
+        ((4,), -1, (1)),
+        ((4, 1), -2, (3, 1)),
+        ((4, 1), -1, (4, 5)),
+        # broadcast non-axis dimensions
+        ((4, 2, 3), 0, (8, 2, 1)),
+        ((4, 2, 3), 0, (8, 1, 3)),
+        ((4, 2, 3), 0, (8, 2, 3)),
     )
 
-    for c in cases:
-        shape, dim, keepdim, dtype = c
-        yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
+    for shape_a, dim, shape_b in cases:
+        a = make_arg(shape_a)
+        b = make_index(shape_b, low=0, high=shape_a[dim])
+        yield SampleInput(a, b, dim)
 
 
-def reduction_error_generator(
+def take_along_axis_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
+    # numpy.take_along_axis(arr: Tensor, indices: LongTensor, axis: int)
+    #
+    # torch.take_along_dim(input: Tensor, indices: LongTensor, dim: int)
+    # * If no dim argument, flatten tensors.
+
     make_arg = partial(
-        make_tensor,
-        device="cuda",
-        dtype=dtype,
-        requires_grad=requires_grad,
-        # We set low (inclusive) and high (exclusive) here to avoid values
-        # whose products can otherwise become extremely large
-        low=-2,
-        high=3,
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
     )
 
-    # shape
-    cases = (
-        (8, 1, 6),
-        (8, 7, 5, 1),
-    )
+    input_shape = (4, 2)
+    a = make_arg(input_shape)
 
-    # axes : List[int]
-    # 1) all axis are int --- use float dtype
-    # 2) all axes are unique --- duplicates
-    # 3) after normalization, 0 <= axis[i] <= len(size)
-    # 4) If empty tensor, then axis == 0
+    valid_index_shape = (3, 1)
+    b = make_index(valid_index_shape, low=0, high=10, dtype=torch.long)
 
-    int_dtype_axis = (
-        lambda dims: float(dims),
-        TypeError,
-        "var_mean(): incompatible function arguments.",
-    )
-    duplicate_axis = (
-        lambda dims: (0, 0, 0),
-        RuntimeError,
-        "Reduction axes are not unique",
-    )
-    lower_bound = (lambda dims: (-dims - 1,), RuntimeError, "Reduction on invalid axis")
-    upper_bound = (lambda dims: (dims,), RuntimeError, "Reduction on invalid axis")
-    # TODO Fix duplicate_axis, lower_bound, upper_bound
-    error_cases = [int_dtype_axis]
+    # out-of-bounds axis error checks
+    ex_type = RuntimeError
+    ex_str = "Tensor arguments have dimension"
+    positive_error_dim = 2
+    negative_error_dim = -3
+    yield SampleInput(a, b, positive_error_dim), ex_type, ex_str
+    yield SampleInput(a, b, negative_error_dim), ex_type, ex_str
 
-    for shape, es in itertools.product(cases, error_cases):
-        input_tensor = make_arg(shape)
-        axis_fn, ex_type, ex_str = es
-        yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
+    # TODO Fix: index tensor integer dtype
+    # b = make_index(valid_index_shape, low=0, high=input_shape[0], dtype=torch.float)
+    # yield SampleInput(a, b, 0), RuntimeError, "index tensor can only be int or long dtype."
+
+    # TODO Fix: out-of-bound index value
+    # b = make_index(valid_index_shape, low=10, high=100, dtype=torch.long)
+    # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
+
+    # TODO Fix: index shape exceeds input tensor axis
+    # larger_index_shape = (5, 3)
+    # b = make_index(
+    #    larger_index_shape, low=0, high=larger_index_shape[0], dtype=torch.long
+    # )
+    # yield (
+    #    SampleInput(a, b, 0),
+    #    RuntimeError,
+    #    "Expected dimension of index tensor to be smaller than input tensor except for specified axis",
+    # )
+
+    # TODO Fix: too many dimensions in index tensor
+    # dim argument must be specified. Otherwise, the tensors are flattened.
+    # too_many_dims_index_shape = (3, 1, 2)
+    # b = make_index(
+    #    too_many_dims_index_shape,
+    #    low=0,
+    #    high=too_many_dims_index_shape[0],
+    #    dtype=torch.long,
+    # )
+    # yield (
+    #    SampleInput(a, b, 0),
+    #    RuntimeError,
+    #    "input and indices should have the same number of dimensions",
+    # )
 
 
 def var_mean_generator(

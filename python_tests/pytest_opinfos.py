@@ -10,16 +10,24 @@ from pytest_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
-    elementwise_unary_generator,
-    _elementwise_unary_torch,
+    cat_generator,
+    cat_error_generator,
     define_tensor_generator,
     define_tensor_error_generator,
+    elementwise_unary_generator,
+    _elementwise_unary_torch,
+    gather_generator,
+    index_select_generator,
+    index_select_error_generator,
     slice_generator,
     slice_error_generator,
     reduction_error_generator,
+    take_along_axis_generator,
+    take_along_axis_error_generator,
     var_mean_generator,
 )
 from pytest_utils import float_complex_dtypes
+from functools import partial
 
 eps = 1e-2
 
@@ -73,6 +81,16 @@ normalization_ops.append(var_mean_opinfo)
 
 shape_ops = []
 
+cat_opinfo = OpInfo(
+    lambda fd: fd.ops.cat,
+    "cat",
+    sample_input_generator=cat_generator,
+    error_input_generator=cat_error_generator,
+    reference=torch.cat,
+    symbolic_parameter_list=(True, False),
+)
+shape_ops.append(cat_opinfo)
+
 broadcast_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast,
     "broadcast",
@@ -92,6 +110,32 @@ broadcast_in_dim_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_in_dim_opinfo)
 
+
+# translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
+def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: int):
+    return fn(input, dim, index)
+
+
+gather_opinfo = OpInfo(
+    lambda fd: fd.ops.gather,
+    "gather",
+    sample_input_generator=gather_generator,
+    error_input_generator=take_along_axis_error_generator,
+    reference=partial(gather_wrapper, torch.gather),
+    symbolic_parameter_list=(True, True, False),
+)
+shape_ops.append(gather_opinfo)
+
+index_select_opinfo = OpInfo(
+    lambda fd: fd.ops.index_select,
+    "index_select",
+    sample_input_generator=index_select_generator,
+    error_input_generator=index_select_error_generator,
+    reference=partial(gather_wrapper, torch.index_select),
+    symbolic_parameter_list=(True, True, False),
+)
+shape_ops.append(index_select_opinfo)
+
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
     "slice",
@@ -101,6 +145,16 @@ slice_opinfo = OpInfo(
     reference_type=ReferenceType.Jax,
 )
 shape_ops.append(slice_opinfo)
+
+take_along_axis_opinfo = OpInfo(
+    lambda fd: fd.ops.take_along_axis,
+    "take_along_dim",
+    sample_input_generator=take_along_axis_generator,
+    error_input_generator=take_along_axis_error_generator,
+    reference=torch.take_along_dim,
+    symbolic_parameter_list=(True, True, False),
+)
+shape_ops.append(take_along_axis_opinfo)
 
 """ End Shape Operations """
 

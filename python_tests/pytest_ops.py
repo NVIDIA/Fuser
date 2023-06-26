@@ -20,6 +20,10 @@ def is_pre_volta():
     return prop.major < 7
 
 
+def is_tensor(a):
+    return isinstance(a, torch.Tensor)
+
+
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
@@ -32,6 +36,8 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
         if is_symbolic:
             if type(a) is torch.Tensor:
                 nvf_args.append(fd.from_pytorch(a))
+            elif type(a) is list and all(map(is_tensor, a)):
+                nvf_args.append([fd.from_pytorch(inner_a) for inner_a in a])
             elif type(a) is list or type(a) is tuple:
                 nvf_args.append(fd.define_vector(a))
             else:
@@ -46,9 +52,14 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
-    return [
-        a for is_symbolic, a in zip(opinfo.symbolic_parameter_list, args) if is_symbolic
-    ]
+    result = []
+    for is_symbolic, a in zip(opinfo.symbolic_parameter_list, args):
+        if is_symbolic:
+            if type(a) is list and all(map(is_tensor, a)):
+                result.extend(a)
+            else:
+                result.append(a)
+    return result
 
 
 def opinfo_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
