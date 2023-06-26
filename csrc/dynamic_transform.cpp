@@ -20,6 +20,7 @@
 #include <transform_view.h>
 #include <utils.h>
 
+#include <limits>
 #include <optional>
 
 namespace nvfuser {
@@ -728,7 +729,8 @@ void DynamicTransformConcretizer::removeEmptyBranches() {
         auto N = maybeReplaced(wop->outN()->as<TensorView>());
         if (hasEmptyRootReductionAxis(avg)) {
           auto out_shape = orig_shape(avg);
-          auto nan = IrBuilder::create<Double>(0.0 / 0.0);
+          auto nan = IrBuilder::create<Double>(
+              std::numeric_limits<double>::quiet_NaN());
           replaceWithFull(avg, out_shape, nan);
           replaceWithFull(var, out_shape, nan);
           replaceWithFull(N, out_shape);
